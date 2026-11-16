@@ -48,7 +48,7 @@ locals {
         "update_image.py"             = file("${path.module}/scripts/update_image.py")
         "update_config.py"            = file("${path.module}/scripts/update_config.py")
         "generate_identity_secret.py" = file("${path.module}/../../../scripts/byteplus_deploy/generate_identity_secret.py")
-      }), permissions = "0600"
+      }), permissions                 = "0600"
     }
     "/opt/ark-mcp/install.sh" = {
       content = file("${path.module}/scripts/install.sh"), permissions = "0700"

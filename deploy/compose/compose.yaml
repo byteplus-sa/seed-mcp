@@ -1,4 +1,4 @@
-# Hosted BYOK foundation: plans/PLAN_HOSTED_BYOK_FOUNDATION.md.
+# Hosted BYOK foundation: specs/SPEC_HOSTED_BYOK.md.
 #
 # One replica, fresh SQLite state. No old-state migration or HTTP job backend.
 # Provider credentials and client secrets arrive only in caller headers.

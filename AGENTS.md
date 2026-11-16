@@ -97,8 +97,7 @@ key; remote file expiry is separate from output URL expiry.
 Uncertain mutation transport failures and malformed 2xx responses are
 ambiguous/nonretryable with safe diagnostics. Durable idempotency, crash
 recovery, PostgreSQL and multi-replica support remain next phase; no public
-launch claim. See `specs/SPEC_HOSTED_BYOK.md` and
-`plans/PLAN_HOSTED_BYOK_FOUNDATION.md`.
+launch claim. See `specs/SPEC_HOSTED_BYOK.md`.
 
 ## Repository Layout
 

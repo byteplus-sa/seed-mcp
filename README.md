@@ -51,8 +51,7 @@ HTTP clients send only the selected `X-ModelArk-Api-Key`,
 There is no OAuth, signup or server-issued key; `Authorization` is rejected.
 Keys are not persisted and there is no provider-key fallback. See
 [client setup](docs/setup/shared-server.md) and the
-[BYOK contract](specs/SPEC_HOSTED_BYOK.md), implementing
-[PLAN_HOSTED_BYOK_FOUNDATION.md](plans/PLAN_HOSTED_BYOK_FOUNDATION.md).
+[BYOK contract](specs/SPEC_HOSTED_BYOK.md).
 
 | Product | Tools | Description |
 |---|---|---|
