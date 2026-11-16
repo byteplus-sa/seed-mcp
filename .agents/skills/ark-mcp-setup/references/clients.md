@@ -131,6 +131,62 @@ Only implement the selected client. If its launcher cannot supply
 `ARK_MCP_ENV_FILE`, stop and find a supported private environment-file
 mechanism instead of inlining keys.
 
+## HTTP BYOK
+
+For an existing trusted URL, configure a remote connection instead of a local
+launcher. No checkout or operator HMAC key is needed on the client.
+Read `credentials.md` for private generation/entry; never insert real values
+in commands, chat or shared configuration.
+
+Codex uses environment-backed headers. Replace the angle-bracket placeholders
+with private environment variable names, never secret values:
+
+```toml
+[mcp_servers.ark-seed]
+url = "https://mcp.example.com/mcp"
+tool_timeout_sec = 660
+
+[mcp_servers.ark-seed.env_http_headers]
+X-ModelArk-Api-Key = "<MODELARK_KEY_ENV_VAR>"
+X-MCP-Client-Secret = "<CLIENT_SECRET_ENV_VAR>"
+```
+
+Claude Code supports a remote header entry; verify private environment
+expansion in the installed release:
+
+```json
+{
+  "mcpServers": {
+    "ark-seed": {
+      "type": "http",
+      "url": "https://mcp.example.com/mcp",
+      "headers": {
+        "X-ModelArk-Api-Key": "${SEED_MCP_MODELARK_KEY}",
+        "X-MCP-Client-Secret": "${SEED_MCP_CLIENT_SECRET}"
+      }
+    }
+  }
+}
+```
+
+These are placeholder-only templates, not live client certification. Only the
+selected provider key is required. Use `X-Seed-Speech-Api-Key` or
+`X-OmniHuman-Api-Key` with separate private variables as needed.
+`X-MCP-Client-Secret` is required for provider calls including dry runs:
+client-generated 32 random bytes as 64 lowercase hex.
+Do not configure `Authorization`, OAuth, signup or server-issued keys.
+
+Endpoint headers `X-ModelArk-Seedance-Endpoint` and
+`X-ModelArk-Seedream-Endpoint` accept only exact registered defaults; explicit
+tool `model` wins. Arbitrary opaque endpoint lineage is not inferred.
+HTTP discovery is anonymous/static; 9 tools, or 12 with OmniHuman enabled.
+No jobs/native tasks/storage/artifact tools/resources exist. Call provider tools
+in the foreground with persistence false and sufficient client timeouts.
+
+Other clients need verified secure custom-header support. Do not assume
+Desktop uses the same remote connector shape as Claude Code. Mark unsupported
+or unverified clients pending; do not weaken the server boundary.
+
 ## Sources
 
 Checked 2026-10-20; recheck for the installed client version when needed.

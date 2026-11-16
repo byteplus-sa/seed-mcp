@@ -1,4 +1,4 @@
 interface:
   display_name: "Ark MCP"
-  short_description: "Run durable BytePlus multimodal jobs"
+  short_description: "Use HTTP BYOK or local BytePlus media tools"
   default_prompt: "Use $ark-mcp to handle this Ark MCP task."

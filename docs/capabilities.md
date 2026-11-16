@@ -4,8 +4,10 @@ description: Find the right Ark MCP capability and learn its credentials, execut
 ---
 
 Ark MCP has one tool per capability. Models, variations, edits and previews
-are parameters, not separate tool names. Start with `ark_list_models` and
-`ark_job_capabilities` to discover your actual enabled surface.
+are parameters, not separate tool names. Start with `ark_list_models`.
+HTTP has 9 tools, or 12 with OmniHuman enabled, anonymous static discovery
+and direct foreground provider calls. Local stdio retains the 21-tool catalog
+and can additionally use `ark_job_capabilities`.
 
 The sidebar's **Tool Reference** contains one generated page per catalog tool,
 with exact input/output schemas, nested types, registration requirements and
@@ -66,6 +68,10 @@ OmniHuman has its own poller and cancel tool. Avatars are disabled by default.
 
 ## Uploads and Outputs
 
+These tools are stdio-only. HTTP has no storage/artifact tools or resources;
+clients host references externally and retrieve expiring provider URLs.
+Persistence defaults to false globally; HTTP rejects true.
+
 | Task | Tool |
 | --- | --- |
 | Upload local/Base64 references to TOS/S3 | [media_upload](/ark-mcp/tool-reference/media-upload/) |
@@ -81,7 +87,8 @@ are rejected. Store results promptly because provider links expire; consult
 
 ## Background Jobs
 
-Use these ordinary MCP tools on clients without native task augmentation:
+Use these ordinary MCP tools on **stdio** clients without native task augmentation.
+HTTP exposes no ordinary jobs or native tasks:
 
 | Tool | Purpose |
 | --- | --- |

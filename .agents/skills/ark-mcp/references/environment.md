@@ -1,271 +1,109 @@
 # Environment, transports, and architecture
 
-Operator-side setup an agent occasionally needs: how the server is started,
-which setting turns on which tools, how HTTP auth and scopes work, the runtime
-services behind the tools, and the provider design. Model IDs and limits are
-in [models-and-limits.md](models-and-limits.md). The full variable reference
-is [Configuration](https://byteplus-sa.github.io/ark-mcp/configuration/); security detail
-is [Security](https://byteplus-sa.github.io/ark-mcp/security/).
+Use the selected `byteplus-sa/seed-mcp` checkout and its current schemas.
+Upstream Ark MCP pages describe retained tools, not this fork's publication,
+inventory or hosted contract. No release or public endpoint is assumed.
 
-External Ark MCP Pages links are upstream retained-tool detail only. They do
-not describe this fork's release inventory or establish a published Seed MCP
-site. Use `byteplus-sa/seed-mcp` checkout documentation for installation,
-deployment and migration decisions, and live schemas for tool contracts.
+## Transport and Auth
 
-## Quick start
+| Transport | Tools | Credentials and execution |
+| --- | --- | --- |
+| Local stdio | 21 conditional entries; eight always registered | Private startup provider keys; jobs/native tasks/storage/artifacts retained |
+| HTTP BYOK | 9, or 12 with OmniHuman enabled | Selected live provider key plus client secret; direct foreground calls only |
 
-For a new connection, read `docs/setup/install.md` in the selected
-`byteplus-sa/seed-mcp` revision. Do not install the broader upstream server.
-The skill does not install or configure the server. A local connection needs
-the reviewed locked environment and the provider keys for requested products;
-an existing shared server is configured by its operator.
+HTTP has no ordinary jobs, native tasks, storage/artifact tools, media resources
+or configuration-detail resource. Discovery is anonymous/static and makes no
+provider calls. It lists configured bindings without environment provider keys;
+`services[].enabled` reports registration, not provider authentication or entitlement.
+There is no OAuth, signup or server-issued key; `Authorization` is rejected.
+Explicit per-call `io.modelcontextprotocol/tasks` opt-in is rejected before
+provider dispatch, snapshot capture/save or queue creation, including discovery.
 
-Keep credentials in a private file outside repositories and shared folders.
-The user enters them in a local non-AI editor; do not read back that file or
-put its values in chat or client configuration. The client receives only the
-non-secret `ARK_MCP_ENV_FILE` path and starts the local server automatically.
-For exact preparation and launch details, read `docs/setup/manual-install.md`
-in that same fork revision.
+HTTP provider calls, including dry runs, require only the selected header:
+`X-ModelArk-Api-Key`, `X-Seed-Speech-Api-Key`, or `X-OmniHuman-Api-Key`, plus
+`X-MCP-Client-Secret` (client-generated 32 random bytes as 64 lowercase hex).
+Enter them privately through the client's supported mechanism. Never put
+credentials in tool arguments, chat, command-line flags, logs or Git.
+No HTTP environment-provider fallback exists; keys are not persisted.
 
-Use the repository's locked environment. The supported FastMCP range is
-`fastmcp[tasks]>=4.1.8,<4.2`; the lockfile includes security fixes absent from
-the former 4.0.x environment. Do not independently downgrade the framework or
-its task and MCP SDK dependencies.
+The operator supplies `MCP_AUTH_MODE=byok` (default),
+`MCP_IDENTITY_HMAC_KEY` (64 lowercase hex) and positive
+`MCP_IDENTITY_KEY_VERSION` (default `1`). The HMAC key is operator identity
+configuration, not a customer credential. Explicit `local` is stdio-only.
 
-- **HTTP is stateless Streamable HTTP** with Host/Origin protection on
-  (`MCP_ALLOWED_HOSTS`, `MCP_ALLOWED_ORIGINS`). Operator launch instructions
-  are in [Transports](https://byteplus-sa.github.io/ark-mcp/transports/).
-- **Verify** with the `seed-health://status` resource or, on HTTP, `GET /health`,
-  `/ready`, `/metrics`.
-- Output-path arguments (`output_path`, `output_dir`, `save_to`) work on stdio
-  only, inside MCP roots or `OUTPUT_ROOTS` ([polling-and-artifacts.md](polling-and-artifacts.md)).
-- For a single-organization deployment, use the Caddy/authenticated-HTTP/Redis Compose kit in
-  the repository's `deploy/compose/` and the [self-hosting guide](https://byteplus-sa.github.io/ark-mcp/self-hosting/). Keep one
-  replica and configure both spend and rate limits.
-- For BytePlus hosting, the repository's `deploy/terraform/byteplus/` provisions
-  one Ubuntu 24.04 AMD64 ECS host, HTTPS networking, a retained EBS state disk,
-  and optional private TOS. Follow the
-  [Terraform guide](https://byteplus-sa.github.io/ark-mcp/byteplus-terraform/):
-  mount verified storage at `/srv/ark-mcp`, install a root-owned mode-0600 private
-  `.env`, then activate. Never supply application secrets to Terraform or format
-  a recovered disk. Bootstrap changes plan VM replacement; deletion/storage
-  guards require operator-reviewed maintenance. Offline tests are not a live
-  deployment certification.
-  The checkout's `scripts/deploy_byteplus.py` offers `init`, `plan`, approved
-  `deploy`, `resume`, sanitized `status`, nonbillable `verify`, and approved
-  application-only `update`. Use a new private mode-0700 workspace and mode-0600
-  config/provider/token inputs. CLI defaults to a 40-GiB state disk and closed
-  SSH; null hostname selects EIP-derived sslip.io DNS. Preflight checks access
-  and pinned Linux AMD64 shared-key image metadata, not guaranteed quota or
-  exact cost. Private GHCR pulls require explicit temporary credentials.
-  Keep provider/team/Redis/job secrets out of Terraform and plaintext ECS
-  commands; encrypted transfer publishes validated config without overwrite.
-  Resume polls saved invocation IDs; unknown acceptance requires reconciliation,
-  failed guest operations require deliberate `--retry-failed`. Never retry
-  ambiguous paid submissions or rotate retained secrets. `update` preserves
-  state and changes only MCP's installed Compose image, not Terraform bootstrap.
-  This is a checkout CLI, not an account-login or one-click web wizard.
-  Operators should start with the guide's
-  [requirements](https://byteplus-sa.github.io/ark-mcp/byteplus-terraform/#requirements),
-  [dependency setup](https://byteplus-sa.github.io/ark-mcp/byteplus-terraform/#set-up-dependencies),
-  and [IAM setup](https://byteplus-sa.github.io/ark-mcp/byteplus-terraform/#set-up-iam-and-credentials).
-  The deployment workstation needs macOS/Linux, Python 3.12+, uv and Terraform
-  1.9 to below 2.0; ArkCLI, bytedcli and local Docker are not required. Infrastructure
-  AK/SK/STS credentials are separate from product bearer keys and the shared
-  MCP key. Root guest-command access is privileged; the permission checklist
-  is not a validated least-privilege IAM policy. Members connecting to an
-  existing server need none of these operator tools or cloud credentials.
-  [Secret Manager](https://byteplus-sa.github.io/ark-mcp/secret-manager/) supports
-  operator-side pinned generic-secret versions for first deployment and
-  `config status`, `config plan`, approved `config apply`, and unsubmitted
-  `config discard`. The protected reference binds Johor KMS region, account,
-  project, name and exact version UUID. Only the three provider keys are managed;
-  missing entries disable products. Never retrieve real secret values through
-  an agent merely to inspect configuration; status is local and redacted.
-  Secret reads use scoped operator IAM, never new VM IAM credentials. Approved
-  sync recreates only MCP, preserves shared-key/job/storage configuration and
-  resumes staged bytes and accepted IDs. Pause producers and drain jobs before
-  applying. Health/discovery/dry runs do not validate provider credentials.
-  Existing frozen/manual deployments require a separately reviewed migration.
-  Account enablement, IAM scoping and live Secret Manager sync are unverified.
-- Resolve available fork releases and image provenance independently.
-  Upstream Ark MCP tags and images can contain the removed capability surface;
-  no Seed MCP release or image publication is assumed. Prefer a verified
-  digest pin for deployment. Read the selected fork's `docs/releases.md`.
-  Export needed old 3D artifacts with the old server before upgrading;
-  the narrowed schema no longer serves them.
+## Identity and Models
 
-## What enables what
+The credential tenant derives from the selected key, provider, fixed official
+origin and HMAC version; the owner additionally derives from the client secret.
+Unrelated keys do not change ownership. Keep the same credentials and HMAC
+configuration to preserve access across restarts. Changing them changes scope
+without migration/recovery. Sharing a provider key still permits direct
+upstream access; use separate provider keys/projects for stronger isolation.
 
-The static catalog contains 21 tools, eight always registered. A tool registers only when its gate
-passes; the server degrades to whatever is configured. `ark_list_models.services`
-and `seed-health://status` report what is on.
+Optional `X-ModelArk-Seedance-Endpoint` and
+`X-ModelArk-Seedream-Endpoint` defaults must exactly match registered product
+bindings. Explicit tool `model` wins. Never infer arbitrary opaque endpoint
+lineage. [Model bindings](models-and-limits.md) remain authoritative.
+Request-scoped settings and capability lookup use the receiving server's
+configuration, isolated from other server instances' defaults.
 
-| Setting | Enables |
-|---|---|
-| (always) | `ark_list_models`, `ark_job_*`, `seed_media_get_artifact`, `seed_media_export_artifact`, `seed_media_persist_url`, `seed-health://status` |
-| `BYTEPLUS_MODELARK_API_KEY` | `seedream_generate_image`, `seedance_create_task`, `gen_task_get` / `gen_task_list` / `gen_task_cancel_or_delete` (Seedance), `seed_understand`, `seed_audio_understand` |
-| `BYTEPLUS_SEED_SPEECH_API_KEY` | `seed_audio_generate` |
-| `BYTEPLUS_OMNIHUMAN_ENABLED=true` + `BYTEPLUS_CV_API_KEY` | `omnihuman_create_task`, `omnihuman_get_task`, `omnihuman_cancel_task`. Separate Vision AI Bearer key; default off. Overrides: `BYTEPLUS_CV_BASE_URL`, `BYTEPLUS_OMNIHUMAN_REQ_KEY` |
-| `TOS_ACCESS_KEY` + `TOS_SECRET_KEY` + `TOS_BUCKET` (default backend) | `media_upload`, `media_presign` |
-| `OBJECT_STORAGE_BACKEND=s3` + `S3_ACCESS_KEY` + `S3_SECRET_KEY` + `S3_BUCKET` | Same two tools on S3 or S3-compatible storage (`S3_ENDPOINT`) |
+| Setting | Fixed HTTP value |
+| --- | --- |
+| `BYTEPLUS_MODELARK_BASE_URL` | `https://ark.ap-southeast.bytepluses.com/api/v3` |
+| `BYTEPLUS_SEED_AUDIO_BASE_URL` | `https://voice.ap-southeast-1.bytepluses.com` |
+| `BYTEPLUS_CV_BASE_URL` | `https://openapi.cv.bytepluses.com` |
 
-Gotchas that follow from the gates:
+## Limits and State
 
-- **`gen_task_*` registers whenever ModelArk is configured**.
-- **Seedance asset references need only the ModelArk key**: `asset://<id>` is
-  accepted natively on both transports. There is no provider-asset lookup,
-  management or URL resolution in this server.
-- **Object storage selects one backend**; credentials for the other do not
-  register the tools. `media_upload` and `media_presign` register together.
-- Cost estimates use built-in heuristics only, not account prices.
-- A custom model ID must be bound (`SEEDREAM_MODEL_BINDINGS`,
-  `SEEDANCE_MODEL_BINDINGS`, `SEED_UNDERSTANDING_MODEL_BINDINGS`);
-  see [models-and-limits.md](models-and-limits.md).
-- Empty Seedance bindings add Flash alongside the selected default; explicit
-  lists remain authoritative. Use `seedance_2_5_flash` for Flash endpoints.
-  Regular 2.5 remains the default; there is no separate Flash tool or flag.
+HTTP defaults: `RATE_LIMIT_RPM=60`, `MCP_HTTP_MAX_BODY_BYTES=2097152` (2 MiB),
+`MCP_HTTP_MAX_IN_FLIGHT=64`, `STATE_MAX_RECORDS=100000`; these limits are
+positive. `RATE_LIMIT_BURST=0` inherits RPM. Proxy headers are untrusted by
+default. Host/Origin protection and stateless HTTP are enforced on every
+HTTP entry path, including direct `http_app()`.
 
-### Provider hosts and timeouts
+Fresh SQLite ownership uses `(provider, tenant_id, task_id)` with immutable
+client owner. Capacity and state errors fail closed. No old-schema migration
+exists. Retention defaults to 30 days, at least 14 for regular Seedance 2.5 on
+HTTP. `DAILY_BUDGET_USD=0` records estimates only; a positive value is per owner,
+not a provider-account ceiling. Provider/principal concurrency defaults to 5/3.
 
-| Variable | Default | Notes |
-|---|---|---|
-| `BYTEPLUS_MODELARK_BASE_URL` | `https://ark.ap-southeast.bytepluses.com/api/v3` | Key is region-scoped; must match |
-| `BYTEPLUS_SEED_AUDIO_BASE_URL` | `https://voice.ap-southeast-1.bytepluses.com` | Seed Audio generation host |
-| `BYTEPLUS_CONNECT_TIMEOUT_MS` / `BYTEPLUS_REQUEST_TIMEOUT_MS` | `10000` / `600000` | Provider connect and full-request timeouts |
-| `SEED_UNDERSTANDING_TIMEOUT_MS` | request timeout | `seed_understand` and `seed_audio_understand`; deep thinking can need more |
+`/health` and `/ready` return minimal process/state readiness and never probe
+providers on HTTP. Public `/metrics` is unavailable. `seed-health://status`
+is local-only. Hosted provider-secret sync is superseded: no provider keys
+belong in the hosted deployment.
 
-## Transport and auth
+## Delivery and Retries
 
-| Mode | Where | Behaviour |
-|---|---|---|
-| `MCP_AUTH_MODE=local` (Python default) | stdio or loopback HTTP | One trusted principal `local`; no scopes checked |
-| `MCP_AUTH_MODE=api_key` | HTTP | One shared team bearer key, verified against `MCP_API_KEY_SHA256`; shared identity, data access and budget |
+Seed Audio/Seedream `persist` and OmniHuman get `persist_output` default to
+false globally. HTTP rejects true; local explicit true remains supported.
+Local output paths and stored artifact references are rejected on HTTP.
+Clients download expiring provider outputs themselves. Files API cleanup uses
+the same live request key; remote temporary-file expiry is distinct from
+output URL expiry and local persistence.
 
-- Docker, Compose and Terraform default to `api_key`.
-- **Fail closed:** HTTP on a non-loopback `MCP_HOST` with `local` auth refuses to
-  start. Over loopback, any local process that can reach the port acts as
-  `local` (all clients of one loopback server see each other's background jobs),
-  so do not proxy it.
-- **Shared-key mode requires** `MCP_API_KEY_SHA256` (64 lowercase hex characters).
-  Generate with `python scripts/generate_mcp_key.py /private/new-team.key`;
-  raw key is written to a new mode-0600 file, only the hash is output. On
-  Terraform hosts use `/opt/ark-mcp/generate_mcp_key.py`. Never read or echo a
-  real key into chat or tool logs. Send it through client bearer headers over HTTPS.
-  There is no login or OAuth discovery. The fixed `shared-team` tenant/principal
-  has ordinary generation/media/task scopes but no account-wide asset or moderation
-  privileges. All members share data, budget, and concurrency. Rotate for everyone
-  when membership changes: drain work, update the hash, recreate the application
-  container (plain restart does not reload `.env`). Preserve SQLite, Redis,
-  artifacts and the task encryption key.
-- **Breaking change:** the old `jwt` mode is rejected. Retired `MCP_JWT_*`,
-  `MCP_TENANT_CLAIM` and `MCP_PUBLIC_BASE_URL` settings are not used. Old user
-  or local ownership is not automatically transferred to `shared-team`.
-  Generic bearer claims remain internal for ownership tests; the tenant claim
-  key is fixed to `tenant_id`, not configurable. See
-  [migration guidance](https://byteplus-sa.github.io/ark-mcp/self-hosting/#breaking-change-migration).
-- **Create scopes are per product** (that is where spend happens); read and
-  delete scopes are shared. `ark_list_models` and `ark_job_*` need a principal
-  but no scope: job tools enforce the **target tool's** scope at submit time.
-- `seed-health://status`, `/health`, `/ready`, `/metrics` are not scope-protected.
+Uncertain mutation transport failures and malformed 2xx responses are
+ambiguous/nonretryable with safe diagnostics, including understanding
+completions that may already be billed. Chat/mutation 5xx responses are
+ambiguous and never automatically retried, even if marked `retryable=true`.
+Eligible 429 rejections, demonstrably pre-dispatch failures and reads retain
+bounded retries; understanding disables all `TIMEOUT` retries. Never blindly
+replay a potentially accepted submission or completion.
 
-### Fixed ordinary team scopes
+## Local Setup
 
-These scopes are enforced by the server, not assigned through roles or
-selected by the client. Provider credentials and feature gates still apply.
+Read the checkout's `docs/setup/install.md`. Use a reviewed locked environment,
+private `ARK_MCP_ENV_FILE`, and requested provider keys only. ModelArk enables
+image/video/understanding; Seed Speech enables audio; OmniHuman needs its
+separate Vision AI key and `BYTEPLUS_OMNIHUMAN_ENABLED=true`.
+TOS/S3 storage is optional and stdio-only.
 
-| Scope | Tools |
-|---|---|
-| `seedream:generate` | `seedream_generate_image` |
-| `seedance:create` | `seedance_create_task` |
-| `gen:read` / `gen:delete` | `gen_task_get`, `gen_task_list` / `gen_task_cancel_or_delete` (Seedance tasks) |
-| `seed:audio:generate` | `seed_audio_generate` |
-| `understanding:read` | `seed_understand`, `seed_audio_understand` |
-| `omnihuman:create` / `:read` / `:cancel` | `omnihuman_create_task` / `omnihuman_get_task` / `omnihuman_cancel_task` |
-| `media:upload` | `media_upload`, `seed_media_persist_url` |
-| `media:presign` | `media_presign` |
-| `artifacts:read` | `seed_media_get_artifact`, `seed_media_export_artifact`, `seed-media://artifacts/{id}` |
+`ark_job_*` uses the local FastMCP worker; `memory://` jobs are process-local.
+Local writes inside jobs need `OUTPUT_ROOTS`; explicit persistence does not.
+Read [background-job-output.md](background-job-output.md).
 
-Account-wide `assets:*` and `moderation:*` privileges are excluded. Asset
-administration is unavailable on both transports. Per-user BYOK is not
-implemented; shared-key members use the operator's startup provider keys.
+## Deployment Limits
 
-## HTTP rate limiting and readiness
-
-- **Rate limit** (HTTP only): `RATE_LIMIT_RPM` (default `0` = off) per client IP
-  token bucket, `RATE_LIMIT_BURST` (`0` = RPM). Over the limit returns `429` with
-  `Retry-After` and `X-RateLimit-*` headers. Enable
-  `RATE_LIMIT_TRUST_PROXY_HEADERS` **only** behind a proxy that overwrites
-  `X-Forwarded-For`, or clients can pick their own bucket.
-- **Request body cap:** `MCP_HTTP_MAX_BODY_BYTES` (default 300 MiB, sized for the
-  largest Base64 video); oversize returns `413`.
-- **`/health`** is liveness only. **`/ready`** returns `503` until the ownership
-  store answers and the artifact directory is writable.
-  `READINESS_CHECK_PROVIDERS=true` also probes each configured provider
-  (`READINESS_PROVIDER_TIMEOUT_SECONDS`, default 2.0 each) and reports
-  `reachable` / `unreachable` per provider.
-
-## Persistence and runtime
-
-| Service | Behaviour | Settings |
-|---|---|---|
-| Artifact store | Durable media, metadata, ownership, TTL cleanup; a billed output is never dropped because storage failed | `ARTIFACT_BACKEND` (`filesystem` default, or `object_storage`), `ARTIFACT_DIR` (`~/.ark-mcp/artifacts`), `ARTIFACT_TTL_SECONDS` (7 days), `ARTIFACT_SWEEP_INTERVAL_SECONDS` |
-| Ownership / budget / cache state | SQLite, single instance; task ID to principal mapping enforced for Seedance | `STATE_BACKEND=sqlite`, `STATE_PRUNE_MAX_AGE_DAYS` (30; minimum 14 for authenticated HTTP with regular 2.5 enabled), `PERSISTENCE_CACHE_MAX_SIZE` / `_TTL_SECONDS` |
-| Budget ledger | Per-principal UTC daily spend estimate, shared by the whole team on hosted HTTP; a call that would exceed the limit is rejected before it reaches the provider | `DAILY_BUDGET_USD` (`0` records without blocking) |
-| Provider limiters | Per-provider semaphore for every call; one shared-team principal semaphore on authenticated HTTP (stdio and local HTTP are bounded by the provider limit alone) | `PROVIDER_MAX_CONCURRENCY` (5), `PRINCIPAL_MAX_CONCURRENCY` (3) |
-| Safe downloader | SSRF-safe provider-output downloads with IP pinning and redirect validation; retries timeouts, network errors, 408/429/5xx with 1s, 2s, 4s backoff; never retries policy failures | `ARTIFACT_DOWNLOAD_TIMEOUT_SECONDS` (120), `ARTIFACT_DOWNLOAD_MAX_ATTEMPTS` (3) |
-| Background jobs | FastMCP task backend behind `ark_job_*`; the default in-memory backend is process-local, so a restart discards active and retained jobs | `FASTMCP_DOCKET_URL` (`memory://`), `FASTMCP_DOCKET_CONCURRENCY` (10), `FASTMCP_TASKS_ENCRYPTION_KEY` (required for shared-key auth with Redis) |
-
-- **Draft ownership:** authenticated HTTP with ModelArk credentials and any
-  `seedance_2_5` binding requires `STATE_PRUNE_MAX_AGE_DAYS >= 14`, including
-  custom/non-default bindings. Shorter overrides fail at startup; the default
-  30 is safe. Flash-only, legacy-only, local, and disabled ModelArk settings
-  keep the one-day minimum. Increasing retention cannot restore pruned ownership.
-- **Inline fallback:** if storage fails for inline Base64 output (Seed Audio,
-  Seedream `b64_json`), it is returned inline up to
-  `ARTIFACT_INLINE_FALLBACK_MAX_BYTES` (default 8 MiB; `0` disables).
-  `MCP_INLINE_MEDIA_MAX_BYTES` (8 MiB) caps inline image/audio content blocks.
-- **`MEDIA_UPLOAD_BATCH_MAX_BYTES`** (default 500 MiB) caps the total decoded
-  size of one `media_upload` call; only exceeding it fails the whole call.
-  Presigned URLs live `TOS_PRESIGN_TTL_SECONDS` / `S3_PRESIGN_TTL_SECONDS`
-  (60 to 604800, default 1800).
-- **Single process only:** artifact, ownership, budget, cache, and limiter state
-  are not shared across replicas.
-
-### Retry policy
-
-**Normalized retry policy.** A provider error is retried (up to 3
-attempts, 0.25s base delay doubling to a 4s cap, 20% jitter, honouring
-`Retry-After`) only when it is marked `retryable` and **not**
-`ambiguous_completion`. Errors marked ambiguous are not retried; reconcile
-before any deliberate resubmission. The existing Seedance adapter does not
-mark raw connection/transport failures ambiguous, so its retry wrapper can
-repeat a create request despite uncertain acceptance. This is a runtime risk,
-not exactly-once billing; never add blind client retries. Chat-completion
-understanding calls do not retry timeouts, since a second full-length attempt
-would double latency and cost (429 and 5xx are still retried).
-
-## Architecture
-
-**Three provider gateways sit behind one normalized domain layer**, each with
-its own host and credential:
-
-```mermaid
-flowchart LR
-    Client[MCP client] --> Server[FastMCP server<br/>tools, resources, ark_job_*]
-    Server --> Domain[Domain layer<br/>validation, budget, ownership, artifacts]
-    Domain --> MA[ModelArk<br/>Bearer key]
-    Domain --> SS[Seed Speech<br/>X-Api-Key]
-    Domain --> CV[Vision AI<br/>OmniHuman, Bearer CV key]
-    Domain --> Store[(Artifact store<br/>+ SQLite state)]
-```
-
-| Provider | Auth | Products |
-|---|---|---|
-| ModelArk data plane | `Authorization: Bearer <BYTEPLUS_MODELARK_API_KEY>` | Seedream, Seedance, Seed 2.1 and audio understanding |
-| Seed Speech | `X-Api-Key: <BYTEPLUS_SEED_SPEECH_API_KEY>` | Seed Audio generation |
-| Vision AI (optional) | `Authorization: Bearer <BYTEPLUS_CV_API_KEY>` | OmniHuman 2.0 |
-
-Inputs are validated against a model-capability registry before quota is spent
-([models-and-limits.md](models-and-limits.md)). For tool inputs and outputs see
-the tool schemas and [API reference](https://byteplus-sa.github.io/ark-mcp/api-reference/).
+Use one instance. PostgreSQL, multi-replica coordination, durable idempotency
+and crash recovery remain next phase; no public-launch certification or
+exactly-once inference is claimed. Preserve accepted provider IDs for polling.
+Exact client/TLS/provider validation requires separate approval.

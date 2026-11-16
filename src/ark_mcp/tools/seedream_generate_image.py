@@ -14,7 +14,6 @@ from fastmcp import Context
 from fastmcp.tools import ToolResult
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, model_validator
 
-from ark_mcp.config.env import get_settings
 from ark_mcp.config.model_capabilities import ImageCapabilities, get_capability_registry
 from ark_mcp.domain.artifacts import ArtifactRef
 from ark_mcp.domain.errors import ProviderError
@@ -26,13 +25,16 @@ from ark_mcp.domain.models import (
     VariationSummary,
 )
 from ark_mcp.observability.logger import info as log_info
+from ark_mcp.providers.factory import modelark_gateway
 from ark_mcp.providers.modelark.seedream import SeedreamService
 from ark_mcp.providers.retry import call_with_retry
 from ark_mcp.runtime import billed_provider_slot
+from ark_mcp.security.credentials import provider_api_key
 from ark_mcp.tools._asset_shared import require_url_references
 from ark_mcp.tools._capability_checks import check_image_request, raise_on_violations
 from ark_mcp.tools._cost import image_cost_estimate, log_cost_estimate
 from ark_mcp.tools._errors import provider_error_result
+from ark_mcp.tools._http_policy import validate_http_options
 from ark_mcp.tools._local_export import local_export, output_path_field, overwrite_field
 from ark_mcp.tools._local_export import needs_persist as _needs_persist
 from ark_mcp.tools._parallel import generate_seeds
@@ -122,7 +124,8 @@ class SeedreamGenerateInput(BaseModel):
         description="Output format. Defaults to png on 5.5 and for transparent backgrounds; otherwise provider default.",
     )
     response_format: Literal["url", "b64_json"] | None = Field(
-        None, description="Provider response format: URL or Base64 JSON (requires persist=true)."
+        None,
+        description="Provider response format: URL, or Base64 JSON (stdio with persist=true only).",
     )
     watermark: bool | None = Field(None, description="Apply an AIGC watermark.")
     prompt_optimization: Literal["standard", "fast"] | None = Field(
@@ -159,7 +162,10 @@ class SeedreamGenerateInput(BaseModel):
         None,
         description="One prompt per variation, overriding prompt; exactly `variations` entries.",
     )
-    persist: bool = Field(True, description="Persist images as durable MCP resources.")
+    persist: bool = Field(
+        False,
+        description="Persist images as durable MCP resources (stdio only). Must be false over HTTP.",
+    )
     dry_run: bool = Field(
         False,
         description="Validate and return the request bodies and a cost estimate; nothing is generated or billed.",
@@ -234,7 +240,7 @@ class SeedreamGenerateOutput(BaseModel):
     dry_run: bool = Field(False, description="True when nothing was generated; see preview.")
     artifacts: list[ArtifactRef] = Field(
         default_factory=list,
-        description="Images from a single call (variations=1). Empty for variations and dry runs.",
+        description="Temporary URL references or explicitly persisted stdio images from a single call. Empty for variations and dry runs.",
     )
     item_errors: list[SeedreamItemError] = Field(
         default_factory=list,
@@ -283,13 +289,11 @@ async def seedream_generate_image(
     and rich-text OCR are not supported; unknown input fields are rejected.
     Model limits: ark_list_models(kind='image'); requests outside them
     are rejected with every problem listed. dry_run=true returns request bodies and a cost
-    estimate. Run through ark_job_submit.
+    estimate. HTTP runs in the foreground with persist=false; on stdio use ark_job_submit
+    and opt into durable artifacts with persist=true.
     """
-    settings = get_settings()
-    if not settings.has_modelark:
-        raise ValueError(
-            "BYTEPLUS_MODELARK_API_KEY is not configured. Set it in .env to enable Seedream tools."
-        )
+    validate_http_options(ctx, persist=input.persist)
+    provider_api_key(ctx, "modelark")
     await context_log(ctx, "info", "Starting Seedream image generation")
     await ctx.report_progress(progress=10, total=100)
 
@@ -335,7 +339,7 @@ async def _generate_single(
     estimated_cost = log_cost_estimate(
         product="image", variations=input.max_images or 1, model_id=caps.model_id
     )
-    service = SeedreamService()
+    service = SeedreamService(gateway=modelark_gateway(ctx))
     try:
         async with billed_provider_slot(
             ctx, provider="modelark", product="image", estimated_cost_usd=estimated_cost

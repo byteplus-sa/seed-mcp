@@ -16,10 +16,16 @@ import sys
 from datetime import UTC, datetime
 from typing import Any
 
+from ark_mcp.security.credentials import redact_request_secrets
+
 _REDACT_KEYS: frozenset[str] = frozenset(
     {
         "authorization",
         "x-api-key",
+        "x-modelark-api-key",
+        "x-seed-speech-api-key",
+        "x-omnihuman-api-key",
+        "x-mcp-client-secret",
         "api_key",
         "apikey",
         "token",
@@ -73,6 +79,8 @@ def _redact(value: Any) -> Any:
         }
     if isinstance(value, (list, tuple, set, frozenset)):
         return type(value)(_redact(item) for item in value)
+    if isinstance(value, str):
+        return redact_request_secrets(value)
     return value
 
 
@@ -84,7 +92,7 @@ def _emit(level: str, message: str, **fields: Any) -> None:
     record: dict[str, Any] = {
         "ts": datetime.now(UTC).isoformat(),
         "level": level,
-        "msg": message,
+        "msg": redact_request_secrets(message),
     }
     record.update(_redact(fields))
     # stderr only — stdout is reserved for MCP JSON-RPC.

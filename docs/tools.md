@@ -1,6 +1,6 @@
 # Tools Reference
 
-The server exposes a conditional set of typed tools. `seed_media_get_artifact`,
+The local stdio server exposes a conditional set of 21 typed tools. `seed_media_get_artifact`,
 `seed_media_export_artifact`, and `seed_media_persist_url` are always
 available, provider tools are registered only when their credentials
 are configured, and `media_upload` and `media_presign` are registered when
@@ -9,12 +9,18 @@ tool accepts a Pydantic input model and returns a Pydantic output model as
 structured content. All tools accept a `ctx: Context` parameter for progress
 reporting and logging.
 
-Hosted HTTP accepts only the shared MCP key. Scope checks below use the fixed
-ordinary team allowlist, not per-user grants. All members share tenant/principal
-`shared-team`, including task, artifact and upload ownership, budgets and
-cancellations. Asset administration is unavailable on either transport;
-existing authorized Seedance native references are supported.
-See [Security](security.md#scope-taxonomy).
+HTTP exposes 9 discovery/provider tools, or 12 with OmniHuman enabled, without
+operator provider keys. Discovery is anonymous/static. Provider calls use the
+selected BYOK header plus `X-MCP-Client-Secret` and run directly in the foreground.
+HTTP has no jobs/native tasks/storage/artifact tools/resources. No OAuth,
+signup, server-issued key or environment-key fallback exists.
+See [HTTP setup](setup/shared-server.md) and [Security](security.md).
+
+Background/startup-key/artifact guidance below is **stdio-only**. Catalog
+scope labels are metadata, not customer-selected roles. Seed Audio/Seedream
+`persist` and OmniHuman get `persist_output` default to false globally.
+HTTP rejects true, local paths and stored artifact references. Local true is
+explicit; HTTP clients retrieve expiring URLs themselves.
 
 ## Tool Contract for MCP Clients
 
@@ -43,7 +49,7 @@ contract is enforced for all tools:
 
 ### Long-running tool execution
 
-Long-running tools run through the ordinary `ark_job_*` tools described below
+On stdio, long-running tools run through the ordinary `ark_job_*` tools described below
 by default, because most clients cannot negotiate MCP task augmentation; a
 client that can negotiate it may call the tools with native task metadata
 instead. In this reference, **background result** means the original tool
@@ -171,9 +177,8 @@ are ordinary MCP tools and the default way to run long operations, since
 task-augmented tool calls are not yet widely supported by clients.
 They do not make long operations synchronous: `ark_job_submit` validates the
 selected target, durably enqueues it on the same Docket worker used by native
-MCP tasks, and returns an Ark job ID. All four tools are always registered;
-capabilities include only provider tools enabled by configuration and permitted
-by the fixed shared-team scopes in `api_key` mode.
+MCP tasks, and returns an Ark job ID. All four tools are always registered on
+stdio only; capabilities include local provider tools enabled by configuration.
 
 ### ark_job_capabilities
 
@@ -214,8 +219,8 @@ Returns `status="cancelled"` after cooperative local cancellation. It does not
 guarantee that provider-side work already accepted upstream was cancelled.
 Unknown and cross-principal IDs use the same unavailable response boundary. In
 local auth mode jobs are process-local: a job created by a different `ark-mcp`
-process is also unavailable, so submit and poll through the same server (or run
-one shared HTTP server for all local clients).
+process is also unavailable, so submit and poll through the same stdio process.
+HTTP cannot serve local jobs.
 
 ## seed_media_get_artifact
 
@@ -275,7 +280,7 @@ and a `persistence_error`: the output was generated and billed, but could not
 be stored at the time. Call it before the provider URL expires (2 hours for
 Seed Audio, 24 hours for ModelArk images/video, about 1 hour for OmniHuman).
 Always registered; uses the
-`media:upload` scope in `api_key` mode.
+`media:upload` scope (catalog capability label).
 
 Only trusted BytePlus provider hosts are accepted. The URL goes through the
 same SSRF-resistant downloader, host allowlist, redirect re-validation, and
@@ -384,7 +389,7 @@ background result.
 | `watermark` | AudioWatermarkOptions | No | AIGC watermark controls |
 | `variations` | integer | No | Independent generations to run in parallel (1-5, default 1). Seed Audio has no seed, so variations differ by the model's sampling |
 | `variation_prompts` | list[string] | No | One prompt per variation (each 1-3000 chars), overriding `text_prompt`; must have exactly `variations` entries |
-| `persist` | boolean | No | Whether to persist output (default: true) |
+| `persist` | boolean | No | Persist output locally (default: false; HTTP rejects true) |
 | `output_path` | string | No | Local file, or directory ending with `/` (**required when `variations > 1`**); stdio only, requires `persist=true`. See [local output paths](#writing-outputs-to-local-paths) |
 | `overwrite` | boolean | No | Allow `output_path` to replace an existing file (default: false) |
 
@@ -432,7 +437,7 @@ Three takes written to a local directory:
 editing, point or box edits, transparent PNG generation (5.5), transparency-preserving
 edits (5.0 Pro), provider batches
 (`max_images`), and parallel variations. Registered when
-`BYTEPLUS_MODELARK_API_KEY` is set and uses the `seedream:generate` scope in `api_key` mode.
+`BYTEPLUS_MODELARK_API_KEY` is set and has catalog capability label `seedream:generate`.
 
 **Execution:** Required background job. Submit it through `ark_job_submit` (or
 native task augmentation).
@@ -484,7 +489,7 @@ Explicit existing defaults stay unchanged. See the
 | `safety_identifier` | string | No | 5.5/Pro: stable hashed end-user ID, 1-64 non-space printable ASCII characters. Never send raw personal data; redacted from previews and logs |
 | `variations` | integer | No | Independent generations to run in parallel (1-10, default 1); partial failures are reported per variation |
 | `variation_prompts` | list[string] | No | One prompt per variation, overriding `prompt`; must have exactly `variations` entries |
-| `persist` | boolean | No | Whether to persist output (default: true) |
+| `persist` | boolean | No | Persist output locally (default: false; HTTP rejects true) |
 | `dry_run` | boolean | No | Validate and return the provider request bodies and a cost estimate without calling the provider or billing (default: false) |
 | `output_path` | string | No | Local file, or directory ending with `/` (**required when `variations > 1` or `max_images > 1`**); stdio only, requires `persist=true`. See [local output paths](#writing-outputs-to-local-paths) |
 | `overwrite` | boolean | No | Allow `output_path` to replace an existing file (default: false) |
@@ -597,7 +602,7 @@ Drop `dry_run` (and add `output_path` ending in `/` on stdio) to generate.
 2.5, and 2.5 Flash. Pick the model with `model`; set
 `variations` to create several tasks in parallel; set `dry_run` to preview the
 request and its cost without billing. Registered when
-`BYTEPLUS_MODELARK_API_KEY` is set and uses the `seedance:create` scope in `api_key` mode.
+`BYTEPLUS_MODELARK_API_KEY` is set and has catalog capability label `seedance:create`.
 
 **Execution:** Required background job. Submit it through `ark_job_submit` (or
 native task augmentation); a dry run finishes on the first `ark_job_get`. Poll
@@ -719,17 +724,31 @@ different `model` is rejected.
 
 ### Output
 
-Returns `SeedanceCreateTaskOutput`, **one shape for a single task, variations,
-and dry runs**:
+Successful single calls, variation batches and dry runs return
+`SeedanceCreateTaskOutput`. A single-call failure instead returns error
+`ToolResult` text with any known accepted task/request IDs, not this structured
+success shape.
 
 | Field | Description |
 |---|---|
 | `model`, `family` | Resolved model ID and family |
 | `dry_run` | `true` when nothing was submitted; see `preview` |
-| `tasks` | One entry per requested variation, in order (empty for a dry run): `index` (0-based; 0 for a single request), `task_id` (poll with `gen_task_get`; for `draft=true`, pass it as `draft_task_id` once the Draft succeeds; `null` when submission failed), `request_id`, and `error` (`code`, `message`, `request_id`, `retryable`, `ambiguous_completion`, `phase`) |
-| `submitted`, `failed` | Number of submissions the provider accepted and that failed |
+| `tasks` | One entry per requested variation, in order (empty for a dry run): `index`, `task_id`, `request_id`, and `error`. `task_id` and `error` can coexist after ownership-record failure; a null ID means submission failed or acceptance is unknown |
+| `submitted`, `failed` | Independent counts of known accepted IDs and entries with errors; accepted tasks with ownership-record errors count in both. Budget-finalization log events do not add failures |
 | `recommended_poll_after_ms` | Suggested delay before the first `gen_task_get` poll; `null` for a dry run |
 | `preview` | Dry run only: `requests` (provider request bodies, one per variation, with HTTPS media URLs reduced to scheme and host, inline Base64 reduced to its size, and `asset://` references kept) and `estimated_cost_usd` (a static estimate from the server's price table, not a provider quote) |
+
+Retain every accepted ID, even when ownership recording fails. These
+`AcceptedTaskError` failures are ambiguous/nonretryable: never recreate accepted work.
+Budget-finalization exceptions only log `ERROR` event `budget_finalization_failed`,
+preserving the provider result/error and conservative reserved allowance; they do
+not become accepted-task errors or add to `failed`. Reservation before dispatch
+still fails closed. Cancellation cleanup is shielded best effort, not a guarantee
+that no reserved rows remain.
+HTTP polling with `gen_task_get` requires recorded ownership; otherwise reconcile
+directly with the provider using task/request IDs. Trusted stdio permits
+unrecorded IDs, but still rejects a recorded owner mismatch. For `draft=true`, use the
+ID as `draft_task_id` once the Draft succeeds.
 
 ### Examples
 
@@ -808,7 +827,7 @@ Draft step 2 (render the final video from a succeeded Draft):
 Check the status and outputs of Seedance
 video tasks (2.0, regular 2.5, and 2.5 Flash). Pass every task ID you
 are waiting on in one call. Registered when `BYTEPLUS_MODELARK_API_KEY` is set
-and uses the `gen:read` scope in `api_key` mode.
+and has catalog capability label `gen:read`.
 
 The server makes one provider list call per page of 20 task IDs (at most
 three), filtered by the requested IDs, and re-fetches individually only the
@@ -926,7 +945,7 @@ them locally) through a background job:
 
 List your ModelArk generation tasks (Seedance video), **newest first**,
 from the last 7 days (the provider's list window). Registered when
-`BYTEPLUS_MODELARK_API_KEY` is set and uses the `gen:read` scope in `api_key` mode. Use
+`BYTEPLUS_MODELARK_API_KEY` is set and has catalog capability label `gen:read`. Use
 `gen_task_get` for outputs.
 
 **Annotations:** `readOnlyHint=True`, `destructiveHint=False`,
@@ -964,7 +983,7 @@ listed.
 
 Cancel (queued) or delete (terminal) a Seedance task.
 Registered when `BYTEPLUS_MODELARK_API_KEY` is set and
-uses the `gen:delete` scope in `api_key` mode. A deleted task's outputs are no longer
+has catalog capability label `gen:delete`. A deleted task's outputs are no longer
 retrievable through `gen_task_get`.
 
 **Annotations:** `readOnlyHint=False`, `destructiveHint=True`,
@@ -1027,8 +1046,8 @@ in `/`.
 Seedance variations are part of [`seedance_create_task`](#seedance_create_task):
 set `variations` (1-5) and optionally `variation_prompts`. Each variation is a
 separate billed provider task. The background result lists every variation in
-`tasks` (with `task_id` or `error`); poll all task IDs in one
-`gen_task_get` call.
+`tasks` (with `task_id` and/or `error`); retain all known IDs and poll them
+in one `gen_task_get` call, subject to the ownership rules above.
 
 ## seed_understand
 
@@ -1087,7 +1106,7 @@ first to get an HTTPS URL.
 |---|---|---|---|
 | `type` | "text" \| "json_object" \| "json_schema" | Yes | `json_object` requires any valid JSON object; `json_schema` requires JSON that satisfies `json_schema` |
 | `json_schema.name` | string | With `json_schema` | Schema name (1-64 chars: letters, digits, `_`, `-`) |
-| `json_schema.schema` | object | With `json_schema` | JSON Schema (draft 2020-12), at most 64 KB serialized; checked for validity before the call |
+| `json_schema.schema` | object | With `json_schema` | JSON Schema (draft 2020-12), at most 64 KB serialized; checked offline before the call. `$ref`, `$dynamicRef` and `$recursiveRef` must be fragment-only (`#...`); external schemas are never retrieved |
 | `json_schema.description` | string | No | Optional description (max 2,000 chars) |
 | `json_schema.strict` | boolean | No | Ask the provider to enforce the schema strictly (default: true) |
 
@@ -1121,10 +1140,17 @@ returned even with `summary` or `none`), `schema_violation` (`path`, `message`,
 `finish_reason`, when the JSON did not parse or validate), and
 `finish_reason`. There is no `reasoning_content` field.
 
-Chat timeouts are reported as `TIMEOUT` with `retryable=true` and
-`ambiguous_completion=false`, but they are **not** retried automatically,
-because a second full-length thinking run doubles latency and token cost.
-429 and 5xx responses are still retried.
+Chat timeouts after possible dispatch are `TIMEOUT` with `retryable=false`
+and `ambiguous_completion=true`: completion may already be billed. Lost
+responses, read/write/protocol failures and malformed provider 2xx responses
+are likewise ambiguous/nonretryable. Reconcile by request ID when available;
+never blindly repeat the completion.
+
+Eligible 429 rejections and pre-dispatch connection failures can be retried.
+Chat/mutation 5xx responses are ambiguous, so they are never automatically
+retried even when marked `retryable=true`. Understanding disables all
+`TIMEOUT` retries, including connect/pool timeouts. Explicit `json_retry`
+handles a received answer's JSON validation, not a malformed provider response.
 
 ### Example
 
@@ -1238,7 +1264,7 @@ fallback, otherwise null). `model` is the configured audio model.
 
 Upload 1-50 image, audio, or video files to object storage (TOS or S3) and
 receive a presigned HTTPS URL for each. Registered with object storage and
-uses the `media:upload` scope in `api_key` mode.
+has catalog capability label `media:upload`.
 
 **Execution:** Required background job (use `ark_job_submit`), because one
 item can hold up to 200 MiB of video.
@@ -1307,7 +1333,7 @@ without failing the call, so always check `failed` and `items[].error`.
 Generate fresh presigned HTTPS GET URLs for 1-100 existing objects without
 re-uploading. Use it when a previously uploaded reference's URL has expired
 or is about to expire. Registered with object storage and uses the
-`media:presign` scope in `api_key` mode.
+`media:presign` scope (catalog capability label).
 
 **Annotations:** `readOnlyHint=True`, `destructiveHint=False`,
 `idempotentHint=True`, `openWorldHint=False`

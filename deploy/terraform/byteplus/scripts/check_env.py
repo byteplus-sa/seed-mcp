@@ -9,11 +9,24 @@ import stat
 import sys
 from pathlib import Path
 
-PRODUCT_KEYS = (
-    "BYTEPLUS_MODELARK_API_KEY",
-    "BYTEPLUS_SEED_SPEECH_API_KEY",
-    "BYTEPLUS_CV_API_KEY",
-)
+IDENTITY_SETTINGS = frozenset({"MCP_IDENTITY_HMAC_KEY", "MCP_IDENTITY_KEY_VERSION"})
+HOSTED_SETTINGS = IDENTITY_SETTINGS | {
+    "MCP_AUTH_MODE",
+    "MCP_PUBLIC_HOST",
+    "MCP_ALLOWED_ORIGINS",
+    "BYTEPLUS_OMNIHUMAN_ENABLED",
+    "DAILY_BUDGET_USD",
+    "RATE_LIMIT_RPM",
+    "RATE_LIMIT_BURST",
+    "MCP_HTTP_MAX_IN_FLIGHT",
+    "MCP_HTTP_MAX_BODY_BYTES",
+    "PROVIDER_MAX_CONCURRENCY",
+    "PRINCIPAL_MAX_CONCURRENCY",
+    "STATE_BACKEND",
+    "STATE_MAX_RECORDS",
+    "STATE_PRUNE_MAX_AGE_DAYS",
+    "ARK_LOG_LEVEL",
+}
 
 
 def load_environment(path: Path, *, expected_uid: int = 0) -> dict[str, str]:
@@ -28,64 +41,90 @@ def load_environment(path: Path, *, expected_uid: int = 0) -> dict[str, str]:
             raise ValueError("The .env must be a root-owned regular file with mode 0600.")
         if metadata.st_size > 65536:
             raise ValueError("The .env exceeds 64 KiB.")
-        values: dict[str, str] = {}
-        for line in stream:
-            line = line.strip()
-            if not line or line.startswith("#"):
-                continue
-            key, separator, value = line.partition("=")
-            if not separator or not re.fullmatch(r"[A-Z][A-Z0-9_]*", key):
-                raise ValueError("Use one KEY=value assignment per line.")
-            if key in values:
-                raise ValueError(f"Duplicate setting: {key}.")
-            value = value.strip()
-            if len(value) >= 2 and value[0] in "\"'" and value[-1] == value[0]:
-                value = value[1:-1]
-            if any(character in value for character in "$`"):
-                raise ValueError(f"{key} must be a literal value without interpolation.")
-            values[key] = value
+        return parse_environment(stream.read(65537))
+
+
+def parse_environment(content: str) -> dict[str, str]:
+    if len(content.encode()) > 65536:
+        raise ValueError("The .env exceeds 64 KiB.")
+    values: dict[str, str] = {}
+    for line in content.splitlines():
+        line = line.strip()
+        if not line or line.startswith("#"):
+            continue
+        key, separator, value = line.partition("=")
+        if not separator or not re.fullmatch(r"[A-Z][A-Z0-9_]*", key):
+            raise ValueError("Use one KEY=value assignment per line.")
+        if key in values:
+            raise ValueError("Duplicate setting.")
+        value = value.strip()
+        if len(value) >= 2 and value[0] in "\"'" and value[-1] == value[0]:
+            value = value[1:-1]
+        if any(character in value for character in "$`"):
+            raise ValueError("Settings must be literal values without interpolation.")
+        values[key] = value
     return values
 
 
+def validate_identity(values: dict[str, str]) -> None:
+    if not re.fullmatch(r"[a-f0-9]{64}", values.get("MCP_IDENTITY_HMAC_KEY", "")):
+        raise ValueError("MCP_IDENTITY_HMAC_KEY must be 32 random bytes as 64 lowercase hex.")
+    if not re.fullmatch(r"[1-9][0-9]*", values.get("MCP_IDENTITY_KEY_VERSION", "")):
+        raise ValueError("MCP_IDENTITY_KEY_VERSION must be a positive integer.")
+
+
 def validate_authentication(values: dict[str, str]) -> None:
-    if (values.get("MCP_AUTH_MODE") or "api_key") != "api_key":
-        raise ValueError("Hosted MCP_AUTH_MODE must be api_key.")
-    if not re.fullmatch(r"[a-f0-9]{64}", values.get("MCP_API_KEY_SHA256", "")):
-        raise ValueError("MCP_API_KEY_SHA256 must be a lowercase SHA-256 hex digest.")
+    if values.get("MCP_AUTH_MODE", "byok") != "byok":
+        raise ValueError("Hosted MCP_AUTH_MODE must be byok.")
+    validate_identity(values)
 
 
 def validate_environment(values: dict[str, str]) -> None:
+    if set(values) - HOSTED_SETTINGS:
+        raise ValueError(
+            "Hosted configuration accepts only operator settings; customer keys and job settings are forbidden."
+        )
     host = values.get("MCP_PUBLIC_HOST", "")
     if not re.fullmatch(r"([a-z0-9]([a-z0-9-]*[a-z0-9])?\.)+[a-z]{2,63}", host):
         raise ValueError("MCP_PUBLIC_HOST must be a DNS hostname.")
     if host == "example.com" or host.endswith(".example.com"):
         raise ValueError("Replace the example MCP_PUBLIC_HOST.")
     validate_authentication(values)
-    if not re.fullmatch(r"[a-fA-F0-9]{64}", values.get("REDIS_PASSWORD", "")):
-        raise ValueError("REDIS_PASSWORD must be 64 hex characters generated on the host.")
-    if len(values.get("FASTMCP_TASKS_ENCRYPTION_KEY", "")) < 32:
-        raise ValueError("FASTMCP_TASKS_ENCRYPTION_KEY must contain at least 32 random characters.")
     for key in (
         "DAILY_BUDGET_USD",
         "RATE_LIMIT_RPM",
         "RATE_LIMIT_BURST",
+        "MCP_HTTP_MAX_IN_FLIGHT",
+        "MCP_HTTP_MAX_BODY_BYTES",
+        "STATE_MAX_RECORDS",
+        "STATE_PRUNE_MAX_AGE_DAYS",
         "PROVIDER_MAX_CONCURRENCY",
         "PRINCIPAL_MAX_CONCURRENCY",
     ):
+        value = values.get(key, "")
+        if key != "DAILY_BUDGET_USD" and not re.fullmatch(r"0|[1-9][0-9]*", value):
+            raise ValueError(f"{key} must be an integer.")
         try:
-            number = float(values.get(key, ""))
+            number = float(value)
         except ValueError:
             raise ValueError(f"{key} must be positive.") from None
         if (
             not math.isfinite(number)
-            or number <= 0
+            or number < 0
+            or (number == 0 and key != "RATE_LIMIT_BURST")
             or (key != "DAILY_BUDGET_USD" and not number.is_integer())
         ):
             raise ValueError(
                 f"{key} must be positive; request and concurrency limits must be integers."
             )
-    if not any(values.get(key) for key in PRODUCT_KEYS):
-        raise ValueError("Configure at least one BytePlus product API key.")
+    if float(values["STATE_PRUNE_MAX_AGE_DAYS"]) < 14:
+        raise ValueError("STATE_PRUNE_MAX_AGE_DAYS must be at least 14.")
+    if values.get("STATE_BACKEND", "sqlite") != "sqlite":
+        raise ValueError("Hosted state must use single-instance SQLite.")
+    if values.get("BYTEPLUS_OMNIHUMAN_ENABLED", "false") not in {"true", "false"}:
+        raise ValueError("BYTEPLUS_OMNIHUMAN_ENABLED must be true or false.")
+    if values.get("ARK_LOG_LEVEL", "INFO") not in {"DEBUG", "INFO", "WARNING", "ERROR"}:
+        raise ValueError("Invalid ARK_LOG_LEVEL.")
 
 
 def main() -> int:

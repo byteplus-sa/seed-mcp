@@ -8,7 +8,7 @@ run server commands manually.
 | Ark is not listed in your client | Review the client-specific MCP setup and unfinished approval steps |
 | Connected, but tools are missing | Reconnect after finishing active jobs; check requested services and private-file configuration |
 | A request is still working | Ask the client to poll the existing job/task, not submit it again |
-| A shared server rejects access | Ask its administrator to check the shared key, enabled products and fixed team permissions |
+| An HTTP server rejects a provider call | Check private selected-provider and client-secret headers; discovery is anonymous, not proof of key validity |
 | You need help diagnosing local setup | Ask your setup agent to inspect paths and settings metadata without printing secrets |
 
 Use the [discovery-only check](integrations/index.md#verify-without-paid-calls)
@@ -80,9 +80,10 @@ Provider output URLs expire:
 - **Seedream**: 24 hours
 - **Seedance**: 24 hours (video and last-frame)
 
-The server persists outputs immediately by default (`persist=True`) and
-returns `seed-media://artifacts/{id}` resource references that do not
-expire (until the artifact TTL, default 7 days).
+Persistence defaults to false. On stdio, explicitly request `persist=true`
+or `persist_output=true` for durable resources (default artifact TTL 7 days).
+HTTP rejects true and has no artifact tools/resources; clients must download
+provider URLs before expiry.
 
 If you set `persist=False`, the tool returns the raw provider URL which
 will expire. Use the artifact resource instead.
@@ -175,13 +176,25 @@ If you experience timeouts:
 |---|---|---|---|---|
 | Create / generate / cancel / delete | `false` | `true` | No | It may have succeeded upstream. Do not retry blindly; reconcile by task ID or request ID |
 | Task polls (Seedance, OmniHuman) | `true` | `false` | Yes | Safe to poll again |
-| `seed_understand` / `seed_audio_understand` chat completion | `true` | `false` | No | Safe to retry, but a retry is a new billed completion; consider a longer `SEED_UNDERSTANDING_TIMEOUT_MS` or lower `reasoning_effort` |
+| `seed_understand` / `seed_audio_understand` chat completion | `false` | `true` | No | Completion may already be billed. Reconcile by request ID when available; do not blindly repeat it |
 | Variation batch deadline | see `error.phase` | | No | `queued` (`QUEUE_TIMEOUT`) is safe to retry; `generating` is ambiguous |
 
-This table describes timeouts. The existing Seedance adapter can retry raw
-connection/transport failures without marking acceptance ambiguous; see the
-[runtime caveat](runtime.md#retry-policy-providersretrypy). Do not add blind
+This table describes timeouts after possible dispatch. Uncertain
+read/write/protocol failures and malformed provider 2xx responses are also
+ambiguous/nonretryable for mutations and understanding completions.
+Chat/mutation 5xx responses are ambiguous and never automatically retried,
+even when marked `retryable=true`. Eligible 429 rejections and demonstrably
+pre-dispatch failures can be retried, but understanding disables all `TIMEOUT`
+retries, including connect/pool timeouts. See the
+[retry policy](runtime.md#retry-policy-providersretrypy); do not add blind
 client retries.
+
+Seedance may return a known `task_id` alongside a bookkeeping error. Keep it:
+`submitted` counts known IDs, while `failed` counts entries with errors, so
+those counts can overlap. Single-call failures keep IDs in error `ToolResult`
+text. Never recreate accepted work. HTTP polling needs recorded ownership;
+if ownership recording failed, reconcile with the provider using task/request IDs.
+Trusted stdio permits unrecorded IDs, but still rejects recorded owner mismatches.
 
 Budget reservations are committed for every `TIMEOUT`, since a timed-out
 call may still have been billed.
@@ -207,8 +220,10 @@ the answer itself is too large for the client context:
 
 A client-side MCP timeout is distinct from a server failure. Seedream Pro and
 Seedance provider submissions can take 60–150 s (longer under cold start or
-provider queue), so the server requires background execution for those
-operations rather than keeping the original foreground request open.
+provider queue). Local stdio requires background execution for those operations.
+HTTP uses direct foreground calls: increase client/proxy timeouts, keep
+persistence false and reconcile lost responses without automatic resubmission.
+The workflow below is stdio-only.
 
 - Submit `seedance_create_task`, `seedream_generate_image`, and
   `seed_audio_generate` through the `ark_job_*` workflow below. Its terminal
@@ -240,29 +255,23 @@ required-task provider tool directly and do not switch it to foreground mode.
 
 This remains a real background task on the same worker. For a Seedance or OmniHuman submission, the provider task ID appears inside the completed original
 result and must be retained separately. A missing target usually means its
-provider credential or feature flag is unavailable, or the target is excluded
-from the fixed shared-team scopes.
+local provider credential or feature flag is unavailable. This workflow is
+stdio-only; HTTP calls providers directly and has no background targets.
 
 ### Background job is not available
 
-`Background job is not available in this server instance` (local auth) or
-`Background job is not available to this principal` (shared-key auth) means the server
-answering the request cannot resolve the job ID. In local auth mode the caller is
-always the `local` principal, so the cause is process locality, not permissions:
+`Background job is not available in this server instance` means the local
+stdio process cannot resolve the job ID:
 
 - The job was submitted by a **different** `ark-mcp` process. Each `stdio`
-  client starts its own process; run one shared loopback HTTP server
-  (`make shared-http`) and point all clients at it.
+  client starts its own process; poll through the original process.
 - The server restarted: the default in-memory Docket backend discards active and
   retained jobs. Redis retention is the durability path.
 - The job ID is wrong, or its retained result expired.
 
-In shared-key mode, the same message also covers jobs not owned by
-`shared-team`, including former user-owned or local jobs. Members of one team
-are not isolated from each other. Rotation keeps the team identity; changing
-auth modes does not transfer ownership. Preserve SQLite, Redis and the task
-encryption key when upgrading. The server deliberately does not distinguish
-missing, expired, and not-owned IDs, so do not probe for job existence.
+HTTP has no job tools/native tasks. Do not try to share stdio jobs through an
+HTTP endpoint. Provider IDs already returned by a job are separate and can be
+used to reconcile provider outcomes under the original authorized scope.
 
 ## Artifacts Not Persisting
 
@@ -280,31 +289,30 @@ Run `make check-env` to validate configuration.
 
 ## HTTP Server Refuses to Start
 
-A non-loopback HTTP bind is rejected in `local` auth mode. Set
-`MCP_AUTH_MODE=api_key` and configure the lowercase SHA-256 digest
-`MCP_API_KEY_SHA256` from `scripts/generate_mcp_key.py`. Do not put the raw key
-in server configuration. Add the public hostname to `MCP_ALLOWED_HOSTS` and
-browser origins to `MCP_ALLOWED_ORIGINS`.
-
-The old `jwt` mode is rejected and its retired settings are not used. See
-[breaking-change migration](self-hosting.md#breaking-change-migration).
+All HTTP binds require `MCP_AUTH_MODE=byok` (default), operator
+`MCP_IDENTITY_HMAC_KEY` (32 random bytes as 64 lowercase hex) and positive
+identity version (default `1`). Check positive rate/body/in-flight/state limits,
+fixed official origins and fresh SQLite state. Explicit local auth is
+stdio-only. No compatibility migration exists. Do not delete older state to
+work around startup failure. See [self-hosting](self-hosting.md).
 
 ## HTTP Authentication Fails
 
-An HTTP `401` means the MCP key is missing, wrong or rotated out. Configure the
-current key privately as `Authorization: Bearer <shared MCP key>`; a BytePlus
-provider key is not a substitute. There is no login or discovery flow. After
-rotation, all clients need the new key, and the application must be recreated
-to load its new digest. Never paste either key into chat or logs.
+Configure only the selected provider key header and `X-MCP-Client-Secret`,
+including dry runs. The client secret is 32 random bytes as 64 lowercase hex.
+Duplicate, empty or malformed values fail; `Authorization` is rejected.
+There is no OAuth, signup or server-issued key. Discovery is anonymous/static
+and does not validate provider keys. Never print secrets while troubleshooting.
+Changing provider/client/HMAC credentials changes ownership scope with no
+recovery bridge; use the original authorized scope for older tasks.
 
 ## Unknown Tool over HTTP
 
-Check `ark_list_models.services` and `ark_job_capabilities` for configured
-products and allowed background targets. The shared key's ordinary scopes are
-fixed; clients cannot add scopes or select another identity. Account-wide
-asset and moderation tools are intentionally unavailable over shared HTTP,
-even if AK/SK or feature flags register them. Use a trusted local setup for
-administration rather than trying to grant a remote role.
+Check `ark_list_models.services`. HTTP has 9 tools, or 12 when OmniHuman is
+enabled, and no jobs/native tasks/storage/artifact tools/resources. Missing
+operator provider keys do not hide HTTP tools. Asset administration is
+unavailable on either transport. Call HTTP provider tools directly in the
+foreground; configure timeouts rather than resubmitting uncertain work.
 
 ## Running Tests
 

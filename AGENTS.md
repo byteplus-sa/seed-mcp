@@ -47,26 +47,24 @@ separate tools. The flow is discovery → create → poll:
   `input_audio`; model ID set by `SEED_AUDIO_UNDERSTANDING_MODEL`. URL inputs
   can use the Files API for oversized audio and video soundtracks (up to
   512 MB); uploaded files are deleted best-effort after processing.
-- **Object storage upload** — `media_upload` / `media_presign` take lists and
+- **Local object storage upload** — stdio-only `media_upload` / `media_presign` take lists and
   return presigned URLs for URL-only media workflows (TOS or S3 backend).
 - **Native asset references** — Seedance accepts existing authorized
   `asset://<id>` references natively with the ModelArk Bearer key. The server
   does not create, verify, administer, resolve or preflight provider assets.
-- **Background jobs** — ordinary `ark_job_*` tools are the default route for
+- **Local background jobs** — ordinary `ark_job_*` tools are the stdio-only default route for
   long-running work through the FastMCP worker, since most clients cannot
   negotiate MCP task augmentation; native tasks remain supported for clients
   that can.
-- **Durable artifacts** — MCP resources for generated media whose provider URLs
+- **Local durable artifacts** — stdio-only MCP resources for generated media whose provider URLs
   expire (2h for Seed Audio, 24h for ModelArk image/video, about 1h for OmniHuman).
-- **Transports** — local `stdio` first, with protected Streamable HTTP as a
-  deployable option (both natively supported by FastMCP). Hosted HTTP uses only
-  `MCP_AUTH_MODE=api_key` with `MCP_API_KEY_SHA256`, never the raw key.
-  All holders use fixed tenant/principal `shared-team`, one budget and one
-  ownership boundary; fixed ordinary scopes exclude assets/moderation admin.
-  Python defaults to `local` (stdio/loopback only); Docker, Compose and Terraform
-  default to `api_key`. Generic bearer claims remain internal for ownership
-  tests, with the tenant claim key fixed to `tenant_id`. See
-  `docs/self-hosting.md` for generation and rotation.
+- **Transports** — local stdio retains jobs/native tasks/storage/artifacts.
+  HTTP is forward-only BYOK: 9 provider/discovery tools, or 12 with OmniHuman,
+  direct foreground calls, no jobs/native tasks/storage/artifact tools/resources.
+  `MCP_AUTH_MODE=byok` is the default; explicit `local` is stdio-only and
+  `api_key` is removed. No OAuth/signup/server-issued key. HTTP requires
+  operator `MCP_IDENTITY_HMAC_KEY` (64 lowercase hex) and positive
+  `MCP_IDENTITY_KEY_VERSION` (default 1), not customer credentials.
 
 Seedance, Seedream, Seed 2.1 Understanding, and Seed Audio Understanding
 share the ModelArk data-plane host and Bearer authentication. Seed Audio
@@ -74,12 +72,33 @@ uses Seed Speech and `X-Api-Key`; OmniHuman uses Vision AI and its own
 Bearer key. These three provider gateways sit behind one normalized domain
 layer. See `docs/architecture.md` for current behavior.
 
-The catalog contains **21 tools**, with eight always registered. Enabled
+The local catalog contains **21 tools**, with eight always registered on stdio. Enabled
 tools depend on the four service gates: `modelark`, `seed_audio`, `omnihuman`,
 and `object_storage`. VOD processing, 3D generation, dedicated ASR, asset
 administration and operator-account live pricing are not part of this server.
-Provider keys are startup configuration. **Per-user BYOK is not implemented**;
-shared-key HTTP retains one operator-configured account and `shared-team` identity.
+Local provider keys are startup configuration. HTTP uses only live
+`X-ModelArk-Api-Key`, `X-Seed-Speech-Api-Key` or `X-OmniHuman-Api-Key` for the
+selected provider plus required `X-MCP-Client-Secret` (client-generated 32
+random bytes, 64 lowercase hex), including dry runs. Discovery is anonymous/static.
+Keys are not persisted and never fall back to environment provider keys.
+
+HTTP endpoint defaults `X-ModelArk-Seedance-Endpoint` and
+`X-ModelArk-Seedream-Endpoint` require exact registry bindings; explicit tool
+`model` wins. Never infer arbitrary opaque endpoint lineage. HTTP uses fixed
+official origins, positive 60 RPM / 2 MiB body / 64 in-flight defaults and
+`STATE_MAX_RECORDS=100000`. Readiness is minimal state-only, with no provider
+probes; public metrics are unavailable.
+
+Fresh SQLite ownership is keyed by `(provider, tenant_id, task_id)` with an
+immutable client owner; no compatibility migration. Global persistence defaults
+are false for Seed Audio, Seedream and OmniHuman get; HTTP rejects true while
+local explicit true remains supported. Files API cleanup uses the live request
+key; remote file expiry is separate from output URL expiry.
+Uncertain mutation transport failures and malformed 2xx responses are
+ambiguous/nonretryable with safe diagnostics. Durable idempotency, crash
+recovery, PostgreSQL and multi-replica support remain next phase; no public
+launch claim. See `specs/SPEC_HOSTED_BYOK.md` and
+`plans/PLAN_HOSTED_BYOK_FOUNDATION.md`.
 
 ## Repository Layout
 

@@ -5,8 +5,7 @@ locals {
       for name, service in local.base_compose.services : name => merge(
         { for key, value in service : key => value if key != "build" },
         name == "ark-mcp" ? {
-          image    = var.ark_mcp_image
-          env_file = "/srv/ark-mcp/config/.env"
+          image = var.ark_mcp_image
         } : {}
       )
     }
@@ -26,13 +25,6 @@ locals {
       startswith(line, "MCP_PUBLIC_HOST=") ? "MCP_PUBLIC_HOST=${var.public_hostname == null ? "" : var.public_hostname}" : line
       if can(regex("^[A-Z][A-Z0-9_]*=", line))
     ],
-    var.tos_bucket_name == null ? [] : [
-      "OBJECT_STORAGE_BACKEND=tos",
-      "TOS_BUCKET=${var.tos_bucket_name}",
-      "TOS_REGION=${var.region}",
-      "TOS_ACCESS_KEY=",
-      "TOS_SECRET_KEY=",
-    ],
     [""]
   ))
   bootstrap_files = {
@@ -50,13 +42,13 @@ locals {
     }
     "/opt/ark-mcp/helpers.yaml" = {
       content = yamlencode({
-        "check_env.py"        = file("${path.module}/scripts/check_env.py")
-        "prepare_state.py"    = file("${path.module}/scripts/prepare_state.py")
-        "receive_config.py"   = file("${path.module}/scripts/receive_config.py")
-        "update_image.py"     = file("${path.module}/scripts/update_image.py")
-        "update_config.py"    = file("${path.module}/scripts/update_config.py")
-        "generate_mcp_key.py" = file("${path.module}/../../../scripts/generate_mcp_key.py")
-      }), permissions         = "0600"
+        "check_env.py"                = file("${path.module}/scripts/check_env.py")
+        "prepare_state.py"            = file("${path.module}/scripts/prepare_state.py")
+        "receive_config.py"           = file("${path.module}/scripts/receive_config.py")
+        "update_image.py"             = file("${path.module}/scripts/update_image.py")
+        "update_config.py"            = file("${path.module}/scripts/update_config.py")
+        "generate_identity_secret.py" = file("${path.module}/../../../scripts/byteplus_deploy/generate_identity_secret.py")
+      }), permissions = "0600"
     }
     "/opt/ark-mcp/install.sh" = {
       content = file("${path.module}/scripts/install.sh"), permissions = "0700"

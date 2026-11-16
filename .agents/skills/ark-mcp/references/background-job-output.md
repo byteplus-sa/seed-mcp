@@ -1,5 +1,9 @@
 # Background-job output handling
 
+**Local stdio only.** HTTP has no jobs/native tasks/storage/artifact tools or
+resources and rejects persistence true. HTTP clients retrieve expiring URLs
+themselves; provider calls run directly in the foreground.
+
 Read this when a tool runs through `ark_job_submit` and the call writes local
 files, persists provider output, or returns a very large result.
 

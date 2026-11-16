@@ -167,20 +167,20 @@ def test_quota_failure_preserves_state_and_does_not_retry(
 
 
 def test_secrets_reused_and_mismatch_refused(workspace: Workspace, tmp_path: Path) -> None:
-    provider = tmp_path / "provider.env"
-    atomic_private(provider, b"BYTEPLUS_MODELARK_API_KEY=synthetic-provider\n")
-    args = argparse.Namespace(provider_env_file=provider)
+    operator = tmp_path / "operator.env"
+    atomic_private(operator, ("MCP_IDENTITY_HMAC_KEY=" + "a" * 64 + "\n").encode())
+    args = argparse.Namespace(operator_env_file=operator)
     cli.prepare_configuration(workspace, args)
     original = (workspace.path / "host.env").read_bytes()
-    key = (workspace.path / "team.key").read_bytes()
-    args.provider_env_file = None
+    args.operator_env_file = None
     cli.prepare_configuration(workspace, args)
     assert (workspace.path / "host.env").read_bytes() == original
-    assert (workspace.path / "team.key").read_bytes() == key
-    atomic_private(workspace.path / "team.key", b"incorrect\n")
-    with pytest.raises(ValueError, match="differ"):
+    assert not (workspace.path / "team.key").exists()
+    changed = original.replace(b"RATE_LIMIT_RPM=60", b"RATE_LIMIT_RPM=61")
+    atomic_private(workspace.path / "host.env", changed)
+    with pytest.raises(ValueError, match="changed"):
         cli.prepare_configuration(workspace, args)
-    assert (workspace.path / "host.env").read_bytes() == original
+    assert (workspace.path / "host.env").read_bytes() == changed
 
 
 def test_completed_transfer_does_not_recreate_deleted_ephemeral_keys(
@@ -192,6 +192,19 @@ def test_completed_transfer_does_not_recreate_deleted_ephemeral_keys(
     cloud = FakeCloud()
     cli.Guest(workspace, cloud).transfer("configuration", b"private", [])  # type: ignore[arg-type]
     assert cloud.calls == []
+
+
+def test_missing_retained_configuration_never_recreates_identity(
+    workspace: Workspace, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    journal = workspace.journal()
+    journal["configuration_sha256"] = "a" * 64
+    workspace.save_journal(journal)
+    monkeypatch.setattr(cli, "make_configuration", lambda *args: pytest.fail("new identity"))
+    monkeypatch.setattr(cli, "fetch_operator_identity", lambda *args: pytest.fail("KMS read"))
+    with pytest.raises(ValueError, match=r"recover host\.env"):
+        cli.prepare_configuration(workspace, argparse.Namespace(operator_env_file=Path("/unused")))
+    assert not (workspace.path / "host.env").exists()
 
 
 def test_failed_image_uses_new_transfer_without_rotating_configuration(
@@ -240,7 +253,7 @@ def test_entrypoint_help_and_private_status_smoke(workspace: Workspace) -> None:
         [sys.executable, str(entrypoint), "--help"], capture_output=True, text=True, check=True
     )
     assert "resume" in help_result.stdout and "update" in help_result.stdout
-    atomic_private(workspace.path / "team.key", b"synthetic-secret-must-not-print")
+    atomic_private(workspace.path / "host.env", b"synthetic-secret-must-not-print")
     result = subprocess.run(
         [sys.executable, str(entrypoint), "status", "--workspace", str(workspace.path)],
         capture_output=True,
@@ -249,6 +262,21 @@ def test_entrypoint_help_and_private_status_smoke(workspace: Workspace) -> None:
     )
     assert json.loads(result.stdout)["phase"] == "applied"
     assert "synthetic-secret" not in result.stdout + result.stderr
+
+
+def test_deploy_cli_has_no_provider_env_or_server_key_compatibility() -> None:
+    result = subprocess.run(
+        [sys.executable, str(ROOT / "scripts/deploy_byteplus.py"), "deploy", "--help"],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    assert "--operator-env-file" in result.stdout
+    assert "--provider-env-file" not in result.stdout
+    assert "team.key" not in result.stdout
+    with pytest.raises(SystemExit) as caught:
+        cli.main(["deploy", "--workspace", "/unused", "--provider-env-file", "/unused"])
+    assert caught.value.code == 2
 
 
 def test_standalone_import_does_not_initialize_server() -> None:
@@ -365,8 +393,8 @@ def test_failed_chunk_starts_fresh_transfer_only_after_reconciliation(
 def test_initial_flow_starts_guarded_docker_before_pull(
     workspace: Workspace, monkeypatch: pytest.MonkeyPatch, tmp_path: Path
 ) -> None:
-    provider = tmp_path / "providers"
-    atomic_private(provider, b"BYTEPLUS_MODELARK_API_KEY=synthetic-provider\n")
+    operator = tmp_path / "operator.env"
+    atomic_private(operator, ("MCP_IDENTITY_HMAC_KEY=" + "a" * 64 + "\n").encode())
     calls = []
     cloud = SimpleNamespace(verify_instance=lambda *args: calls.append("identity"))
     guest = SimpleNamespace(
@@ -378,12 +406,12 @@ def test_initial_flow_starts_guarded_docker_before_pull(
     monkeypatch.setattr(cli, "image_phase", lambda *args: calls.append("pull"))
     monkeypatch.setattr(cli, "verify_deployment", AsyncMock())
     cli.finish_deployment(
-        workspace, argparse.Namespace(retry_failed=False, provider_env_file=provider)
+        workspace, argparse.Namespace(retry_failed=False, operator_env_file=operator)
     )
     assert calls == ["identity", "prepare", "configuration", "docker-start", "pull", "activate"]
 
 
-def test_verification_rounds_submit_fresh_nonbillable_jobs(
+def test_verification_rounds_use_anonymous_discovery_without_customer_keys_or_jobs(
     workspace: Workspace, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import fastmcp
@@ -391,7 +419,7 @@ def test_verification_rounds_submit_fresh_nonbillable_jobs(
 
     submitted = []
     clients = []
-    atomic_private(workspace.path / "team.key", b"synthetic-team-key\n")
+    atomic_private(workspace.path / "host.env", b"BYTEPLUS_OMNIHUMAN_ENABLED=false\n")
 
     class Probe:
         def __enter__(self) -> Probe:
@@ -412,6 +440,7 @@ def test_verification_rounds_submit_fresh_nonbillable_jobs(
 
     class Client:
         def __init__(self, *args: Any, **kwargs: Any) -> None:
+            assert "auth" not in kwargs
             clients.append(self)
 
         async def __aenter__(self) -> Client:
@@ -421,20 +450,35 @@ def test_verification_rounds_submit_fresh_nonbillable_jobs(
             pass
 
         async def list_tools(self) -> list[SimpleNamespace]:
-            return [SimpleNamespace(name="seedream_generate_image")]
-
-        async def call_tool(self, name: str, arguments: dict[str, Any]) -> SimpleNamespace:
-            if name == "ark_job_submit":
-                assert arguments["input"]["arguments"]["input"]["dry_run"] is True
-                submitted.append(arguments)
-                return SimpleNamespace(structured_content={"job_id": f"job-{len(submitted)}"})
-            if name == "ark_job_get":
-                return SimpleNamespace(
-                    structured_content={
-                        "status": "completed",
-                        "result": {"is_error": False, "structured_content": {"dry_run": True}},
-                    }
+            return [
+                SimpleNamespace(name=name)
+                for name in (
+                    "ark_list_models",
+                    "seed_audio_generate",
+                    "seedream_generate_image",
+                    "seedance_create_task",
+                    "gen_task_get",
+                    "gen_task_list",
+                    "gen_task_cancel_or_delete",
+                    "seed_understand",
+                    "seed_audio_understand",
                 )
+            ]
+
+        async def list_resources(self) -> list[Any]:
+            return []
+
+        async def list_resource_templates(self) -> list[Any]:
+            return []
+
+        async def call_tool(
+            self, name: str, arguments: dict[str, Any], **kwargs: Any
+        ) -> SimpleNamespace:
+            assert not name.startswith("ark_job_")
+            if name == "seedream_generate_image":
+                assert arguments["input"]["dry_run"] is True
+                submitted.append(arguments)
+                return SimpleNamespace(is_error=True)
             return SimpleNamespace(structured_content={})
 
     monkeypatch.setattr(cli.httpx, "Client", lambda **kwargs: Probe())
@@ -443,5 +487,7 @@ def test_verification_rounds_submit_fresh_nonbillable_jobs(
     cli.asyncio.run(cli.verify_deployment(workspace))
     assert len(submitted) == 2 and len(clients) == 4
     assert workspace.journal()["verification"]["sequence"] == 2
-    assert workspace.journal()["verification"]["job_id"] == "job-2"
+    assert workspace.journal()["verification"]["provider_credentials_verified"] is False
+    assert workspace.journal()["verification"]["missing_credentials_rejected"] is True
+    assert "job_id" not in workspace.journal()["verification"]
     assert "verification_pending" not in workspace.journal()

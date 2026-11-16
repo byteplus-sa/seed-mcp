@@ -13,6 +13,7 @@ import httpx
 from ark_mcp.domain.errors import NormalizedProviderError, ProviderError
 from ark_mcp.domain.models import Subtitle, SubtitleUtterance, SubtitleWord
 from ark_mcp.observability.logger import debug as log_debug
+from ark_mcp.providers.base import safe_provider_text
 from ark_mcp.providers.seed_speech.client import SeedSpeechGateway
 from ark_mcp.providers.seed_speech.schemas import (
     SeedAudioProviderRequest,
@@ -23,8 +24,8 @@ from ark_mcp.providers.seed_speech.schemas import (
 class SeedAudioService:
     """Service layer for Seed Audio generation."""
 
-    def __init__(self, gateway: SeedSpeechGateway | None = None) -> None:
-        self._gateway = gateway or SeedSpeechGateway()
+    def __init__(self, gateway: SeedSpeechGateway) -> None:
+        self._gateway = gateway
 
     async def generate(
         self,
@@ -45,28 +46,25 @@ class SeedAudioService:
                 request.to_api_dict(),
                 request_id=request_id,
             )
-        except httpx.TimeoutException:
-            raise SeedSpeechGateway.normalize_timeout("generate_audio") from None
-        except httpx.ConnectError as exc:
-            raise SeedSpeechGateway.normalize_connection_error("generate_audio", exc) from exc
         except httpx.TransportError as exc:
-            raise SeedSpeechGateway.normalize_transport_error("generate_audio", exc) from exc
+            raise SeedSpeechGateway.normalize_transport_error("generate_audio", exc) from None
 
         log_id = SeedSpeechGateway.extract_log_id(response)
 
         if response.status_code >= 400:
             raise SeedSpeechGateway.normalize_error(response, "generate_audio")
 
-        body = response.json()
-        parsed = SeedAudioProviderResponse.model_validate(body)
+        parsed = SeedSpeechGateway.parse_response(
+            response, "generate_audio", SeedAudioProviderResponse
+        )
         if parsed.code not in (0, None, ""):
             raise ProviderError(
                 NormalizedProviderError(
                     provider="seed-speech",
                     operation="generate_audio",
                     http_status=response.status_code,
-                    code=str(parsed.code),
-                    message=parsed.message or f"Seed Audio failed with code {parsed.code}",
+                    code=safe_provider_text(parsed.code),
+                    message=safe_provider_text(parsed.message, "Seed Audio generation failed."),
                     request_id=log_id,
                     retryable=False,
                     ambiguous_completion=False,

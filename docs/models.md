@@ -264,9 +264,14 @@ Settings startup additionally rejects: duplicate model IDs within a
 family's bindings, a default model ID missing from bindings, a custom
 default model with no family/binding, unknown family strings, non-HTTPS
 provider URLs, non-positive `ARTIFACT_TTL_SECONDS` /
-`MCP_INLINE_MEDIA_MAX_BYTES` / timeouts, invalid allowed origins, shared-key
-auth with a missing or malformed `MCP_API_KEY_SHA256`, and non-loopback HTTP
-without `MCP_AUTH_MODE=api_key`.
+`MCP_INLINE_MEDIA_MAX_BYTES` / timeouts, invalid allowed origins, HTTP without
+`MCP_AUTH_MODE=byok` and a valid `MCP_IDENTITY_HMAC_KEY`, nonofficial HTTP provider
+origins, and non-positive HTTP rate/body/in-flight/state limits.
+
+HTTP `X-ModelArk-Seedance-Endpoint` and `X-ModelArk-Seedream-Endpoint`
+defaults must exactly match registered product bindings. Explicit tool `model`
+wins. The server never infers an arbitrary opaque `ep-*` endpoint's lineage.
+Anonymous static discovery reports bindings, not customer entitlement.
 
 ## Module-level singleton
 

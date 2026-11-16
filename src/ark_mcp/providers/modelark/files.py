@@ -31,6 +31,7 @@ from pydantic import BaseModel, Field, ValidationError
 from ark_mcp.domain.errors import NormalizedProviderError, ProviderError
 from ark_mcp.observability.logger import debug as log_debug
 from ark_mcp.observability.logger import warning as log_warning
+from ark_mcp.providers.base import safe_provider_text
 from ark_mcp.providers.modelark.client import ModelArkGateway
 
 if TYPE_CHECKING:
@@ -75,8 +76,8 @@ def _file_error(operation: str, message: str, *, code: str, retryable: bool) -> 
         NormalizedProviderError(
             provider="modelark",
             operation=operation,
-            code=code,
-            message=message,
+            code=safe_provider_text(code),
+            message=safe_provider_text(message),
             retryable=retryable,
             ambiguous_completion=False,
         )
@@ -86,8 +87,8 @@ def _file_error(operation: str, message: str, *, code: str, retryable: bool) -> 
 class ModelArkFilesService:
     """Service layer for the ModelArk Files API."""
 
-    def __init__(self, gateway: ModelArkGateway | None = None) -> None:
-        self._gateway = gateway or ModelArkGateway()
+    def __init__(self, gateway: ModelArkGateway) -> None:
+        self._gateway = gateway
 
     async def upload_url(
         self,
@@ -131,7 +132,7 @@ class ModelArkFilesService:
         body: Any = None
         try:
             body = response.json()
-            return ModelArkFile.model_validate(body)
+            parsed = ModelArkFile.model_validate(body)
         except ValueError:
             if operation == "upload_file":
                 try:
@@ -152,6 +153,10 @@ class ModelArkFilesService:
                     ambiguous_completion=operation == "upload_file",
                 )
             ) from None
+        if parsed.error is not None:
+            parsed.error.code = safe_provider_text(parsed.error.code) or None
+            parsed.error.message = safe_provider_text(parsed.error.message) or None
+        return parsed
 
     async def wait_until_active(
         self,
@@ -202,21 +207,10 @@ class ModelArkFilesService:
     async def _send(self, operation: str, call: Awaitable[httpx.Response]) -> httpx.Response:
         try:
             response = await call
-        except httpx.TimeoutException:
-            raise ModelArkGateway.normalize_timeout(
-                operation, side_effect=operation == "upload_file"
-            ) from None
-        except httpx.ConnectError as exc:
-            raise ModelArkGateway.normalize_connection_error(operation, exc) from exc
         except httpx.TransportError as exc:
-            error = ModelArkGateway.normalize_transport_error(operation, exc)
-            if operation == "upload_file":
-                error = ProviderError(
-                    error.error.model_copy(
-                        update={"ambiguous_completion": True, "retryable": False}
-                    )
-                )
-            raise error from exc
+            raise ModelArkGateway.normalize_transport_error(
+                operation, exc, side_effect=operation == "upload_file"
+            ) from None
         if response.status_code >= 400:
             raise ModelArkGateway.normalize_error(response, operation)
         return response

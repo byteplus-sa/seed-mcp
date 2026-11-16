@@ -151,6 +151,8 @@ class TestSettingsFromEnv:
 
     def test_transport_http_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("MCP_TRANSPORT", "http")
+        monkeypatch.setenv("MCP_AUTH_MODE", "byok")
+        monkeypatch.setenv("MCP_IDENTITY_HMAC_KEY", "a" * 64)
         settings = Settings(_env_file=None)
         assert settings.mcp_transport == "http"
 
@@ -171,8 +173,27 @@ class TestSettingsFromEnv:
 
     def test_fastmcp_alias_for_transport(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("FASTMCP_TRANSPORT", "http")
+        monkeypatch.setenv("MCP_AUTH_MODE", "byok")
+        monkeypatch.setenv("MCP_IDENTITY_HMAC_KEY", "a" * 64)
         settings = Settings(_env_file=None)
         assert settings.mcp_transport == "http"
+
+    def test_byok_identity_and_limits_from_env(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("MCP_TRANSPORT", "http")
+        monkeypatch.setenv("MCP_AUTH_MODE", "byok")
+        monkeypatch.setenv("MCP_IDENTITY_HMAC_KEY", "a" * 64)
+        monkeypatch.setenv("MCP_IDENTITY_KEY_VERSION", "2")
+        monkeypatch.setenv("MCP_HTTP_MAX_BODY_BYTES", "1024")
+        monkeypatch.setenv("MCP_HTTP_MAX_IN_FLIGHT", "8")
+        monkeypatch.setenv("STATE_MAX_RECORDS", "100")
+        monkeypatch.setenv("RATE_LIMIT_RPM", "10")
+        settings = Settings(_env_file=None)
+        assert settings.identity_hmac_key.get_secret_value() == "a" * 64
+        assert settings.identity_key_version == 2
+        assert settings.mcp_http_max_body_bytes == 1024
+        assert settings.http_max_in_flight == 8
+        assert settings.state_max_records == 100
+        assert settings.rate_limit_rpm == 10
 
     def test_fastmcp_alias_for_host(self, monkeypatch: pytest.MonkeyPatch) -> None:
         monkeypatch.setenv("FASTMCP_HOST", "192.168.1.1")

@@ -10,13 +10,20 @@ Model discovery with `ark_list_models`, how the server binds model IDs to famili
 **Call it before any generation or understanding tool.** It is read-only and idempotent, needs no auth scope, and **makes no provider calls**; it reads the server's own configuration.
 
 - **`kind`** (`video`, `image`, `understanding`) filters the list; omit it to get every configured kind.
-- **`models[]`** has one entry per configured model whose service is enabled (empty when ModelArk is not configured). Each entry carries `model_id`, `family`, `kind`, `is_default`, `tool`, and one limits object (`video`, `image`, or `understanding`).
+- **`models[]`** lists configured bindings on HTTP even without environment provider keys or client credentials. On stdio it is empty when ModelArk is not configured. Each entry carries `model_id`, `family`, `kind`, `is_default`, `tool`, and one limits object (`video`, `image`, or `understanding`).
 - **`model_id` is the exact value the `model` argument accepts.** Omitting `model` uses the entry with `is_default: true`.
+- HTTP endpoint defaults `X-ModelArk-Seedance-Endpoint` and
+  `X-ModelArk-Seedream-Endpoint` must be exact registry bindings. Explicit tool
+  `model` wins; no arbitrary opaque endpoint lineage is inferred.
 - **`tool`** names the tool that serves the model. Understanding modalities and media limits describe this route, not every possible use of the underlying model. `seed_audio_understand` advertises only `audio` (up to eight clips); use `seed_understand` for images/videos. Neither handler accepts mixed audio/visual requests.
 - **`services[]`** reports `modelark`, `seed_audio`, `omnihuman`, and
   `object_storage`, with `enabled` and a safe disabled `reason` naming required
   settings. Use it to check the running server; documentation alone does not
-  prove a capability is available.
+  prove a capability is available. On HTTP, `enabled` means registered, not
+  customer entitlement, provider-key validity or model activation.
+
+HTTP request-scoped settings and capability lookup keep this server's bindings
+and defaults isolated from other server instances in the process.
 
 | `kind` | `tool` | Notes on `is_default` |
 |---|---|---|
@@ -145,6 +152,8 @@ products, storage backends, transport, effective Seedream default model/family
 and background-job local-export configuration. These are configuration-only
 diagnostics, not provider authorization or filesystem readiness. A configured
 absolute `OUTPUT_ROOTS` entry still needs request preflight; client roots do not
-exist in jobs. Over HTTP, `/health` (liveness), `/ready` (storage readiness,
-optional provider checks) and `/metrics` are also available. For per-service
+exist in jobs. This resource is stdio-only. Over HTTP, `/health` and `/ready`
+return minimal process/state status without provider checks; `/metrics` is
+unavailable. HTTP discovery is anonymous/static, with 9 tools or 12 when
+OmniHuman is enabled, independent of operator provider keys. For per-service
 enablement prefer `ark_list_models.services`. Settings: [environment.md](environment.md).

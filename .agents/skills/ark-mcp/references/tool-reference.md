@@ -2,7 +2,12 @@
 
 Per-product behaviour of the create tools that the tool schemas do not spell out: flows, cross-field rules, gotchas, and recovery. Parameters, ranges and output fields are in each tool's schema (also [API reference](https://byteplus-sa.github.io/ark-mcp/api-reference/)); per-model limits are in [models-and-limits.md](models-and-limits.md); polling, persistence and artifact handling are in [polling-and-artifacts.md](polling-and-artifacts.md); background-job mechanics are in [workflows.md](workflows.md).
 
-**Universal rules for every create tool below:** run it through `ark_job_submit` (or native task augmentation), read the task IDs from the job result, and poll those IDs. **Never resubmit a create tool to poll or to retry an ambiguous failure: every submit is billed and none is idempotent.** Take exact model IDs from `ark_list_models`; `model` accepts exact IDs only.
+**Choose transport first:** HTTP calls provider tools directly in the foreground,
+with selected provider key plus client secret headers. It has no jobs/native
+tasks/storage/artifact tools/resources. Stdio uses `ark_job_submit` (or native
+augmentation); job and persistence guidance below is local-only.
+**Never resubmit a create tool to poll or retry an ambiguous failure.**
+Take exact model IDs from `ark_list_models`.
 
 - [Variations and dry runs](#variations-and-dry-runs)
 - [Seedance](#seedance)
@@ -16,7 +21,7 @@ Per-product behaviour of the create tools that the tool schemas do not spell out
 
 | Tool | `variations` | Seeds | Where results land |
 |---|---|---|---|
-| `seedance_create_task` | 1-5, each a separate billed task | none | `tasks[]` with `task_id` or `error`; `submitted` / `failed` |
+| `seedance_create_task` | 1-5, each a separate billed task | none | `tasks[]` with `task_id` and/or `error`; overlapping `submitted` / `failed` counts |
 | `seedream_generate_image` | 1-10, one provider call each | base `seed` | `summary` (`VariationSummary`) |
 | `seed_audio_generate` | 1-5 | none (Seed Audio has no seed) | `summary` (`VariationSummary`) |
 
@@ -96,13 +101,35 @@ A cheap 480p preview, then a 1080p final render of the one you like. 4K is suppo
 ### Output handling
 
 - `recommended_poll_after_ms` is the delay before the first `gen_task_get`; it is `null` for dry runs.
-- A single task and a variations batch return the same shape; check `failed` and each `tasks[].error` (`retryable`, `ambiguous_completion`, `phase`) before resubmitting only the failed indices.
+- Successful single calls, variation batches and dry runs share the output
+  shape. A single-call failure instead returns error `ToolResult` text with
+  any known accepted task/request IDs.
+- A variation's `task_id` and `error` can coexist after accepted-task
+  ownership-record failure. `submitted` counts known accepted IDs and `failed`
+  counts entries with errors, so they can overlap. Keep every known ID; never
+  resubmit accepted work. HTTP polling requires recorded ownership; otherwise
+  reconcile with the provider using task/request IDs. Trusted stdio permits
+  unrecorded IDs, not recorded owner mismatches.
+- Only accepted ownership-record failures become outward `AcceptedTaskError`
+  failures, retaining task/request IDs with ambiguous/nonretryable status.
+  Budget-finalization exceptions log `ERROR` event `budget_finalization_failed`
+  without replacing the provider result/error or adding to `failed`; failed
+  commit/release leaves conservative reserved allowance. Reservation before
+  dispatch still fails closed. Cancellation cleanup is shielded best effort,
+  not a guarantee that no reserved rows remain.
+- Check each `tasks[].error` (`retryable`, `ambiguous_completion`, `phase`).
+  An error alone is not permission to retry; unknown acceptance also needs
+  reconciliation.
 - `output_format: mov` (regular 2.5 and Flash) is H.264 4:4:4 with PCM audio for post-production; some players cannot play it.
 - Provider video URLs expire in about 24 hours; persist from the poller, see [polling-and-artifacts.md](polling-and-artifacts.md).
 
 ## Seedream
 
-Needs `BYTEPLUS_MODELARK_API_KEY`. **`seedream_generate_image` is the only Seedream tool**: text-to-image, image-to-image, reference editing, point/box edits, provider batches (`max_images`), parallel `variations`, and dry runs. A foreground direct call is rejected; run it through `ark_job_submit`.
+Needs local `BYTEPLUS_MODELARK_API_KEY` or HTTP `X-ModelArk-Api-Key` plus the
+client secret. **`seedream_generate_image` is the only Seedream tool**:
+text-to-image, image-to-image, reference editing, point/box edits, provider
+batches (`max_images`), parallel `variations`, and dry runs. On stdio, a
+foreground direct call is rejected; use `ark_job_submit`. HTTP calls directly.
 
 ### Prompt and edit rules
 
@@ -164,7 +191,7 @@ The following example selects Pro, which must be bound by the operator:
 
 ### Persistence and local export
 
-- `persist=true` (default) stores each image as a durable artifact. **A storage failure never drops a billed image**: the result carries the 24-hour provider URL (id `provider-url`) with `persistence_error`, or, for Base64 output, `fallback_data` inline up to `ARTIFACT_INLINE_FALLBACK_MAX_BYTES`. Check each artifact's `persistence_error` and download from `source_url`/`uri` before it expires. Details: [polling-and-artifacts.md](polling-and-artifacts.md).
+- Explicit local `persist=true` stores each image as a durable artifact. Default is false; HTTP rejects true. Storage failures preserve supported provider-URL/inline fallbacks; see [polling-and-artifacts.md](polling-and-artifacts.md).
 - `persist=false` returns provider-URL references only.
 - Explicit `response_format="b64_json"` with `persist=false` is rejected before
   submission, even for dry runs. Missing output yields `NO_OUTPUT`; unexpected
@@ -183,7 +210,12 @@ The following example selects Pro, which must be bound by the operator:
 
 ## Seed Audio
 
-Needs `BYTEPLUS_SEED_SPEECH_API_KEY`. `seed_audio_generate` produces a full-scene clip (speech, ambience, music, effects) from a text prompt; **run it through `ark_job_submit`**. The provider URL expires after 2 hours, so keep `persist=true` (default).
+Needs a Seed Speech key, local configuration or HTTP `X-Seed-Speech-Api-Key`.
+`seed_audio_generate` produces a full-scene clip from text. Stdio uses jobs;
+HTTP calls directly with persistence false. Default `persist=false` is global;
+explicit local true retains outputs. URLs expire after 2 hours.
+Missing/unusable URL-only output is a nonretryable per-item
+`NO_DELIVERABLE_OUTPUT`, not an empty success or regeneration trigger.
 
 - **References: one kind only.** `audio_references` (up to 3: `speaker` ID, `url`, or `base64`) steer voice or scene; `image_reference` gives visual context. **Passing both is rejected.**
 - **Base64 reference audio** is checked against the media limit (30 s by default for WAV) and the audio size cap before submission; prefer a URL for longer material.
@@ -197,7 +229,11 @@ Needs `BYTEPLUS_SEED_SPEECH_API_KEY`. `seed_audio_generate` produces a full-scen
 
 Needs `BYTEPLUS_OMNIHUMAN_ENABLED=true` and `BYTEPLUS_CV_API_KEY` (a Vision AI key, separate from the ModelArk key); disabled by default. One portrait image plus one audio clip (plus an optional prompt) becomes a talking or performing avatar video.
 
-- **`omnihuman_create_task` submits one task and is never retried automatically.** It returns `status="accepted"` and `task_id`; poll with `omnihuman_get_task` (cancel with `omnihuman_cancel_task`). Its poller defaults to persisting the finished video, because the provider URL lasts only about **one hour**; see [polling-and-artifacts.md](polling-and-artifacts.md).
+- **`omnihuman_create_task` submits one task and is never retried automatically.** It returns `status="accepted"` and `task_id`; poll with `omnihuman_get_task`. Its poller defaults to `persist_output=false` globally; HTTP rejects true. Retrieve the URL within about **one hour**; see [polling-and-artifacts.md](polling-and-artifacts.md).
+- Like Seedance, it uses shared `record_accepted_task` ownership recording.
+  An accepted ownership-record failure returns ambiguous/nonretryable
+  `AcceptedTaskError` text retaining task/request IDs. Never resubmit; HTTP
+  polling requires recorded ownership, otherwise reconcile with the provider.
 - **Sources:** `image` and `audio` are public HTTPS URLs or `seed-media://artifacts/<id>`. Image limits: common formats (jpeg, png, webp, bmp, tiff, gif, heic, heif), under 30 MB, aspect 0.4-2.5, each side 300-6000 px. Audio: wav or mp3, under 15 MB, 4-300 s. **The video length follows the audio.**
 - **`seed-media://` inputs need `ARTIFACT_BACKEND=object_storage`** so the server can presign them (1-hour URL). Otherwise `media_upload` the file and pass the presigned URL. The artifact's media type, MIME type and size are checked and reported as safe errors.
 - `prompt` is optional scene, motion and camera guidance (max 2000 characters; zh, en, ja, ko, es-MX, id). `watermark` defaults to `true`.

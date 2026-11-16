@@ -106,6 +106,7 @@ class TestSeedreamEditImageTool:
                     prompt="Replace the object with a crown.",
                     images=[_ref_image()],
                     point=EditCoordinate(x=520, y=460),
+                    persist=True,
                 ),
                 fake_ctx,
             )
@@ -138,6 +139,7 @@ class TestSeedreamEditImageTool:
                     prompt="Replace with a garden.",
                     images=[_ref_image()],
                     bbox={"x1": 120, "y1": 180, "x2": 640, "y2": 760},
+                    persist=True,
                 ),
                 fake_ctx,
             )

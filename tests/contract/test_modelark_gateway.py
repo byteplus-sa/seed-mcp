@@ -224,4 +224,6 @@ class TestModelArkGatewayErrors:
         error = ModelArkGateway.normalize_connection_error("generate_image", exc)
         assert error.code == "CONNECTION_ERROR"
         assert error.retryable
-        assert "connection refused" in error.message
+        assert error.ambiguous_completion is False
+        assert "connection refused" not in error.message
+        assert "No request was dispatched" in error.message

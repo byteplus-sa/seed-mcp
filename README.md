@@ -39,10 +39,20 @@ and images do not establish narrowed Seed MCP support. See
 
 The server provides a conditional MCP tool surface across several BytePlus
 products plus artifact access and an optional media upload helper. The catalog
-contains **21 tools**; eight are always registered, and the rest depend on
-configured service gates. Provider credentials are startup configuration.
-**Per-user BYOK is not implemented**: shared HTTP members use the operator's
-configured provider accounts and one `shared-team` identity.
+contains **21 local stdio tools**; eight are always registered locally.
+HTTP BYOK exposes **9 tools, or 12 with OmniHuman enabled**, independently of
+operator provider keys. Discovery is anonymous/static; provider tools run
+directly in the foreground. HTTP has no jobs, native tasks, storage/artifact
+tools or resources. Background/persistence descriptions below apply to stdio.
+
+HTTP clients send only the selected `X-ModelArk-Api-Key`,
+`X-Seed-Speech-Api-Key`, or `X-OmniHuman-Api-Key`, plus required
+`X-MCP-Client-Secret` (client-generated 32 random bytes as 64 lowercase hex).
+There is no OAuth, signup or server-issued key; `Authorization` is rejected.
+Keys are not persisted and there is no provider-key fallback. See
+[client setup](docs/setup/shared-server.md) and the
+[BYOK contract](specs/SPEC_HOSTED_BYOK.md), implementing
+[PLAN_HOSTED_BYOK_FOUNDATION.md](plans/PLAN_HOSTED_BYOK_FOUNDATION.md).
 
 | Product | Tools | Description |
 |---|---|---|
@@ -70,16 +80,10 @@ Key features:
   administration, URL resolution and pre-submit status checks are outside this server.
 - **Large audio inputs** - audio understanding supports Files API delivery for
   oversized URLs and video soundtracks, with temporary-upload cleanup.
-- **Organization self-hosting** - the [Compose kit](docs/self-hosting.md)
-  packages TLS ingress, [shared MCP key authentication](docs/self-hosting.md#shared-mcp-key),
-  internal Redis, and spending controls.
-  The [BytePlus Terraform starter](docs/byteplus-terraform.md) provisions one ECS
-  host with retained storage. Its [guided deployment CLI](docs/byteplus-terraform.md#guided-deployment-cli)
-  adds preflight, reviewed approvals, encrypted configuration, resumable
-  activation, nonbillable verification and application-only updates.
-  [Secret Manager integration](docs/secret-manager.md) adds pinned-version
-  provider-key reads and approved, resumable MCP-only configuration sync.
-- **Durable artifacts** — generated media is persisted locally so MCP
+- **HTTP foundation** - [self-hosting](docs/self-hosting.md) uses one instance,
+  request-only BYOK and fresh scoped SQLite state. Hosted provider-secret sync
+  is superseded; no operator provider keys belong on the HTTP server.
+- **Local durable artifacts** — explicitly requested media is persisted so MCP
   resources remain usable after known provider URL lifetimes (2h audio, 24h
   ModelArk image/video, about 1h OmniHuman)
 - **Billed outputs are never dropped** — downloads are retried; if storage
@@ -104,7 +108,7 @@ Key features:
   quota; unsupported combinations are rejected at the MCP layer
 - **Draft ownership retention** — authenticated HTTP with regular Seedance 2.5
   enabled requires `STATE_PRUNE_MAX_AGE_DAYS >= 14`; the default is 30 days
-- **Timeout-safe long operations** — generation, understanding, large upload,
+- **Local background operations** — on stdio, generation, understanding, large upload,
   and provider task-submission tools run in the background through the ordinary
   `ark_job_*` tools by default, or native MCP task augmentation on clients that
   support it; completed-output retrieval also supports background execution
@@ -112,11 +116,11 @@ Key features:
 - **Model capability registry** — logical model families map to
   operator-configured model IDs; validates resolutions, formats, and
   batch support per model
-- **Security** — DNS-pinned SSRF-safe downloads, tenant/principal ownership,
-  shared-team API key auth for network HTTP, Host/Origin protection, and body limits
+- **Security** — DNS-pinned local downloads, credential-tenant/client-owner
+  HTTP ownership, Host/Origin protection, and positive admission/body/rate limits
 - **Runtime controls** — shared provider/principal concurrency, daily budget
-  reservations, safe retries, task ownership, readiness with optional provider
-  health checks, per-IP HTTP rate limiting, metrics, and tracing
+  reservations, safe retries, task ownership and tracing. HTTP readiness exposes
+  minimal state without provider probes; public HTTP metrics are unavailable
 - **Offline regression coverage** — unit, contract, integration, HTTP security,
   E2E, and MCP conformance tests, plus documentation build/link checks
 
@@ -150,12 +154,12 @@ accepts as reference input:
 > **Video references must be pre-hosted.** `seedance_create_task` accepts
 > video references as a **public HTTPS URL or existing authorized `asset://`
 > reference** — there is no inline Base64
-> option. Run `media_upload` in the background through `ark_job_submit` (or MCP
+> option. On stdio run `media_upload` in the background through `ark_job_submit` (or MCP
 > task metadata on a task-capable client) to upload Base64 or a local file path
 > (stdio only) to object storage (TOS or S3). Retrieve its presigned HTTPS GET
 > URL from the terminal `ark_job_get.result` (or `tasks/get` response), then run
 > `seedance_create_task` through the same supported background path.
-> Alternatively, host the video on
+> HTTP has no upload tools: host the video on
 > your own accessible HTTPS endpoint. The URL must resolve to
 > a public IP (private/loopback/link-local addresses are rejected by the SSRF
 > policy). `media_upload` requires TOS or S3 credentials; see [Configuration](docs/configuration.md).
@@ -182,7 +186,7 @@ flowchart TB
     Domain["Domain layer<br/>models · capability registry · errors"]
     Runtime["Runtime services<br/>concurrency · budget · ownership · retry"]
     Store["Artifact store<br/>filesystem + .meta.json"]
-    Sec["Security: shared-key auth, SSRF-safe downloads, body limits"]
+    Sec["Security: request BYOK, SSRF-safe downloads, admission limits"]
     Obs["Observability<br/>structured logs · metrics · traces"]
   end
   subgraph Providers["BytePlus"]
@@ -193,7 +197,7 @@ flowchart TB
   Client <-->|"stdio / HTTP"| Tools
   Tools --> Domain
   Tools --> Runtime
-  Tools --> Store
+  Tools -->|"stdio persistence only"| Store
   Domain --> Providers
   Sec -. guards .-> Tools
   Obs -. observes .-> Tools
@@ -228,10 +232,12 @@ sequenceDiagram
   P->>B: HTTPS (Bearer / X-Api-Key)
   B-->>P: media URL (2h audio / 24h image·video)
   P-->>T: provider result
-  T->>A: persist artifact (durable copy)
-  A-->>T: seed-media://artifacts/{id}
+  opt Explicit stdio persistence
+    T->>A: persist artifact (durable copy)
+    A-->>T: seed-media://artifacts/{id}
+  end
   T->>R: commit budget
-  T-->>C: ArtifactRef (stable resource URI)
+  T-->>C: Provider URL or explicit local artifact
 ```
 
 ## Quick Start
@@ -278,7 +284,7 @@ not the MCP server or its connection.
 
 ## Configuration
 
-Only configure the products you use. [Provider Keys](docs/api-keys.md) explains
+For stdio, only configure the products you use. [Provider Keys](docs/api-keys.md) explains
 which key each product needs. Store keys in a private file outside the
 repository; the client receives only its `ARK_MCP_ENV_FILE` path. Guided setup
 prepares the blank file and configuration; optional flags remain off unless
@@ -290,7 +296,7 @@ requested.
 > `SEEDANCE_DEFAULT_MODEL` to that ID (or add a 2.5 binding), or the server
 > fails at startup. See [Configuration](docs/configuration.md#seedance-default-model-upgrade-note).
 
-If a credential is absent, the server skips registering that product's
+On stdio, if a credential is absent, the server skips registering that product's
 tools. `seed_media_get_artifact`, `seed_media_export_artifact`, and
 `seed_media_persist_url` are always available, provider tools appear only
 when their credentials are configured, `media_upload` and
@@ -301,12 +307,22 @@ only when object storage credentials (TOS or S3) are configured, and
 `omnihuman_get_task`, and `omnihuman_cancel_task` appear only when
 `BYTEPLUS_OMNIHUMAN_ENABLED=true` and `BYTEPLUS_CV_API_KEY` is set.
 
+HTTP defaults to `MCP_AUTH_MODE=byok` and requires the operator's
+`MCP_IDENTITY_HMAC_KEY` (64 lowercase hex) and positive identity version
+`MCP_IDENTITY_KEY_VERSION` (default `1`). This is not a customer credential.
+Defaults: 60 RPM, 2 MiB body, 64 in-flight requests, `STATE_MAX_RECORDS=100000`.
+Endpoint headers `X-ModelArk-Seedance-Endpoint` and
+`X-ModelArk-Seedream-Endpoint` accept exact registry bindings only; explicit
+tool `model` wins. No opaque endpoint lineage inference is supported.
+Seed Audio/Seedream persistence and OmniHuman get persistence default to false
+globally. HTTP rejects true; local stdio accepts explicit true.
+
 See [Configuration](docs/configuration.md) for the full environment
 variable reference.
 
 ## Using with MCP Clients
 
-Long operations always run in the background. By default, submit them with
+On local stdio, long operations run in the background. By default, submit them with
 ordinary calls to `ark_job_capabilities`, `ark_job_submit`, `ark_job_get`, and
 `ark_job_cancel` — MCP task support is still rare, and any client that reports
 task augmentation as unsupported rejects `execution.taskSupport="required"`
@@ -315,8 +331,8 @@ task-augmented requests and retrieve output through `tasks/get`. Both paths
 enqueue the same FastMCP Docket worker and preserve the same typed tool result,
 ownership, scope, concurrency, and replay safeguards.
 
-Both paths are tested in-process, over subprocess stdio, and over authenticated
-Streamable HTTP with the locked FastMCP 4.1.8 runtime. The ordinary path uses
+Local background paths are tested in-process and over subprocess stdio with
+the locked FastMCP 4.1.8 runtime. HTTP uses direct foreground calls only. The ordinary local path uses
 standard MCP tool calls and does not require a client-specific task transport.
 The named desktop/IDE snippets below remain connection templates because exact
 client releases and tool-selection behavior can change. See the
@@ -341,9 +357,8 @@ Follow [Codex setup](docs/integrations/codex.md), or
 Follow [OpenCode setup](docs/integrations/opencode.md). Its configuration
 format depends on the installed edition.
 
-For multiple clients sharing jobs, see the operator's
-[shared-server transport guide](docs/transports.md). Separate local stdio
-processes do not share their in-memory jobs.
+For HTTP BYOK, see the [transport guide](docs/transports.md). HTTP cannot share
+local jobs; separate stdio processes do not share their in-memory jobs.
 
 ### TRAE IDE
 
@@ -398,7 +413,7 @@ make check-env     # Validate environment configuration
 | [Transports](docs/transports.md) | stdio vs HTTP deployment |
 | [Deployment](docs/deployment.md) | Container, Kubernetes, and remote HTTP deployment |
 | [BytePlus Terraform](docs/byteplus-terraform.md) | ECS starter, retained disk, private activation, backups, and recovery |
-| [Secret Manager](docs/secret-manager.md) | Pinned BytePlus provider-key versions, redacted planning, sync, and rollback |
+| [Secret Handling](docs/secret-manager.md) | Operator HMAC/client credentials; hosted provider-secret sync superseded |
 | [Troubleshooting](docs/troubleshooting.md) | Common errors and fixes |
 
 ## Project Layout
@@ -415,7 +430,7 @@ ark-mcp/
 │   ├── tools/                 # 21 catalog tools + shared helpers + cost estimation
 │   ├── artifacts/             # Tenant-aware filesystem artifact store
 │   ├── observability/         # Structured logging and Prometheus metrics
-│   └── security/              # Shared-key auth, URL/media policy, safe downloader, HTTP limits
+│   └── security/              # Request BYOK, URL/media policy, safe downloader, HTTP limits
 ├── tests/
 │   ├── unit/                  # Model validators, URL policy, media policy, helpers
 │   ├── contract/              # Provider gateway + adapter contract tests
@@ -451,18 +466,12 @@ See the project configuration for license details.
 
 The provider surfaces and both transports are implemented. CI enforces offline
 regression tests and coverage, formatting/lint, strict typing, security scans,
-package builds, dependency auditing, and container health. Remote HTTP requires
-a shared MCP key hash (`MCP_API_KEY_SHA256`) and is intentionally fail-closed.
-All key holders use the fixed `shared-team` tenant/principal, shared data and
-budget, and ordinary scopes excluding asset and moderation administration.
-Python defaults to `MCP_AUTH_MODE=local` for stdio/loopback; Docker, Compose and
-Terraform default to `api_key`.
-
-**Breaking authentication change:** the former `jwt` mode is rejected and
-retired `MCP_JWT_*`, `MCP_TENANT_CLAIM` and `MCP_PUBLIC_BASE_URL` settings are
-not used. Ownership is not transferred automatically. Preserve SQLite, Redis,
-artifacts and the encryption key; follow the
-[migration guide](docs/self-hosting.md#breaking-change-migration).
+package builds, dependency auditing, and container health. HTTP is a
+forward-only BYOK foundation with fresh SQLite, credential-tenant/client-owner
+isolation and no compatibility migration. Local stdio retains jobs and storage.
+PostgreSQL, multi-replica coordination, durable idempotency and crash recovery
+remain next phase. No exactly-once inference or public-launch readiness is claimed.
+Live provider and exact-client verification require separate approval.
 
 Seedream's [live smoke matrix](docs/integration-guide.md#opt-in-seedream-smoke-matrix)
 is opt-in; editing/alpha and visual acceptance still require authorized checks.

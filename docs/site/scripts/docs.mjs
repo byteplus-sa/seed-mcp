@@ -5,6 +5,10 @@ import toolModels from "../tool-models.json" with { type: "json" };
 
 export const SITE_BASE = "/ark-mcp";
 export const SOURCE_BASE = "https://github.com/byteplus-sa/seed-mcp/blob/main/";
+const understandingNotes = readFileSync(
+  new URL("../tool-notes/understanding-retries.md", import.meta.url),
+  "utf8",
+);
 const toolNotes = new Map([
   [
     "seedream_generate_image",
@@ -13,6 +17,15 @@ const toolNotes = new Map([
       "utf8",
     ),
   ],
+  [
+    "seedance_create_task",
+    readFileSync(
+      new URL("../tool-notes/seedance-create-task.md", import.meta.url),
+      "utf8",
+    ),
+  ],
+  ["seed_understand", understandingNotes],
+  ["seed_audio_understand", understandingNotes],
 ]);
 
 export function handbookPage(source, content, toolCount) {
@@ -128,6 +141,7 @@ ${entry.selection}
 
 export function toolPage(tool) {
   const name = tool.name;
+  const http = tool.transports?.http;
   const mode =
     tool.background === "required"
       ? "Background required"
@@ -150,10 +164,15 @@ export function toolPage(tool) {
       : { name, arguments: args });
   const execution =
     tool.background === "required"
-      ? "Submit through `ark_job_submit` with `tool_name` and the complete target `arguments`, including its inner `input` object. Poll `ark_job_get` using the returned Ark `job_id`, respecting `poll_after_ms`. Inspect both terminal status and `result.is_error`; the original output is in `result.structured_content`. Do not call this tool in the foreground."
+      ? "On local stdio, submit through `ark_job_submit` with `tool_name` and the complete target `arguments`, including its inner `input` object. Poll `ark_job_get` using the returned Ark `job_id`, respecting `poll_after_ms`. Inspect both terminal status and `result.is_error`; the original output is in `result.structured_content`. Stdio rejects a direct foreground call."
       : tool.background === "optional"
-        ? "Use a direct foreground call for lightweight operations. Submit through `ark_job_submit` when output persistence or a large download may take time. The full arguments still include the `input` wrapper."
+        ? "On local stdio, use a direct foreground call for lightweight operations. Submit through `ark_job_submit` for explicit output persistence. The full arguments still include the `input` wrapper."
         : "Call this tool directly. It is not a background-job target.";
+  const httpExecution = !http
+    ? "**HTTP: unavailable.** This is a local stdio tool."
+    : http.credential_header
+      ? `**HTTP: direct foreground calls only.** Supply \`${http.credential_header}\` and \`X-MCP-Client-Secret\` privately in request headers, including dry runs. The client secret is client-generated 32 random bytes encoded as 64 lowercase hex. Only the selected provider key is needed. Keep persistence false; HTTP rejects true, local paths and stored artifact references. No jobs, native tasks, storage/artifact tools or resources exist on HTTP.`
+      : "**HTTP: anonymous static discovery.** No provider key or client secret is required; it lists configured model bindings even without environment provider keys. `services[].enabled` reports registration, not entitlement. No provider calls are made.";
   const providerTasks = ["seedance_", "omnihuman_", "gen_task_"].some(
     (prefix) => name.startsWith(prefix),
   );
@@ -169,11 +188,15 @@ ${tool.description}
 
 | Requirement | Value |
 | --- | --- |
-| Registration | ${cell(tool.registration_gate)} |
-| Execution | ${mode} |
-| Required permission | ${tool.scope ? `\`${tool.scope}\`` : "No fixed per-tool scope; HTTP authentication and target-tool authorization still apply."} |
+| Local stdio registration | ${cell(tool.registration_gate)} |
+| Local stdio execution | ${mode} |
+| HTTP registration | ${http ? cell(http.registration_gate) : "Unavailable; local stdio only."} |
+| HTTP execution | ${http ? "Direct foreground only; no native tasks." : "Unavailable."} |
+| Catalog capability label | ${tool.scope ? `\`${tool.scope}\`` : "None"} |
 
-This site lists the full configured capability surface, not the tools enabled on your particular server. Use [model discovery](${SITE_BASE}/tool-reference/ark-list-models/) and [job discovery](${SITE_BASE}/tool-reference/ark-job-capabilities/) to check your connection. Credentials are server configuration, never tool arguments.
+This site lists all 21 local catalog entries. HTTP exposes 9 tools, or 12 with OmniHuman enabled, independently of operator provider keys. Use [model discovery](${SITE_BASE}/tool-reference/ark-list-models/) for your connection; [job discovery](${SITE_BASE}/tool-reference/ark-job-capabilities/) is stdio-only. Credentials never belong in tool arguments. HTTP has no OAuth, signup or server-issued key and never falls back to operator provider keys.
+
+Catalog capability labels are metadata, not auth grants. See the [scope taxonomy](${SITE_BASE}/security/#scope-taxonomy).
 
 ${supportedModels(name)}
 
@@ -186,12 +209,29 @@ start with [discovery without generation](${SITE_BASE}/setup/first-run/#discover
 
 ${execution}
 
+${httpExecution}
+
+${http ? "HTTP rejects explicit per-call `io.modelcontextprotocol/tasks` opt-in before provider dispatch, snapshot capture/save or queue creation, including discovery. Omit task opt-in; ordinary jobs are unavailable." : ""}
+
+${
+  http && args
+    ? `### HTTP Call
+
+The same input schema is used directly, without a job wrapper. Configure private headers separately; examples contain no credentials.
+
+\`\`\`json
+${JSON.stringify({ name, arguments: args }, null, 2)}
+\`\`\`
+`
+    : ""
+}
+
 ${
   call
     ? `<details>
 <summary>Exact MCP call (for developers)</summary>
 
-The following is an MCP tool-call envelope, not a shell command. Example media URLs and identifiers must be replaced with your own accessible resources. Seedream and Seedance examples are non-billable dry runs; other provider operations may incur charges.
+The following is a local stdio MCP tool-call envelope, not a shell command. Example media URLs and identifiers must be replaced with your own accessible resources. Seedream and Seedance examples are non-billable dry runs; other provider operations may incur charges.
 
 \`\`\`json
 ${JSON.stringify(call, null, 2)}
@@ -202,7 +242,7 @@ ${JSON.stringify(call, null, 2)}
     : `Match the input fields below and the full JSON Schema. See the [worked examples](${SITE_BASE}/tools/) for this capability and [Background Execution](${SITE_BASE}/integration-guide/#background-execution) for job/result handling.`
 }
 
-${providerTasks ? `An Ark job ID is not a provider task ID. Seedance video tasks use [gen_task_get](${SITE_BASE}/tool-reference/gen-task-get/), and OmniHuman avatars use [omnihuman_get_task](${SITE_BASE}/tool-reference/omnihuman-get-task/). Foreground status checks use \`persist_output=false\`; persist completed outputs through a background job. Save accepted provider task IDs and resume polling instead of submitting a second generation.` : ""}
+${providerTasks ? `An Ark job ID is not a provider task ID. Seedance video tasks use [gen_task_get](${SITE_BASE}/tool-reference/gen-task-get/), and OmniHuman avatars use [omnihuman_get_task](${SITE_BASE}/tool-reference/omnihuman-get-task/). Foreground status checks default to \`persist_output=false\`; only stdio can explicitly persist through a background job. HTTP clients download expiring provider URLs themselves. Save accepted provider task IDs and resume polling instead of submitting a second generation.` : ""}
 
 ${toolNotes.get(name) || ""}
 
@@ -249,9 +289,9 @@ ${JSON.stringify(tool.outputSchema, null, 2)}
 
 ## Troubleshooting
 
-- Missing tool: check [provider credentials](${SITE_BASE}/api-keys/) and feature flags, then restart the connection.
+- Missing tool: check transport first; jobs/storage/artifacts are stdio-only. HTTP provider tools are credential-independent at registration; OmniHuman needs its enable flag. Local tools depend on [provider credentials](${SITE_BASE}/api-keys/).
 - Invalid arguments: keep the correct wrapper and follow current model limits from discovery. A valid schema alone does not prove the chosen model supports the combination.
-- A job completes with an error: inspect the original tool result, not only the outer job status. Never automatically resubmit potentially billable work.
+- A local job completes with an error: inspect the original tool result, not only the outer job status. Never automatically resubmit potentially billable work on either transport.
 - Local output writes from jobs require server-configured \`OUTPUT_ROOTS\`; HTTP cannot write to a client's local disk.
 
 See [configuration](${SITE_BASE}/configuration/), [background execution](${SITE_BASE}/integration-guide/#background-execution), and [artifact delivery](${SITE_BASE}/artifacts/).

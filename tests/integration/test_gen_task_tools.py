@@ -433,9 +433,11 @@ class TestGenTaskGet:
     async def test_tasks_owned_by_others_are_reported_not_fetched(
         self, test_env: None, fake_ctx: FakeContext, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        monkeypatch.setattr("ark_mcp.tools.gen_task_get.get_principal", lambda _ctx: ALICE)
         runtime = fake_ctx.lifespan_context["runtime"]
+        await runtime.ownership_store.record("modelark", "t-mine", ALICE)
         await runtime.ownership_store.record(
-            "modelark", "t-other", AuthContext(principal_id="bob", tenant_id="t")
+            "modelark", "t-other", AuthContext(principal_id="bob", tenant_id=ALICE.tenant_id)
         )
         calls = _serve(monkeypatch, [_task("t-mine", "queued"), _task("t-other", "queued")])
         result = await gen_task_get(GenTaskGetInput(task_ids=["t-mine", "t-other"]), fake_ctx)
@@ -443,6 +445,7 @@ class TestGenTaskGet:
         assert [task.task_id for task in result.tasks] == ["t-mine"]
         assert [(e.task_id, e.code) for e in result.errors] == [("t-other", "NOT_OWNED")]
         assert calls["list"][0]["task_ids"] == ["t-mine"]
+        assert calls["get"] == []
 
     async def test_persist_output_in_foreground_is_rejected(
         self, test_env: None, fake_ctx: FakeContext, monkeypatch: pytest.MonkeyPatch
@@ -668,9 +671,12 @@ class TestGenTaskCancelOrDelete:
     async def test_other_principals_task_is_denied(
         self, test_env: None, fake_ctx: FakeContext, monkeypatch: pytest.MonkeyPatch
     ) -> None:
+        monkeypatch.setattr(
+            "ark_mcp.tools.gen_task_cancel_or_delete.get_principal", lambda _ctx: ALICE
+        )
         runtime = fake_ctx.lifespan_context["runtime"]
         await runtime.ownership_store.record(
-            "modelark", "t-bob", AuthContext(principal_id="bob", tenant_id="t")
+            "modelark", "t-bob", AuthContext(principal_id="bob", tenant_id=ALICE.tenant_id)
         )
         calls = _serve(monkeypatch, [_task("t-bob", "queued")])
         with pytest.raises(PermissionError):
@@ -680,6 +686,7 @@ class TestGenTaskCancelOrDelete:
                 ),
                 fake_ctx,
             )
+        assert calls["get"] == []
         assert calls["delete"] == []
 
     def test_mode_and_expected_status_must_agree(self) -> None:

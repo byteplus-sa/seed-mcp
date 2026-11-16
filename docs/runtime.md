@@ -7,8 +7,31 @@ describes its operational services, including concurrency limiting, the daily
 budget ledger, provider-task and object-key ownership, persistence caching,
 per-task persistence single-flight, and the provider retry policy.
 
+HTTP is the forward-only [BYOK foundation](../specs/SPEC_HOSTED_BYOK.md):
+foreground direct calls with request-key gateways, minimal scoped SQLite state,
+no jobs/native tasks, storage/artifact tools or resources. Artifact caches,
+object storage and MCP execution claims below are local stdio capabilities.
+Fresh state is required; no old-schema migration exists.
+
+## Request Configuration
+
+HTTP middleware binds the receiving server's `Settings` with `settings_scope`
+for the request lifetime and resets it in `finally`. `get_settings()` resolves
+that context before process defaults. With scoped settings,
+`get_capability_registry()` builds from those settings instead of reusing the
+process-default registry. Concurrent server instances therefore keep their
+configured model bindings and defaults isolated.
+
+Anonymous `ark_list_models` uses this same scope and lists configured bindings
+without environment provider keys. `services[].enabled` describes registered
+services, not customer entitlement or successful provider authentication.
+Per-call endpoint headers select an exact binding from this server's registry;
+an explicit tool `model` wins.
+
+## State Storage
+
 All state lives in a single SQLite database at
-`<artifact_dir>/runtime.sqlite3` (default `artifact_dir` is `~/.ark-mcp/artifacts`),
+`<artifact_dir>/runtime.sqlite3` (default `artifact_dir` is `~/.seed-mcp/artifacts`),
 shared by the ownership stores, budget ledger, and task-artifact cache. The
 ownership table also stores MCP task owners and atomic execution claims. The
 database is opened in WAL mode (`PRAGMA journal_mode=WAL`) with a
@@ -56,20 +79,19 @@ Two distinct layers, acquired together for every billable call:
 the provider bucket semaphore and the principal's semaphore for the duration
 of the call.
 
-For a **local principal** (stdio transport, or HTTP local mode), the
+For a **local principal** (stdio transport), the
 per-principal semaphore is **skipped**: a single trusted local caller is
 bounded only by the provider limit. Without this, the default
 `PRINCIPAL_MAX_CONCURRENCY=3` would silently cap *all* concurrent calls across
 every provider at 3 — below the per-provider limit of 5 — making parallel
 local generation appear to "serialize under load." The per-principal bound
-applies to authenticated shared-key HTTP. Every member is principal and tenant
-`shared-team`, so the default is three concurrent billable calls across the
-whole team and all providers, not three per member.
+applies to HTTP owners derived from the selected provider credential and
+client secret. Unrelated provider keys do not change that scope.
 
 | Env var | Default | Constraint | Used as |
 |---|---|---|---|
 | `PROVIDER_MAX_CONCURRENCY` | `5` | `ge=1` | per-bucket provider limit |
-| `PRINCIPAL_MAX_CONCURRENCY` | `3` | `ge=1` | whole-team principal limit on shared-key HTTP; skipped in local mode |
+| `PRINCIPAL_MAX_CONCURRENCY` | `3` | `ge=1` | derived HTTP owner limit; skipped on local stdio |
 
 The per-principal semaphore cache defaults to `maxsize=10_000` and
 `ttl=86_400` (24h); idle principal semaphores expire after 24h. A `TTLCache`
@@ -91,15 +113,19 @@ come from provider latency, not from a server-wide lock. The other bounds:
 | Provider request | `BYTEPLUS_REQUEST_TIMEOUT_MS=600000` (10 min), connect `BYTEPLUS_CONNECT_TIMEOUT_MS=10000` | `config/env.py` | Per HTTP call to a provider; timeouts are classified in [Error taxonomy](#error-taxonomy) |
 | HTTP graceful shutdown | equals `BYTEPLUS_REQUEST_TIMEOUT_MS` | `__main__.py` (`timeout_graceful_shutdown`) | In-flight HTTP requests get up to one provider timeout to finish on shutdown |
 | SQLite lock wait | `busy_timeout=5000` ms | `runtime.py::_open_sqlite_connection` | A blocked writer waits up to 5 s in its worker thread, never on the event loop |
-| HTTP request body | `MCP_HTTP_MAX_BODY_BYTES=314572800` (300 MiB) | `config/env.py` | A value below the 200 MiB video limit × 4/3 (Base64) logs `http_body_limit_below_media_upload_max` at startup |
+| HTTP request body | `MCP_HTTP_MAX_BODY_BYTES=2097152` (2 MiB) | `config/env.py` | Positive streamed body cap |
+| HTTP admission | `MCP_HTTP_MAX_IN_FLIGHT=64`, `RATE_LIMIT_RPM=60` | `security/http_middleware.py` | Positive global in-flight and per-IP rate bounds, including discovery |
+| Retained state | `STATE_MAX_RECORDS=100000` | `runtime.py` | Positive capacity; fail closed rather than evict live owners |
 | Variation batch | `variation_batch_deadline(...)` | `tools/_parallel.py` | See [Parallel variations](#parallel-variations-tools_parallelpy) |
 
-- **A client's foreground deadline is not a server timeout.** Generation,
+- **A client's foreground deadline is not a server timeout.** On stdio, generation,
   understanding and upload tools use task mode `required`, so
   they run in the background worker and a foreground call is rejected before
   the provider is called. See
   [SPEC_BACKGROUND_JOBS.md](../specs/SPEC_BACKGROUND_JOBS.md) and
   [troubleshooting](troubleshooting.md#client-timeouts-vs-provider-latency).
+  HTTP runs directly in the foreground; configure client/proxy timeouts
+  accordingly and never blindly resubmit after a lost response.
 - **Large media should not travel inside JSON-RPC.** Use `media_upload` with a
   file path (stdio) or the presign and direct-upload path; the body limit only
   bounds inlined Base64.
@@ -151,11 +177,12 @@ Three-state lifecycle: `reserved` → `committed` (charged) **or**
 
 | Env var | Default | Behavior |
 |---|---|---|
-| `DAILY_BUDGET_USD` | `0.0` | Per-principal UTC daily limit. `0.0` (and any falsy value) normalizes to `None` → **record-only mode** (no rejection; the ledger still records everything). A positive value enables **reject mode**. |
+| `DAILY_BUDGET_USD` | `0.0` | Per-principal UTC daily limit. `0.0` (and any falsy value) normalizes to `None` → **record-only mode** (no spending-limit rejection; a successful reservation is still required). A positive value enables **reject mode**. |
 
 The daily window is the UTC calendar date, scoped per `(principal_id, tenant_id)`.
-On shared-key HTTP, every member uses `shared-team` for both values, so this is
-one team-wide cap. Rotating the MCP key does not reset the budget history.
+On HTTP those values derive from the selected provider credential and client
+secret. Credential or HMAC key/version changes change scope. A new client secret
+can create another owner; this is not a provider-account spending ceiling.
 
 ### Cost estimation (`tools/_cost.py`)
 
@@ -199,20 +226,20 @@ CREATE TABLE IF NOT EXISTS task_ownership (
     principal_id TEXT NOT NULL,
     tenant_id TEXT NOT NULL,
     created_at TEXT NOT NULL,
-    PRIMARY KEY(provider, task_id)
+    PRIMARY KEY(provider, tenant_id, task_id)
 )
 ```
 
 | Method | Behavior |
 |---|---|
-| `record(provider, task_id, owner)` | `INSERT ... ON CONFLICT(provider, task_id) DO UPDATE` — re-recording **upserts** to the new owner. |
+| `record(provider, task_id, owner)` | Records within the credential tenant; an existing different principal is never reassigned. Capacity or store errors fail closed. |
 | `require_owner(provider, task_id, owner)` | Row missing: if `owner.is_local` returns silently (local mode is permissive for unrecorded tasks), else `PermissionError`. Row present but mismatched: `PermissionError("Task is not owned by the current principal.")`. |
 | `list_task_ids(provider, owner)` | returns task IDs for the provider and `(principal_id, tenant_id)`. |
 | `ping()` | `SELECT 1` liveness probe (used by the `/ready` route). |
 | `close()` | closes the connection. |
 
-Every lookup is scoped by `provider` and `task_id`; owner listings also require
-both `principal_id` and `tenant_id`. The `is_local` shortcut only affects the
+Every lookup is scoped by `provider`, `tenant_id` and `task_id`; owner listings also require
+`principal_id`. The `is_local` shortcut only affects the
 missing-row branch — a row that exists and belongs to someone else still raises,
 even in local mode.
 
@@ -269,12 +296,13 @@ random_value=random.random)`:
 - **Only `ProviderError` is retried**, and only when `exc.retryable` **and**
   `not exc.ambiguous_completion` **and** `attempt < max_attempts` **and**
   (`policy.retry_timeouts` or `exc.code != "TIMEOUT"`). `seed_understand`
-  and `seed_audio_understand` use `retry_timeouts=False`: a chat timeout is safe to retry but is not
-  retried automatically, because a second full-length thinking run doubles
-  latency and token cost; its 429/5xx responses are still retried.
-  `ambiguous_completion=True` is deliberately non-retryable: the mutation
-  may have already succeeded at the provider, so a blind retry could
-  double-charge or duplicate. Reconcile via the task ID / request ID instead.
+  and `seed_audio_understand` use `retry_timeouts=False`, which also excludes
+  demonstrably pre-dispatch connect/pool timeouts. A chat timeout after possible
+  dispatch is ambiguous/nonretryable because completion may already be billed.
+  Eligible 429 rejections can be retried. Chat/mutation 5xx responses remain
+  `retryable=true` in normalized HTTP errors but also have
+  `ambiguous_completion=True`, so they are never automatically retried.
+  Reconcile via the task ID / request ID instead of risking duplicate billing.
 - Any non-`ProviderError` propagates immediately (no retry, no wrapping).
 - **Backoff**:
   - If `exc.error.retry_after_seconds is not None` (provider `Retry-After`):
@@ -285,13 +313,13 @@ random_value=random.random)`:
     `delay = max(0.0, base + jitter)`.
 - Each retry increments `ark_mcp_retry_attempts_total{provider, operation}`.
 
-**Seedance transport caveat:** create-task timeouts are normalized as
-ambiguous and are not retried. However, the existing adapter normalizes raw
-`httpx.ConnectError` and other `httpx.TransportError` failures as retryable
-without marking completion ambiguous. `call_with_retry` can therefore repeat
-a create request even when provider acceptance is uncertain. The replay guard
-does not deduplicate retries inside one handler. This remains a runtime risk,
-not a guarantee of exactly-once billing; do not add client-side retries.
+Mutation read/write/protocol transport failures with uncertain acceptance
+and malformed 2xx responses are ambiguous/nonretryable, including understanding
+completions and Files API uploads. Demonstrably pre-dispatch connection/pool
+failures remain eligible for bounded retries subject to the timeout policy above.
+Diagnostics omit raw exceptions, credentials and credential-bearing URLs.
+Keep safe request IDs for reconciliation. This is not durable idempotency
+or exactly-once billing; do not add blind client-side retries.
 
 ## Billable call composition (`billed_provider_slot`)
 
@@ -304,9 +332,9 @@ async with billed_provider_slot(ctx, provider=..., product=..., estimated_cost_u
     # 3. (caller runs the provider call, typically via call_with_retry)
 ```
 
-Outcome handling:
+Outcome handling (commit/release are best-effort finalization attempts):
 
-| Outcome | Budget action |
+| Outcome | Attempted budget action |
 |---|---|
 | Success | `commit` (charged) |
 | `ProviderError` with `ambiguous_completion` | `commit` (treats as billable — may have succeeded) |
@@ -316,15 +344,36 @@ Outcome handling:
 | Cancellation while still waiting for a limiter slot | `release` |
 | Any other exception | `release` |
 
-In all error cases the exception is re-raised. The commit/release on
-cancellation is shielded, so a cancelled call never leaves a dangling
-reservation.
+Reservation failures still fail closed before provider dispatch. After reservation,
+commit/release exceptions log `ERROR` event `budget_finalization_failed` with only
+safe `provider`, `action` and `reservation_id` fields, without raw exception text.
+They do not replace the provider result or original error, raise `AcceptedTaskError`,
+or add a variation failure. A failed commit/release leaves the allowance
+conservatively reserved and counted against the daily limit.
+
+The original exception is re-raised on error or cancellation. Cancellation
+finalization is shielded but best effort; it does not guarantee that no
+`reserved` rows remain.
+
+Seedance proceeds to the shared `record_accepted_task` helper after budget
+finalization, even if finalization logged a failure. OmniHuman uses the same
+ownership helper. Only an accepted task's ownership-record failure becomes an
+`AcceptedTaskError` (`OWNERSHIP_RECORD_FAILED`, `retryable=false`,
+`ambiguous_completion=true`), retaining the accepted task ID and available
+request ID without internal resubmission. A Seedance variation retains `task_id`
+and `request_id` alongside `error`; `submitted` counts known IDs and `failed`
+counts entries with errors, so an ownership-record error can count in both.
+A single-call failure remains an error `ToolResult` with IDs in its text rather
+than a structured success response. HTTP polling still requires recorded
+ownership; otherwise reconcile directly with the provider. Trusted stdio
+permits unrecorded IDs, not recorded owner mismatches.
 
 ## Error taxonomy
 
 | Class | Module | Raised by | Meaning |
 |---|---|---|---|
 | `ProviderError` | `domain/errors.py` | provider gateways + transport normalizers | wraps a `NormalizedProviderError`; the single retryable error type |
+| `AcceptedTaskError` | `domain/errors.py` (extends `ProviderError`) | `record_accepted_task` | accepted task ownership recording failed; retains task/request IDs, ambiguous and nonretryable |
 | `BudgetExceededError` | `runtime.py` (extends `ValueError`) | `BudgetLedger.reserve` | daily budget would be exceeded; raised before dispatch |
 | `ValueError` | builtin | `ProviderLimiters`, `RetryPolicy`, `resolve_prompts` | config/argument validation |
 | `RuntimeError` | builtin | `get_runtime`, `BudgetLedger.reserve` | missing runtime services / reservation ID |
@@ -341,16 +390,18 @@ reservation.
 |---|---|---|---|
 | `normalize_timeout(op)` (mutation, default `side_effect=True`) | `TIMEOUT` | `False` | `True` |
 | `normalize_timeout(op, side_effect=False)` (read-only) | `TIMEOUT` | `True` | `False` |
-| `normalize_connection_error` | `CONNECTION_ERROR` | `True` | `None` |
-| `normalize_transport_error` | `TRANSPORT_ERROR` | `True` | `None` |
+| `normalize_connection_error` (pre-dispatch) | `CONNECTION_ERROR` | `True` | `False` |
+| `normalize_transport_error` (uncertain mutation) | `TRANSPORT_ERROR` | `False` | `True` |
+| `invalid_response` (malformed mutation 2xx) | `INVALID_RESPONSE` | `False` | `True` |
 
-Timeout classification depends on whether the call can create provider state:
+Timeout classification after possible dispatch depends on whether the call can
+change provider state or consume billable inference:
 
 | Call | Examples | Timeout result | Auto-retried? |
 |---|---|---|---|
 | Mutation | Seedance/OmniHuman create, cancel, delete; Seedream/Seed Audio generate | `retryable=False`, `ambiguous_completion=True` | No — reconcile by task/request ID |
 | Read-only poll | Seedance `get_task`/`list_tasks`, OmniHuman status | `retryable=True`, `ambiguous_completion=False` | Yes |
-| Chat completion | `seed_understand`, `seed_audio_understand` | `retryable=True`, `ambiguous_completion=False` | No (`retry_timeouts=False`) |
+| Chat completion | `seed_understand`, `seed_audio_understand` | `retryable=False`, `ambiguous_completion=True` | No; completion may already be billed |
 
 ## Parallel variations (`tools/_parallel.py`)
 
@@ -384,11 +435,20 @@ Re-exports `DEFAULT_MAX_CONCURRENT = 5`.
   succeeded, failed, variations)`. One variation failing never breaks the
   others; the batch always returns exactly `count` entries.
 
+Seedance's outward `submitted`/`failed` counters are computed independently
+from those entries: an accepted task with an ownership-record error counts in
+both. Budget-finalization log events do not add failures to these counters.
+
 See [api-reference.md](api-reference.md) for `VariationResult` /
 `VariationSummary` / `VariationError` field tables.
 
 
 ## MCP task execution claims
+
+This section is stdio-only. HTTP does not register ordinary jobs or the native
+task extension. It also rejects explicit per-call `io.modelcontextprotocol/tasks`
+opt-in, including discovery, before provider dispatch, task-snapshot
+capture/save or queue creation. Calls must omit task opt-in.
 
 `TaskOwnershipStore.claim(provider, task_id, owner) -> bool` uses an atomic
 `INSERT ... ON CONFLICT DO NOTHING`, returning true only for the first claim.
@@ -403,3 +463,15 @@ checks and optional background persistence remain repeatable. Claims are stored
 in the same SQLite file, share its locking/transaction behavior, and follow the
 existing ownership retention policy. The queue, database and configured snapshot
 encryption key must stay together across restarts.
+
+## HTTP Readiness and Recovery
+
+HTTP `/health` and `/ready` expose minimal process/state readiness and never
+probe providers. `/metrics` and configuration-detail resources are unavailable
+on public HTTP. Positive state admission reduces capacity failures before
+dispatch, but post-acceptance record failures remain ambiguous.
+
+Keys are request-only, not persisted. Files API cleanup uses the same live
+ModelArk key; remote temporary-file expiry is distinct from output URL expiry.
+PostgreSQL, multi-replica coordination, durable pre-dispatch records, idempotency
+and crash recovery remain next phase. Public-launch readiness is not claimed.

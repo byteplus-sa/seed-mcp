@@ -3,6 +3,12 @@
 The Ark Seed MCP server exposes a conditional multimodal tool surface.
 Here are common scenarios and how to achieve them.
 
+**The job/persistence examples below are local stdio workflows.** HTTP BYOK
+calls provider tools directly with `{"input": {...}}`, uses persistence false
+and has no jobs/native tasks/storage/artifact tools/resources. Provider keys
+and the client secret go in private request headers, never tool arguments.
+Retrieve expiring output URLs on the client. See [HTTP setup](setup/shared-server.md).
+
 The JSON blocks below show tool input payloads. Wrap the payload for
 generation, variation, upload, understanding (including audio transcription), and
 provider-submission tools in `ark_job_submit`, or invoke those tools with MCP

@@ -1,117 +1,79 @@
-"""ASGI-level HTTP health, origin, and authentication tests."""
+"""ASGI guard regressions for specs/SPEC_HOSTED_BYOK.md."""
 
 from __future__ import annotations
 
 import asyncio
 import time
 from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
+from unittest.mock import AsyncMock
 
 import httpx
 import pytest
 import respx
-from fastmcp.server.auth import AccessToken, TokenVerifier
-from starlette.middleware import Middleware
+from starlette.types import Message, Scope
 
 from ark_mcp.config.env import Settings
-from ark_mcp.security.http_middleware import (
-    RateLimitMiddleware,
-    RequestBodyLimitMiddleware,
-)
+from ark_mcp.security.http_middleware import RateLimitMiddleware
 from ark_mcp.server import create_server
+from tests.integration.test_byok_http import (
+    CLIENT_SECRET,
+    MODELARK,
+    MODELARK_KEY,
+    OPERATOR_KEY,
+    assert_denied,
+    call_tool,
+    credentials,
+    http_server,
+    http_settings,
+    rpc,
+)
 
 
-def _http_settings(tmp_path: Path) -> Settings:
-    return Settings(
-        _env_file=None,
-        MCP_TRANSPORT="http",
-        MCP_HOST="127.0.0.1",
-        MCP_AUTH_MODE="api_key",
-        MCP_API_KEY_SHA256="a" * 64,
-        MCP_ALLOWED_HOSTS="testserver",
-        MCP_ALLOWED_ORIGINS="https://client.example.com",
-        ARTIFACT_DIR=str(tmp_path / "artifacts"),
-        BYTEPLUS_MODELARK_API_KEY="test-modelark-key",  # pragma: allowlist secret
+@pytest.mark.parametrize("operator_key", ["", OPERATOR_KEY])
+@respx.mock
+async def test_health_and_readiness_never_probe_providers(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, operator_key: str
+) -> None:
+    probe = AsyncMock(side_effect=AssertionError("HTTP readiness must not contact providers"))
+    monkeypatch.setattr("ark_mcp.providers.base.BaseHttpGateway.health_check", probe)
+    settings = http_settings(
+        tmp_path,
+        BYTEPLUS_MODELARK_API_KEY=operator_key,
     )
-
-
-class ClaimsTokenVerifier(TokenVerifier):
-    def __init__(self, tokens: dict[str, dict[str, Any]]) -> None:
-        super().__init__()
-        self.tokens = tokens
-
-    async def verify_token(self, token: str) -> AccessToken | None:
-        data = self.tokens.get(token)
-        return AccessToken(token=token, **data) if data is not None else None
-
-
-def _verifier() -> ClaimsTokenVerifier:
-    return ClaimsTokenVerifier(
-        tokens={
-            "good-token": {
-                "client_id": "test-client",
-                "scopes": [
-                    "seedream:generate",
-                    "artifacts:read",
-                ],
-                "claims": {"sub": "alice", "tenant_id": "tenant-a"},
-            },
-            "read-only-token": {
-                "client_id": "read-client",
-                "scopes": ["artifacts:read"],
-                "claims": {"sub": "reader", "tenant_id": "tenant-a"},
-            },
-        }
-    )
-
-
-@asynccontextmanager
-async def _http_client(tmp_path: Path) -> AsyncIterator[httpx.AsyncClient]:
-    settings = _http_settings(tmp_path)
-    server = create_server(settings, auth_provider=_verifier())
-    app = server.http_app(
-        path="/mcp",
-        stateless_http=True,
-        json_response=True,
-        host_origin_protection=True,
-        allowed_hosts=settings.allowed_hosts,
-        allowed_origins=settings.allowed_origins,
-        middleware=[Middleware(RequestBodyLimitMiddleware, max_bytes=1024)],
-    )
-    async with (
-        app.router.lifespan_context(app),
-        httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app),
-            base_url="http://testserver",
-        ) as client,
-    ):
-        yield client
-
-
-async def test_health_ready_and_metrics(tmp_path: Path) -> None:
-    async with _http_client(tmp_path) as http_client:
-        health = await http_client.get("/health")
-        ready = await http_client.get("/ready")
-        metrics = await http_client.get("/metrics")
-
-    assert health.status_code == 200
+    async with http_server(tmp_path, settings=settings) as (_, _, client):
+        health = await client.get("/health")
+        ready = await client.get("/ready")
+        metrics = await client.get("/metrics")
+    assert health.status_code == ready.status_code == 200
     assert health.json() == {"status": "healthy"}
-    assert ready.status_code == 200
     assert ready.json() == {"status": "ready"}
-    assert metrics.status_code == 200
-    assert "ark_mcp_tool_requests_total" in metrics.text
+    assert metrics.status_code == 404
+    probe.assert_not_called()
+    assert len(respx.calls) == 0
 
 
-async def test_mcp_rejects_missing_token(tmp_path: Path) -> None:
-    async with _http_client(tmp_path) as http_client:
-        response = await http_client.post(
+async def test_readiness_checks_state_and_returns_no_diagnostics(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async with http_server(tmp_path) as (_, runtime, client):
+        monkeypatch.setattr(
+            runtime.ownership_store,
+            "ping",
+            AsyncMock(side_effect=RuntimeError("private database details")),
+        )
+        ready = await client.get("/ready")
+        assert ready.status_code == 503
+        assert ready.json() == {"status": "not_ready"}
+        assert (await client.get("/health")).status_code == 200
+
+
+async def test_anonymous_initialize_has_no_task_extension_or_session(tmp_path: Path) -> None:
+    async with http_server(tmp_path, app_options={"stateless_http": False}) as (_, _, client):
+        response = await client.post(
             "/mcp",
-            headers={
-                "Origin": "https://client.example.com",
-                "Accept": "application/json, text/event-stream",
-            },
+            headers={"Accept": "application/json, text/event-stream"},
             json={
                 "jsonrpc": "2.0",
                 "id": 1,
@@ -119,168 +81,83 @@ async def test_mcp_rejects_missing_token(tmp_path: Path) -> None:
                 "params": {
                     "protocolVersion": "2025-06-18",
                     "capabilities": {},
-                    "clientInfo": {"name": "test", "version": "1"},
+                    "clientInfo": {"name": "synthetic-test", "version": "1"},
                 },
             },
         )
-    assert response.status_code == 401
-
-
-async def test_mcp_accepts_valid_token(tmp_path: Path) -> None:
-    async with _http_client(tmp_path) as http_client:
-        response = await http_client.post(
-            "/mcp",
-            headers={
-                "Authorization": "Bearer good-token",
-                "Origin": "https://client.example.com",
-                "Accept": "application/json, text/event-stream",
-            },
-            json={
-                "jsonrpc": "2.0",
-                "id": 1,
-                "method": "initialize",
-                "params": {
-                    "protocolVersion": "2025-06-18",
-                    "capabilities": {},
-                    "clientInfo": {"name": "test", "version": "1"},
-                },
-            },
-        )
-    assert response.status_code == 200
-    assert response.json()["result"]["serverInfo"]["name"] == "Ark Seed Multimodal"
-
-
-async def test_invalid_origin_is_rejected(tmp_path: Path) -> None:
-    async with _http_client(tmp_path) as http_client:
-        response = await http_client.post(
-            "/mcp",
-            headers={
-                "Authorization": "Bearer good-token",
-                "Origin": "https://evil.example.com",
-                "Accept": "application/json, text/event-stream",
-            },
-            json={"jsonrpc": "2.0", "id": 1, "method": "ping"},
-        )
-    assert response.status_code in {403, 421}
-
-
-async def test_component_scope_rejects_under_scoped_token(tmp_path: Path) -> None:
-    async with _http_client(tmp_path) as http_client:
-        response = await http_client.post(
-            "/mcp",
-            headers={
-                "Authorization": "Bearer read-only-token",
-                "Origin": "https://client.example.com",
-                "Accept": "application/json, text/event-stream",
-            },
-            json={
-                "jsonrpc": "2.0",
-                "id": 2,
-                "method": "tools/call",
-                "params": {
-                    "name": "seedream_generate_image",
-                    "arguments": {"input": {"prompt": "must not dispatch"}},
-                },
-            },
-        )
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["result"]["isError"] is True
-    assert "unknown tool" in payload["result"]["content"][0]["text"].lower()
-
-
-async def test_seedance_scope_rejects_under_scoped_token(tmp_path: Path) -> None:
-    async with _http_client(tmp_path) as http_client:
-        response = await http_client.post(
-            "/mcp",
-            headers={
-                "Authorization": "Bearer read-only-token",
-                "Origin": "https://client.example.com",
-                "Accept": "application/json, text/event-stream",
-            },
-            json={
-                "jsonrpc": "2.0",
-                "id": 3,
-                "method": "tools/call",
-                "params": {
-                    "name": "seedance_create_task",
-                    "arguments": {"input": {"prompt": "must not dispatch"}},
-                },
-            },
-        )
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["result"]["isError"] is True
-    assert "unknown tool" in payload["result"]["content"][0]["text"].lower()
+        assert response.status_code == 200
+        assert "mcp-session-id" not in response.headers
+        capabilities = response.json()["result"]["capabilities"]
+        assert "tasks" not in capabilities
+        assert "io.modelcontextprotocol/tasks" not in capabilities.get("extensions", {})
+        assert (await rpc(client, "tools/list"))["result"]["tools"]
 
 
 @pytest.mark.parametrize(
-    ("tool_name", "tool_input"),
+    ("headers", "status"),
     [
-        (
-            "gen_task_get",
-            {"task_ids": ["task-private"]},
-        ),
-        (
-            "gen_task_cancel_or_delete",
-            {
-                "task_id": "task-private",
-                "mode": "cancel",
-                "expected_status": "queued",
-            },
-        ),
+        ({"Origin": "https://evil.example.com"}, 403),
+        ({"Host": "evil.example.com"}, 421),
     ],
 )
-async def test_generation_task_scopes_reject_image_only_token(
-    tmp_path: Path, tool_name: str, tool_input: dict[str, object]
+@respx.mock
+async def test_host_origin_guards_cannot_be_disabled_through_http_app(
+    tmp_path: Path, headers: dict[str, str], status: int
 ) -> None:
-    async with _http_client(tmp_path) as http_client:
-        response = await http_client.post(
+    options = {
+        "host_origin_protection": False,
+        "allowed_hosts": ["evil.example.com"],
+        "allowed_origins": ["https://evil.example.com"],
+    }
+    async with http_server(tmp_path, app_options=options) as (_, _, client):
+        response = await client.post(
             "/mcp",
             headers={
-                "Authorization": "Bearer good-token",
-                "Origin": "https://client.example.com",
                 "Accept": "application/json, text/event-stream",
+                **credentials(),
+                **headers,
             },
-            json={
-                "jsonrpc": "2.0",
-                "id": 4,
-                "method": "tools/call",
-                "params": {"name": tool_name, "arguments": {"input": tool_input}},
-            },
+            json={"jsonrpc": "2.0", "id": 1, "method": "ping"},
         )
-
-    assert response.status_code == 200
-    payload = response.json()
-    assert payload["result"]["isError"] is True
-    assert "unknown tool" in payload["result"]["content"][0]["text"].lower()
+    assert response.status_code == status
+    assert len(respx.calls) == 0
 
 
-async def test_seedream_scope_allows_dispatch(
-    test_env: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+def test_stdio_server_cannot_construct_http_app(tmp_path: Path) -> None:
+    options: dict[str, Any] = {
+        "_env_file": None,
+        "MCP_TRANSPORT": "stdio",
+        "ARTIFACT_DIR": str(tmp_path / "artifacts"),
+    }
+    server = create_server(Settings(**options))
+    with pytest.raises(ValueError, match="HTTP"):
+        server.http_app()
+
+
+@pytest.mark.parametrize("authorization", ["Bearer synthetic-old-key", "Basic synthetic", ""])
+@respx.mock
+async def test_authorization_is_rejected_even_with_valid_byok_headers(
+    tmp_path: Path, authorization: str
 ) -> None:
-    from ark_mcp.providers.modelark.schemas import SeedreamProviderResponse
-    from ark_mcp.providers.modelark.seedream import SeedreamService
-
-    async def generate(
-        _self: SeedreamService, _request: object
-    ) -> tuple[SeedreamProviderResponse, str]:
-        return (
-            SeedreamProviderResponse(data=[{"url": "https://output.example.com/image.png"}]),
-            "req-image",
-        )
-
-    async def close(_self: SeedreamService) -> None:
-        return None
-
-    monkeypatch.setattr(SeedreamService, "generate", generate)
-    monkeypatch.setattr(SeedreamService, "close", close)
-    async with _http_client(tmp_path) as http_client:
-        response = await http_client.post(
+    async with http_server(tmp_path) as (_, _, client):
+        response = await client.post(
             "/mcp",
+            headers={**credentials(), "Authorization": authorization},
+            json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
+        )
+        assert response.status_code == 400
+        assert "provider-specific BYOK" in response.text
+        assert "synthetic" not in response.text
+    assert len(respx.calls) == 0
+
+
+@respx.mock
+async def test_query_string_credentials_cannot_authorize_provider_work(tmp_path: Path) -> None:
+    async with http_server(tmp_path) as (_, _, client):
+        response = await client.post(
+            "/mcp",
+            params={"api_key": MODELARK_KEY, "X-MCP-Client-Secret": CLIENT_SECRET},
             headers={
-                "Authorization": "Bearer good-token",
-                "Origin": "https://client.example.com",
                 "Accept": "application/json, text/event-stream",
                 "Mcp-Protocol-Version": "2026-07-28",
                 "Mcp-Method": "tools/call",
@@ -288,271 +165,90 @@ async def test_seedream_scope_allows_dispatch(
             },
             json={
                 "jsonrpc": "2.0",
-                "id": 4,
+                "id": 1,
                 "method": "tools/call",
                 "params": {
                     "name": "seedream_generate_image",
-                    "arguments": {"input": {"prompt": "A portrait", "persist": False}},
+                    "arguments": {"input": {"prompt": "square"}},
                     "_meta": {
                         "io.modelcontextprotocol/protocolVersion": "2026-07-28",
-                        "io.modelcontextprotocol/clientCapabilities": {
-                            "extensions": {"io.modelcontextprotocol/tasks": {}}
-                        },
+                        "io.modelcontextprotocol/clientCapabilities": {},
                     },
                 },
             },
         )
         assert response.status_code == 200, response.text
-        task_id = response.json()["result"]["taskId"]
-        async with asyncio.timeout(5):
-            while True:
-                polled = await http_client.post(
-                    "/mcp",
-                    headers={
-                        "Authorization": "Bearer good-token",
-                        "Origin": "https://client.example.com",
-                        "Accept": "application/json, text/event-stream",
-                        "Mcp-Protocol-Version": "2026-07-28",
-                        "Mcp-Method": "tasks/get",
-                        "Mcp-Name": task_id,
-                    },
-                    json={
-                        "jsonrpc": "2.0",
-                        "id": 5,
-                        "method": "tasks/get",
-                        "params": {
-                            "taskId": task_id,
-                            "_meta": {
-                                "io.modelcontextprotocol/protocolVersion": "2026-07-28",
-                                "io.modelcontextprotocol/clientCapabilities": {
-                                    "extensions": {"io.modelcontextprotocol/tasks": {}}
-                                },
-                            },
-                        },
-                    },
-                )
-                payload = polled.json()["result"]
-                if payload["status"] != "working":
-                    break
-                await asyncio.sleep(0.01)
-        assert payload["result"]["isError"] is False
-        assert (
-            payload["result"]["structuredContent"]["artifacts"][0]["uri"]
-            == "https://output.example.com/image.png"
+        assert_denied(response.json())
+    assert len(respx.calls) == 0
+
+
+@respx.mock
+async def test_duplicate_raw_credentials_are_rejected_at_asgi_boundary(tmp_path: Path) -> None:
+    async with http_server(tmp_path) as (_, _, client):
+        response = await client.post(
+            "/mcp",
+            headers=[
+                ("X-ModelArk-Api-Key", MODELARK_KEY),
+                ("x-modelark-api-key", "synthetic-duplicate"),
+                ("X-MCP-Client-Secret", CLIENT_SECRET),
+            ],
+            json={"jsonrpc": "2.0", "id": 1, "method": "tools/list"},
         )
+    assert response.status_code == 400
+    assert "Duplicate" in response.text
+    assert MODELARK_KEY not in response.text
+    assert "synthetic-duplicate" not in response.text
+    assert len(respx.calls) == 0
 
 
-async def test_oversized_body_is_rejected_before_mcp(tmp_path: Path) -> None:
-    async with _http_client(tmp_path) as http_client:
-        response = await http_client.post(
+@pytest.mark.parametrize("streamed", [False, True])
+@respx.mock
+async def test_oversized_body_is_rejected_before_mcp(tmp_path: Path, streamed: bool) -> None:
+    async def chunks() -> AsyncIterator[bytes]:
+        yield b"x" * 512
+        yield b"x" * 513
+
+    settings = http_settings(tmp_path, MCP_HTTP_MAX_BODY_BYTES=1024)
+    async with http_server(tmp_path, settings=settings) as (_, _, client):
+        response = await client.post(
             "/mcp",
             headers={
-                "Authorization": "Bearer good-token",
-                "Origin": "https://client.example.com",
+                "Content-Type": "application/json",
                 "Accept": "application/json, text/event-stream",
             },
-            content=b"x" * 1025,
+            content=chunks() if streamed else b"x" * 1025,
         )
     assert response.status_code == 413
+    assert len(respx.calls) == 0
 
 
-async def test_ready_without_provider_check(tmp_path: Path) -> None:
-    async with _http_client(tmp_path) as http_client:
-        ready = await http_client.get("/ready")
-    assert ready.status_code == 200
-    body = ready.json()
-    assert body["status"] == "ready"
-    assert "providers" not in body
+async def test_invalid_content_length_is_rejected(tmp_path: Path) -> None:
+    async with http_server(tmp_path) as (_, _, client):
+        response = await client.post("/mcp", headers={"Content-Length": "invalid"}, content=b"{}")
+    assert response.status_code == 400
 
 
-async def test_ready_with_provider_check_enabled(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+async def test_rate_limit_covers_anonymous_discovery_and_ignores_spoofed_proxy(
+    tmp_path: Path,
 ) -> None:
-    from ark_mcp.providers.base import BaseHttpGateway
-
-    async def _ok_health(self: BaseHttpGateway, *, timeout_seconds: float = 2.0) -> bool:
-        return True
-
-    monkeypatch.setattr(BaseHttpGateway, "health_check", _ok_health)
-
-    settings = _http_settings(tmp_path)
-    settings.readiness_check_providers = True
-    server = create_server(settings, auth_provider=_verifier())
-    app = server.http_app(
-        path="/mcp",
-        stateless_http=True,
-        json_response=True,
-        host_origin_protection=True,
-        allowed_hosts=settings.allowed_hosts,
-        allowed_origins=settings.allowed_origins,
-        middleware=[Middleware(RequestBodyLimitMiddleware, max_bytes=1024)],
-    )
-    async with (
-        app.router.lifespan_context(app),
-        httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app), base_url="http://testserver"
-        ) as client,
-    ):
-        ready = await client.get("/ready")
-
-    assert ready.status_code == 200
-    body = ready.json()
-    assert body["status"] == "ready"
-    assert "providers" in body
-    assert body["providers"]["modelark"] == "reachable"
-
-
-async def test_ready_degraded_when_provider_down(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    from ark_mcp.providers.base import BaseHttpGateway
-
-    async def _down_health(self: BaseHttpGateway, *, timeout_seconds: float = 2.0) -> bool:
-        return False
-
-    monkeypatch.setattr(BaseHttpGateway, "health_check", _down_health)
-
-    settings = _http_settings(tmp_path)
-    settings.readiness_check_providers = True
-    server = create_server(settings, auth_provider=_verifier())
-    app = server.http_app(
-        path="/mcp",
-        stateless_http=True,
-        json_response=True,
-        host_origin_protection=True,
-        allowed_hosts=settings.allowed_hosts,
-        allowed_origins=settings.allowed_origins,
-        middleware=[Middleware(RequestBodyLimitMiddleware, max_bytes=1024)],
-    )
-    async with (
-        app.router.lifespan_context(app),
-        httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app), base_url="http://testserver"
-        ) as client,
-    ):
-        ready = await client.get("/ready")
-
-    assert ready.status_code == 503
-    body = ready.json()
-    assert body["status"] == "degraded"
-    assert body["providers"]["modelark"] == "unreachable"
-
-
-async def test_rate_limit_allows_under_threshold(tmp_path: Path) -> None:
-    from ark_mcp.security.http_middleware import RateLimitMiddleware
-
-    settings = _http_settings(tmp_path)
-    server = create_server(settings, auth_provider=_verifier())
-    app = server.http_app(
-        path="/mcp",
-        stateless_http=True,
-        json_response=True,
-        host_origin_protection=True,
-        allowed_hosts=settings.allowed_hosts,
-        allowed_origins=settings.allowed_origins,
-        middleware=[
-            Middleware(RequestBodyLimitMiddleware, max_bytes=1024),
-            Middleware(RateLimitMiddleware, rpm=10, burst=10),
-        ],
-    )
-    async with (
-        app.router.lifespan_context(app),
-        httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app), base_url="http://testserver"
-        ) as client,
-    ):
-        for _ in range(5):
-            resp = await client.get("/health")
-            assert resp.status_code == 200
-
-
-async def test_rate_limit_blocks_over_threshold(tmp_path: Path) -> None:
-    from ark_mcp.security.http_middleware import RateLimitMiddleware
-
-    settings = _http_settings(tmp_path)
-    server = create_server(settings, auth_provider=_verifier())
-    app = server.http_app(
-        path="/mcp",
-        stateless_http=True,
-        json_response=True,
-        host_origin_protection=True,
-        allowed_hosts=settings.allowed_hosts,
-        allowed_origins=settings.allowed_origins,
-        middleware=[
-            Middleware(RequestBodyLimitMiddleware, max_bytes=1024),
-            Middleware(RateLimitMiddleware, rpm=2, burst=2),
-        ],
-    )
-    async with (
-        app.router.lifespan_context(app),
-        httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app), base_url="http://testserver"
-        ) as client,
-    ):
-        r1 = await client.get("/health")
-        r2 = await client.get("/health")
-        r3 = await client.get("/health")
-    assert r1.status_code == 200
-    assert r2.status_code == 200
-    assert r3.status_code == 429
-
-
-async def test_rate_limit_retry_after_header(tmp_path: Path) -> None:
-    from ark_mcp.security.http_middleware import RateLimitMiddleware
-
-    settings = _http_settings(tmp_path)
-    server = create_server(settings, auth_provider=_verifier())
-    app = server.http_app(
-        path="/mcp",
-        stateless_http=True,
-        json_response=True,
-        host_origin_protection=True,
-        allowed_hosts=settings.allowed_hosts,
-        allowed_origins=settings.allowed_origins,
-        middleware=[
-            Middleware(RequestBodyLimitMiddleware, max_bytes=1024),
-            Middleware(RateLimitMiddleware, rpm=1, burst=1),
-        ],
-    )
-    async with (
-        app.router.lifespan_context(app),
-        httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app), base_url="http://testserver"
-        ) as client,
-    ):
-        await client.get("/health")
-        blocked = await client.get("/health")
+    settings = http_settings(tmp_path, RATE_LIMIT_RPM=1, RATE_LIMIT_BURST=1)
+    async with http_server(tmp_path, settings=settings) as (_, _, client):
+        assert (await rpc(client, "tools/list"))["result"]["tools"]
+        blocked = await client.post(
+            "/mcp",
+            headers={
+                "X-Forwarded-For": "203.0.113.10",
+                "Accept": "application/json, text/event-stream",
+            },
+            json={"jsonrpc": "2.0", "id": 2, "method": "tools/list"},
+        )
     assert blocked.status_code == 429
-    assert "retry-after" in {k.lower() for k in blocked.headers}
     retry_after = int(blocked.headers["retry-after"])
     assert retry_after > 0
     assert blocked.headers["x-ratelimit-limit"] == "1"
     assert blocked.headers["x-ratelimit-remaining"] == "0"
     reset_epoch = int(blocked.headers["x-ratelimit-reset"])
     assert time.time() <= reset_epoch <= time.time() + retry_after
-
-
-async def test_rate_limit_disabled_by_default(tmp_path: Path) -> None:
-    settings = _http_settings(tmp_path)
-    server = create_server(settings, auth_provider=_verifier())
-    app = server.http_app(
-        path="/mcp",
-        stateless_http=True,
-        json_response=True,
-        host_origin_protection=True,
-        allowed_hosts=settings.allowed_hosts,
-        allowed_origins=settings.allowed_origins,
-        middleware=[Middleware(RequestBodyLimitMiddleware, max_bytes=1024)],
-    )
-    async with (
-        app.router.lifespan_context(app),
-        httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app), base_url="http://testserver"
-        ) as client,
-    ):
-        for _ in range(20):
-            resp = await client.get("/health")
-            assert resp.status_code == 200
 
 
 class TestRateLimitMiddlewareBucketing:
@@ -587,29 +283,21 @@ class TestRateLimitMiddlewareBucketing:
         clock = [0.0]
         monkeypatch.setattr("ark_mcp.security.http_middleware.time.monotonic", lambda: clock[0])
         middleware = RateLimitMiddleware(None, rpm=60000, burst=60000)  # type: ignore[arg-type]
-        for index in range(middleware._MAX_BUCKETS + 100):
-            await middleware._consume(f"ip-{index}")
-        assert len(middleware._buckets) > middleware._MAX_BUCKETS
+        for index in range(middleware._MAX_BUCKETS):
+            assert await middleware._consume(f"ip-{index}") == 0
+        for index in range(100):
+            assert await middleware._consume(f"overflow-{index}") > 0
+        assert len(middleware._buckets) == middleware._MAX_BUCKETS
 
         clock[0] = 10_000_000
-        await middleware._consume("ip-final")
+        assert await middleware._consume("ip-final") == 0
         assert len(middleware._buckets) <= middleware._MAX_BUCKETS
 
 
 async def test_create_server_applies_body_and_rate_limit_middleware(tmp_path: Path) -> None:
-    settings = _http_settings(tmp_path)
-    settings.rate_limit_rpm = 10
-    settings.rate_limit_burst = 10
-    settings.rate_limit_trust_proxy_headers = True
-    server = create_server(settings, auth_provider=_verifier())
-    app = server.http_app(
-        path="/mcp",
-        stateless_http=True,
-        json_response=True,
-        host_origin_protection=True,
-        allowed_hosts=settings.allowed_hosts,
-        allowed_origins=settings.allowed_origins,
-    )
+    settings = http_settings(tmp_path, RATE_LIMIT_TRUST_PROXY_HEADERS=True)
+    server = create_server(settings)
+    app = server.http_app(path="/mcp", json_response=True)
 
     stack: list[tuple[str, object]] = []
     node: object = app.build_middleware_stack()
@@ -618,93 +306,64 @@ async def test_create_server_applies_body_and_rate_limit_middleware(tmp_path: Pa
         node = getattr(node, "app", None)
 
     names = [name for name, _ in stack]
-    assert "RequestBodyLimitMiddleware" in names
-    assert "RateLimitMiddleware" in names
+    assert names.index("InFlightLimitMiddleware") < names.index("RequestBodyLimitMiddleware")
     assert names.index("RequestBodyLimitMiddleware") < names.index("RateLimitMiddleware")
+    assert names.index("RateLimitMiddleware") < names.index("ByokHeadersMiddleware")
     rate_limit_node = next(node for name, node in stack if name == "RateLimitMiddleware")
+    assert isinstance(rate_limit_node, RateLimitMiddleware)
     assert rate_limit_node.trust_proxy_headers is True
 
 
-async def test_ready_probes_use_resolved_settings_urls(tmp_path: Path) -> None:
-    settings = _http_settings(tmp_path)
-    settings = settings.model_copy(
-        update={
-            "modelark_api_key": "test-modelark-key",
-            "seed_speech_api_key": "",
-            "modelark_base_url": "https://override.example.com",
-        }
-    )
-    settings.readiness_check_providers = True
-    server = create_server(settings, auth_provider=_verifier())
-    app = server.http_app(
-        path="/mcp",
-        stateless_http=True,
-        json_response=True,
-        host_origin_protection=True,
-        allowed_hosts=settings.allowed_hosts,
-        allowed_origins=settings.allowed_origins,
-    )
+@respx.mock
+async def test_global_admission_rejects_before_reading_body_and_recovers(tmp_path: Path) -> None:
+    entered, release = asyncio.Event(), asyncio.Event()
 
-    with respx.mock:
-        probe_route = respx.get("https://override.example.com/").mock(
-            return_value=httpx.Response(200)
+    async def generate(request: httpx.Request) -> httpx.Response:
+        entered.set()
+        await release.wait()
+        return httpx.Response(200, json={"data": [{"url": "https://example.com/image.png"}]})
+
+    respx.post(f"{MODELARK}/images/generations").mock(side_effect=generate)
+    settings = http_settings(tmp_path, MCP_HTTP_MAX_IN_FLIGHT=1)
+    server = create_server(settings)
+    app = server.http_app(path="/mcp", json_response=True)
+    async with (
+        app.router.lifespan_context(app),
+        httpx.AsyncClient(
+            transport=httpx.ASGITransport(app=app), base_url="http://testserver"
+        ) as client,
+    ):
+        pending = asyncio.create_task(
+            call_tool(
+                client, "seedream_generate_image", {"prompt": "square"}, headers=credentials()
+            )
         )
-        async with (
-            app.router.lifespan_context(app),
-            httpx.AsyncClient(
-                transport=httpx.ASGITransport(app=app), base_url="http://testserver"
-            ) as client,
-        ):
-            ready = await client.get("/ready")
+        try:
+            await asyncio.wait_for(entered.wait(), 5)
+            messages: list[Message] = []
+            receive = AsyncMock(side_effect=AssertionError("Overload must not read the body"))
 
-    assert ready.status_code == 200
-    assert ready.json() == {"status": "ready", "providers": {"modelark": "reachable"}}
-    assert probe_route.called
+            async def send(message: Message) -> None:
+                messages.append(message)
 
-
-def _capture_warnings(monkeypatch: pytest.MonkeyPatch) -> list[tuple[str, dict[str, Any]]]:
-    captured: list[tuple[str, dict[str, Any]]] = []
-    monkeypatch.setattr(
-        "ark_mcp.server.log_warning",
-        lambda event, **fields: captured.append((event, fields)),
-    )
-    return captured
-
-
-def test_authenticated_http_warns_when_budget_and_rate_limit_are_off(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    warnings = _capture_warnings(monkeypatch)
-    create_server(_http_settings(tmp_path), auth_provider=_verifier())
-
-    guardrails = [fields for event, fields in warnings if event == "http_guardrails_disabled"]
-    assert len(guardrails) == 1
-    assert guardrails[0]["disabled"] == ["DAILY_BUDGET_USD", "RATE_LIMIT_RPM"]
-
-
-def test_authenticated_http_is_quiet_when_guardrails_are_set(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    settings = _http_settings(tmp_path)
-    settings.daily_budget_usd = 25.0
-    settings.rate_limit_rpm = 120
-    warnings = _capture_warnings(monkeypatch)
-    create_server(settings, auth_provider=_verifier())
-
-    assert all(event != "http_guardrails_disabled" for event, _ in warnings)
-
-
-def test_local_mode_never_warns_about_guardrails(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    settings = Settings(
-        _env_file=None,
-        MCP_TRANSPORT="http",
-        MCP_HOST="127.0.0.1",
-        MCP_AUTH_MODE="local",
-        ARTIFACT_DIR=str(tmp_path / "artifacts"),
-    )
-    warnings = _capture_warnings(monkeypatch)
-    create_server(settings)
-
-    assert all(event != "http_guardrails_disabled" for event, _ in warnings)
+            scope: Scope = {
+                "type": "http",
+                "asgi": {"version": "3.0"},
+                "http_version": "1.1",
+                "method": "POST",
+                "scheme": "http",
+                "path": "/mcp",
+                "raw_path": b"/mcp",
+                "query_string": b"",
+                "headers": [(b"host", b"testserver")],
+                "client": ("127.0.0.1", 1234),
+                "server": ("testserver", 80),
+            }
+            await app(scope, receive, send)
+            assert messages[0]["status"] == 503
+            receive.assert_not_called()
+        finally:
+            release.set()
+            result = await pending
+        assert result["result"]["isError"] is False
+        assert (await rpc(client, "tools/list"))["result"]["tools"]

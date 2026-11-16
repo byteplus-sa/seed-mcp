@@ -8,16 +8,52 @@ request-ID extraction, and HTTP error normalization.
 
 from __future__ import annotations
 
+import math
+import re
 from abc import ABC, abstractmethod
 from time import perf_counter
 from typing import Any, ClassVar
 
 import httpx
 from fastmcp.telemetry import get_tracer, record_span_error
+from pydantic import BaseModel
 
 from ark_mcp.domain.errors import NormalizedProviderError, ProviderError, ProviderName
 from ark_mcp.observability.logger import info as log_info
 from ark_mcp.observability.metrics import PROVIDER_DURATION, PROVIDER_REQUESTS
+
+_URL_PATTERN = re.compile(r"https?://\S+", re.IGNORECASE)
+
+
+def require_api_key(api_key: str) -> str:
+    if (
+        not isinstance(api_key, str)
+        or not 1 <= len(api_key) <= 4096
+        or any(not 33 <= ord(char) <= 126 for char in api_key)
+    ):
+        raise ValueError("API key must be 1-4096 printable ASCII characters without whitespace.")
+    return api_key
+
+
+def safe_provider_text(value: object, fallback: str = "") -> str:
+    from ark_mcp.security.credentials import redact_request_secrets
+
+    if not isinstance(value, (str, int)):
+        return fallback
+    text = redact_request_secrets(str(value))
+    text = _URL_PATTERN.sub("[REDACTED_URL]", text)
+    text = " ".join(text.split())
+    if len(text) > 600:
+        return f"{text[:597].rstrip()}..."
+    return text or fallback
+
+
+def retry_after_seconds(value: str | None) -> float | None:
+    try:
+        delay = float(value) if value is not None else None
+    except ValueError:
+        return None
+    return delay if delay is not None and math.isfinite(delay) and delay >= 0 else None
 
 
 class BaseHttpGateway(ABC):
@@ -67,23 +103,29 @@ class BaseHttpGateway(ABC):
     async def _request(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
         client = await self._ensure_client()
         url = f"{self._base_url}{path}"
-        log_info(f"{self.PROVIDER}_request", method=method, path=path)
+        log_info(f"{self.PROVIDER}_request", method=method)
         headers = kwargs.pop("headers", None) or self._headers()
         operation = method.lower()
         started = perf_counter()
-        with get_tracer().start_as_current_span(f"provider.{self.PROVIDER}.{operation}") as span:
+        with get_tracer().start_as_current_span(
+            f"provider.{self.PROVIDER}.{operation}",
+            record_exception=False,
+            set_status_on_exception=False,
+        ) as span:
             span.set_attribute("provider.name", self.PROVIDER)
             span.set_attribute("http.request.method", method)
             try:
                 response = await client.request(method, url, headers=headers, **kwargs)
             except Exception as exc:
-                record_span_error(span, exc)
+                record_span_error(span, RuntimeError("Provider request failed."))
                 PROVIDER_REQUESTS.labels(
                     provider=self.PROVIDER,
                     operation=operation,
                     status="exception",
                 ).inc()
-                raise
+                if isinstance(exc, httpx.TransportError):
+                    raise type(exc)("Provider transport request failed.") from None
+                raise httpx.TransportError("Provider request failed.") from None
             else:
                 span.set_attribute("http.response.status_code", response.status_code)
                 status = "error" if response.status_code >= 400 else "success"
@@ -158,22 +200,72 @@ class BaseHttpGateway(ABC):
                 operation=operation,
                 http_status=None,
                 code="CONNECTION_ERROR",
-                message=f"Failed to connect to {cls.PROVIDER}: {exc}",
+                message=f"Failed to connect to {cls.PROVIDER}. No request was dispatched.",
                 request_id=None,
                 retryable=True,
+                ambiguous_completion=False,
             )
         )
 
     @classmethod
-    def normalize_transport_error(cls, operation: str, exc: Exception) -> ProviderError:
+    def normalize_transport_error(
+        cls, operation: str, exc: Exception, *, side_effect: bool = True
+    ) -> ProviderError:
+        """Only connection/pool failures are demonstrably safe before dispatch."""
+        if isinstance(exc, httpx.ConnectError):
+            return cls.normalize_connection_error(operation, exc)
+        if isinstance(exc, (httpx.ConnectTimeout, httpx.PoolTimeout)):
+            return cls.normalize_timeout(operation, side_effect=False)
+        if isinstance(exc, httpx.TimeoutException):
+            return cls.normalize_timeout(operation, side_effect=side_effect)
+        message = f"Transport error during '{operation}'."
+        if side_effect:
+            message += " The operation may have succeeded; do not retry blindly."
         return ProviderError(
             NormalizedProviderError(
                 provider=cls.PROVIDER,
                 operation=operation,
                 http_status=None,
                 code="TRANSPORT_ERROR",
-                message=f"Transport error during '{operation}': {exc}",
+                message=message,
                 request_id=None,
-                retryable=True,
+                retryable=not side_effect,
+                ambiguous_completion=side_effect,
             )
         )
+
+    @classmethod
+    def invalid_response(
+        cls, operation: str, *, http_status: int, request_id: str | None, mutation: bool
+    ) -> ProviderError:
+        return ProviderError(
+            NormalizedProviderError(
+                provider=cls.PROVIDER,
+                operation=operation,
+                http_status=http_status,
+                code="INVALID_RESPONSE",
+                message="Provider returned a success response in an unexpected shape.",
+                request_id=request_id,
+                retryable=False,
+                ambiguous_completion=mutation,
+            )
+        )
+
+    @classmethod
+    def parse_response[T: BaseModel](
+        cls,
+        response: httpx.Response,
+        operation: str,
+        model: type[T],
+        *,
+        side_effect: bool = True,
+    ) -> T:
+        try:
+            return model.model_validate(response.json())
+        except ValueError:
+            raise cls.invalid_response(
+                operation,
+                http_status=response.status_code,
+                request_id=cls.extract_request_id(response),
+                mutation=side_effect,
+            ) from None

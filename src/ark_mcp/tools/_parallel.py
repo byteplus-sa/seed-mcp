@@ -18,6 +18,7 @@ from ark_mcp.config.env import Settings
 from ark_mcp.domain.models import VariationError, VariationResult, VariationSummary
 from ark_mcp.observability.logger import info as log_info
 from ark_mcp.observability.logger import warning as log_warning
+from ark_mcp.security.credentials import redact_request_secrets
 from ark_mcp.tools._cost import DEFAULT_MAX_CONCURRENT
 
 
@@ -191,7 +192,9 @@ async def run_variation_batch(
             variation_results.append(
                 VariationResult(
                     index=i,
-                    error=VariationError(code="GATHER_ERROR", message=str(exc)),
+                    error=VariationError(
+                        code="GATHER_ERROR", message=redact_request_secrets(str(exc))
+                    ),
                 )
             )
         else:

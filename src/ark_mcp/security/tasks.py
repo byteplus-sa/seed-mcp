@@ -12,7 +12,6 @@ from fastmcp.exceptions import ToolError
 from fastmcp.server.dependencies import get_context
 from fastmcp_tasks import TasksExtension
 from fastmcp_tasks.context import get_task_context
-from fastmcp_tasks.encryption import snapshot_codec
 from fastmcp_tasks.models import CreateTaskResult
 from mcp.shared.exceptions import MCPError
 
@@ -37,13 +36,9 @@ class TenantTasksExtension(TasksExtension):
     """Enforce application tenant ownership on every task request."""
 
     def __init__(self, settings: Settings) -> None:
+        if settings.mcp_transport != "stdio":
+            raise ValueError("Background tasks are unavailable on HTTP BYOK.")
         super().__init__()
-        if (
-            settings.mcp_auth_mode.value != "local"
-            and self.docket_settings.url.startswith(("redis://", "rediss://"))
-            and not snapshot_codec().protected
-        ):
-            raise ValueError("Authenticated Redis tasks require FASTMCP_TASKS_ENCRYPTION_KEY.")
 
     def methods(self) -> Sequence[MethodBinding]:
         return [

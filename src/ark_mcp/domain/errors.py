@@ -100,3 +100,13 @@ class ProviderError(Exception):
     @property
     def ambiguous_completion(self) -> bool | None:
         return self.error.ambiguous_completion
+
+
+class AcceptedTaskError(ProviderError):
+    """Internal bookkeeping failure retaining a known accepted provider task."""
+
+    def __init__(self, error: NormalizedProviderError, *, task_id: str) -> None:
+        super().__init__(
+            error.model_copy(update={"retryable": False, "ambiguous_completion": True})
+        )
+        self.task_id = task_id

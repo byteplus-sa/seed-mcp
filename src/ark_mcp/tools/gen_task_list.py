@@ -21,10 +21,12 @@ from pydantic import BaseModel, Field
 from ark_mcp.domain.errors import ProviderError
 from ark_mcp.domain.models import GenTaskStatus, TaskError
 from ark_mcp.observability.logger import info as log_info
+from ark_mcp.providers.factory import modelark_gateway
 from ark_mcp.providers.modelark.generation_tasks import GenerationTaskService, task_timestamp
 from ark_mcp.providers.modelark.schemas import GenerationTaskResponse
 from ark_mcp.providers.retry import call_with_retry
 from ark_mcp.runtime import OwnedTask, get_principal, get_runtime
+from ark_mcp.security.credentials import provider_api_key
 from ark_mcp.tools._errors import provider_error_result
 from ark_mcp.tools._generation_tasks_shared import TaskKind, classify_task
 from ark_mcp.tools._task_execution import context_log
@@ -97,10 +99,11 @@ async def gen_task_list(input: GenTaskListInput, ctx: Context) -> GenTaskPage | 
     by status, model, or task_ids, and follow next_cursor until it is null;
     keep the same filters while paging. Use gen_task_get for outputs.
     """
+    provider_api_key(ctx, "modelark")
     await context_log(ctx, "info", "Listing generation tasks")
     owner = get_principal(ctx)
     filter_hash = _filter_hash(input)
-    service = GenerationTaskService()
+    service = GenerationTaskService(gateway=modelark_gateway(ctx))
     try:
         if owner.is_local:
             page = await _list_local(service, input, filter_hash)

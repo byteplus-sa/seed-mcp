@@ -47,6 +47,19 @@ SUPPORTED_TOOLS = {
     "seed_audio_understand",
 }
 
+HTTP_PROVIDER_TOOLS = {
+    "ark_list_models",
+    "seed_audio_generate",
+    "seedream_generate_image",
+    "seedance_create_task",
+    "gen_task_get",
+    "gen_task_list",
+    "gen_task_cancel_or_delete",
+    "seed_understand",
+    "seed_audio_understand",
+}
+OMNIHUMAN_TOOLS = {"omnihuman_create_task", "omnihuman_get_task", "omnihuman_cancel_task"}
+
 
 def test_catalog_exposes_only_seed_studio_services() -> None:
     assert len(CATALOG) == 21
@@ -56,6 +69,37 @@ def test_catalog_exposes_only_seed_studio_services() -> None:
 async def test_omnihuman_and_supported_services_register(all_services_enabled: None) -> None:
     server = create_server(get_settings())
     assert {tool.name for tool in await server.list_tools()} == SUPPORTED_TOOLS
+
+
+@pytest.mark.parametrize("omnihuman_enabled", [False, True])
+@pytest.mark.parametrize("operator_configured", [False, True])
+async def test_http_catalog_is_static_and_provider_only(
+    omnihuman_enabled: bool, operator_configured: bool
+) -> None:
+    settings = Settings(
+        _env_file=None,
+        MCP_TRANSPORT="http",
+        MCP_AUTH_MODE="byok",
+        MCP_IDENTITY_HMAC_KEY="a" * 64,
+        BYTEPLUS_OMNIHUMAN_ENABLED=omnihuman_enabled,
+        BYTEPLUS_MODELARK_API_KEY=(
+            "sk-test-modelark" if operator_configured else ""  # pragma: allowlist secret
+        ),
+        BYTEPLUS_SEED_SPEECH_API_KEY=(
+            "sk-test-speech" if operator_configured else ""  # pragma: allowlist secret
+        ),
+        BYTEPLUS_CV_API_KEY="sk-test-cv" if operator_configured else "",  # pragma: allowlist secret
+        TOS_ACCESS_KEY="synthetic-tos-access" if operator_configured else "",
+        TOS_SECRET_KEY="sk-test-tos" if operator_configured else "",  # pragma: allowlist secret
+        TOS_BUCKET="synthetic-bucket" if operator_configured else "",
+    )
+    server = create_server(settings)
+    names = {tool.name for tool in await server.list_tools()}
+    expected = HTTP_PROVIDER_TOOLS | (OMNIHUMAN_TOOLS if omnihuman_enabled else set())
+    assert names == expected
+    assert len(names) == (12 if omnihuman_enabled else 9)
+    assert await server.list_resources() == []
+    assert await server.list_resource_templates() == []
 
 
 async def test_tool_schemas_do_not_advertise_removed_artifact_types(

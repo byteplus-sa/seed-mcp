@@ -27,15 +27,16 @@ def validator() -> ModuleType:
 
 @pytest.fixture
 def configured_environment() -> dict[str, str]:
-    provider_key = "test-key"
     return {
         "MCP_PUBLIC_HOST": "mcp.team.test",
-        "MCP_API_KEY_SHA256": "a" * 64,
-        "REDIS_PASSWORD": "a" * 64,
-        "FASTMCP_TASKS_ENCRYPTION_KEY": "test-key-" * 8,
-        "BYTEPLUS_MODELARK_API_KEY": provider_key,
+        "MCP_IDENTITY_HMAC_KEY": "a" * 64,
+        "MCP_IDENTITY_KEY_VERSION": "1",
         "DAILY_BUDGET_USD": "25",
-        "RATE_LIMIT_RPM": "120",
+        "RATE_LIMIT_RPM": "60",
+        "MCP_HTTP_MAX_IN_FLIGHT": "64",
+        "MCP_HTTP_MAX_BODY_BYTES": "2097152",
+        "STATE_MAX_RECORDS": "100000",
+        "STATE_PRUNE_MAX_AGE_DAYS": "30",
         "RATE_LIMIT_BURST": "30",
         "PRINCIPAL_MAX_CONCURRENCY": "3",
         "PROVIDER_MAX_CONCURRENCY": "5",
@@ -53,27 +54,26 @@ def test_valid_environment_round_trip(
     validator.validate_environment(values)
 
 
-def test_shared_key_environment_is_the_host_default(
+def test_byok_environment_is_the_host_default(
     validator: ModuleType, configured_environment: dict[str, str]
 ) -> None:
     assert "MCP_AUTH_MODE" not in configured_environment
     validator.validate_environment(configured_environment)
 
 
-def test_host_accepts_only_retained_product_keys(validator: ModuleType) -> None:
-    assert set(validator.PRODUCT_KEYS) == {
-        "BYTEPLUS_MODELARK_API_KEY",
-        "BYTEPLUS_SEED_SPEECH_API_KEY",
-        "BYTEPLUS_CV_API_KEY",
+def test_host_accepts_only_operator_identity_secrets(validator: ModuleType) -> None:
+    assert set(validator.IDENTITY_SETTINGS) == {
+        "MCP_IDENTITY_HMAC_KEY",
+        "MCP_IDENTITY_KEY_VERSION",
     }
 
 
 def test_removed_vod_key_cannot_enable_host(
     validator: ModuleType, configured_environment: dict[str, str]
 ) -> None:
-    provider_key = configured_environment.pop("BYTEPLUS_MODELARK_API_KEY")
-    configured_environment["BYTEPLUS_VOD_MEDIAKIT_API_KEY"] = provider_key
-    with pytest.raises(ValueError, match="at least one BytePlus product"):
+    synthetic_provider = "test-key"
+    configured_environment["BYTEPLUS_VOD_MEDIAKIT_API_KEY"] = synthetic_provider
+    with pytest.raises(ValueError, match="only operator"):
         validator.validate_environment(configured_environment)
 
 
@@ -85,13 +85,14 @@ def test_environment_templates_keep_retained_services_only(filename: str) -> Non
         if line and line[0].isupper() and "=" in line
     }
     assert {
-        "BYTEPLUS_MODELARK_API_KEY",
-        "BYTEPLUS_SEED_SPEECH_API_KEY",
-        "BYTEPLUS_CV_API_KEY",
         "BYTEPLUS_OMNIHUMAN_ENABLED",
-        "MCP_API_KEY_SHA256",
-        "ARTIFACT_BACKEND",
+        "MCP_IDENTITY_HMAC_KEY",
+        "MCP_IDENTITY_KEY_VERSION",
+        "STATE_MAX_RECORDS",
+        "MCP_HTTP_MAX_IN_FLIGHT",
     } <= values
+    if filename.startswith("deploy/"):
+        assert not any("API_KEY" in key for key in values)
     assert not any(
         key.startswith(("BYTEPLUS_VOD_", "SEED3D_", "HYPER3D_", "HITEM3D_", "SEED_SPEECH_ASR_"))
         or key
@@ -117,6 +118,10 @@ def test_environment_templates_keep_retained_services_only(filename: str) -> Non
         ("local", "a" * 64),
         ("jwt", "a" * 64),
         ("unknown", "a" * 64),
+        ("api_key", "a" * 64),
+        ("byok", ""),
+        ("byok", "invalid"),
+        ("byok", "A" * 64),
         ("api_key", ""),
         ("api_key", "invalid"),
         ("api_key", "A" * 64),
@@ -128,7 +133,7 @@ def test_host_rejects_unsafe_auth_configuration(
     mode: str,
     digest: str,
 ) -> None:
-    configured_environment.update(MCP_AUTH_MODE=mode, MCP_API_KEY_SHA256=digest)
+    configured_environment.update(MCP_AUTH_MODE=mode, MCP_IDENTITY_HMAC_KEY=digest)
     with pytest.raises(ValueError):
         validator.validate_environment(configured_environment)
 
@@ -137,7 +142,8 @@ def test_host_rejects_unsafe_auth_configuration(
     ("key", "value"),
     [
         ("MCP_PUBLIC_HOST", "mcp.example.com"),
-        ("MCP_API_KEY_SHA256", ""),
+        ("MCP_IDENTITY_HMAC_KEY", ""),
+        ("MCP_IDENTITY_KEY_VERSION", "0"),
         ("REDIS_PASSWORD", "invalid:/"),
         ("FASTMCP_TASKS_ENCRYPTION_KEY", "short"),
         ("BYTEPLUS_MODELARK_API_KEY", ""),
@@ -213,11 +219,11 @@ def test_environment_rejects_ambiguous_or_oversized_input(
         validator.load_environment(path, expected_uid=os.getuid())
 
 
-def test_malformed_key_hash_does_not_echo_credentials(
+def test_malformed_hmac_does_not_echo_credentials(
     validator: ModuleType, configured_environment: dict[str, str]
 ) -> None:
     invalid_value = "private-value"
-    configured_environment["MCP_API_KEY_SHA256"] = invalid_value
+    configured_environment["MCP_IDENTITY_HMAC_KEY"] = invalid_value
     with pytest.raises(ValueError) as error:
         validator.validate_environment(configured_environment)
     assert invalid_value not in str(error.value)
@@ -244,7 +250,8 @@ def test_activate_runs_only_after_preflight_checks(tmp_path: Path) -> None:
     assert operations.index("mountpoint") < operations.index("check_env.py")
     assert operations.index("check_env.py") < operations.index("config --quiet")
     assert operations.index("config --quiet") < operations.index("restart ark-mcp.service")
-    assert "-o 1001 -g 1001 /srv/ark-mcp/ark-state" in operations
+    assert "-o 1001 -g 1001 /srv/ark-mcp/byok-state" in operations
+    assert "redis" not in operations
 
 
 def test_activate_refuses_to_start_without_persistent_mount(tmp_path: Path) -> None:

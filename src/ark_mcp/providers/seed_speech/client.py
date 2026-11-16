@@ -7,13 +7,17 @@ request/response, error normalization, and diagnostic ``X-Tt-Logid`` capture.
 
 from __future__ import annotations
 
-import json
 from typing import TYPE_CHECKING, Any, ClassVar
 
 from ark_mcp.config.env import get_settings
 from ark_mcp.domain.errors import NormalizedProviderError, ProviderError, ProviderName
 from ark_mcp.observability.logger import error as log_error
-from ark_mcp.providers.base import BaseHttpGateway
+from ark_mcp.providers.base import (
+    BaseHttpGateway,
+    require_api_key,
+    retry_after_seconds,
+    safe_provider_text,
+)
 
 if TYPE_CHECKING:
     import httpx
@@ -27,16 +31,21 @@ class SeedSpeechGateway(BaseHttpGateway):
     def __init__(
         self,
         *,
-        api_key: str | None = None,
+        api_key: str,
         base_url: str | None = None,
         timeout: float | None = None,
         connect_timeout: float | None = None,
     ) -> None:
-        settings = get_settings()
-        self._api_key = api_key or settings.seed_speech_api_key
-        self._base_url = (base_url or settings.seed_audio_base_url).rstrip("/")
-        self._timeout = timeout or settings.request_timeout_ms / 1000
-        self._connect_timeout = connect_timeout or settings.connect_timeout_ms / 1000
+        self._api_key = require_api_key(api_key)
+        self._base_url = (
+            base_url if base_url is not None else get_settings().seed_audio_base_url
+        ).rstrip("/")
+        self._timeout = timeout if timeout is not None else get_settings().request_timeout_ms / 1000
+        self._connect_timeout = (
+            connect_timeout
+            if connect_timeout is not None
+            else get_settings().connect_timeout_ms / 1000
+        )
         self._client: httpx.AsyncClient | None = None
 
     def _headers(self) -> dict[str, str]:
@@ -63,7 +72,7 @@ class SeedSpeechGateway(BaseHttpGateway):
     def extract_request_id(response: httpx.Response) -> str | None:
         """Extract the diagnostic ``X-Tt-Logid`` from response headers."""
         value = response.headers.get("X-Tt-Logid") or response.headers.get("x-tt-logid")
-        return str(value) if value is not None else None
+        return safe_provider_text(value) or None
 
     extract_log_id = extract_request_id
 
@@ -75,18 +84,17 @@ class SeedSpeechGateway(BaseHttpGateway):
 
         try:
             body = response.json()
-        except json.JSONDecodeError:
+        except ValueError:
             body = {"message": response.text}
 
-        code = str(body.get("code", "")) if isinstance(body, dict) else ""
-        message = body.get("message", str(body)) if isinstance(body, dict) else str(body)
+        if not isinstance(body, dict):
+            body = {}
+        code = safe_provider_text(body.get("code"))
+        message = safe_provider_text(
+            body.get("message"), f"Seed Speech returned HTTP {status} during '{operation}'."
+        )
 
         retryable = status == 429 or status >= 500
-        retry_after = response.headers.get("Retry-After")
-        try:
-            retry_after_seconds = float(retry_after) if retry_after is not None else None
-        except ValueError:
-            retry_after_seconds = None
 
         normalized = NormalizedProviderError(
             provider=cls.PROVIDER,
@@ -97,7 +105,7 @@ class SeedSpeechGateway(BaseHttpGateway):
             request_id=log_id,
             retryable=retryable,
             ambiguous_completion=status >= 500,
-            retry_after_seconds=retry_after_seconds,
+            retry_after_seconds=retry_after_seconds(response.headers.get("Retry-After")),
         )
         log_error(
             "seed_speech_error",

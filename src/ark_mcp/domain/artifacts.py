@@ -1,10 +1,9 @@
 """Domain artifact models.
 
-``ArtifactRef`` is the stable cross-tool contract for persisted media. Every
-successful tool result returns one or more ``ArtifactRef`` instances that
-point to durable ``seed-media://artifacts/{id}`` resources, so MCP clients
-can retrieve media long after the provider URL expires (2h for audio,
-24h for image/video).
+``ArtifactRef`` describes temporary provider URLs and explicit stdio persistence.
+HTTP returns URL-only references; durable ``seed-media://artifacts/{id}``
+resources are stdio-only. Provider URLs expire (2h for audio, 24h for
+ModelArk image/video, about 1h for OmniHuman).
 """
 
 from __future__ import annotations
@@ -44,10 +43,16 @@ class ArtifactPersistenceIssue(BaseModel):
 
 
 class ArtifactRef(BaseModel):
-    """Stable reference to a persisted media artifact."""
+    """Reference to temporary provider output or an explicitly persisted stdio artifact."""
 
-    id: str = Field(..., description="Unique artifact identifier.")
-    uri: str = Field(..., description="MCP resource URI (seed-media://artifacts/{id}).")
+    id: str = Field(
+        ...,
+        description="Stored artifact ID, or 'provider-url' / 'inline-fallback' for unpersisted output.",
+    )
+    uri: str = Field(
+        ...,
+        description="Temporary provider URL by default; stdio persistence may return seed-media://artifacts/{id} or an inline-fallback URI.",
+    )
     media_type: MediaType = Field(..., description="image, audio or video.")
     mime_type: str = Field(..., description="MIME type, e.g. image/png.")
     bytes: int | None = Field(default=None, description="Size in bytes.")
@@ -64,18 +69,18 @@ class ArtifactRef(BaseModel):
     persistence_error: ArtifactPersistenceIssue | None = Field(
         default=None,
         description=(
-            "Set when the output was billed but not stored. id is then 'provider-url' (uri is "
-            "the temporary provider URL; re-persist it with seed_media_persist_url before "
-            "source_expires_at) or 'inline-fallback' (bytes in fallback_data)."
+            "Set when requested stdio persistence failed. id is then 'provider-url' (temporary "
+            "URL; stdio can use seed_media_persist_url before source_expires_at) or "
+            "'inline-fallback' (bytes in fallback_data). Null when persistence was not requested."
         ),
     )
     fallback_data: str | None = Field(
         default=None,
-        description="Base64 output bytes, only with id 'inline-fallback'.",
+        description="Base64 output bytes from a stdio persistence fallback, only with id 'inline-fallback'.",
     )
     local_path: str | None = Field(
         default=None,
-        description="Absolute path of the local copy written for output_path/output_dir.",
+        description="Absolute path of the stdio-only local copy written for output_path/output_dir.",
     )
     export_error: str | None = Field(
         default=None,

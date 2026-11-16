@@ -22,9 +22,11 @@ from pydantic import BaseModel, Field, model_validator
 
 from ark_mcp.domain.errors import ProviderError
 from ark_mcp.observability.logger import warning as log_warning
+from ark_mcp.providers.factory import modelark_gateway
 from ark_mcp.providers.modelark.generation_tasks import GenerationTaskService
 from ark_mcp.providers.retry import call_with_retry
 from ark_mcp.runtime import get_principal, get_runtime
+from ark_mcp.security.credentials import provider_api_key
 from ark_mcp.tools._errors import provider_error_result
 from ark_mcp.tools._task_execution import context_log
 
@@ -92,6 +94,7 @@ async def gen_task_cancel_or_delete(
     Cancelled tasks cannot be resumed; deleted tasks' outputs are no longer retrievable.
     The call is refused unless expected_status matches the task's actual status.
     """
+    provider_api_key(ctx, "modelark")
     await context_log(
         ctx,
         "info",
@@ -104,7 +107,7 @@ async def gen_task_cancel_or_delete(
         get_principal(ctx),
     )
 
-    service = GenerationTaskService()
+    service = GenerationTaskService(gateway=modelark_gateway(ctx))
 
     # 1. Fetch current state.
     try:
@@ -143,7 +146,7 @@ async def gen_task_cancel_or_delete(
     await ctx.report_progress(progress=60, total=100)
 
     # 3. Issue DELETE.
-    service = GenerationTaskService()
+    service = GenerationTaskService(gateway=modelark_gateway(ctx))
     try:
         request_id = await call_with_retry(lambda: service.delete_task(input.task_id))
     except ProviderError as exc:

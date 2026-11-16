@@ -8,7 +8,7 @@ output "public_hostname" {
 }
 
 output "mcp_url" {
-  description = "Intended HTTPS endpoint; usable only after DNS, persistent storage, credentials, and activation are complete."
+  description = "Intended HTTPS endpoint; usable only after DNS, fresh BYOK state, operator HMAC configuration, and activation are complete."
   value       = "https://${local.endpoint_hostname}/mcp"
 }
 
@@ -43,7 +43,7 @@ output "state_volume" {
 }
 
 output "tos_bucket" {
-  description = "Optional private bucket; application credentials, lifecycle policy, and artifact backend remain operator configuration."
+  description = "Optional standalone private bucket, not connected to the URL-only hosted BYOK application."
   value       = var.tos_bucket_name == null ? null : bytepluscc_tos_bucket.media[0].name
 }
 
@@ -53,7 +53,8 @@ output "next_steps" {
     var.public_hostname == null ? "Use the EIP-derived public_hostname output; verify sslip.io DNS resolution." : "Create the public hostname A record pointing to public_ip.",
     "Check cloud-init status and ark-mcp-install.service on the VM.",
     "Verify and mount the retained disk at /srv/ark-mcp using its filesystem UUID in /etc/fstab.",
-    "Install a root-owned mode-0600 /srv/ark-mcp/config/.env using /opt/ark-mcp/.env.example; set MCP_PUBLIC_HOST to the public_hostname output.",
-    "Run sudo /opt/ark-mcp/activate.sh, then check HTTPS /health and an unauthenticated /mcp request.",
+    "Use fresh /srv/ark-mcp/byok-state SQLite state for the initial BYOK deployment; no old-schema migrations.",
+    "Install a root-owned mode-0600 /srv/ark-mcp/config/.env using /opt/ark-mcp/.env.example; set MCP_PUBLIC_HOST and an operator HMAC identity, never customer keys.",
+    "Run sudo /opt/ark-mcp/activate.sh, then check HTTPS /health, anonymous discovery and rejected credential-free provider calls.",
   ]
 }

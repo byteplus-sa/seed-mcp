@@ -9,8 +9,8 @@ import pytest
 from pydantic import BaseModel
 
 from ark_mcp.background_jobs import BACKGROUND_TOOL_SPECS
-from ark_mcp.config.env import get_settings
-from ark_mcp.server import SERVER_INSTRUCTIONS, create_server
+from ark_mcp.config.env import Settings, get_settings
+from ark_mcp.server import create_server
 from ark_mcp.tools._catalog import CATALOG, catalog_entry, resolve_tool_definition
 
 SECURITY_DOC = Path(__file__).resolve().parents[2] / "docs" / "security.md"
@@ -72,11 +72,28 @@ def test_unknown_tool_has_no_catalog_entry() -> None:
 
 async def test_all_catalog_tools_register_with_every_service(all_services_enabled: None) -> None:
     server = create_server(get_settings())
+    assert server.auth is None
     tools = {tool.name: tool for tool in await server.list_tools()}
     assert set(tools) == {entry.name for entry in CATALOG}
     for entry in CATALOG:
         mode = tools[entry.name].task_config.mode
         assert mode == (entry.background or "forbidden"), entry.name
+
+
+async def test_http_catalog_disables_native_tasks_without_operator_keys() -> None:
+    server = create_server(
+        Settings(
+            _env_file=None,
+            MCP_TRANSPORT="http",
+            MCP_AUTH_MODE="byok",
+            MCP_IDENTITY_HMAC_KEY="a" * 64,
+            BYTEPLUS_OMNIHUMAN_ENABLED=True,
+        )
+    )
+    tools = await server.list_tools()
+    assert len(tools) == 12
+    for tool in tools:
+        assert tool.task_config.mode == "forbidden", tool.name
 
 
 async def test_gated_tools_are_skipped_without_credentials() -> None:
@@ -88,11 +105,20 @@ async def test_gated_tools_are_skipped_without_credentials() -> None:
     assert "seedance_create_task" not in names
 
 
-async def test_server_instructions_name_only_registered_tools(all_services_enabled: None) -> None:
-    server = create_server(get_settings())
+@pytest.mark.parametrize("transport", ["stdio", "http"])
+async def test_server_instructions_name_only_registered_tools(
+    all_services_enabled: None, transport: str
+) -> None:
+    settings = Settings(
+        _env_file=None,
+        MCP_TRANSPORT=transport,
+        MCP_AUTH_MODE="byok" if transport == "http" else "local",
+        MCP_IDENTITY_HMAC_KEY="a" * 64,
+    )
+    server = create_server(settings)
     names = {tool.name for tool in await server.list_tools()}
     pattern = r"\b(?:ark|seed|seedance|seedream|hyper3d|hitem3d|vod|omnihuman|gen|media|speech)_[a-z0-9_]+\b"
-    mentioned = set(re.findall(pattern, SERVER_INSTRUCTIONS))
+    mentioned = set(re.findall(pattern, server.instructions or ""))
     assert mentioned
     assert mentioned - names == set()
     assert "ark_list_models" in mentioned

@@ -69,7 +69,7 @@ class TestSeedAudioGenerateTool:
 
         with patch("ark_mcp.artifacts.registry.get_artifact_store", return_value=temp_store):
             result = await seed_audio_generate(
-                SeedAudioGenerateInput(text_prompt="Hello world"), fake_ctx
+                SeedAudioGenerateInput(text_prompt="Hello world", persist=True), fake_ctx
             )
 
         assert isinstance(result, SeedAudioGenerateOutput)
@@ -129,7 +129,9 @@ class TestSeedAudioGenerateTool:
         )
 
         with patch("ark_mcp.artifacts.registry.get_artifact_store", return_value=temp_store):
-            await seed_audio_generate(SeedAudioGenerateInput(text_prompt="Hi"), fake_ctx)
+            await seed_audio_generate(
+                SeedAudioGenerateInput(text_prompt="Hi", persist=True), fake_ctx
+            )
 
         # Should have reported progress at 10, 30, 50, 80, 100.
         progresses = [p for p, _ in fake_ctx.progress_reports]

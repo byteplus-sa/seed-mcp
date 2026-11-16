@@ -30,7 +30,7 @@ def config_blob(**changes: Any) -> bytes:
         {
             "os": "linux",
             "architecture": "amd64",
-            "config": {"Env": ["MCP_AUTH_MODE=api_key"]},
+            "config": {"Env": ["MCP_AUTH_MODE=byok"]},
             **changes,
         }
     )
@@ -184,14 +184,15 @@ def test_wrong_config_digest_is_rejected() -> None:
         {"os": "windows"},
         {"config": {}},
         {"config": {"Env": ["MCP_AUTH_MODE=local"]}},
-        {"config": {"Env": ["MCP_AUTH_MODE=api_key", "MCP_AUTH_MODE=local"]}},
-        {"config": {"Env": ["MCP_AUTH_MODE=api_key", "MCP_AUTH_MODE=api_key"]}},
-        {"config": {"Env": "MCP_AUTH_MODE=api_key"}},
+        {"config": {"Env": ["MCP_AUTH_MODE=api_key"]}},
+        {"config": {"Env": ["MCP_AUTH_MODE=byok", "MCP_AUTH_MODE=local"]}},
+        {"config": {"Env": ["MCP_AUTH_MODE=byok", "MCP_AUTH_MODE=byok"]}},
+        {"config": {"Env": "MCP_AUTH_MODE=byok"}},
         {"config": {"Env": [None]}},
     ],
 )
 @respx.mock
-def test_config_must_be_linux_amd64_with_one_explicit_shared_key_mode(
+def test_config_must_be_linux_amd64_with_one_explicit_byok_mode(
     changes: dict[str, Any],
 ) -> None:
     manifest = register_image(config_blob(**changes))

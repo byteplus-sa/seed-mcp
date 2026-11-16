@@ -15,17 +15,19 @@ from pydantic import SecretStr
 from ark_mcp.config.env import Settings
 from ark_mcp.security.tasks import TenantTasksExtension, guard_task_execution
 from ark_mcp.server import create_server
-from tests.integration.test_http_security import _http_settings
+from tests.integration.test_byok_http import http_settings
 
 
-@pytest.mark.parametrize("backend", ["redis://localhost:6379/0", "rediss://localhost:6379/0"])
-async def test_authenticated_redis_requires_encrypted_snapshots(
+@pytest.mark.parametrize(
+    "backend", ["memory://", "redis://localhost:6379/0", "rediss://localhost:6379/0"]
+)
+async def test_http_never_creates_a_task_backend(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch, backend: str
 ) -> None:
     monkeypatch.setenv("FASTMCP_DOCKET_URL", backend)
     monkeypatch.setattr(tasks_settings, "encryption_key", None)
-    with pytest.raises(ValueError, match="FASTMCP_TASKS_ENCRYPTION_KEY"):
-        TenantTasksExtension(_http_settings(tmp_path))
+    with pytest.raises(ValueError, match="unavailable on HTTP BYOK"):
+        TenantTasksExtension(http_settings(tmp_path))
 
 
 async def test_encrypted_snapshot_round_trip_and_wrong_key_failure(
@@ -35,7 +37,7 @@ async def test_encrypted_snapshot_round_trip_and_wrong_key_failure(
     monkeypatch.setattr(
         tasks_settings, "encryption_key", SecretStr("synthetic-test-encryption-material-one")
     )
-    extension = TenantTasksExtension(_http_settings(tmp_path))
+    extension = TenantTasksExtension(Settings(_env_file=None, MCP_TRANSPORT="stdio"))
     assert extension.docket_settings.url == "redis://localhost:6379/0"
     payload = '{"access_token":{"token":"synthetic-token"},"tenant_id":"tenant-a"}'
     stored = snapshot_codec().encode(payload)

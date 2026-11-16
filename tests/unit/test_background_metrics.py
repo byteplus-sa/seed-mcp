@@ -64,6 +64,7 @@ async def test_real_worker_records_terminal_outcome_once(outcome, instruments):
             await task.result()
             await task.status()
     labels = instruments["TOOL_REQUESTS"].labels.call_args_list
+    assert {entry.kwargs["tool"] for entry in labels} == {"unknown"}
     assert [entry.kwargs["status"] for entry in labels].count("accepted") == 1
     assert [entry.kwargs["status"] for entry in labels].count(outcome) == 1
     instruments["TOOL_DURATION"].labels.return_value.observe.assert_called_once()
@@ -77,10 +78,14 @@ async def test_foreground_wrapper_preserves_single_measurement(instruments):
         return value
 
     server = FastMCP(middleware=[metrics.MetricsMiddleware()])
-    server.tool()(metrics.instrument_tool_execution(measured, tool_name="measured"))
+    server.tool(name="media_presign")(
+        metrics.instrument_tool_execution(measured, tool_name="media_presign")
+    )
     async with Client(server) as client:
-        assert (await client.call_tool("measured", {"value": 9})).data == 9
-    instruments["TOOL_REQUESTS"].labels.assert_called_once_with(tool="measured", status="success")
+        assert (await client.call_tool("media_presign", {"value": 9})).data == 9
+    instruments["TOOL_REQUESTS"].labels.assert_called_once_with(
+        tool="media_presign", status="success"
+    )
     instruments["TOOL_DURATION"].labels.return_value.observe.assert_called_once()
     instruments["TOOL_ADMISSION_DURATION"].labels.assert_not_called()
 
@@ -169,11 +174,10 @@ async def test_registered_server_worker_records_pre_provider_failure(
     monkeypatch.setenv("ARTIFACT_BACKEND", "filesystem")
     get_settings.cache_clear()
     refresh_capability_registry()
-    monkeypatch.setattr(
-        SeedUnderstandingService,
-        "build_request",
-        Mock(side_effect=ValueError("pre-provider regression sentinel")),
-    )
+    build_request = Mock(side_effect=ValueError("pre-provider regression sentinel"))
+    generate = AsyncMock(side_effect=AssertionError("Invalid requests must not reach providers"))
+    monkeypatch.setattr(SeedUnderstandingService, "build_request", build_request)
+    monkeypatch.setattr(SeedUnderstandingService, "generate", generate)
     try:
         server = create_server(get_settings())
         async with Client(server) as client:
@@ -185,9 +189,12 @@ async def test_registered_server_worker_records_pre_provider_failure(
             )
             result = await task.result()
             assert result.is_error
-            assert "pre-provider regression sentinel" in result.content[0].text
+            assert result.content[0].text == "Error calling tool 'seed_understand'"
+            assert "pre-provider regression sentinel" not in str(result)
             await task.result()
             await task.status()
+        build_request.assert_called_once()
+        generate.assert_not_called()
         labels = instruments["TOOL_REQUESTS"].labels.call_args_list
         assert sorted((entry.kwargs for entry in labels), key=lambda item: item["status"]) == [
             {"tool": "seed_understand", "status": "accepted"},

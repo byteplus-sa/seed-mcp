@@ -1,4 +1,4 @@
-"""Atomically change only provider keys and recreate only the MCP application."""
+"""Atomically change only operator HMAC identity and recreate the MCP application."""
 
 from __future__ import annotations
 
@@ -38,7 +38,7 @@ def write_private(path: Path, content: bytes, expected_uid: int) -> None:
 
     if path.exists() or path.is_symlink():
         read_private(path, expected_uid)
-    descriptor, temporary = tempfile.mkstemp(prefix=".provider-", dir=path.parent)
+    descriptor, temporary = tempfile.mkstemp(prefix=".identity-", dir=path.parent)
     try:
         with os.fdopen(descriptor, "wb") as stream:
             stream.write(content)
@@ -55,7 +55,7 @@ def digest(payload: bytes) -> str:
 
 
 def cleanup_temporaries(directory: Path, expected_uid: int) -> None:
-    paths = list(directory.glob(".provider-????????"))
+    paths = list(directory.glob(".identity-????????"))
     if not paths:
         return
     import receive_config
@@ -75,9 +75,9 @@ def transaction_lock(directory: Path, expected_uid: int) -> Iterator[None]:
         or metadata.st_uid != expected_uid
         or stat.S_IMODE(metadata.st_mode) != 0o700
     ):
-        raise ValueError("Provider configuration directory must be protected.")
+        raise ValueError("Operator identity directory must be protected.")
     descriptor = os.open(
-        directory / ".provider-update.lock",
+        directory / ".identity-update.lock",
         os.O_CREAT | os.O_RDWR | os.O_NOFOLLOW | os.O_NONBLOCK,
         0o600,
     )
@@ -88,11 +88,11 @@ def transaction_lock(directory: Path, expected_uid: int) -> Iterator[None]:
             or metadata.st_uid != expected_uid
             or stat.S_IMODE(metadata.st_mode) != 0o600
         ):
-            raise ValueError("Provider update lock is not protected.")
+            raise ValueError("Identity update lock is not protected.")
         try:
             fcntl.flock(descriptor, fcntl.LOCK_EX | fcntl.LOCK_NB)
         except BlockingIOError:
-            raise ValueError("Another provider update is active.") from None
+            raise ValueError("Another identity update is active.") from None
         cleanup_temporaries(directory, expected_uid)
         yield
     finally:
@@ -133,7 +133,7 @@ def inspect_transaction(
         or not re.fullmatch(r"config-[0-9]+-[0-9]+", operation)
         or len(operation) > 80
     ):
-        raise ValueError("Provider transaction reference is invalid.")
+        raise ValueError("Identity transaction reference is invalid.")
     with transaction_lock(env.parent, expected_uid):
         return _inspect_transaction(previous_digest, next_digest, operation, env, expected_uid)
 
@@ -146,7 +146,7 @@ def _inspect_transaction(
     installed = read_private(env.parent / "installation.sha256", expected_uid).decode()
     if not marker.exists() and not marker.is_symlink():
         if current != previous_digest or installed != previous_digest:
-            raise ValueError("Unmanaged provider configuration change.")
+            raise ValueError("Unmanaged operator identity change.")
         return {"status": "absent"}
     transaction = json.loads(read_private(marker, expected_uid))
     if (
@@ -189,7 +189,7 @@ def update(
     compose: Path = Path("/opt/ark-mcp/compose.yaml"),
     expected_uid: int = 0,
 ) -> None:
-    """Recover an exact transaction; never change shared auth, storage, or job secrets."""
+    """Recover an exact operator identity transaction; never accept customer credentials."""
     if (
         not re.fullmatch(r"[a-f0-9]{64}", previous_digest)
         or not re.fullmatch(r"[a-f0-9]{64}", next_digest)
@@ -198,7 +198,10 @@ def update(
         or len(payload) > 65536
         or digest(payload) != next_digest
     ):
-        raise ValueError("Provider transaction identity, size or digest is invalid.")
+        raise ValueError("Identity transaction reference, size or digest is invalid.")
+    import check_env
+
+    check_env.validate_environment(check_env.parse_environment(payload.decode()))
     with transaction_lock(env.parent, expected_uid):
         _update(payload, previous_digest, next_digest, operation, env, compose, expected_uid)
 
@@ -226,7 +229,7 @@ def _update(
         if not isinstance(transaction, dict) or any(
             transaction.get(key) != value for key, value in expected.items()
         ):
-            raise ValueError("Provider transaction differs; reconcile before retrying.")
+            raise ValueError("Identity transaction differs; reconcile before retrying.")
     current = read_private(env, expected_uid)
     if transaction.get("status") == "applied":
         if digest(current) != next_digest:
@@ -236,14 +239,14 @@ def _update(
         cleanup_transaction(directory, operation, previous_digest, next_digest, expected_uid)
         return
     if transaction and transaction.get("status") != "pending":
-        raise ValueError("Provider update failed; reconcile and use a fresh transfer attempt.")
+        raise ValueError("Identity update failed; reconcile and use a fresh transfer attempt.")
     if digest(current) not in (
         {previous_digest, next_digest} if transaction else {previous_digest}
     ):
-        raise ValueError("Host configuration changed; refusing provider overwrite.")
+        raise ValueError("Host configuration changed; refusing identity overwrite.")
     original = read_private(backup, expected_uid) if transaction else current
     if digest(original) != previous_digest:
-        raise ValueError("Provider recovery backup does not match the approved configuration.")
+        raise ValueError("Identity recovery backup does not match the approved configuration.")
     installed = read_private(directory / "installation.sha256", expected_uid).decode()
     if installed not in ({previous_digest, next_digest} if transaction else {previous_digest}):
         raise ValueError("Host configuration receipt differs; refusing unmanaged update.")
@@ -257,12 +260,14 @@ def _update(
         else:
             original_values = check_env.load_environment(backup, expected_uid=expected_uid)
             check_env.validate_environment(original_values)
-        if {key: value for key, value in proposed.items() if key not in check_env.PRODUCT_KEYS} != {
+        if {
+            key: value for key, value in proposed.items() if key not in check_env.IDENTITY_SETTINGS
+        } != {
             key: value
             for key, value in original_values.items()
-            if key not in check_env.PRODUCT_KEYS
+            if key not in check_env.IDENTITY_SETTINGS
         }:
-            raise ValueError("Only provider API keys may change in this transaction.")
+            raise ValueError("Only operator HMAC identity settings may change in this transaction.")
         subprocess.run(["mountpoint", "-q", "/srv/ark-mcp"], capture_output=True, check=True)
         if not transaction:
             write_private(backup, original, expected_uid)
@@ -297,13 +302,13 @@ def _update(
                 transaction["status"] = "recovery_failed"
                 write_private(marker, json.dumps(transaction).encode(), expected_uid)
                 raise ValueError(
-                    "Provider update and recovery failed; preserve evidence and inspect MCP health."
+                    "Identity update and recovery failed; preserve evidence and inspect MCP health."
                 ) from None
             transaction["status"] = "rolled_back"
             write_private(marker, json.dumps(transaction).encode(), expected_uid)
             cleanup_transaction(directory, operation, previous_digest, next_digest, expected_uid)
             raise ValueError(
-                "Provider update failed; prior configuration and application restored."
+                "Identity update failed; prior configuration and application restored."
             ) from None
         transaction["status"] = "applied"
         write_private(marker, json.dumps(transaction).encode(), expected_uid)
@@ -315,7 +320,7 @@ def _update(
 
 def main() -> int:
     parser = argparse.ArgumentParser(
-        description="Inspect only a provider-update transaction receipt."
+        description="Inspect only an identity-update transaction receipt."
     )
     parser.add_argument("--inspect", action="store_true", required=True)
     parser.add_argument("--previous-digest", required=True)
@@ -334,5 +339,5 @@ if __name__ == "__main__":
         raise SystemExit(main())
     except Exception:
         raise SystemExit(
-            "Provider transaction inspection failed; no secret values were logged."
+            "Identity transaction inspection failed; no secret values were logged."
         ) from None

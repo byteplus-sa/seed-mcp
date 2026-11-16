@@ -36,13 +36,12 @@ is provided.
    key, but administration, lookup, resolution and status preflight are absent.
    Ordinary TOS/S3 uploads do not register provider assets.
 
-Current HTTP authentication remains `MCP_AUTH_MODE=api_key` with
-`MCP_API_KEY_SHA256`: all holders use tenant/principal `shared-team`, one
-ownership boundary, shared budget and fixed ordinary scopes. Provider
-credentials are server-configured. **Per-user BYOK is not implemented** and
-remains future work. The former JWT mode is rejected; ownership is not
-automatically transferred. Follow the separate
-[authentication migration](self-hosting.md#breaking-change-migration).
+Current HTTP is a forward-only BYOK foundation with 9 tools (12 with
+OmniHuman), anonymous static discovery and foreground provider calls.
+Local stdio retains the conditional 21-tool catalog, jobs and storage.
+Use fresh SQLite state; no old-auth compatibility or ownership migration
+exists. See [the current contract](../specs/SPEC_HOSTED_BYOK.md) and
+[self-hosting](self-hosting.md), not the historical scope tables below.
 
 ## Historical Consolidation
 
@@ -186,8 +185,8 @@ This section is historical: the current server rejects `jwt` mode.
 | `seedance:delete`, `hyper3d:delete`, `hitem3d:delete` | `gen:delete` |
 
 Under the historical JWT mode, principals needed `gen:read` and `gen:delete`
-to poll or cancel their own tasks. Current shared-key holders are all the same
-principal. See [security.md](security.md) for today's fixed scope table.
+to poll or cancel their own tasks. Current HTTP uses credential-tenant and
+client-owner scoping. See [security.md](security.md) for today's contract.
 
 ## Observability
 

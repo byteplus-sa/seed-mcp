@@ -33,6 +33,8 @@ def smoke():
 
 @pytest.fixture
 def settings(monkeypatch):
+    monkeypatch.setenv("MCP_TRANSPORT", "stdio")
+    monkeypatch.setenv("MCP_AUTH_MODE", "local")
     monkeypatch.setenv("BYTEPLUS_MODELARK_API_KEY", "unit-test-only")
     monkeypatch.setenv(
         "SEEDREAM_MODEL_BINDINGS",
@@ -612,3 +614,19 @@ async def test_execute_forces_private_filesystem_artifacts(smoke, settings, tmp_
     assert len(observed) == 1
     assert observed[0].artifact_backend == "filesystem"
     assert Path(observed[0].artifact_dir).is_relative_to(tmp_path)
+
+
+async def test_internal_job_smoke_rejects_http_before_start_or_files(
+    smoke, settings, tmp_path, monkeypatch
+):
+    configured = settings.model_copy(update={"mcp_transport": "http", "mcp_auth_mode": "byok"})
+    monkeypatch.setattr("ark_mcp.config.env.get_settings", lambda: configured)
+    monkeypatch.setattr(
+        "ark_mcp.server.create_server", lambda _: pytest.fail("HTTP smoke must not start jobs")
+    )
+    args = smoke.parser().parse_args(
+        ["--execute", "--confirm-cost", "1", "--output-dir", str(tmp_path)]
+    )
+    with pytest.raises(smoke.SmokeFailure, match="configured_local_modelark_server_required"):
+        await smoke.execute(args)
+    assert not list(tmp_path.iterdir())

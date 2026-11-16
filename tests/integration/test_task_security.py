@@ -1,358 +1,346 @@
+"""Provider ownership over HTTP, per specs/SPEC_HOSTED_BYOK.md."""
+
 from __future__ import annotations
 
 import asyncio
-from contextlib import asynccontextmanager
+from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 from unittest.mock import AsyncMock
 
 import httpx
 import pytest
-from fastmcp.server.auth import AccessToken, TokenVerifier
+import respx
 
-from ark_mcp.providers.modelark.schemas import SeedreamProviderResponse
-from ark_mcp.providers.modelark.seedream import SeedreamService
-from ark_mcp.server import create_server
-from tests.integration.test_http_security import _http_settings
+from tests.integration.test_byok_http import (
+    CLIENT_SECRET,
+    MODELARK,
+    MODELARK_KEY,
+    OTHER_SECRET,
+    SPEECH_KEY,
+    VIDEO_MODEL,
+    VISION,
+    VISION_KEY,
+    assert_denied,
+    call_tool,
+    credentials,
+    http_server,
+    http_settings,
+    successful,
+)
 
-pytestmark = pytest.mark.usefixtures("test_env")
+TASKS_URL = f"{MODELARK}/contents/generations/tasks"
 
 
-class TenantVerifier(TokenVerifier):
-    """Inject synthetic identities to exercise ownership defenses independently of auth."""
+def provider_task(task_id: str, status: str = "queued", **extra: Any) -> dict[str, Any]:
+    return {
+        "id": task_id,
+        "model": VIDEO_MODEL,
+        "status": status,
+        "created_at": int(datetime.now(UTC).timestamp()),
+        **extra,
+    }
 
-    def __init__(self, principal_source: str = "sub") -> None:
-        super().__init__()
-        self.principal_source = principal_source
 
-    async def verify_token(self, token: str) -> AccessToken:
-        claims = {"sub": "alice"} if self.principal_source == "sub" else {}
-        if token != "missing-tenant":
-            claims["tenant_id"] = token
-        return AccessToken(
-            token=token,
-            client_id="shared-client",
-            scopes=[] if token == "no-scope" else ["seedream:generate"],
-            claims=claims,
-            subject="alice" if self.principal_source == "subject" else None,
+async def create_video(client: httpx.AsyncClient, headers: dict[str, str]) -> str:
+    result = successful(
+        await call_tool(
+            client, "seedance_create_task", {"prompt": "A synthetic scene"}, headers=headers
         )
-
-
-async def request_task(
-    client: httpx.AsyncClient,
-    token: str,
-    method: str,
-    params: dict[str, Any],
-    *,
-    task_capable: bool = True,
-) -> dict[str, Any]:
-    name = params.get("name", params.get("taskId", ""))
-    response = await client.post(
-        "/mcp",
-        headers={
-            "Authorization": f"Bearer {token}",
-            "Accept": "application/json, text/event-stream",
-            "Mcp-Protocol-Version": "2026-07-28",
-            "Mcp-Method": method,
-            "Mcp-Name": name,
-        },
-        json={
-            "jsonrpc": "2.0",
-            "id": 1,
-            "method": method,
-            "params": {
-                **params,
-                "_meta": {
-                    "io.modelcontextprotocol/protocolVersion": "2026-07-28",
-                    "io.modelcontextprotocol/clientCapabilities": (
-                        {"extensions": {"io.modelcontextprotocol/tasks": {}}}
-                        if task_capable
-                        else {}
-                    ),
-                },
-            },
-        },
     )
-    return response.json()
+    assert result["submitted"] == 1
+    return str(result["tasks"][0]["task_id"])
 
 
-@asynccontextmanager
-async def task_client(tmp_path: Path, principal_source: str = "sub"):
-    settings = _http_settings(tmp_path)
-    server = create_server(settings, auth_provider=TenantVerifier(principal_source))
-    app = server.http_app(path="/mcp", stateless_http=True, json_response=True)
-    async with (
-        app.router.lifespan_context(app),
-        httpx.AsyncClient(
-            transport=httpx.ASGITransport(app=app), base_url="http://testserver"
-        ) as client,
-    ):
-        yield client
-
-
-async def submit(client: httpx.AsyncClient, token: str = "tenant-a") -> dict[str, Any]:
-    return await request_task(
-        client,
-        token,
-        "tools/call",
-        {
-            "name": "seedream_generate_image",
-            "arguments": {"input": {"prompt": "A private portrait", "persist": False}},
-        },
+@pytest.mark.parametrize("other", ["different_key", "different_secret"])
+@pytest.mark.parametrize("restart", [False, True])
+@respx.mock
+async def test_cross_owner_get_list_cancel_and_draft_are_denied_before_outbound(
+    tmp_path: Path, other: str, restart: bool
+) -> None:
+    respx.post(TASKS_URL).respond(200, json={"id": "task-private"})
+    owner = credentials()
+    stranger = (
+        credentials("synthetic-other-modelark", CLIENT_SECRET)
+        if other == "different_key"
+        else credentials(MODELARK_KEY, OTHER_SECRET)
     )
 
-
-async def compatibility_call(
-    client: httpx.AsyncClient,
-    token: str,
-    name: str,
-    arguments: dict[str, Any],
-) -> dict[str, Any]:
-    return await request_task(
-        client,
-        token,
-        "tools/call",
-        {"name": name, "arguments": arguments},
-        task_capable=False,
-    )
-
-
-async def compatibility_terminal(
-    client: httpx.AsyncClient,
-    token: str,
-    job_id: str,
-) -> dict[str, Any]:
-    async with asyncio.timeout(5):
-        while True:
-            result = await compatibility_call(
-                client,
-                token,
-                "ark_job_get",
-                {"input": {"job_id": job_id}},
+    async def check_denied(client: httpx.AsyncClient) -> None:
+        before = len(respx.calls)
+        got = successful(
+            await call_tool(
+                client, "gen_task_get", {"task_ids": ["task-private"]}, headers=stranger
             )
-            if result.get("result", {}).get("structuredContent", {}).get("status") != "working":
-                return result
-            await asyncio.sleep(0.01)
-
-
-async def terminal(client: httpx.AsyncClient, task_id: str) -> dict[str, Any]:
-    async with asyncio.timeout(5):
-        while True:
-            result = await request_task(client, "tenant-a", "tasks/get", {"taskId": task_id})
-            if result.get("result", {}).get("status") != "working":
-                return result
-            await asyncio.sleep(0.01)
-
-
-@pytest.mark.parametrize("principal_source", ["sub", "subject", "client_id"])
-async def test_task_results_enforce_owner_tenant(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, principal_source: str
-) -> None:
-    provider = AsyncMock(
-        return_value=(
-            SeedreamProviderResponse(data=[{"url": "https://output.example.com/private.png"}]),
-            "req-private",
         )
-    )
-    monkeypatch.setattr(SeedreamService, "generate", provider)
-    monkeypatch.setattr(SeedreamService, "close", AsyncMock())
-    async with task_client(tmp_path, principal_source) as client:
-        task_id = (await submit(client))["result"]["taskId"]
-        result = await terminal(client, task_id)
-        assert "result" in result, result
-        assert result["result"]["result"]["isError"] is False
-        assert result["result"]["result"]["structuredContent"]["artifacts"][0]["uri"].endswith(
-            "private.png"
+        assert got["tasks"] == []
+        assert [(error["task_id"], error["code"]) for error in got["errors"]] == [
+            ("task-private", "NOT_OWNED")
+        ]
+        for filters in ({}, {"task_ids": ["task-private"]}):
+            listed = successful(await call_tool(client, "gen_task_list", filters, headers=stranger))
+            assert listed == {"tasks": [], "next_cursor": None}
+        for name, input_data in (
+            (
+                "gen_task_cancel_or_delete",
+                {"task_id": "task-private", "mode": "cancel", "expected_status": "queued"},
+            ),
+            ("seedance_create_task", {"draft_task_id": "task-private"}),
+            ("seedance_create_task", {"draft_task_id": "task-private", "dry_run": True}),
+        ):
+            assert_denied(await call_tool(client, name, input_data, headers=stranger))
+        assert len(respx.calls) == before
+
+    async with http_server(tmp_path) as (_, _, client):
+        assert await create_video(client, owner) == "task-private"
+        if not restart:
+            await check_denied(client)
+    if restart:
+        async with http_server(tmp_path) as (_, _, client):
+            await check_denied(client)
+
+
+@pytest.mark.parametrize("restart", [False, True])
+@respx.mock
+async def test_owner_survives_restart_and_unrelated_provider_key_addition(
+    tmp_path: Path, restart: bool
+) -> None:
+    respx.post(TASKS_URL).respond(200, json={"id": "task-owned"})
+    get_route = respx.get(TASKS_URL).respond(200, json={"data": [provider_task("task-owned")]})
+    headers = {**credentials(), "X-Seed-Speech-Api-Key": SPEECH_KEY}
+
+    async def check_owner(client: httpx.AsyncClient) -> None:
+        got = successful(
+            await call_tool(client, "gen_task_get", {"task_ids": ["task-owned"]}, headers=headers)
         )
-        other = await request_task(client, "tenant-b", "tasks/get", {"taskId": task_id})
-        assert "error" in other
-        assert "private.png" not in str(other)
-    provider.assert_awaited_once()
+        assert got["errors"] == []
+        assert [task["task_id"] for task in got["tasks"]] == ["task-owned"]
+        listed = successful(await call_tool(client, "gen_task_list", {}, headers=headers))
+        assert [task["task_id"] for task in listed["tasks"]] == ["task-owned"]
+
+    async with http_server(tmp_path) as (_, _, client):
+        assert await create_video(client, credentials()) == "task-owned"
+        if not restart:
+            await check_owner(client)
+    if restart:
+        async with http_server(tmp_path) as (_, _, client):
+            await check_owner(client)
+    assert get_route.call_count == 2
+    for call in get_route.calls:
+        assert call.request.headers["Authorization"] == f"Bearer {MODELARK_KEY}"
+        assert call.request.url.params.get_list("filter.task_ids") == ["task-owned"]
 
 
-@pytest.mark.parametrize("method", ["tasks/get", "tasks/update", "tasks/cancel"])
-async def test_other_tenant_cannot_access_running_task(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, method: str
-) -> None:
-    started, release = asyncio.Event(), asyncio.Event()
-
-    async def generate(*args: Any, **kwargs: Any) -> tuple[SeedreamProviderResponse, str]:
-        started.set()
-        await release.wait()
-        return (
-            SeedreamProviderResponse(data=[{"url": "https://output.example.com/private.png"}]),
-            "req-private",
-        )
-
-    monkeypatch.setattr(SeedreamService, "generate", generate)
-    monkeypatch.setattr(SeedreamService, "close", AsyncMock())
-    async with task_client(tmp_path) as client:
-        task_id = (await submit(client))["result"]["taskId"]
-        await asyncio.wait_for(started.wait(), 5)
-        try:
-            params: dict[str, Any] = {"taskId": task_id}
-            if method == "tasks/update":
-                params["inputResponses"] = {}
-            denied = await request_task(client, "tenant-b", method, params)
-            assert "error" in denied
-        finally:
-            release.set()
-        result = await terminal(client, task_id)
-        assert "result" in result, result
-        assert result["result"]["result"]["isError"] is False
-
-
-async def test_missing_tenant_rejected_before_submission(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    provider = AsyncMock()
-    monkeypatch.setattr(SeedreamService, "generate", provider)
-    async with task_client(tmp_path) as client:
-        result = await submit(client, "missing-tenant")
-        assert "error" in result or result.get("result", {}).get("isError") is True
-        assert "taskId" not in result.get("result", {})
-    provider.assert_not_awaited()
-
-
-@pytest.mark.parametrize("token", ["tenant-a", "missing-tenant"])
-async def test_unknown_task_is_denied(tmp_path: Path, token: str) -> None:
-    async with task_client(tmp_path) as client:
-        result = await request_task(client, token, "tasks/get", {"taskId": "unknown-task"})
-        assert "error" in result
-
-
-async def test_owner_can_cancel_running_task(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    started, cancelled, release = asyncio.Event(), asyncio.Event(), asyncio.Event()
-
-    async def generate(*args: Any, **kwargs: Any) -> tuple[SeedreamProviderResponse, str]:
-        started.set()
-        try:
-            await release.wait()
-        finally:
-            cancelled.set()
-        raise AssertionError("Provider wait unexpectedly completed")
-
-    monkeypatch.setattr(SeedreamService, "generate", generate)
-    monkeypatch.setattr(SeedreamService, "close", AsyncMock())
-    async with task_client(tmp_path) as client:
-        task_id = (await submit(client))["result"]["taskId"]
-        await asyncio.wait_for(started.wait(), 5)
-        try:
-            result = await asyncio.wait_for(
-                request_task(client, "tenant-a", "tasks/cancel", {"taskId": task_id}), 5
-            )
-            assert result["result"]["resultType"] == "complete"
-            await asyncio.wait_for(cancelled.wait(), 5)
-            assert (await terminal(client, task_id))["result"]["status"] == "cancelled"
-        finally:
-            release.set()
-
-
-async def test_compatibility_jobs_enforce_scope_and_tenant_ownership(
+@respx.mock
+async def test_distinct_keys_may_own_identical_provider_task_ids_after_restart(
     tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
-    provider = AsyncMock(
-        return_value=(
-            SeedreamProviderResponse(data=[{"url": "https://output.example.com/private.png"}]),
-            "req-private",
-        )
-    )
-    monkeypatch.setattr(SeedreamService, "generate", provider)
-    monkeypatch.setattr(SeedreamService, "close", AsyncMock())
+    keys = ["synthetic-tenant-first", "synthetic-tenant-second"]
+    respx.post(TASKS_URL).respond(200, json={"id": "provider-reused-id"})
 
-    async with task_client(tmp_path) as client:
-        no_scope_capabilities = await compatibility_call(
-            client,
-            "no-scope",
-            "ark_job_capabilities",
-            {},
-        )
-        assert no_scope_capabilities["result"]["structuredContent"]["targets"] == []
-
-        authorized_capabilities = await compatibility_call(
-            client,
-            "tenant-a",
-            "ark_job_capabilities",
-            {},
-        )
-        authorized_targets = {
-            target["tool_name"]
-            for target in authorized_capabilities["result"]["structuredContent"]["targets"]
-        }
-        assert "seedream_generate_image" in authorized_targets
-        assert "gen_task_get" not in authorized_targets
-
-        missing_tenant = await compatibility_call(
-            client,
-            "missing-tenant",
-            "ark_job_submit",
-            {
-                "input": {
-                    "tool_name": "seedream_generate_image",
-                    "arguments": {
-                        "input": {
-                            "prompt": "A private portrait",
-                            "persist": False,
-                        }
-                    },
-                }
+    def poll(request: httpx.Request) -> httpx.Response:
+        key = request.headers["Authorization"].removeprefix("Bearer ")
+        index = keys.index(key)
+        return httpx.Response(
+            200,
+            json={
+                "data": [
+                    provider_task(
+                        "provider-reused-id",
+                        "succeeded",
+                        content={"video_url": f"https://example.com/owner-{index}.mp4"},
+                    )
+                ]
             },
         )
-        assert "error" in missing_tenant or missing_tenant["result"]["isError"] is True
 
-        denied_scope = await compatibility_call(
-            client,
-            "no-scope",
-            "ark_job_submit",
-            {
-                "input": {
-                    "tool_name": "seedream_generate_image",
-                    "arguments": {
-                        "input": {
-                            "prompt": "A private portrait",
-                            "persist": False,
-                        }
-                    },
-                }
-            },
-        )
-        assert denied_scope["result"]["isError"] is True
-
-        submitted = await compatibility_call(
-            client,
-            "tenant-a",
-            "ark_job_submit",
-            {
-                "input": {
-                    "tool_name": "seedream_generate_image",
-                    "arguments": {
-                        "input": {
-                            "prompt": "A private portrait",
-                            "persist": False,
-                        }
-                    },
-                }
-            },
-        )
-        job_id = submitted["result"]["structuredContent"]["job_id"]
-
-        for operation in ("ark_job_get", "ark_job_cancel"):
-            other_tenant = await compatibility_call(
-                client,
-                "tenant-b",
-                operation,
-                {"input": {"job_id": job_id}},
+    respx.get(TASKS_URL).mock(side_effect=poll)
+    async with http_server(tmp_path) as (_, _, client):
+        ids = await asyncio.gather(*(create_video(client, credentials(key)) for key in keys))
+        assert ids == ["provider-reused-id", "provider-reused-id"]
+    async with http_server(tmp_path) as (_, _, client):
+        for index, key in enumerate(keys):
+            result = successful(
+                await call_tool(
+                    client,
+                    "gen_task_get",
+                    {"task_ids": ["provider-reused-id"]},
+                    headers=credentials(key),
+                )
             )
-            assert other_tenant["result"]["isError"] is True
-            assert "private.png" not in str(other_tenant)
+            assert result["errors"] == []
+            assert (
+                result["tasks"][0]["outputs"][0]["source_url"]
+                == f"https://example.com/owner-{index}.mp4"
+            )
 
-        completed = await compatibility_terminal(client, "tenant-a", job_id)
 
-    assert completed["result"]["structuredContent"]["status"] == "completed"
-    tool_result = completed["result"]["structuredContent"]["result"]
-    assert tool_result["is_error"] is False
-    assert tool_result["structured_content"]["artifacts"][0]["uri"].endswith("private.png")
-    provider.assert_awaited_once()
+@respx.mock
+async def test_conflicting_same_key_submissions_never_reassign_owner(
+    tmp_path: Path,
+) -> None:
+    entered = asyncio.Event()
+    count = 0
+
+    async def accepted(request: httpx.Request) -> httpx.Response:
+        nonlocal count
+        count += 1
+        if count == 2:
+            entered.set()
+        await asyncio.wait_for(entered.wait(), 5)
+        return httpx.Response(200, json={"id": "provider-collision"})
+
+    respx.post(TASKS_URL).mock(side_effect=accepted)
+    respx.get(TASKS_URL).respond(200, json={"data": [provider_task("provider-collision")]})
+    owners = [credentials(), credentials(MODELARK_KEY, OTHER_SECRET)]
+    async with http_server(tmp_path) as (_, _, client):
+        results = await asyncio.gather(
+            *(
+                call_tool(client, "seedance_create_task", {"prompt": "scene"}, headers=headers)
+                for headers in owners
+            )
+        )
+        winners = [
+            index
+            for index, result in enumerate(results)
+            if not result.get("result", {}).get("isError", True)
+        ]
+        assert len(winners) == 1, results
+        winner = winners[0]
+        denied = results[1 - winner]
+        assert_denied(denied)
+    assert count == 2
+    async with http_server(tmp_path) as (_, _, client):
+        for index, headers in enumerate(owners):
+            before = len(respx.calls)
+            result = successful(
+                await call_tool(
+                    client, "gen_task_get", {"task_ids": ["provider-collision"]}, headers=headers
+                )
+            )
+            if index == winner:
+                assert [task["task_id"] for task in result["tasks"]] == ["provider-collision"]
+            else:
+                assert result["tasks"] == []
+                assert result["errors"][0]["code"] == "NOT_OWNED"
+                assert len(respx.calls) == before
+    assert any(word in str(denied).lower() for word in ("unknown", "ambiguous", "reconcile")), (
+        denied
+    )
+
+
+@respx.mock
+async def test_owner_can_cancel_but_spoofed_identity_headers_cannot(
+    tmp_path: Path,
+) -> None:
+    respx.post(TASKS_URL).respond(200, json={"id": "task-cancel"})
+    respx.get(f"{TASKS_URL}/task-cancel").respond(200, json=provider_task("task-cancel"))
+    deleted = respx.delete(f"{TASKS_URL}/task-cancel").respond(204)
+    input_data = {"task_id": "task-cancel", "mode": "cancel", "expected_status": "queued"}
+    async with http_server(tmp_path) as (_, _, client):
+        await create_video(client, credentials())
+        before = len(respx.calls)
+        spoofed = {
+            **credentials(MODELARK_KEY, OTHER_SECRET),
+            "X-Tenant-Id": "local",
+            "X-Principal-Id": "local",
+            "X-Forwarded-User": "shared-team",
+        }
+        assert_denied(
+            await call_tool(client, "gen_task_cancel_or_delete", input_data, headers=spoofed)
+        )
+        assert len(respx.calls) == before
+        result = successful(
+            await call_tool(client, "gen_task_cancel_or_delete", input_data, headers=credentials())
+        )
+        assert result["task_id"] == "task-cancel"
+        assert result["mode"] == "cancel"
+    assert deleted.call_count == 1
+    assert deleted.calls[0].request.headers["Authorization"] == f"Bearer {MODELARK_KEY}"
+
+
+@respx.mock
+async def test_mixed_owned_and_foreign_get_filters_before_upstream(
+    tmp_path: Path,
+) -> None:
+    respx.post(TASKS_URL).mock(
+        side_effect=[
+            httpx.Response(200, json={"id": "mine"}),
+            httpx.Response(200, json={"id": "foreign"}),
+        ]
+    )
+    get_route = respx.get(TASKS_URL).respond(
+        200, json={"data": [provider_task("mine"), provider_task("foreign")]}
+    )
+    async with http_server(tmp_path) as (_, _, client):
+        await create_video(client, credentials())
+        await create_video(client, credentials(MODELARK_KEY, OTHER_SECRET))
+        result = successful(
+            await call_tool(
+                client,
+                "gen_task_get",
+                {"task_ids": ["mine", "foreign", "unknown"]},
+                headers=credentials(),
+            )
+        )
+        assert [task["task_id"] for task in result["tasks"]] == ["mine"]
+        assert {error["task_id"] for error in result["errors"]} == {"foreign", "unknown"}
+        assert all(error["code"] == "NOT_OWNED" for error in result["errors"])
+    assert get_route.call_count == 1
+    assert get_route.calls[0].request.url.params.get_list("filter.task_ids") == ["mine"]
+
+
+@respx.mock
+async def test_ownership_database_failure_fails_closed(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async with http_server(tmp_path) as (_, runtime, client):
+        failure = AsyncMock(side_effect=RuntimeError("synthetic storage unavailable"))
+        monkeypatch.setattr(runtime.ownership_store, "require_owner", failure)
+        for name, input_data in (
+            ("gen_task_get", {"task_ids": ["unknown"]}),
+            (
+                "gen_task_cancel_or_delete",
+                {"task_id": "unknown", "mode": "cancel", "expected_status": "queued"},
+            ),
+            ("seedance_create_task", {"draft_task_id": "unknown"}),
+        ):
+            assert_denied(await call_tool(client, name, input_data, headers=credentials()))
+        assert failure.await_count == 3
+    assert len(respx.calls) == 0
+
+
+@respx.mock
+async def test_omnihuman_ownership_denied_before_get_or_cancel(
+    tmp_path: Path,
+) -> None:
+    respx.post(f"{VISION}/api/common/v3/submit_task_v2").respond(
+        200, json={"code": 10000, "data": {"task_id": "avatar-private"}}
+    )
+    settings = http_settings(tmp_path, BYTEPLUS_OMNIHUMAN_ENABLED=True)
+    async with http_server(tmp_path, settings=settings) as (_, _, client):
+        result = successful(
+            await call_tool(
+                client,
+                "omnihuman_create_task",
+                {"image": "https://example.com/face.png", "audio": "https://example.com/a.wav"},
+                headers=credentials(VISION_KEY, header="X-OmniHuman-Api-Key"),
+            )
+        )
+        assert result["task_id"] == "avatar-private"
+    async with http_server(tmp_path, settings=settings) as (_, _, client):
+        before = len(respx.calls)
+        for name in ("omnihuman_get_task", "omnihuman_cancel_task"):
+            for key, secret in (
+                (VISION_KEY, OTHER_SECRET),
+                ("synthetic-other-vision", CLIENT_SECRET),
+            ):
+                assert_denied(
+                    await call_tool(
+                        client,
+                        name,
+                        {"task_id": "avatar-private"},
+                        headers=credentials(key, secret, header="X-OmniHuman-Api-Key"),
+                    )
+                )
+        assert len(respx.calls) == before

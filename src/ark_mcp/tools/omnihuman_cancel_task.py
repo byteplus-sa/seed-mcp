@@ -10,8 +10,10 @@ from pydantic import BaseModel, Field
 
 from ark_mcp.domain.errors import ProviderError
 from ark_mcp.observability.logger import info as log_info
+from ark_mcp.providers.factory import vision_cv_gateway
 from ark_mcp.providers.vision_cv.omnihuman import OmniHumanService
 from ark_mcp.runtime import get_principal, get_runtime
+from ark_mcp.security.credentials import provider_api_key
 from ark_mcp.tools._errors import provider_error_result
 from ark_mcp.tools._task_execution import context_log
 
@@ -48,12 +50,13 @@ async def omnihuman_cancel_task(
     A task that already started returns canceled=false, not an error. Right after
     omnihuman_create_task the provider may reject the ID as invalid; wait a few seconds and retry.
     """
+    provider_api_key(ctx, "vision-cv")
     runtime = get_runtime(ctx)
     owner = get_principal(ctx)
     await runtime.ownership_store.require_owner("vision-cv", input.task_id, owner)
 
-    service = OmniHumanService()
     await context_log(ctx, "info", f"Canceling OmniHuman task {input.task_id}")
+    service = OmniHumanService(gateway=vision_cv_gateway(ctx))
     try:
         result = await service.cancel(input.task_id)
     except ProviderError as exc:

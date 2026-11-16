@@ -13,6 +13,10 @@ How to poll asynchronous provider tasks, what the persistence layer does with fi
 
 ## Two-phase polling
 
+The persist phase below is **stdio-only**. HTTP uses direct foreground calls,
+has no jobs/native tasks/storage/artifact tools/resources, and requires
+persistence false. Download expiring provider URLs on the client instead.
+
 ```mermaid
 flowchart LR
     A[create tool<br/>in background] --> B[foreground poll<br/>persist_output=false]
@@ -26,7 +30,7 @@ flowchart LR
   available, submit the same poller through `ark_job_submit` with
   `persist_output=true` to download and store them in the worker.
 - **`persist_output=true` needs background execution** (`ark_job_submit` or native task augmentation). In a foreground call it returns an error result telling you to use `persist_output=false`.
-- **`omnihuman_get_task` defaults to `persist_output=true`**, so a foreground status check must pass `false` explicitly.
+- **`omnihuman_get_task` defaults to `persist_output=false`**, as do Seed Audio/Seedream persistence inputs globally. Local true is explicit; HTTP rejects true.
 - **Never resubmit a create tool to poll.** `queued`, `running` and `processing` are not failures, and a second create call starts a second billed task. After a local timeout, disconnect or client restart, poll the same task ID again.
 - **Persistence is cached per task and output.** Concurrent and repeated polls reuse each cached durable copy. Missing or failed generation outputs can be persisted later without copying successful siblings again.
 - Local files written by a persist run (`output_dir`, `output_path`) need `OUTPUT_ROOTS` on the server; see [background-job-output.md](background-job-output.md).
@@ -39,7 +43,9 @@ flowchart LR
 
 ## Generation tasks: `gen_task_get`, `gen_task_list`, `gen_task_cancel_or_delete`
 
-One toolset serves Seedance (every model generation). It needs `BYTEPLUS_MODELARK_API_KEY`. Authenticated callers see tasks owned by their principal; every shared-key member uses the same `shared-team` principal, including for cancellation.
+One toolset serves Seedance (every model generation). Stdio uses its configured
+ModelArk key; HTTP uses `X-ModelArk-Api-Key` and `X-MCP-Client-Secret`.
+HTTP tasks are scoped by credential tenant and client owner, including cancellation.
 
 ### `gen_task_get`
 
@@ -77,18 +83,20 @@ A mode that does not fit `expected_status` (cancel with `succeeded`, delete with
 
 - **Statuses:** `queued`, `running`, `succeeded`, `failed`, `canceled` (single l), `expired` (the provider dropped the task; resubmit), `not_found` (unknown, or older than 12 h; the provider keeps tasks 12 h).
 - **Poll about every 10 s** until `succeeded`, then use `video.uri` (a `seed-media://` artifact).
-- **The provider's `source_url` is valid for only about one hour** (`source_expires_at` is an estimate: first poll plus one hour). Persist promptly; the default `persist_output=true` does so on the first successful poll when run in the background, and later polls return the cached artifact. `persistence` is `not_applicable` for any non-succeeded status.
+- **The provider's `source_url` is valid for only about one hour** (`source_expires_at` is an estimate: first poll plus one hour). Download promptly on HTTP. On stdio explicitly request `persist_output=true` in a job to retain it; later local polls reuse cached artifacts. `persistence` is `not_applicable` for any non-succeeded status.
 - **`omnihuman_cancel_task` only cancels a `queued` task.** A started or finished task returns `canceled=false` with a `message`, not an error. Right after creation the provider may reject the ID as invalid: wait a few seconds and retry.
 
 ## Artifacts
 
-Persisted outputs are `ArtifactRef`s whose `uri` is a stable `seed-media://artifacts/{artifact_id}`. Keep `persist=true` / `persist_output=true` (the defaults on the creation tools) for anything you need later.
+Stdio persisted outputs are `ArtifactRef`s with a stable
+`seed-media://artifacts/{artifact_id}` URI. Explicitly request `persist=true` /
+`persist_output=true` locally when needed; defaults are false.
 
 ### Retention and access
 
 - **Provider URLs expire fast: 2 h for audio, 24 h for ModelArk image/video, about 1 h for OmniHuman video.** Durable artifacts survive 7 days by default (`ARTIFACT_TTL_SECONDS`; see [environment.md](environment.md)).
-- **Artifacts are owner-checked** against the calling principal. Shared-key members can read one another's team artifacts. The `seed-media://artifacts/{artifact_id}` resource needs a canonical UUID and returns the bytes with the right MIME type; in `api_key` mode it checks the fixed team's `artifacts:read` scope.
-- **`seed_media_get_artifact` returns the whole file as Base64 in context.** Use it only for small files or remote (HTTP) deployments with no shared filesystem; on stdio prefer the export tool or a local `output_path`.
+- **Artifacts are local-only and owner-checked.** The resource needs a canonical UUID and returns bytes with the right MIME type.
+- **`seed_media_get_artifact` returns the whole file as Base64 in context.** Prefer local export for large files; the tool does not exist on HTTP.
 - **`seed_media_export_artifact` is stdio only.** Without `destination_path` it returns the artifact's path inside the store (`copied=false`), which is only possible when the store is on the local filesystem; with an object-storage backend it errors and asks for a `destination_path`. With `destination_path` (absolute, inside an allowed output root) it writes an atomic copy (`copied=true`). An existing file with different content is replaced only with `overwrite=true`; identical content always succeeds.
 
 ### Local output paths
@@ -132,6 +140,6 @@ Persists a temporary provider URL as a durable artifact, for `provider-url` fall
 - **Pass the artifact's own `media_type`, `mime_type` and `source_expires_at`.** For a task output, use its `source_url` and actual format: MP4 is `video/mp4`, MOV is `video/quicktime`; `last_frame` is an image.
 - **Only trusted BytePlus provider hosts are accepted**, through the same downloader, host allowlist, redirect checks and size limits as generation-time persistence. Anything else is rejected, so it cannot be used to fetch arbitrary URLs.
 - **Retry before the source expires.** A failure returns an error with the persistence code and `retryable`; a non-retryable code such as a size-limit breach will not succeed on retry (see `artifact_limit_bytes`).
-- In `api_key` mode it checks the fixed team's `media:upload` scope. It is not idempotent: each success creates a new artifact.
+- Stdio only. It is not idempotent: each success creates a new artifact.
 
 For model, limit and env details see [models-and-limits.md](models-and-limits.md) and [environment.md](environment.md); for end-to-end flows see [workflows.md](workflows.md).

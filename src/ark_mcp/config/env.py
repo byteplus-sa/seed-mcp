@@ -4,18 +4,20 @@ Loads custom environment variables (provider credentials, model bindings,
 artifact storage, transport settings) via Pydantic Settings. FastMCP's own
 settings (log level, etc.) are handled separately by FastMCP.
 
-Provider credentials are startup configuration only and never tool arguments.
-If a credential is absent, the server must not register that product's tool set.
+HTTP credentials are request-only BYOK headers, never tool arguments.
+Startup provider credentials serve only trusted local stdio development.
 """
 
 from __future__ import annotations
 
 import os
 import re
+from contextlib import contextmanager
+from contextvars import ContextVar
 from enum import StrEnum
 from functools import lru_cache
 from pathlib import Path
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 from urllib.parse import urlsplit
 
 from pydantic import (
@@ -28,6 +30,9 @@ from pydantic import (
     model_validator,
 )
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+if TYPE_CHECKING:
+    from collections.abc import Iterator
 
 
 def resolve_env_file() -> str:
@@ -95,7 +100,7 @@ class SeedUnderstandingFamily(StrEnum):
 
 class AuthMode(StrEnum):
     LOCAL = "local"
-    API_KEY = "api_key"
+    BYOK = "byok"
 
 
 class ImageModelBinding(BaseModel):
@@ -268,11 +273,29 @@ class Settings(BaseSettings):
         default="127.0.0.1,localhost,[::1]",
         validation_alias="MCP_ALLOWED_HOSTS",
     )
-    mcp_auth_mode: AuthMode = Field(default=AuthMode.LOCAL, validation_alias="MCP_AUTH_MODE")
-    mcp_api_key_sha256: SecretStr = Field(
+    mcp_auth_mode: AuthMode = Field(default=AuthMode.BYOK, validation_alias="MCP_AUTH_MODE")
+    identity_hmac_key: SecretStr = Field(
         default=SecretStr(""),
-        validation_alias="MCP_API_KEY_SHA256",
-        description="Lowercase SHA-256 hex digest of the shared MCP bearer key; never the raw key.",
+        validation_alias="MCP_IDENTITY_HMAC_KEY",
+        description="Operator HMAC secret: 32 random bytes as lowercase hex. Required for HTTP.",
+    )
+    identity_key_version: int = Field(
+        default=1,
+        ge=1,
+        validation_alias="MCP_IDENTITY_KEY_VERSION",
+        description="HMAC identity version; changing it changes ownership scope.",
+    )
+    http_max_in_flight: int = Field(
+        default=64,
+        ge=1,
+        validation_alias="MCP_HTTP_MAX_IN_FLIGHT",
+        description="Single-instance HTTP admission cap, including requests waiting for providers.",
+    )
+    state_max_records: int = Field(
+        default=100_000,
+        ge=1,
+        validation_alias="STATE_MAX_RECORDS",
+        description="Maximum rows per ownership/budget table; new admissions fail closed at capacity.",
     )
     readiness_check_providers: bool = Field(
         default=False,
@@ -291,7 +314,7 @@ class Settings(BaseSettings):
         description="Per-provider timeout for readiness connectivity checks.",
     )
     rate_limit_rpm: int = Field(
-        default=0,
+        default=60,
         ge=0,
         validation_alias="RATE_LIMIT_RPM",
         description="Maximum HTTP requests per minute per client IP. 0 disables rate limiting.",
@@ -344,7 +367,7 @@ class Settings(BaseSettings):
             "Authenticated HTTP with regular Seedance 2.5 requires at least 14 days."
         ),
     )
-    artifact_dir: str = Field(default="~/.ark-mcp/artifacts", validation_alias="ARTIFACT_DIR")
+    artifact_dir: str = Field(default="~/.seed-mcp/artifacts", validation_alias="ARTIFACT_DIR")
     artifact_ttl_seconds: int = Field(default=604800, validation_alias="ARTIFACT_TTL_SECONDS")
     mcp_inline_media_max_bytes: int = Field(
         default=8388608, validation_alias="MCP_INLINE_MEDIA_MAX_BYTES"
@@ -387,13 +410,12 @@ class Settings(BaseSettings):
         ),
     )
     mcp_http_max_body_bytes: int = Field(
-        default=300 * 1024 * 1024,
+        default=2 * 1024 * 1024,
         ge=1,
         validation_alias="MCP_HTTP_MAX_BODY_BYTES",
         description=(
-            "Maximum Streamable HTTP request body in bytes. Defaults large enough to "
-            "inline the largest supported Base64 media upload (200 MiB video inflates "
-            "~4/3x when Base64-encoded inside the JSON-RPC envelope)."
+            "Maximum Streamable HTTP request body in bytes. Defaults to 2 MiB; "
+            "use HTTPS media references for larger inputs."
         ),
     )
 
@@ -688,24 +710,36 @@ class Settings(BaseSettings):
             raise ValueError("MCP_INLINE_MEDIA_MAX_BYTES must be positive")
         if self.mcp_http_max_body_bytes <= 0:
             raise ValueError("MCP_HTTP_MAX_BODY_BYTES must be positive")
-        if self.mcp_transport == "http":
-            _warn_if_http_body_limit_blocks_media_upload(self.mcp_http_max_body_bytes)
         if self.connect_timeout_ms <= 0 or self.request_timeout_ms <= 0:
             raise ValueError("Provider timeouts must be positive")
         for origin in self.allowed_origins:
             parsed = urlsplit(origin)
             if parsed.scheme not in {"http", "https"} or not parsed.hostname:
                 raise ValueError(f"Invalid MCP allowed origin: '{origin}'")
-        if self.mcp_auth_mode is AuthMode.API_KEY and not re.fullmatch(
-            r"[a-f0-9]{64}", self.mcp_api_key_sha256.get_secret_value()
-        ):
-            raise ValueError(
-                "API key auth requires MCP_API_KEY_SHA256 (64 lowercase hex characters)."
+        if self.mcp_transport == "http":
+            if self.mcp_auth_mode is not AuthMode.BYOK:
+                raise ValueError(
+                    "HTTP requires MCP_AUTH_MODE=byok; shared-key auth is not supported."
+                )
+            if not re.fullmatch(r"[a-f0-9]{64}", self.identity_hmac_key.get_secret_value()):
+                raise ValueError(
+                    "HTTP requires MCP_IDENTITY_HMAC_KEY: 32 random bytes as lowercase hex."
+                )
+            if self.rate_limit_rpm <= 0:
+                raise ValueError("HTTP requires a positive RATE_LIMIT_RPM.")
+            official_urls = (
+                (self.modelark_base_url, "https://ark.ap-southeast.bytepluses.com/api/v3"),
+                (self.seed_audio_base_url, "https://voice.ap-southeast-1.bytepluses.com"),
+                (self.cv_base_url, "https://openapi.cv.bytepluses.com"),
             )
+            if any(actual != expected for actual, expected in official_urls):
+                raise ValueError("HTTP BYOK requires the fixed official provider base URLs.")
+            if self.readiness_check_providers:
+                raise ValueError(
+                    "HTTP readiness must not call providers with operator credentials."
+                )
         if (
             self.mcp_transport == "http"
-            and self.mcp_auth_mode is AuthMode.API_KEY
-            and self.has_modelark
             and any(
                 binding.family is SeedanceFamily.SEEDANCE_2_5
                 for binding in self.seedance_model_bindings
@@ -717,12 +751,6 @@ class Settings(BaseSettings):
                 "for authenticated HTTP with regular Seedance 2.5, to retain Draft ownership "
                 "throughout its promotion window."
             )
-        if (
-            self.mcp_transport == "http"
-            and self.mcp_auth_mode is AuthMode.LOCAL
-            and self.mcp_host not in {"127.0.0.1", "::1", "localhost"}
-        ):
-            raise ValueError("HTTP on a non-loopback host requires MCP_AUTH_MODE=api_key.")
         if bool(self.tos_access_key) != bool(self.tos_secret_key):
             raise ValueError("TOS_ACCESS_KEY and TOS_SECRET_KEY must both be set or both be empty.")
         if self.tos_access_key and not self.tos_endpoint:
@@ -746,9 +774,37 @@ class Settings(BaseSettings):
 
 
 @lru_cache(maxsize=1)
-def get_settings() -> Settings:
-    """Return cached application settings."""
+def _process_settings() -> Settings:
     return Settings()
+
+
+_request_settings: ContextVar[Settings | None] = ContextVar("request_settings", default=None)
+
+
+class SettingsResolver:
+    """Resolve immutable server configuration without mutating process defaults."""
+
+    def __call__(self) -> Settings:
+        return _request_settings.get() or _process_settings()
+
+    def cache_clear(self) -> None:
+        _process_settings.cache_clear()
+
+
+get_settings = SettingsResolver()
+
+
+@contextmanager
+def settings_scope(settings: Settings) -> Iterator[None]:
+    token = _request_settings.set(settings)
+    try:
+        yield
+    finally:
+        _request_settings.reset(token)
+
+
+def has_request_settings() -> bool:
+    return _request_settings.get() is not None
 
 
 def refresh_settings() -> Settings:
