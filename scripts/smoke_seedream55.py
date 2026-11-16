@@ -575,7 +575,6 @@ async def execute(args: argparse.Namespace) -> int:
         update={
             "artifact_backend": "filesystem",
             "artifact_dir": str(run_directory / "store"),
-            "modelark_pricing_refresh_seconds": 0,
         }
     )
     async with Client(create_server(runtime_settings)) as client:

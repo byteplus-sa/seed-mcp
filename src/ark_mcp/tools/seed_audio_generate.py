@@ -27,7 +27,7 @@ from ark_mcp.observability.logger import info as log_info
 from ark_mcp.providers.retry import call_with_retry
 from ark_mcp.providers.seed_speech.seed_audio import SeedAudioService
 from ark_mcp.runtime import billed_provider_slot, get_principal, get_runtime
-from ark_mcp.tools._asset_shared import resolve_asset_references
+from ark_mcp.tools._asset_shared import require_url_references
 from ark_mcp.tools._cost import DEFAULT_MAX_CONCURRENT, estimate_cost, log_cost_estimate
 from ark_mcp.tools._errors import provider_error_result
 from ark_mcp.tools._local_export import (
@@ -247,19 +247,13 @@ async def seed_audio_generate(
             "Set it in .env to enable Seed Audio tools."
         )
 
-    # Build provider references from domain input; asset:// references follow
-    # BYTEPLUS_MODELARK_ASSET_REFERENCE_MODE (rejected by default).
-    audio_refs_data = await resolve_asset_references(
-        ctx,
+    audio_refs_data = require_url_references(
         [ref.model_dump() for ref in input.audio_references] if input.audio_references else None,
         product="Seed Audio",
-        expected_type="Audio",
     )
-    image_refs = await resolve_asset_references(
-        ctx,
+    image_refs = require_url_references(
         [input.image_reference.model_dump()] if input.image_reference else None,
         product="Seed Audio",
-        expected_type="Image",
     )
     image_ref_data = image_refs[0] if image_refs else None
 

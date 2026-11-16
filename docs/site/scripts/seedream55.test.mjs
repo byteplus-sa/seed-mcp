@@ -85,7 +85,11 @@ test("entry points use the tool reference instead of a standalone guide", () => 
     assert.ok(content.includes(route), path);
     assert.doesNotMatch(content, /seedream-5-5\/|seedream-5-5\.md/);
   }
-  assert.ok(read("../astro.config.mjs").includes(`${route}#seedream-5-5`));
+  assert.ok(
+    read("../astro.config.mjs").includes(
+      '"/ark-mcp/tool-reference/seedream-generate-image/#seedream-5-5"',
+    ),
+  );
 });
 
 test("generated Seedream tool example previews the launch model without billing", () => {

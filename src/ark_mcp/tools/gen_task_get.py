@@ -1,4 +1,4 @@
-"""``gen_task_get`` tool — check ModelArk generation tasks (Seedance, Hyper3D, Hitem3d).
+"""``gen_task_get`` tool — check Seedance video generation tasks.
 
 Tasks are fetched with one ``list_tasks(filter.task_ids=...)`` call per page;
 any task the list omits, and any succeeded task whose list entry lacks output
@@ -48,9 +48,8 @@ class GenTaskGetInput(BaseModel):
         min_length=1,
         max_length=50,
         description=(
-            "1-50 ModelArk generation task IDs returned by seedance_create_task, "
-            "hyper3d_create_task, or hitem3d_create_task (not ark_job IDs). Duplicates are "
-            "ignored."
+            "1-50 Seedance task IDs returned by seedance_create_task "
+            "(not ark_job IDs). Duplicates are ignored."
         ),
     )
     persist_output: bool = Field(
@@ -92,7 +91,7 @@ TOOL_ANNOTATIONS = {
 
 
 async def gen_task_get(input: GenTaskGetInput, ctx: Context) -> GenTaskGetOutput | ToolResult:
-    """Check status and outputs of ModelArk generation tasks (Seedance video, 3D).
+    """Check status and outputs of Seedance video generation tasks.
 
     Pass every task ID in one call. queued or running is not a failure: poll again after
     recommended_poll_after_ms, never resubmit the create tool (that bills a second task).

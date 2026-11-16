@@ -1,13 +1,8 @@
-"""Frozen size budgets for the tool schemas every MCP client loads.
+"""Frozen schema budgets for the 21 retained Seed Studio tools.
 
-Measured with every service enabled, including the AK/SK asset library, so
-no tool escapes the count. Lower the budgets when the surface shrinks; raise
-them only with a deliberate, reviewed reason. Cached catalog pricing and
-Files API delivery metadata add 1,000 characters to the output allowance.
-Seedream 5.5 typed per-call image metadata, usage and model-specific discovery
-limits add 6,000 characters; the tool count and input budget are unchanged.
-Seedream provenance, local image inspection and price-source fields add a
-further 2,000 output characters without expanding the tool inventory.
+Measured with all four service gates enabled: 49,035 model-facing characters
+and 92,334 output-schema characters. The budgets leave limited room for
+description changes while preventing retired capabilities from returning.
 """
 
 from __future__ import annotations
@@ -17,9 +12,9 @@ import json
 from ark_mcp.config.env import get_settings
 from ark_mcp.server import create_server
 
-MAX_TOOLS = 38
-MAX_MODEL_FACING_CHARS = 88_000
-MAX_OUTPUT_SCHEMA_CHARS = 136_000
+MAX_TOOLS = 21
+MAX_MODEL_FACING_CHARS = 52_000
+MAX_OUTPUT_SCHEMA_CHARS = 96_000
 
 
 async def test_tool_schemas_stay_within_budget(all_services_enabled: None) -> None:

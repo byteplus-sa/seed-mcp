@@ -32,8 +32,8 @@ from ark_mcp.security.url_policy import UrlValidationError, validate_url
 HttpsUrl = Annotated[AnyUrl, UrlConstraints(allowed_schemes=["https"])]
 
 ASSET_REFERENCE_URL_DESCRIPTION = (
-    "HTTPS URL of the media, or 'asset://<asset_id>' for an Active private asset library "
-    "asset (ark_asset_create). Required when kind is 'url'."
+    "HTTPS URL of the media, or 'asset://<asset_id>' for an existing authorized Seedance "
+    "reference registered outside this server. Required when kind is 'url'."
 )
 
 
@@ -47,8 +47,7 @@ def validate_reference_url(url: str, *, allow_asset: bool, log_event: str) -> No
         if not allow_asset:
             raise ValueError(
                 "asset:// references are not supported for this input. They work in "
-                "Seedance references (and in Seedream / Seed Audio when "
-                "BYTEPLUS_MODELARK_ASSET_REFERENCE_MODE allows it)."
+                "Seedance references only. Pass a regular HTTPS URL."
             )
         try:
             parse_asset_uri(url)

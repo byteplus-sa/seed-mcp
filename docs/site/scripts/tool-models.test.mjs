@@ -19,10 +19,7 @@ test("model-backed tool pages each show one supported-model table", () => {
     "seed_audio_generate",
     "seed_understand",
     "seed_audio_understand",
-    "hyper3d_create_task",
-    "hitem3d_create_task",
     "omnihuman_create_task",
-    "speech_to_text",
   ]) {
     const page = toolPage(tool(name));
     assert.equal(page.match(/^## Supported Models$/gm)?.length, 1, name);
@@ -86,7 +83,6 @@ test("fixed-service tools do not advertise a per-call model selector", () => {
   for (const name of [
     "seed_audio_generate",
     "seed_audio_understand",
-    "speech_to_text",
     "omnihuman_create_task",
   ]) {
     assert.match(toolPage(tool(name)), /no per-call `model` argument/i);
@@ -102,20 +98,15 @@ test("fixed-service tools do not advertise a per-call model selector", () => {
   );
 });
 
-test("the ASR model table describes returned timings without promising diarization", () => {
-  const page = toolPage(tool("speech_to_text"));
-  const table = page.split("## Supported Models")[1].split("## Usage")[0];
-  assert.match(table, /utterance\/word timings when returned by the provider/i);
-  assert.match(table, /submission and polling handled inside the Ark job/);
-  assert.doesNotMatch(table, /diarization|optional word timestamps/i);
-});
-
 test("utility and unknown tools do not inherit unrelated model tables", () => {
   for (const name of [
     "ark_list_models",
     "gen_task_get",
     "media_upload",
     "vod_get_task",
+    "speech_to_text",
+    "hyper3d_create_task",
+    "hitem3d_create_task",
     "unknown_tool",
     "",
   ]) {

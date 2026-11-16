@@ -1,27 +1,27 @@
 # Architecture
 
 This document describes the structure of the Ark Seed Multimodal MCP
-Server as shipped today. For the original design rationale, see
-[../plans/PLAN_ARK_SEED_MULTIMODAL_MCP.md](../plans/PLAN_ARK_SEED_MULTIMODAL_MCP.md).
+Server as shipped today. The catalog contains 21 tools across generation,
+understanding, task lifecycle, storage, background jobs and artifacts.
 
 ## Design goals
 
 - **Small, typed tool surface** — a handful of Pydantic-validated tools rather
   than a wide REST API.
 - **Dedicated provider gateways, one domain layer** — Seedance and Seedream
-  share the ModelArk host and Bearer auth; Seed Audio uses a separate host and
-  `X-Api-Key`; VOD AI MediaKit uses its own Bearer-authenticated convenience
-  endpoint for enhancement, transcoding, and audio separation. The differences
-  are hidden behind normalized adapters.
+  and understanding share the ModelArk host and Bearer auth; Seed Audio uses
+  Seed Speech and `X-Api-Key`; OmniHuman uses Vision AI and its own Bearer key.
+  The differences are hidden behind normalized adapters.
 - **Durable artifacts** — known provider media URLs expire (2h Seed Audio; 24h
-  ModelArk image/video and observed MediaKit outputs), so outputs are persisted
-  to a local store and re-exposed as stable `seed-media://artifacts/{id}` MCP
-  resources. MediaKit persistence is best-effort.
+  ModelArk image/video; about 1h OmniHuman), so persistence copies outputs
+  to filesystem or object storage and re-exposes stable
+  `seed-media://artifacts/{id}` MCP resources. Billed output remains available
+  through a fallback reference when persistence fails.
 - **Safe by default** — local `stdio` requires no auth; remote HTTP requires
   shared-key hash verification, Host/Origin protection, and body limits.
 - **Observable and budget-aware** — structured logs, Prometheus metrics, and a
   per-principal daily budget ledger.
-- **Timeout-safe long operations** — generation, transcription, upload, and
+- **Timeout-safe long operations** — generation, understanding, upload, and
   provider-submission calls run through the ordinary `ark_job_*` tools by
   default, or native MCP task augmentation where a client supports it;
   completed-media retrieval supports optional background persistence.
@@ -44,9 +44,8 @@ src/ark_mcp/
 ├── providers/             # dedicated HTTP gateways + retry policy
 │   ├── base.py            # BaseHttpGateway: spans, metrics, error normalization
 │   ├── retry.py
-│   ├── modelark.py        # Seedream + Seedance
-│   ├── seed_speech.py     # Seed Audio
-│   ├── vod_mediakit/      # VOD AI MediaKit (Bearer; enhancement, transcode, subtitles, separation)
+│   ├── modelark/          # Seedream, Seedance, understanding and Files API
+│   ├── seed_speech/       # Seed Audio
 │   └── vision_cv/         # Vision AI (Bearer; OmniHuman 2.0 submit/query/cancel)
 ├── runtime.py             # lifespan-owned services (limiter, budget, ownership)
 ├── artifacts/             # durable artifact store (filesystem backend)
@@ -64,51 +63,42 @@ flowchart LR
     Client["MCP Client\n(stdio / HTTP)"] --> Server["FastMCP server\n(server.py)"]
     Server --> Domain["Domain layer\n(tools/ + domain/)"]
     Domain --> Gateway["Provider gateways\n(providers/)"]
-    Gateway -->|"Bearer auth"| ModelArk["ModelArk\nSeedream + Seedance"]
+    Gateway -->|"Bearer auth"| ModelArk["ModelArk\nSeedream + Seedance + understanding + Files API"]
     Gateway -->|"X-Api-Key"| SeedSpeech["Seed Speech\nSeed Audio"]
-    Gateway -->|"Bearer auth"| MediaKit["VOD AI MediaKit\nenhancement + transcode + subtitles + separation"]
     Gateway -->|"Bearer auth"| VisionCv["Vision AI\nOmniHuman 2.0"]
     Server -.durable.-> Store["Artifact store\n(filesystem)"]
     Server -.state.-> Runtime["Runtime services\n(runtime.py)"]
 ```
 
-- **ModelArk gateway** (`providers/modelark.py`) — serves Seedream (image)
-  and Seedance (video). Uses `Authorization: Bearer` and base URL
+- **ModelArk gateway** (`providers/modelark/`) — serves Seedream (image),
+  Seedance (video), understanding and Files API delivery. Uses
+  `Authorization: Bearer` and base URL
   `https://ark.ap-southeast.bytepluses.com/api/v3`.
-- **Seed Speech gateway** (`providers/seed_speech.py`) — serves Seed Audio.
+- **Seed Speech gateway** (`providers/seed_speech/`) — serves Seed Audio.
   Uses `X-Api-Key` and base URL `https://voice.ap-southeast-1.bytepluses.com`.
 - **Vision AI gateway** (`providers/vision_cv/`) — serves the `omnihuman_*` tools
   through the common v3 task API (`submit_task_v2`, `get_result_v2`,
   `cancel_task`). It uses Bearer auth (`BYTEPLUS_CV_API_KEY`), defaults to
   `https://openapi.cv.bytepluses.com`, and treats `code == 10000` in the
   response body as the only success signal.
-- **VOD AI MediaKit gateway** (`providers/vod_mediakit/`) — serves the
-  `vod_enhance_video`, `vod_transcode_video`, `vod_add_subtitles`,
-  `vod_remove_subtitles`, and `vod_separate_audio` submit tools (for example
-  `POST /tools/separate-voice`) and the single `vod_get_task` poller
-  (`GET /tasks/{task_id}`), which dispatches on the `operation` each submit
-  tool returns. It uses Bearer auth
-  and defaults to `https://mediakit.ap-southeast-1.bytepluses.com/api/v1`. Its
-  success schemas are isolated in the adapters; the gateway accepts only known
-  result shapes and rejects unknown shapes.
 - These gateways extend `BaseHttpGateway` (`providers/base.py`), which wraps every
   outbound request in an OpenTelemetry span, records Prometheus
   provider metrics, and normalizes transport/HTTP errors into a single
   `ProviderError` carrying a `NormalizedProviderError`.
 
-MediaKit enhancement, transcode, subtitle, and separation submissions are non-idempotent
-mutations and bypass the automatic retry helper: a timeout can be ambiguous after
-the provider has begun work. All operations use the verified task-status
-endpoint (`GET /tasks/{task_id}`), so `vod_get_task` polls it for every
-operation and reuses the shared ownership store and task-artifact cache under the `vod-mediakit` provider
-key. For all surfaces, a completed provider URL is preserved and
-persistence is attempted separately as a best-effort operation (under the
-200 MiB video limit for video, 10 MiB audio limit for separated tracks).
+Provider submissions can have ambiguous outcomes after a timeout. Do not
+resubmit potentially accepted work blindly. Persist completed media separately
+from provider task polling, and inspect persistence failures.
+
+Existing authorized `asset://` references pass natively to Seedance. There is
+no signed asset administration gateway, lookup, resolution or status preflight.
+Discovery uses static model bindings and performs no provider calls or live
+account-pricing refresh. Cost previews are built-in estimates.
 
 ## Long-running task flow
 
-Generation and variation calls, transcription, uploads, multimodal
-understanding, and Seedance, Seed 3D, and MediaKit submissions are registered
+Generation and variation calls, uploads, multimodal understanding (including
+audio transcription), and Seedance and OmniHuman submissions are registered
 with `execution.taskSupport="required"` and a two-second recommended poll
 interval. FastMCP's Docket worker runs the existing tool handler after returning
 the MCP task ID, while the handler retains the normal provider timeout, budget,
@@ -122,7 +112,7 @@ delegates creation, status, and cancellation to the pinned FastMCP task
 backend. It does not introduce a second queue or execute provider work inside
 the foreground request.
 
-Seedance, Seed 3D, and MediaKit get calls use optional task support: foreground
+Seedance and OmniHuman get calls use optional task support: foreground
 execution remains available for short processing-status checks, while task
 augmentation protects the completed-output download and persistence path. List,
 presign, artifact-read, and cancel/delete operations stay foreground.
@@ -141,7 +131,7 @@ sequenceDiagram
         S-->>C: MCP task ID (working)
     end
     S->>W: enqueue long-running tool
-    W->>A: generation, transcription, upload, submission, or persistence
+    W->>A: generation, understanding, upload, submission, or persistence
     loop recommended every 2 seconds until terminal
         alt Ordinary-tool path
             C->>S: ark_job_get(job ID)
@@ -246,8 +236,9 @@ shared-key members share that principal semaphore and budget. See [runtime.md](r
 
 `local` is the Python default and is restricted to stdio/loopback HTTP.
 Docker, Compose and Terraform default to `api_key`. Shared HTTP excludes
-account-wide asset and moderation administration; it does not isolate members
-of a team.
+account-wide administration; the server has no asset-management tools on
+either transport. It does not isolate members of a team, and per-user BYOK
+is not implemented.
 
 `truststore.inject_into_ssl()` runs at module import in both `server.py` and
 `__main__.py`, so every run path loads the macOS system Keychain for TLS.

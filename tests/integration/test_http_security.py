@@ -34,7 +34,6 @@ def _http_settings(tmp_path: Path) -> Settings:
         MCP_ALLOWED_ORIGINS="https://client.example.com",
         ARTIFACT_DIR=str(tmp_path / "artifacts"),
         BYTEPLUS_MODELARK_API_KEY="test-modelark-key",  # pragma: allowlist secret
-        BYTEPLUS_VOD_MEDIAKIT_API_KEY="test-mediakit-key",  # pragma: allowlist secret
     )
 
 
@@ -63,11 +62,6 @@ def _verifier() -> ClaimsTokenVerifier:
                 "client_id": "read-client",
                 "scopes": ["artifacts:read"],
                 "claims": {"sub": "reader", "tenant_id": "tenant-a"},
-            },
-            "vod-token": {
-                "client_id": "vod-client",
-                "scopes": ["vod:enhance"],
-                "claims": {"sub": "video-user", "tenant_id": "tenant-a"},
             },
         }
     )
@@ -195,7 +189,7 @@ async def test_component_scope_rejects_under_scoped_token(tmp_path: Path) -> Non
     assert "unknown tool" in payload["result"]["content"][0]["text"].lower()
 
 
-async def test_vod_scope_rejects_under_scoped_token(tmp_path: Path) -> None:
+async def test_seedance_scope_rejects_under_scoped_token(tmp_path: Path) -> None:
     async with _http_client(tmp_path) as http_client:
         response = await http_client.post(
             "/mcp",
@@ -209,10 +203,8 @@ async def test_vod_scope_rejects_under_scoped_token(tmp_path: Path) -> None:
                 "id": 3,
                 "method": "tools/call",
                 "params": {
-                    "name": "vod_enhance_video",
-                    "arguments": {
-                        "input": {"video_url": "https://example.com/input.mp4", "persist": False}
-                    },
+                    "name": "seedance_create_task",
+                    "arguments": {"input": {"prompt": "must not dispatch"}},
                 },
             },
         )
@@ -226,23 +218,27 @@ async def test_vod_scope_rejects_under_scoped_token(tmp_path: Path) -> None:
     ("tool_name", "tool_input"),
     [
         (
-            "vod_add_subtitles",
+            "gen_task_get",
+            {"task_ids": ["task-private"]},
+        ),
+        (
+            "gen_task_cancel_or_delete",
             {
-                "video_url": "https://example.com/input.mp4",
-                "subtitles": [{"subtitle_text": "test", "start_time": 0, "end_time": 1}],
+                "task_id": "task-private",
+                "mode": "cancel",
+                "expected_status": "queued",
             },
         ),
-        ("vod_remove_subtitles", {"video_url": "https://example.com/input.mp4"}),
     ],
 )
-async def test_vod_subtitle_scopes_reject_enhancement_only_token(
+async def test_generation_task_scopes_reject_image_only_token(
     tmp_path: Path, tool_name: str, tool_input: dict[str, object]
 ) -> None:
     async with _http_client(tmp_path) as http_client:
         response = await http_client.post(
             "/mcp",
             headers={
-                "Authorization": "Bearer vod-token",
+                "Authorization": "Bearer good-token",
                 "Origin": "https://client.example.com",
                 "Accept": "application/json, text/event-stream",
             },
@@ -260,42 +256,43 @@ async def test_vod_subtitle_scopes_reject_enhancement_only_token(
     assert "unknown tool" in payload["result"]["content"][0]["text"].lower()
 
 
-async def test_vod_scope_allows_dispatch(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
-    from ark_mcp.providers.vod_mediakit.enhancement import VodMediaKitEnhancementService
-    from ark_mcp.providers.vod_mediakit.schemas import EnhancementSubmission
+async def test_seedream_scope_allows_dispatch(
+    test_env: None, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from ark_mcp.providers.modelark.schemas import SeedreamProviderResponse
+    from ark_mcp.providers.modelark.seedream import SeedreamService
 
-    async def enhance(
-        _self: VodMediaKitEnhancementService, _request: object
-    ) -> EnhancementSubmission:
-        return EnhancementSubmission(
-            status="succeeded", output_url="https://output.example.com/enhanced.mp4"
+    async def generate(
+        _self: SeedreamService, _request: object
+    ) -> tuple[SeedreamProviderResponse, str]:
+        return (
+            SeedreamProviderResponse(data=[{"url": "https://output.example.com/image.png"}]),
+            "req-image",
         )
 
-    async def close(_self: VodMediaKitEnhancementService) -> None:
+    async def close(_self: SeedreamService) -> None:
         return None
 
-    monkeypatch.setattr(VodMediaKitEnhancementService, "enhance", enhance)
-    monkeypatch.setattr(VodMediaKitEnhancementService, "close", close)
+    monkeypatch.setattr(SeedreamService, "generate", generate)
+    monkeypatch.setattr(SeedreamService, "close", close)
     async with _http_client(tmp_path) as http_client:
         response = await http_client.post(
             "/mcp",
             headers={
-                "Authorization": "Bearer vod-token",
+                "Authorization": "Bearer good-token",
                 "Origin": "https://client.example.com",
                 "Accept": "application/json, text/event-stream",
                 "Mcp-Protocol-Version": "2026-07-28",
                 "Mcp-Method": "tools/call",
-                "Mcp-Name": "vod_enhance_video",
+                "Mcp-Name": "seedream_generate_image",
             },
             json={
                 "jsonrpc": "2.0",
                 "id": 4,
                 "method": "tools/call",
                 "params": {
-                    "name": "vod_enhance_video",
-                    "arguments": {
-                        "input": {"video_url": "https://example.com/input.mp4", "persist": False}
-                    },
+                    "name": "seedream_generate_image",
+                    "arguments": {"input": {"prompt": "A portrait", "persist": False}},
                     "_meta": {
                         "io.modelcontextprotocol/protocolVersion": "2026-07-28",
                         "io.modelcontextprotocol/clientCapabilities": {
@@ -312,7 +309,7 @@ async def test_vod_scope_allows_dispatch(tmp_path: Path, monkeypatch: pytest.Mon
                 polled = await http_client.post(
                     "/mcp",
                     headers={
-                        "Authorization": "Bearer vod-token",
+                        "Authorization": "Bearer good-token",
                         "Origin": "https://client.example.com",
                         "Accept": "application/json, text/event-stream",
                         "Mcp-Protocol-Version": "2026-07-28",
@@ -340,8 +337,8 @@ async def test_vod_scope_allows_dispatch(tmp_path: Path, monkeypatch: pytest.Mon
                 await asyncio.sleep(0.01)
         assert payload["result"]["isError"] is False
         assert (
-            payload["result"]["structuredContent"]["source_url"]
-            == "https://output.example.com/enhanced.mp4"
+            payload["result"]["structuredContent"]["artifacts"][0]["uri"]
+            == "https://output.example.com/image.png"
         )
 
 
@@ -633,7 +630,6 @@ async def test_ready_probes_use_resolved_settings_urls(tmp_path: Path) -> None:
     settings = settings.model_copy(
         update={
             "modelark_api_key": "test-modelark-key",
-            "vod_mediakit_api_key": "",
             "seed_speech_api_key": "",
             "modelark_base_url": "https://override.example.com",
         }

@@ -32,7 +32,7 @@ Run the program with the prepared checkout's Python environment, for example:
 
 By default, the program only lists tools, calls `ark_list_models`, and calls
 `ark_job_capabilities`. These discovery operations make no provider calls.
-It disables optional readiness probes and account-pricing refresh for this
+It disables optional readiness probes for this
 example process. The server still initializes its configured local runtime
 state; use an isolated private artifact directory for a standalone preflight
 as described in the [integration index](index.md#verify-without-paid-calls).
@@ -129,7 +129,6 @@ async def main(dry_run: bool) -> None:
                 "ARK_MCP_ENV_FILE": ENV_FILE,
                 "MCP_TRANSPORT": "stdio",
                 "MCP_AUTH_MODE": "local",
-                "BYTEPLUS_MODELARK_PRICING_REFRESH_SECONDS": "0",
                 "READINESS_CHECK_PROVIDERS": "false",
             },
             keep_alive=False,
@@ -193,7 +192,7 @@ cannot be resumed from a newly launched stdio process.
 
 An Ark `job_id` is not a provider task ID. After an explicitly approved,
 potentially billable provider-submission operation, read the provider ID
-from `result.structured_content` and poll `gen_task_get`, `vod_get_task`,
+from `result.structured_content` and poll `gen_task_get`
 or `omnihuman_get_task` as appropriate. Do not repeat a create call to poll.
 `ark_job_cancel` is cooperative local cancellation, not a guarantee of
 provider cancellation. Explicit file writes from jobs need `OUTPUT_ROOTS`

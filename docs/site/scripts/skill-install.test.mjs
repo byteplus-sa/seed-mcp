@@ -90,7 +90,7 @@ test("skill installation is discoverable and uses agent-native paths", () => {
   assert.match(readDoc("site/astro.config.mjs"), /slug: "setup\/agent-skill"/);
   assert.match(
     guide,
-    /https:\/\/github\.com\/byteplus-sa\/ark-mcp\/tree\/main\/\.agents\/skills\/ark-mcp/,
+    /https:\/\/github\.com\/byteplus-sa\/seed-mcp\/tree\/main\/\.agents\/skills\/ark-mcp/,
   );
   for (const path of [
     "~/.agents/skills/ark-mcp/",
@@ -108,7 +108,7 @@ test("skill installation is discoverable and uses agent-native paths", () => {
 
 test("skill installation prefers the scoped Skills CLI command over manual copying", () => {
   const guide = readDoc("setup/agent-skill.md");
-  const command = "npx skills add byteplus-sa/ark-mcp --skill ark-mcp -g";
+  const command = "npx skills add byteplus-sa/seed-mcp --skill ark-mcp -g";
   const installPrompt = guide.match(/```text\n([\s\S]*?)\n```/)?.[1];
   assert.ok(installPrompt);
   assert.ok(installPrompt.includes(command));
@@ -139,9 +139,6 @@ test("skill environment guidance defers setup to the private-file handbook", () 
     "utf8",
   );
   assert.doesNotMatch(environment, /Copy `\.env\.example` to `\.env`/);
-  assert.match(
-    environment,
-    /https:\/\/byteplus-sa\.github\.io\/ark-mcp\/setup\/install\//,
-  );
+  assert.match(environment, /docs\/setup\/install\.md/);
   assert.match(environment, /ARK_MCP_ENV_FILE/);
 });

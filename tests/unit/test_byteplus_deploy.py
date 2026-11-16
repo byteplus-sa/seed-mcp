@@ -7,7 +7,10 @@ import os
 from pathlib import Path
 
 import pytest
+from scripts.byteplus_deploy.private import make_configuration_values, replace_provider_keys
 from scripts.byteplus_deploy.workspace import Workspace, read_private, validate_config
+
+SYNTHETIC_PROVIDER = "test-key"
 
 
 @pytest.fixture
@@ -65,8 +68,55 @@ def test_workspace_creation_preserves_source_and_protects_files(
     assert (workspace.module / ".terraform.lock.hcl").exists()
     assert not list((workspace.path / "source").rglob("terraform.tfstate"))
     assert not list((workspace.path / "source").rglob(".env"))
+    assert not (workspace.path / "source/src").exists()
+    assert (workspace.path / "source/scripts/byteplus_deploy/signing.py").is_file()
     with pytest.raises(FileExistsError):
         Workspace.create(workspace.path, validate_config(deployment_config))
+
+
+def test_new_configuration_keeps_omnihuman_but_drops_retired_products() -> None:
+    payload, _ = make_configuration_values(
+        {
+            "BYTEPLUS_MODELARK_API_KEY": SYNTHETIC_PROVIDER,
+            "BYTEPLUS_SEED_SPEECH_API_KEY": SYNTHETIC_PROVIDER,
+            "BYTEPLUS_CV_API_KEY": SYNTHETIC_PROVIDER,
+            "BYTEPLUS_OMNIHUMAN_ENABLED": "true",
+            "BYTEPLUS_VOD_MEDIAKIT_API_KEY": SYNTHETIC_PROVIDER,
+            "BYTEPLUS_MODELARK_3D_ENABLED": "true",
+        },
+        "mcp.team.test",
+    )
+    values = dict(line.split("=", 1) for line in payload.decode().splitlines())
+    assert values["BYTEPLUS_OMNIHUMAN_ENABLED"] == "true"
+    assert values["BYTEPLUS_CV_API_KEY"] == SYNTHETIC_PROVIDER
+    assert values["BYTEPLUS_SEED_SPEECH_API_KEY"] == SYNTHETIC_PROVIDER
+    assert values["MCP_AUTH_MODE"] == "api_key"
+    assert values["ARTIFACT_BACKEND"] == "filesystem"
+    assert not any(key.startswith("BYTEPLUS_VOD_") for key in values)
+    assert "BYTEPLUS_MODELARK_3D_ENABLED" not in values
+
+
+def test_provider_rotation_preserves_storage_credentials_and_shared_state() -> None:
+    retained_values = dict.fromkeys(
+        ("TOS_ACCESS_KEY", "TOS_SECRET_KEY", "S3_ACCESS_KEY", "S3_SECRET_KEY"),
+        SYNTHETIC_PROVIDER,
+    )
+    retained_values.update(
+        MCP_API_KEY_SHA256="a" * 64,
+        FASTMCP_TASKS_ENCRYPTION_KEY="test-key-" * 8,
+        ARTIFACT_BACKEND="object_storage",
+    )
+    retained = "".join(f"{key}={value}\n" for key, value in retained_values.items()).encode()
+    payload = replace_provider_keys(
+        retained + f"BYTEPLUS_MODELARK_API_KEY={SYNTHETIC_PROVIDER}\n".encode(),
+        {"BYTEPLUS_CV_API_KEY": SYNTHETIC_PROVIDER},
+    )
+    assert payload.startswith(retained)
+    values = dict(line.split("=", 1) for line in payload.decode().splitlines())
+    assert values["BYTEPLUS_MODELARK_API_KEY"] == ""
+    assert values["BYTEPLUS_SEED_SPEECH_API_KEY"] == ""
+    assert values["BYTEPLUS_CV_API_KEY"] == SYNTHETIC_PROVIDER
+    assert "BYTEPLUS_VOD_MEDIAKIT_API_KEY" not in values
 
 
 def test_private_input_rejects_symlink_fifo_and_wrong_mode(tmp_path: Path) -> None:
@@ -124,4 +174,14 @@ def test_fingerprint_rejects_source_symlink(
     source.unlink()
     source.symlink_to(tmp_path / "outside")
     with pytest.raises((ValueError, OSError)):
+        workspace.fingerprint()
+
+
+def test_fingerprint_rejects_modified_frozen_infrastructure_signer(
+    deployment_config: dict[str, object], tmp_path: Path
+) -> None:
+    workspace = Workspace.create(tmp_path / "deployment", deployment_config)
+    signer = workspace.path / "source/scripts/byteplus_deploy/signing.py"
+    signer.write_text(signer.read_text() + "\n")
+    with pytest.raises(ValueError, match="CLI or signer changed"):
         workspace.fingerprint()

@@ -15,9 +15,9 @@ they can.
 
 | Mode | Tools |
 |---|---|
-| **Required**: a direct foreground call is rejected before the provider is contacted | `seedance_create_task`, `seedream_generate_image`, `seed_audio_generate`, `hyper3d_create_task`, `hitem3d_create_task`, `omnihuman_create_task`, `vod_enhance_video`, `vod_transcode_video`, `vod_add_subtitles`, `vod_remove_subtitles`, `vod_separate_audio`, `seed_understand`, `seed_audio_understand`, `speech_to_text`, `media_upload` |
-| **Optional**: foreground by default; background for long waits or persistence | `gen_task_get`, `vod_get_task`, `omnihuman_get_task`, `seed_media_persist_url`, `ark_asset_create`, `ark_asset_verification_result` |
-| **Foreground only** | everything else (`ark_list_models`, `gen_task_list`, `gen_task_cancel_or_delete`, `omnihuman_cancel_task`, `media_presign`, artifact reads, the other `ark_asset_*` tools) |
+| Required | `seed_audio_generate`, `media_upload`, `omnihuman_create_task`, `seedream_generate_image`, `seedance_create_task`, `seed_understand`, `seed_audio_understand` |
+| Optional | `seed_media_persist_url`, `omnihuman_get_task`, `gen_task_get` |
+| Foreground only | `ark_list_models`, `ark_job_*`, `gen_task_list`, `gen_task_cancel_or_delete`, `omnihuman_cancel_task`, `media_presign`, artifact reads and exports |
 
 ### Submit and poll
 
@@ -31,12 +31,12 @@ they can.
    two seconds) until `status` is `completed`, `failed`, or `cancelled`.
 4. Read the original tool result from `result` (use `result.structured_content`);
    `result.is_error` marks a target-tool error. Provider task IDs (Seedance,
-   3D, VOD, OmniHuman) are inside that result.
+   OmniHuman) are inside that result.
 5. `ark_job_cancel` stops the local worker only. A provider operation already
    accepted by BytePlus keeps running and billing.
 
-A `dry_run` call makes no provider request, so its job normally finishes by the
-first `ark_job_get`.
+A `dry_run` call makes no provider request but still runs in the worker.
+Respect `poll_after_ms` and poll until terminal; the first poll need not finish.
 
 **Native task alternative.** A client that negotiated
 `io.modelcontextprotocol/tasks` can call the tool directly with task metadata
@@ -73,7 +73,7 @@ terminal `ark_job_get.result` or `tasks/get` response.
 
 ### Resumable async generation
 
-For Seedance and Seed 3D, and equally for VOD and OmniHuman:
+For Seedance and OmniHuman:
 
 1. Check limits with `ark_list_models`; for Seedance and Seedream also run a
    `dry_run: true` call to confirm the request and `estimated_cost_usd`.
@@ -116,8 +116,8 @@ For Seedance and Seed 3D, and equally for VOD and OmniHuman:
 ### Seedream edit flow
 
 - One tool covers edit: pass the source image(s) in `images`; the first image
-  is the edit target. Reference images accept URL, Base64, or `asset://`
-  (the latter only when the operator enabled asset resolution for Seedream).
+  is the edit target. Reference images accept HTTPS URLs or Base64, not
+  native Seedance `asset://` references.
 - For a targeted edit pass structured `point` or `bbox` (normalized 0-999,
   top-left origin; `round(pixel / dimension * 1000)`, capped at 999). **Do not
   write the markup into `prompt`**: the server prepends `Image 1<point>...`
@@ -169,28 +169,17 @@ For Seedance and Seed 3D, and equally for VOD and OmniHuman:
 
 ### Asset-reference flow (Seedance `asset://`)
 
-The management steps require trusted local access with AK/SK. Shared-key HTTP
-does not grant asset administration; use existing authorized asset IDs there.
+1. Obtain an existing usable provider asset through an authorized external
+   workflow. Establish subject consent, rights and endpoint authorization there.
+2. Pass its `asset://<id>` in Seedance `images`, `videos` or `audios`;
+   refer to inputs as "Image 1" or "Video 1" by position.
+3. Dry-run the request, then submit once and retain task IDs for polling.
+   The server validates reference syntax but does not query asset status,
+   permissions or project access.
 
-1. **One subject per group**; never mix people or characters.
-   - Fictional character or product: `ark_asset_create(subject=..., sources=[...])`
-     reuses or creates the AIGC group. Assets must not resemble a real person.
-   - Real person: `ark_asset_verification_start`, send the `h5_link` **only to
-     that person** (consent plus liveness), then `ark_asset_verification_result`
-     for the `LivenessFace` `group_id` (the token expires in about 30 min),
-     then `ark_asset_create(group_id=...)` with only their media.
-   - Copyright IP: take the asset ID from the console Copyright Library.
-2. Sources are public HTTPS URLs or `object_key`s from `media_upload`
-   (check `failed` and `items[].error` there first). Wait for `all_active`.
-3. Reference the returned `asset_uri` values in Seedance `images` / `videos`
-   / `audios`, and say "Image 1" / "Video 1" by position in the prompt, never
-   the asset ID.
-4. If `group_created_empty` is true, the call created the group but every
-   source failed. Cleaning it up needs `ark_asset_delete`, which exists only
-   when `BYTEPLUS_MODELARK_ASSETS_ALLOW_DELETE=true`; a non-empty group
-   needs `cascade=true`, so confirm with the user first.
-5. Assets only work with endpoints in the same project. Details:
-   [understanding-media-assets.md](understanding-media-assets.md).
+This works on both transports with the normal ModelArk key. No asset
+administration or asset-to-URL fallback is exposed. Ordinary uploads are
+not provider assets. See [understanding-media-assets.md](understanding-media-assets.md).
 
 ### Variations and dry runs
 
@@ -204,8 +193,8 @@ does not grant asset administration; use existing authorized asset IDs there.
 - Write image/audio variations to a directory path ending in `/`.
 - `dry_run: true` (Seedance, Seedream) validates against the model's limits
   and returns request bodies plus `estimated_cost_usd`, an estimate rather than
-  billing or a provider quote. Seedream `preview.price_source` is `catalog`
-  (fresh cached account image rate) or `builtin` (fallback). Nothing is sent or billed.
+  billing or a provider quote. Seedream `preview.price_source` is `builtin`.
+  Nothing is sent or billed.
 
 ### Generation record lifecycle
 
@@ -233,20 +222,6 @@ Task success proves generation finished, not that the brief was met.
 5. Mark the take `review`; optionally make an H.264 proxy for HEVC masters
    and keep the original.
 
-### Post-generation 3D QA
-
-1. Validate package type, byte size and SHA-256; keep the original archive.
-2. Inspect archive paths before extracting and confirm the requested format
-   exists.
-3. Import into an isolated DCC collection; record object, mesh, face,
-   material, texture, UV, and armature counts.
-4. Measure dimensions, units, axes, origin, transforms, normals,
-   non-manifold geometry, missing textures, rig readiness. A wrong scale or
-   missing materials usually means the provider and DCC disagree on units,
-   axes or textures: normalize a working copy, never the provider artifact.
-5. Mark the asset `review`. Provider success and a clean import are not
-   creative approval.
-
 ## Error handling
 
 ### Provider errors
@@ -265,26 +240,28 @@ Mark the operation failed, diagnose, and never repeat the identical request.
 
 ### Retry policy
 
-The server retries only errors that are `retryable` **and not ambiguous**: up
+The retry wrapper retries only errors marked `retryable` **and not ambiguous**: up
 to 3 attempts, exponential backoff from 0.25 s capped at 4 s with 20% jitter,
 honoring `Retry-After` (also capped at 4 s). After that the error reaches you.
 
+The existing Seedance adapter marks raw connection/transport failures
+retryable without marking them ambiguous, so a create request can be repeated
+despite uncertain provider acceptance. The job replay guard does not prevent
+retries inside one handler. Treat this as a runtime risk and never add blind
+client-side retries. The table below describes normalized timeouts, not every
+transport failure.
+
 | Operation | Timeout result | Server retries? | You should |
 |---|---|---|---|
-| Create / generate / cancel / delete / MediaKit submit | `retryable=false`, `ambiguous_completion=true` | No | Reconcile by task or request ID; do not resubmit |
-| Task polls (Seedance, 3D, OmniHuman, VOD, ASR query) | `retryable=true`, `ambiguous_completion=false` | Yes | Poll again |
+| Create / generate / cancel / delete | `retryable=false`, `ambiguous_completion=true` | No | Reconcile by task or request ID; do not resubmit |
+| Task polls (Seedance, OmniHuman) | `retryable=true`, `ambiguous_completion=false` | Yes | Poll again |
 | `seed_understand`, `seed_audio_understand` | `retryable=true`, `ambiguous_completion=false` | No for timeouts (429/5xx still retried) | Safe to retry, but each attempt is billed |
 
-- Connection and transport failures are retryable on reads; on mutation
-  dispatch they are ambiguous.
-- **VOD submits are never retried automatically** (non-idempotent). Reuse the
-  `client_token` to reconcile a subtitle submission after an ambiguous timeout.
-  `vod_get_task` polls are retried.
+- Connection and transport classification depends on the adapter; Seedance
+  create retains the caveat above.
 - Any `TIMEOUT` commits the budget reservation, since it may have been billed.
 - Output downloads are retried separately (`ARTIFACT_DOWNLOAD_MAX_ATTEMPTS`,
   default 3); expired, untrusted, or oversized sources are not.
-- `speech_to_text` polls internally until done or
-  `SEED_SPEECH_ASR_POLL_MAX_SECONDS`; a timeout yields no partial result.
 
 ### Budget rejections
 
@@ -298,45 +275,37 @@ is recorded but never blocked. Wait for the UTC rollover or raise the limit.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Tool missing from the tool list | Provider key or feature flag not set (`BYTEPLUS_MODELARK_3D_ENABLED`, `BYTEPLUS_OMNIHUMAN_ENABLED` plus a separate `BYTEPLUS_CV_API_KEY`, AK/SK, `TOS_*`/`S3_*`) | See [environment.md](environment.md) |
+| Tool missing from the tool list | Missing provider key, OmniHuman flag, or selected TOS/S3 configuration | Check `ark_list_models.services` and [environment.md](environment.md); restart after approved configuration changes |
 | `Request is not valid for model ...` (Seedance, Seedream) | Request breaks that model's limits; every violation is listed | Fix each item or pick another model from `ark_list_models`; re-check with `dry_run: true` |
 | Model not found | Unknown ID (exact IDs only) | Use the did-you-mean hint or `ark_list_models` |
 | Artifact has `persistence_error` | Billed output, storage failed after retries | `id="provider-url"`: `seed_media_persist_url` before `source_url_expires_at`; `id="inline-fallback"`: bytes are in `fallback_data` |
 | `output_path` / `save_to` rejected | No MCP roots and no `OUTPUT_ROOTS`, relative path, outside roots, HTTP transport, or `persist=false` | Absolute path inside a root on stdio, set `OUTPUT_ROOTS`, `overwrite=true` to replace a different file |
 | `seed_understand` result too large | Long answer inlined | `save_to` with `return_content="none"` or `"summary"`; read `parsed` for JSON |
-| `speech_to_text` timeout | ASR poll cap reached | Raise `SEED_SPEECH_ASR_POLL_MAX_SECONDS` or use shorter audio |
-| `speech_to_text` code `20000003` | Silent audio, or a format mismatch decoded to silence | Verify speech and that audio matches the declared `audio_format` |
 | `media_upload` rejected for `MEDIA_UPLOAD_BATCH_MAX_BYTES` | Total size over the cap; nothing uploaded | Split into smaller calls |
 | `media_upload` succeeds with `failed > 0` | Some items failed (validation, missing file, uninferable `mime_type`, provider) | Read `items[].error`; re-upload only those, retrying when `retryable=true` |
 | Presigned URL expired / `NOT_OWNED` | TTL elapsed (default 30 min) / key not uploaded by this caller | `media_presign` with the `object_keys`; re-upload foreign keys |
-| `ark_asset_delete` returns `asset_group_not_empty` | Group still has assets | Delete assets first, or `cascade=true` after user confirmation |
-| `ark_asset_list` / `ark_asset_group_list` returns fewer items than IDs | Some IDs unreadable | Check `errors[]` (`id`, `code` such as `NotFound.Asset`) |
 | `omnihuman_create_task` rejects a `seed-media://` input | Filesystem artifact backend cannot mint provider-readable URLs | `ARTIFACT_BACKEND=object_storage`, or `media_upload` and pass the presigned URL |
 | `omnihuman_get_task` fails with `InvalidParameter ... audio` | Audio is validated only after submission (4-300 s, wav/mp3, under 15 MB; 300 s WAV is 26-58 MB) | Fix the audio (MP3 or shorter) and resubmit; never unchanged |
 | OmniHuman error `50510` | Provider content pre-filter rejected the image or audio | Use different compliant inputs; never retry unchanged |
-| 3D task failed with `AbilityProcessingError` | Transient provider error | Re-submit the same task; the input is not invalid |
 | HTTP `401` | Missing, wrong or rotated-out shared MCP key | Configure the current key privately as a bearer header; never paste it into chat |
-| Administrative tool unavailable on shared HTTP | Fixed team scopes exclude account-wide asset and moderation operations | Use an authorized local setup; scopes cannot be added to the shared key |
+| Asset administration unavailable | Not part of this server | Use an authorized provider console or external workflow |
 
 ## Best practices beyond the schemas
 
-- **Seedance video references are URL-only: upload once, presign per shot.**
+- **For ordinary Seedance URL references, upload once and presign per shot.**
   Store each `object_key` from one `media_upload` call (check `failed`) in a
   project reference registry; before each shot call `media_presign` for the
   keys it needs and submit immediately. Use a long `expires_in_seconds` (for
-  example 3600) for VOD sources, which are fetched asynchronously.
-- **Treat MediaKit persistence separately from the provider result.** Keep
-  `source_url` whenever a task succeeds, do not present `estimated_cost_usd`
-  as available, and prefer `subtitle` removal mode unless the broader `text`
-  mode is intended.
+  example 3600) for references, which are fetched asynchronously. Existing
+  native `asset://` references do not need an ordinary upload or presign.
 - **Choose the understanding tool by output:** `seed_understand` for images
   and video (schema-enforced reviews via `response_format`, `json_retry=1`,
   `save_to` with `return_content="none"`), `seed_audio_understand` for audio
-  reasoning, `speech_to_text` for word-level timings.
-- **Verify saved media, not task status** (see the QA sections), and keep 3D
-  generation, DCC normalization, and approval as distinct steps.
+  transcription and reasoning. Model-generated timestamps are not dedicated
+  ASR alignment; verify timing-sensitive output against the recording.
+- **Verify saved media, not task status** (see the QA sections).
 - **Persist before cleaning up.** Provider URLs expire (2 h audio, 24 h
-  image/video/3D); `gen_task_cancel_or_delete` removes retrievable outputs.
+  ModelArk image/video, 1 h OmniHuman); `gen_task_cancel_or_delete` removes retrievable outputs.
 - **Write straight to the project on stdio** with `output_path`,
   `output_dir`, or `save_to` instead of a follow-up export, and check
   `local_path` / `export_error`. Inside `ark_job_submit` see

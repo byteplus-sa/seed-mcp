@@ -15,10 +15,13 @@ one ECS host, a retained state disk, HTTPS networking, and optional private TOS
 storage. Disk mounting and private credential activation are explicit operator
 steps; a successful infrastructure apply is not application readiness.
 
-For a published build, use a versioned `ghcr.io/byteplus-sa/ark-mcp:vX.Y.Z`
-image or pin the digest from its GitHub Release. The registry's `latest`
-tracks releases, while `edge` tracks passing main builds. See
-[Versioning and releases](releases.md) for artifacts, approval, and rollback.
+Build this fork from a reviewed `byteplus-sa/seed-mcp` revision or use an
+independently verified narrowed-fork image pinned by digest. No fork image
+publication is assumed. Upstream `ghcr.io/byteplus-sa/ark-mcp` releases and
+`latest`/`edge` tags can contain removed capabilities and are not deployment
+targets for this narrowing. See [Versioning and releases](releases.md) for
+provenance, approval, and rollback, and export needed old 3D outputs with the
+old server before the [breaking upgrade](migration-0.2.md#breaking-capability-migration).
 
 ## Build the container
 

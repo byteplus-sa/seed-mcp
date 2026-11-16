@@ -29,7 +29,7 @@ from ark_mcp.observability.logger import info as log_info
 from ark_mcp.providers.modelark.seedream import SeedreamService
 from ark_mcp.providers.retry import call_with_retry
 from ark_mcp.runtime import billed_provider_slot
-from ark_mcp.tools._asset_shared import resolve_asset_references
+from ark_mcp.tools._asset_shared import require_url_references
 from ark_mcp.tools._capability_checks import check_image_request, raise_on_violations
 from ark_mcp.tools._cost import image_cost_estimate, log_cost_estimate
 from ark_mcp.tools._errors import provider_error_result
@@ -216,10 +216,10 @@ class SeedreamGeneratePreview(BaseModel):
     )
     estimated_cost_usd: float = Field(
         ...,
-        description="Estimated USD using cached account pricing or built-in fallback; not billing.",
+        description="Estimated USD using the built-in image rate; not an account billing quote.",
     )
-    price_source: Literal["catalog", "builtin"] = Field(
-        "builtin", description="catalog: cached account image rate; builtin: fallback estimate."
+    price_source: Literal["builtin"] = Field(
+        "builtin", description="builtin: static image cost estimate."
     )
 
 
@@ -300,11 +300,9 @@ async def seedream_generate_image(
         family=caps.family.value,
         kind="image",
     )
-    images = await resolve_asset_references(
-        ctx,
+    images = require_url_references(
         [source.model_dump() for source in input.images] if input.images else None,
         product="Seedream",
-        expected_type="Image",
     )
     prompts = input.prompts()
     seeds = generate_seeds(input.seed, input.variations) if input.variations > 1 else [input.seed]

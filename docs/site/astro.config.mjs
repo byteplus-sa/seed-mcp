@@ -19,7 +19,7 @@ export default defineConfig({
   outDir: "../../out/docs-site",
   redirects: {
     "/seedream-5-5/":
-      "https://byteplus-sa.github.io/ark-mcp/tool-reference/seedream-generate-image/#seedream-5-5",
+      "/ark-mcp/tool-reference/seedream-generate-image/#seedream-5-5",
   },
   markdown: {
     processor: unified({
@@ -48,11 +48,11 @@ export default defineConfig({
         {
           icon: "github",
           label: "GitHub",
-          href: "https://github.com/byteplus-sa/ark-mcp",
+          href: "https://github.com/byteplus-sa/seed-mcp",
         },
       ],
       editLink: {
-        baseUrl: "https://github.com/byteplus-sa/ark-mcp/edit/main/docs/",
+        baseUrl: "https://github.com/byteplus-sa/seed-mcp/edit/main/docs/",
       },
       customCss: ["./src/styles/custom.css"],
       plugins: [starlightLinksValidator({ errorOnRelativeLinks: false })],

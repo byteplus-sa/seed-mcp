@@ -30,36 +30,16 @@ def _modelark(settings: Settings) -> bool:
     return settings.has_modelark
 
 
-def _seed3d(settings: Settings) -> bool:
-    return settings.has_seed3d
-
-
 def _seed_audio(settings: Settings) -> bool:
     return settings.has_seed_audio
-
-
-def _stt(settings: Settings) -> bool:
-    return settings.has_stt
 
 
 def _object_storage(settings: Settings) -> bool:
     return settings.has_object_storage
 
 
-def _vod(settings: Settings) -> bool:
-    return settings.has_vod_mediakit
-
-
 def _omnihuman(settings: Settings) -> bool:
     return settings.has_omnihuman
-
-
-def _assets(settings: Settings) -> bool:
-    return settings.has_modelark_openapi
-
-
-def _asset_delete(settings: Settings) -> bool:
-    return settings.has_modelark_openapi and settings.modelark_assets_allow_delete
 
 
 @dataclass(frozen=True, slots=True)
@@ -159,80 +139,6 @@ CATALOG: tuple[CatalogEntry, ...] = (
     ),
     _entry("media_presign", "MediaPresignOutput", "media:presign", gate=_object_storage),
     _entry(
-        "speech_to_text",
-        "SpeechToTextOutput",
-        "seed:asr:transcribe",
-        background="required",
-        gate=_stt,
-    ),
-    _entry(
-        "vod_enhance_video",
-        "VodEnhanceVideoOutput",
-        "vod:enhance",
-        background="required",
-        gate=_vod,
-    ),
-    _entry(
-        "vod_transcode_video",
-        "VodTranscodeVideoOutput",
-        "vod:transcode",
-        background="required",
-        gate=_vod,
-    ),
-    _entry(
-        "vod_separate_audio",
-        "VodSeparateAudioOutput",
-        "vod:extract",
-        background="required",
-        gate=_vod,
-    ),
-    _entry(
-        "vod_add_subtitles",
-        "VodAddSubtitlesOutput",
-        "vod:subtitle:add",
-        background="required",
-        gate=_vod,
-    ),
-    _entry(
-        "vod_remove_subtitles",
-        "VodRemoveSubtitlesOutput",
-        "vod:subtitle:remove",
-        background="required",
-        gate=_vod,
-    ),
-    _entry(
-        "vod_get_task",
-        "VodTaskOutput",
-        "vod:read",
-        background="optional",
-        gate=_vod,
-    ),
-    _entry("ark_asset_group_ensure", "AssetGroupResult", "assets:write", gate=_assets),
-    _entry("ark_asset_group_list", "AssetGroupPage", "assets:read", gate=_assets),
-    _entry(
-        "ark_asset_create",
-        "AssetCreateOutput",
-        "assets:write",
-        background="optional",
-        gate=_assets,
-    ),
-    _entry("ark_asset_list", "AssetPage", "assets:read", gate=_assets),
-    _entry("ark_asset_update", "AssetUpdateResult", "assets:write", gate=_assets),
-    _entry(
-        "ark_asset_verification_start",
-        "VerificationStartOutput",
-        "assets:verify",
-        gate=_assets,
-    ),
-    _entry(
-        "ark_asset_verification_result",
-        "VerificationResultOutput",
-        "assets:verify",
-        background="optional",
-        gate=_assets,
-    ),
-    _entry("ark_asset_delete", "AssetDeleteResult", "assets:delete", gate=_asset_delete),
-    _entry(
         "omnihuman_create_task",
         "OmniHumanCreateTaskOutput",
         "omnihuman:create",
@@ -293,20 +199,6 @@ CATALOG: tuple[CatalogEntry, ...] = (
         "understanding:read",
         background="required",
         gate=_modelark,
-    ),
-    _entry(
-        "hyper3d_create_task",
-        "Seed3DCreateTaskOutput",
-        "hyper3d:create",
-        background="required",
-        gate=_seed3d,
-    ),
-    _entry(
-        "hitem3d_create_task",
-        "Seed3DCreateTaskOutput",
-        "hitem3d:create",
-        background="required",
-        gate=_seed3d,
     ),
 )
 

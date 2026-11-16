@@ -33,9 +33,8 @@ never chat, shell history, Terraform or committed files. Store a JSON object:
 
 | Service | Bundle field | Used for |
 |---|---|---|
-| ModelArk | `BYTEPLUS_MODELARK_API_KEY` | Image/video generation, multimodal understanding, and enabled 3D |
-| Seed Speech | `BYTEPLUS_SEED_SPEECH_API_KEY` | Seed Audio and speech-to-text |
-| VOD AI MediaKit | `BYTEPLUS_VOD_MEDIAKIT_API_KEY` | Video processing and audio separation |
+| ModelArk | `BYTEPLUS_MODELARK_API_KEY` | Image/video generation, multimodal understanding and Files API |
+| Seed Speech | `BYTEPLUS_SEED_SPEECH_API_KEY` | Seed Audio generation |
 | Vision AI | `BYTEPLUS_CV_API_KEY` | Enabled OmniHuman avatar generation |
 
 Obtain dedicated deployment keys from the corresponding service, following
@@ -47,14 +46,13 @@ the empty entries below are examples of deliberately disabled services.
 {
   "BYTEPLUS_MODELARK_API_KEY": "ENTER-REAL-KEY-IN-PRIVATE-CONSOLE",
   "BYTEPLUS_SEED_SPEECH_API_KEY": "",
-  "BYTEPLUS_VOD_MEDIAKIT_API_KEY": "",
   "BYTEPLUS_CV_API_KEY": ""
 }
 ```
 
 The bundle is the **complete desired set of provider keys**: omitted or empty
 entries disable those products; at least one key must be nonempty. Only these
-four names are allowed. Duplicate fields, non-string values, oversized values,
+three names are allowed. Duplicate fields, non-string values, oversized values,
 whitespace, non-ASCII and interpolation characters are rejected. Feature flags,
 provider hosts, limits, model bindings, registry credentials and the shared MCP
 key are outside this provider-only integration.

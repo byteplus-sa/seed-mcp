@@ -1,4 +1,4 @@
-"""Shared logic for the ``gen_task_*`` tools (Seedance, Hyper3D, Hitem3d tasks).
+"""Shared logic for the ``gen_task_*`` tools (Seedance tasks).
 
 Tasks are classified by the registry binding for the model that ran them.
 Outputs are persisted once per task under a per-task single-flight lock, so
@@ -14,7 +14,7 @@ from urllib.parse import urlsplit
 
 from pydantic import BaseModel, Field
 
-from ark_mcp.config.model_capabilities import VideoCapabilities, get_capability_registry
+from ark_mcp.config.model_capabilities import get_capability_registry
 from ark_mcp.domain.artifacts import ArtifactRef, MediaType
 from ark_mcp.domain.models import (
     GenTaskStatus,
@@ -35,7 +35,7 @@ if TYPE_CHECKING:
     from ark_mcp.runtime import RuntimeServices
     from ark_mcp.security.auth_context import PrincipalContext
 
-TaskKind = Literal["video", "3d", "unknown"]
+TaskKind = Literal["video", "unknown"]
 
 TERMINAL_STATUSES = frozenset({"succeeded", "failed", "expired", "cancelled"})
 RECOMMENDED_POLL_AFTER_MS = 5000
@@ -53,22 +53,9 @@ _VIDEO_OUTPUTS = (
     OutputSpec("video", "video", MediaType.VIDEO),
     OutputSpec("last_frame", "last_frame", MediaType.IMAGE),
 )
-_3D_OUTPUTS = (OutputSpec("model_file", "file", MediaType.THREE_D),)
 _OUTPUTS_BY_KIND: dict[TaskKind, tuple[OutputSpec, ...]] = {
     "video": _VIDEO_OUTPUTS,
-    "3d": _3D_OUTPUTS,
-    "unknown": _VIDEO_OUTPUTS + _3D_OUTPUTS,
-}
-
-_3D_MIME_BY_EXT: dict[str, str] = {
-    ".glb": "model/gltf-binary",
-    ".gltf": "model/gltf+json",
-    ".obj": "text/plain",
-    ".stl": "application/octet-stream",
-    ".fbx": "application/octet-stream",
-    ".usdz": "model/vnd.usdz+zip",
-    ".usd": "model/vnd.usdz+zip",
-    ".zip": "application/zip",
+    "unknown": _VIDEO_OUTPUTS,
 }
 
 
@@ -83,7 +70,7 @@ class GenTask(BaseModel):
     )
     kind: TaskKind = Field(
         ...,
-        description="Output kind from the registry binding for model: video, 3d, or unknown.",
+        description="Output kind from the registry binding for model: video or unknown.",
     )
     status: GenTaskStatus = Field(
         ...,
@@ -94,8 +81,7 @@ class GenTask(BaseModel):
     outputs: list[TaskOutputFile] = Field(
         ...,
         description=(
-            "Finished outputs: video and last_frame for video tasks, model_file for 3D tasks. "
-            "Empty until the task succeeds."
+            "Finished outputs: video and optional last_frame. Empty until the task succeeds."
         ),
     )
     error: TaskError | None = Field(None, description="Provider failure details when failed.")
@@ -110,13 +96,13 @@ class GenTask(BaseModel):
     )
     settings: SeedanceTaskSettings | None = Field(
         None,
-        description="Video generation settings echoed by the provider; null for 3D tasks.",
+        description="Video generation settings echoed by the provider.",
     )
     queue: SeedanceQueueInfo | None = Field(
         None,
         description=(
             "Server-derived queue timing for a queued or running video task. ModelArk "
-            "publishes no queue position or ETA. Null once finished and for 3D tasks."
+            "publishes no queue position or ETA. Null once finished."
         ),
     )
 
@@ -126,8 +112,7 @@ def classify_task(model: str) -> tuple[str | None, TaskKind]:
     caps = get_capability_registry().resolve_task_model(model)
     if caps is None:
         return None, "unknown"
-    kind: TaskKind = "video" if isinstance(caps, VideoCapabilities) else "3d"
-    return caps.family.value, kind
+    return caps.family.value, "video"
 
 
 def output_urls(task: GenerationTaskResponse, kind: TaskKind) -> dict[str, str]:
@@ -135,7 +120,6 @@ def output_urls(task: GenerationTaskResponse, kind: TaskKind) -> dict[str, str]:
     urls = {
         "video": task.video_url,
         "last_frame": task.last_frame_url,
-        "model_file": task.file_url,
     }
     return {
         spec.role: url for spec in _OUTPUTS_BY_KIND[kind] if (url := urls[spec.role]) is not None
@@ -146,25 +130,10 @@ def needs_full_fetch(task: GenerationTaskResponse, kind: TaskKind) -> bool:
     """Whether a list entry lacks outputs that a succeeded task should carry."""
     if task.status != "succeeded":
         return False
-    if kind == "video":
-        return task.video_url is None
-    if kind == "3d":
-        return task.file_url is None
-    return task.video_url is None and task.file_url is None
-
-
-def infer_3d_mime(file_url: str) -> str:
-    """Infer a MIME type for a generated 3D file from its URL extension."""
-    lowered = file_url.lower().split("?")[0]
-    for extension, mime in _3D_MIME_BY_EXT.items():
-        if lowered.endswith(extension):
-            return mime
-    return "application/zip"
+    return task.video_url is None
 
 
 def _mime_type(spec: OutputSpec, url: str) -> str:
-    if spec.media_type is MediaType.THREE_D:
-        return infer_3d_mime(url)
     if spec.media_type is MediaType.VIDEO:
         return "video/quicktime" if urlsplit(url).path.lower().endswith(".mov") else "video/mp4"
     return "image/jpeg"
@@ -281,7 +250,6 @@ def build_gen_task(
     error = None
     if task.error and (task.error.code or task.error.message):
         error = TaskError(code=task.error.code or None, message=task.error.message)
-    is_video = kind != "3d"
     return GenTask(
         task_id=task.id,
         model=task.model,
@@ -293,7 +261,7 @@ def build_gen_task(
         outputs=outputs,
         error=error,
         usage=task_usage(task),
-        draft=task.draft if is_video else None,
-        settings=SeedanceTaskSettings.model_validate(task.content or {}) if is_video else None,
-        queue=queue_info(task) if is_video else None,
+        draft=task.draft,
+        settings=SeedanceTaskSettings.model_validate(task.content or {}),
+        queue=queue_info(task),
     )

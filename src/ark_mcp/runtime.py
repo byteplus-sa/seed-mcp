@@ -28,7 +28,6 @@ from ark_mcp.domain.errors import ProviderError
 from ark_mcp.observability.logger import info as log_info
 from ark_mcp.observability.logger import warning as log_warning
 from ark_mcp.observability.metrics import BUDGET_REJECTIONS
-from ark_mcp.providers.modelark.pricing import live_pricing_enabled, run_price_refresher
 from ark_mcp.security.auth_context import AuthContext, PrincipalContext
 from ark_mcp.security.safe_downloader import SafeDownloader
 
@@ -37,9 +36,7 @@ if TYPE_CHECKING:
 
     from ark_mcp.artifacts.store import ArtifactStore
 
-ProviderKey = Literal[
-    "modelark", "modelark-openapi", "seed-speech", "vod-mediakit", "vision-cv", "tos", "s3"
-]
+ProviderKey = Literal["modelark", "seed-speech", "vision-cv", "tos", "s3"]
 
 
 def _open_sqlite_connection(database_path: Path) -> sqlite3.Connection:
@@ -88,9 +85,7 @@ class ProviderLimiters:
             raise ValueError("Concurrency limits must be positive.")
         self._provider = {
             "modelark": asyncio.Semaphore(provider_limit),
-            "modelark-openapi": asyncio.Semaphore(provider_limit),
             "seed-speech": asyncio.Semaphore(provider_limit),
-            "vod-mediakit": asyncio.Semaphore(provider_limit),
             "vision-cv": asyncio.Semaphore(provider_limit),
             "tos": asyncio.Semaphore(provider_limit),
             "s3": asyncio.Semaphore(provider_limit),
@@ -1068,19 +1063,12 @@ def build_lifespan(
         if state is not None:
             state.runtime = runtime
         sweeper = asyncio.create_task(_state_sweeper(runtime, settings))
-        price_refresher = (
-            asyncio.create_task(run_price_refresher(settings))
-            if live_pricing_enabled(settings)
-            else None
-        )
         try:
             yield {"runtime": runtime}
         finally:
-            for background in (sweeper, price_refresher):
-                if background is not None:
-                    background.cancel()
-                    with suppress(asyncio.CancelledError):
-                        await background
+            sweeper.cancel()
+            with suppress(asyncio.CancelledError):
+                await sweeper
             if state is not None:
                 state.runtime = None
             await close_runtime_services(runtime)

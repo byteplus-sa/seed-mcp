@@ -30,7 +30,7 @@ class SeedMediaPersistUrlInput(BaseModel):
         max_length=8192,
         description="Provider output URL, usually the uri of an ArtifactRef with id 'provider-url'. BytePlus hosts only.",
     )
-    media_type: Literal["image", "audio", "video", "three_d"] = Field(
+    media_type: Literal["image", "audio", "video"] = Field(
         ..., description="Media type of the output."
     )
     mime_type: str = Field(
@@ -57,7 +57,7 @@ async def seed_media_persist_url(
     """Persist a provider output URL as a durable artifact and return its ArtifactRef.
 
     Use when a generation result has an artifact with id 'provider-url' and a persistence_error,
-    before the URL expires (2h audio, 24h image/video/3D). Non-BytePlus hosts are rejected.
+    before the URL expires (2h audio, 24h image/video, 1h OmniHuman). Non-BytePlus hosts are rejected.
     """
     await context_log(ctx, "info", "Persisting provider output URL")
     runtime = get_runtime(ctx)

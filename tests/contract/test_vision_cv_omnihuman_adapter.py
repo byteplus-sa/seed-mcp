@@ -278,6 +278,38 @@ class TestNestedProviderFailures:
         assert len(result.error_message) <= 600
 
     @respx.mock
+    async def test_nested_rejection_redacts_signed_url_and_bounds_details(
+        self, service: OmniHumanService
+    ) -> None:
+        detail = (
+            "Invalid media https://media.example.com/private.wav?signature=private-token "
+            + "x" * 1000
+        )
+        inner = json.dumps({"error": {"code": "InvalidParameter", "message": detail}})
+        wrapped = json.dumps(
+            [
+                {
+                    "algo_msg": f"Ark API POST /contents/generations/tasks failed with HTTP 400: {inner}"
+                }
+            ]
+        )
+        respx.post(GET_RESULT).mock(
+            return_value=httpx.Response(
+                500, json=envelope(code=50501, message=f"Internal RPC Error: {wrapped}")
+            )
+        )
+
+        result = await service.get("t-private")
+
+        assert result.status == "failed"
+        assert result.error_code == "InvalidParameter"
+        assert result.error_message is not None
+        assert "[REDACTED_URL]" in result.error_message
+        assert "media.example.com" not in result.error_message
+        assert "private-token" not in result.error_message
+        assert len(result.error_message) <= 600
+
+    @respx.mock
     async def test_get_failed_result_also_applies_to_http_200_envelopes(
         self, service: OmniHumanService
     ) -> None:

@@ -7,6 +7,10 @@ description: Let a coding agent prepare your local connection, or connect to a s
 Ark server automatically when needed. You do not need ComfyUI, a terminal
 left open, or a separate server-start command each time.
 
+This guide installs the narrowed `byteplus-sa/seed-mcp` fork. Package, module,
+tool and skill names remain unchanged. No Seed MCP Pages site or stable release
+is assumed; upstream Ark MCP pages are retained-tool detail only.
+
 ## Choose Your Path
 
 | Your situation | Start here |
@@ -28,10 +32,10 @@ you understand. An ordinary chat without those tools cannot install software.
 Copy this request into that agent. Replace the client and desired capabilities:
 
 ```text
-Set up https://github.com/byteplus-sa/ark-mcp for [my client],
+Set up https://github.com/byteplus-sa/seed-mcp for [my client],
 user-wide, on this machine. I need [images and video].
-Read https://byteplus-sa.github.io/ark-mcp/setup/manual-install/
-and my client's integration guide before making changes.
+Read docs/setup/manual-install.md and my client's integration guide
+from the selected fork revision before making changes.
 Use the reviewed patched revision, check prerequisites, and ask before
 installing missing software. Preserve existing projects and MCP entries.
 Resolve paths and prepare the client configuration for me.
@@ -51,7 +55,7 @@ For **Claude Desktop**, run the request in a separate coding agent and name
 Claude Desktop as the target. Desktop chat alone is not assumed to have
 installation access.
 
-The [ark-mcp-setup skill](https://github.com/byteplus-sa/ark-mcp/tree/main/.agents/skills/ark-mcp-setup)
+The [ark-mcp-setup skill](https://github.com/byteplus-sa/seed-mcp/tree/main/.agents/skills/ark-mcp-setup)
 bundles this workflow for supported agents. To install only those instructions,
 use the [Skills CLI guidance](agent-skill.md) with
 `--skill ark-mcp-setup` instead of `--skill ark-mcp`. Review the bundle and
@@ -67,11 +71,10 @@ done. Never paste keys into chat or client configuration.
 | What you want | Key to obtain |
 | --- | --- |
 | Images, video, image/video/audio understanding | ModelArk |
-| Audio generation and speech-to-text | Seed Speech |
-| Video enhancement, transcoding, subtitles, audio separation | VOD AI MediaKit |
+| Audio generation | Seed Speech |
 | Talking avatars | Vision AI, plus OmniHuman access |
 
-See [Provider Keys](../api-keys.md) for where to obtain each key. 3D, Flash
+See [Provider Keys](../api-keys.md) for where to obtain each key. Flash
 and other optional products may have extra account access requirements.
 Regular Seedance 2.5 4K uses the same model and key, without another flag.
 You do not need to configure every service.
@@ -106,8 +109,8 @@ agent, send:
 
 ```text
 Use the Skills CLI to install only the ark-mcp usage skill from
-byteplus-sa/ark-mcp for [my agent], user-wide.
-Follow https://byteplus-sa.github.io/ark-mcp/setup/agent-skill/
+byteplus-sa/seed-mcp for [my agent], user-wide.
+Follow docs/setup/agent-skill.md from that fork
 for the command, prerequisites and verification. Preserve existing skills
 and ask before installing missing software or replacing anything.
 Do not read credentials, change my MCP connection, or run paid tests.
@@ -133,9 +136,9 @@ client launch contract are documented once in
 [Manual Installation](manual-install.md). They are instructions for your
 setup agent or administrator, not extra steps after guided setup.
 
-Published `v0.3.0` includes the dependency security refresh; the historical
-`v0.2.0` release does not. Follow
-[release selection](manual-install.md#choose-an-installation) and check the
-current release before setup.
-This unversioned site describes its reviewed main build, not every historical
-release.
+Follow [fork release selection](manual-install.md#choose-an-installation) and
+verify the selected revision's lockfile and migration notes before setup.
+Historical upstream Ark MCP releases are not fork installation targets.
+Read the [breaking-capability migration](../migration-0.2.md#breaking-capability-migration)
+before replacing an older server. This handbook describes the checkout,
+not an assumed published Seed MCP release.

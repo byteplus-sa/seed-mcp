@@ -82,9 +82,7 @@ def profile(frame, event, arg):
         event == "call"
         and frame.f_globals.get("__name__") == "ark_mcp.tools._catalog"
         and frame.f_code.co_name in {
-            "_always", "_modelark", "_seed3d", "_seed_audio", "_stt",
-            "_object_storage", "_vod", "_omnihuman", "_assets",
-            "_asset_delete",
+            "_always", "_modelark", "_seed_audio", "_object_storage", "_omnihuman",
         }
     ):
         raise AssertionError("Exporter evaluated a registration gate")
@@ -225,7 +223,30 @@ runpy.run_path = missing_gate
 
 def test_catalog_inventory_and_order_are_exact(exported: dict[str, Any]) -> None:
     assert [tool["name"] for tool in exported["tools"]] == [entry.name for entry in CATALOG]
-    assert len({tool["name"] for tool in exported["tools"]}) == len(CATALOG)
+    assert len(exported["tools"]) == len(CATALOG) == 21
+    assert {tool["name"] for tool in exported["tools"]} == {
+        "ark_job_capabilities",
+        "ark_job_submit",
+        "ark_job_get",
+        "ark_job_cancel",
+        "ark_list_models",
+        "seed_media_get_artifact",
+        "seed_media_export_artifact",
+        "seed_media_persist_url",
+        "seed_audio_generate",
+        "media_upload",
+        "media_presign",
+        "omnihuman_create_task",
+        "omnihuman_get_task",
+        "omnihuman_cancel_task",
+        "seedream_generate_image",
+        "seedance_create_task",
+        "gen_task_get",
+        "gen_task_list",
+        "gen_task_cancel_or_delete",
+        "seed_understand",
+        "seed_audio_understand",
+    }
 
 
 def test_documentation_examples_match_actual_input_schemas(exported: dict[str, Any]) -> None:
@@ -267,8 +288,6 @@ def test_model_tables_only_document_catalog_tools() -> None:
         ("seedance_create_task", "seedance_default_model"),
         ("seed_understand", "seed_understanding_default_model"),
         ("seed_audio_understand", "seed_audio_understanding_model"),
-        ("hyper3d_create_task", "hyper3d_default_model"),
-        ("hitem3d_create_task", "hitem3d_default_model"),
         ("omnihuman_create_task", "omnihuman_req_key"),
     ],
 )
@@ -354,9 +373,7 @@ def test_all_registration_gates_name_the_exact_environment_variables(
     expected = {
         "_always": set(),
         "_modelark": {"BYTEPLUS_MODELARK_API_KEY"},
-        "_seed3d": {"BYTEPLUS_MODELARK_API_KEY", "BYTEPLUS_MODELARK_3D_ENABLED"},
         "_seed_audio": {"BYTEPLUS_SEED_SPEECH_API_KEY"},
-        "_stt": {"BYTEPLUS_SEED_SPEECH_API_KEY"},
         "_object_storage": {
             "OBJECT_STORAGE_BACKEND",
             "TOS_ACCESS_KEY",
@@ -366,14 +383,7 @@ def test_all_registration_gates_name_the_exact_environment_variables(
             "S3_SECRET_KEY",
             "S3_BUCKET",
         },
-        "_vod": {"BYTEPLUS_VOD_MEDIAKIT_API_KEY"},
         "_omnihuman": {"BYTEPLUS_OMNIHUMAN_ENABLED", "BYTEPLUS_CV_API_KEY"},
-        "_assets": {"BYTEPLUS_MODELARK_ACCESS_KEY", "BYTEPLUS_MODELARK_SECRET_KEY"},
-        "_asset_delete": {
-            "BYTEPLUS_MODELARK_ACCESS_KEY",
-            "BYTEPLUS_MODELARK_SECRET_KEY",
-            "BYTEPLUS_MODELARK_ASSETS_ALLOW_DELETE",
-        },
     }
     tools = {tool["name"]: tool for tool in exported["tools"]}
     assert {entry.gate.__name__ for entry in CATALOG} == set(expected)
@@ -383,7 +393,7 @@ def test_all_registration_gates_name_the_exact_environment_variables(
         assert variables == expected[entry.gate.__name__], entry.name
         if entry.gate.__name__ == "_always":
             assert "always" in gate.lower()
-        if entry.gate.__name__ in {"_seed3d", "_omnihuman", "_asset_delete"}:
+        if entry.gate.__name__ == "_omnihuman":
             assert "=true" in gate
         if entry.gate.__name__ == "_object_storage":
             assert "OBJECT_STORAGE_BACKEND=tos" in gate

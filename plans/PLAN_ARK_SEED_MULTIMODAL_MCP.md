@@ -3,7 +3,7 @@ title: Ark Seed Multimodal MCP Server Plan
 type: project
 status: in-progress
 created: 2026-07-20
-updated: 2026-07-20
+updated: 2026-11-16
 tags:
   - byteplus
   - modelark
@@ -36,6 +36,16 @@ related:
 <!-- markdownlint-disable MD013 MD025 MD060 -->
 
 # Ark Seed Multimodal MCP Server Plan
+
+## Current Scope
+
+This is the July 2026 design baseline, not the current tool or authentication
+contract. Old tool signatures and gateway counts below are historical.
+The narrowed server has 21 tools, three provider gateways and no per-user BYOK;
+HTTP uses a fixed `shared-team` identity with server-configured provider keys.
+Current contracts live in [architecture](../docs/architecture.md),
+[tool schemas](../docs/api-reference.md) and [security](../docs/security.md).
+This cleanup does not certify the plan's outstanding live/account gates.
 
 > [!important] Scope assumption
 > The request repeated “Seedance.” Existing vault context confirms that similar requests used “Seedance” when they meant the still-image model, Seedream. This plan therefore covers **Seed Audio**, **Seedance** video, and **Seedream** image. If the third product was something else, only that adapter and its tools need to change.

@@ -2,11 +2,12 @@
 
 ## Resolve Upstream
 
-Default repository: `byteplus-sa/ark-mcp` on GitHub.
+Default repository: `byteplus-sa/seed-mcp` on GitHub. Never substitute the
+broader `byteplus-sa/ark-mcp` server when the fork has no stable release.
 Use `gh` for GitHub queries where available:
 
 ```bash
-gh api repos/byteplus-sa/ark-mcp/releases/latest \
+gh api repos/byteplus-sa/seed-mcp/releases/latest \
   --jq '{tag_name, draft, prerelease, html_url}'
 ```
 
@@ -17,8 +18,8 @@ default-branch commit. Honor an explicitly requested version.
 If this returns 404, distinguish an absent release from lost access:
 
 ```bash
-gh api repos/byteplus-sa/ark-mcp --jq '{full_name, default_branch, private}'
-gh api --paginate repos/byteplus-sa/ark-mcp/releases \
+gh api repos/byteplus-sa/seed-mcp --jq '{full_name, default_branch, private}'
+gh api --paginate repos/byteplus-sa/seed-mcp/releases \
   --jq '.[] | {tag_name, draft, prerelease}'
 ```
 
@@ -40,7 +41,7 @@ Do not derive filesystem paths from an unvalidated remote tag. Prefer a
 resolved hexadecimal commit SHA for the final directory name. Inspect the
 parent directory before creation and refuse symlink/reparse-point surprises.
 
-1. Clone `https://github.com/byteplus-sa/ark-mcp.git` with `--no-checkout`
+1. Clone `https://github.com/byteplus-sa/seed-mcp.git` with `--no-checkout`
    into the new destination. Do not modify an unrelated existing checkout.
 2. Resolve the selected release using its exact `refs/tags/<tag>` ref,
    fetching that ref if needed. Validate the ref with `git check-ref-format`.
@@ -77,6 +78,9 @@ surface that discrepancy and ask before replacing it.
   for a backup/migration before activation; code rollback alone is insufficient.
 - Check active jobs before restart. Keep the old checkout until activation
   and target-client verification succeed.
+- The narrowed media schema no longer serves old saved 3D artifacts. Export
+  needed 3D outputs with the old server before upgrading; keeping its state
+  files does not guarantee compatibility or automatic migration.
 - Back up client configuration with private permissions and change only
   `ark-seed`. Recheck the file for concurrent edits before applying changes.
 - If activation fails, restore only the previous entry if it has not changed

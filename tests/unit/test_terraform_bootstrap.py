@@ -60,6 +60,57 @@ def test_shared_key_environment_is_the_host_default(
     validator.validate_environment(configured_environment)
 
 
+def test_host_accepts_only_retained_product_keys(validator: ModuleType) -> None:
+    assert set(validator.PRODUCT_KEYS) == {
+        "BYTEPLUS_MODELARK_API_KEY",
+        "BYTEPLUS_SEED_SPEECH_API_KEY",
+        "BYTEPLUS_CV_API_KEY",
+    }
+
+
+def test_removed_vod_key_cannot_enable_host(
+    validator: ModuleType, configured_environment: dict[str, str]
+) -> None:
+    provider_key = configured_environment.pop("BYTEPLUS_MODELARK_API_KEY")
+    configured_environment["BYTEPLUS_VOD_MEDIAKIT_API_KEY"] = provider_key
+    with pytest.raises(ValueError, match="at least one BytePlus product"):
+        validator.validate_environment(configured_environment)
+
+
+@pytest.mark.parametrize("filename", [".env.example", "deploy/compose/.env.example"])
+def test_environment_templates_keep_retained_services_only(filename: str) -> None:
+    values = {
+        line.partition("=")[0]
+        for line in (ROOT / filename).read_text().splitlines()
+        if line and line[0].isupper() and "=" in line
+    }
+    assert {
+        "BYTEPLUS_MODELARK_API_KEY",
+        "BYTEPLUS_SEED_SPEECH_API_KEY",
+        "BYTEPLUS_CV_API_KEY",
+        "BYTEPLUS_OMNIHUMAN_ENABLED",
+        "MCP_API_KEY_SHA256",
+        "ARTIFACT_BACKEND",
+    } <= values
+    assert not any(
+        key.startswith(("BYTEPLUS_VOD_", "SEED3D_", "HYPER3D_", "HITEM3D_", "SEED_SPEECH_ASR_"))
+        or key
+        in {
+            "BYTEPLUS_MODELARK_ACCESS_KEY",
+            "BYTEPLUS_MODELARK_SECRET_KEY",
+            "BYTEPLUS_MODELARK_SESSION_TOKEN",
+            "BYTEPLUS_MODELARK_OPENAPI_BASE_URL",
+            "BYTEPLUS_MODELARK_REGION",
+            "BYTEPLUS_MODELARK_PROJECT_NAME",
+            "BYTEPLUS_MODELARK_PRICING_REFRESH_SECONDS",
+            "BYTEPLUS_MODELARK_3D_ENABLED",
+            "SEEDANCE_ASSET_PREFLIGHT",
+        }
+        or key.startswith("BYTEPLUS_MODELARK_ASSET")
+        for key in values
+    )
+
+
 @pytest.mark.parametrize(
     ("mode", "digest"),
     [

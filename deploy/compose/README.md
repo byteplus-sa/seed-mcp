@@ -16,7 +16,7 @@ docker compose up -d --build
 |---|---|
 | `compose.yaml` | Services, networks, volumes, and the pinned security settings |
 | `Caddyfile` | TLS, request size limit, streaming, and blocking `/metrics` and `/ready` from outside |
-| `.env.example` | Everything an organization configures: hostname, identity provider, BytePlus keys, guardrails, secrets |
+| `.env.example` | Hostname, shared MCP key hash, BytePlus keys, guardrails, and job secrets |
 
-Full guide, including identity provider requirements, scope roles, sizing,
+Full guide, including shared-key setup and rotation, fixed permissions, sizing,
 backups, and the security checklist: [docs/self-hosting.md](../../docs/self-hosting.md).

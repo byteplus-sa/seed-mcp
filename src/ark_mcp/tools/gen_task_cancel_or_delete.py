@@ -38,7 +38,7 @@ class GenTaskCancelOrDeleteInput(BaseModel):
 
     task_id: str = Field(
         ...,
-        description="Generation task ID (Seedance, Hyper3D or Hitem3d).",
+        description="Seedance generation task ID.",
     )
     mode: Literal["cancel", "delete"] = Field(
         ...,
@@ -87,7 +87,7 @@ class GenTaskCancelOrDeleteOutput(BaseModel):
 async def gen_task_cancel_or_delete(
     input: GenTaskCancelOrDeleteInput, ctx: Context
 ) -> GenTaskCancelOrDeleteOutput | ToolResult:
-    """Cancel a queued task or delete a finished one (Seedance or 3D). Destructive.
+    """Cancel a queued Seedance task or delete a finished one. Destructive.
 
     Cancelled tasks cannot be resumed; deleted tasks' outputs are no longer retrievable.
     The call is refused unless expected_status matches the task's actual status.

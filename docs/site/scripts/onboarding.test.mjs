@@ -85,9 +85,18 @@ test("client guides put optional manual configuration behind disclosure", () => 
 test("manual fallback selects a reviewed release and keeps private launch contract", () => {
   const manual = page("setup/manual-install.md");
   assert.match(manual, /latest published non-draft, non-prerelease/);
-  assert.match(manual, /git switch --detach v0\.3\.0/);
+  assert.match(
+    manual,
+    /git clone --no-checkout https:\/\/github\.com\/byteplus-sa\/seed-mcp\.git/,
+  );
+  assert.match(
+    manual,
+    /git -C seed-mcp switch --detach "<approved-commit-sha>"/,
+  );
   assert.match(manual, /do not silently fall back to main/);
-  assert.match(manual, /record its tag and commit SHA/);
+  assert.match(manual, /Record its tag\/ref and SHA/);
+  assert.match(manual, /No fork release is assumed/);
+  assert.match(manual, /Do not substitute an upstream Ark MCP release/);
   assert.match(manual, /uv sync --locked --no-dev/);
   assert.match(manual, /ARK_MCP_ENV_FILE/);
   assert.match(manual, /--no-sync/);
@@ -99,7 +108,11 @@ test("guided setup distinguishes the setup skill from the usage skill", () => {
   assert.match(install, /\/\.agents\/skills\/ark-mcp-setup/);
   assert.match(install, /--skill ark-mcp-setup/);
   assert.match(install, /separate from authorizing it/);
-  assert.match(install, /Published `v0\.3\.0` includes/);
+  assert.match(
+    install,
+    /byteplus-sa\/seed-mcp\/tree\/main\/\.agents\/skills\/ark-mcp-setup/,
+  );
+  assert.match(install, /No Seed MCP Pages site or stable release/);
 });
 
 test("legacy onboarding does not advise inline provider keys or new dependency edits", () => {

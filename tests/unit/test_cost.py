@@ -14,7 +14,9 @@ from ark_mcp.tools._cost import (
     COST_PER_VIDEO_TASK_2_5,
     DEFAULT_MAX_CONCURRENT,
     estimate_cost,
+    image_cost_estimate,
     log_cost_estimate,
+    price_source,
     register_video_cost_override,
 )
 
@@ -123,6 +125,38 @@ class TestEstimateCostUnknown:
         assert cost == 0.0
 
 
+class TestBuiltinEstimates:
+    @pytest.mark.parametrize("model_id", [None, "dola-seedream-5-5-261028", "ep-custom-model"])
+    @pytest.mark.parametrize("count", [0, 1, 1000])
+    def test_image_estimate_is_static_for_every_model(
+        self, model_id: str | None, count: int
+    ) -> None:
+        assert image_cost_estimate(model_id, count) == (round(count * COST_PER_IMAGE, 4), "builtin")
+
+    @pytest.mark.parametrize("product", ["image", "audio", "video", "understanding"])
+    @pytest.mark.parametrize("model_id", [None, "ep-custom-model"])
+    def test_estimates_never_claim_account_pricing(
+        self, product: str, model_id: str | None
+    ) -> None:
+        assert price_source(product, model_id) == "builtin"
+
+    @pytest.mark.parametrize("model_id", [None, "dola-seed-2-1-turbo-260628", "ep-custom-model"])
+    @pytest.mark.parametrize("variations", [0, 1, 5])
+    def test_understanding_estimate_uses_static_token_rates(
+        self, model_id: str | None, variations: int
+    ) -> None:
+        assert estimate_cost(
+            product="understanding",
+            variations=variations,
+            prompt_tokens=1_000_000,
+            max_tokens=1_000_000,
+            model_id=model_id,
+        ) == round(variations * (0.50 + 3.00), 4)
+
+    def test_understanding_without_token_counts_estimates_zero(self) -> None:
+        assert estimate_cost(product="understanding", variations=1) == 0.0
+
+
 class TestCostConstants:
     """Verify cost per unit values are reasonable."""
 
@@ -201,27 +235,6 @@ class TestLogCostEstimate:
                 estimated_cost_usd=0.03,
                 price_source="builtin",
             )
-
-
-class TestEstimateCost3D:
-    """Tests for estimate_cost with 3d product."""
-
-    def test_hyper3d_default(self) -> None:
-        from ark_mcp.tools._cost import COST_PER_3D_TASK_HYPER3D
-
-        assert estimate_cost(product="3d", variations=1) == COST_PER_3D_TASK_HYPER3D
-
-    def test_hitem3d_family(self) -> None:
-        from ark_mcp.tools._cost import COST_PER_3D_TASK_HITEM3D
-
-        cost = estimate_cost(product="3d", variations=2, seed3d_family="seed3d_hitem3d")
-        assert cost == round(2 * COST_PER_3D_TASK_HITEM3D, 2)
-
-    def test_hyper3d_family(self) -> None:
-        from ark_mcp.tools._cost import COST_PER_3D_TASK_HYPER3D
-
-        cost = estimate_cost(product="3d", variations=1, seed3d_family="seed3d_hyper3d")
-        assert cost == COST_PER_3D_TASK_HYPER3D
 
 
 class TestVideoCostByFamily:

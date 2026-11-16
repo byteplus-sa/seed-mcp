@@ -3,7 +3,7 @@ title: Security Hardening Research for Ark Seed MCP
 type: plan
 status: in-progress
 created: 2026-08-29
-updated: 2026-08-29
+updated: 2026-11-16
 tags:
   - security
   - research
@@ -31,6 +31,15 @@ related:
 ---
 
 # Security Hardening Research
+
+## Current Scope
+
+The findings below describe the August baseline, not a fresh audit of the
+current server. See [security](../docs/security.md) for the implemented
+shared-key HTTP contract: one `shared-team` identity and server-configured
+provider keys. OAuth, per-user identity and BYOK are future research, not
+supported configuration. Historical fixes are not instructions to restore
+removed tools or account-administration capabilities.
 
 **Research question:** Which security implementations should the Ark Seed
 MCP server adopt to harden its attack surface, given its current posture
@@ -223,10 +232,8 @@ attack in any cited source — flag as a research gap, not a confirmed threat.
   read URLs against the shared bucket. **Fix:** record
   `(object_key → principal_id, tenant_id)` at upload time (extend the SQLite
   state store) and verify it in `media_presign`.
-- **Tool-response error sanitization (low):** `speech_to_text` returns raw
-  exception text to callers (`tools/speech_to_text.py:136-143`) — a
-  `UrlValidationError` leaks the resolved blocked IP/hostname — and
-  `media_upload` echoes local paths (`tools/media_upload.py:153`). This is
+- **Tool-response error sanitization (low):** the original
+  `media_upload` baseline echoed local paths (`tools/media_upload.py:153`). This is
   distinct from log redaction. **Fix:** route tool errors through a shared
   safe-message path (e.g. `tools/_errors.py`) so caller-visible text never
   contains hostnames, IPs, or filesystem paths.

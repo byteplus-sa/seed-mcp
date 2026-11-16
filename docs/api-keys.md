@@ -7,7 +7,7 @@ server and must not be distributed to shared-server members.
 
 For administrator-managed BytePlus deployments, follow
 [Secret Manager setup and provider-key updates](secret-manager.md).
-That workflow pins one complete four-provider bundle, requires an approved
+That workflow pins one complete three-provider bundle, requires an approved
 sync to update the VM, and preserves the separate shared MCP connection key.
 It does not manage IAM or object-storage credentials.
 
@@ -18,9 +18,8 @@ tool set.
 
 | Service | Env var | Auth header | Tools it enables |
 |---|---|---|---|
-| ModelArk | `BYTEPLUS_MODELARK_API_KEY` | `Authorization: Bearer <key>` | Seedream, Seedance, image/video/audio understanding, and gated 3D tools |
-| Seed Speech | `BYTEPLUS_SEED_SPEECH_API_KEY` | `X-Api-Key: <key>` | Seed Audio (speech generation), Speech-to-Text (ASR) |
-| VOD AI MediaKit | `BYTEPLUS_VOD_MEDIAKIT_API_KEY` | `Authorization: Bearer <key>` | Enhancement, transcode, subtitle burn-in/removal, audio separation, and poll tools |
+| ModelArk | `BYTEPLUS_MODELARK_API_KEY` | `Authorization: Bearer <key>` | Seedream, Seedance, image/video/audio understanding and Files API delivery |
+| Seed Speech | `BYTEPLUS_SEED_SPEECH_API_KEY` | `X-Api-Key: <key>` | Seed Audio generation |
 | Vision AI (OmniHuman) | `BYTEPLUS_CV_API_KEY` | `Authorization: Bearer <key>` | `omnihuman_*` tools (also needs `BYTEPLUS_OMNIHUMAN_ENABLED=true`) |
 | TOS | `TOS_ACCESS_KEY` + `TOS_SECRET_KEY` + `TOS_BUCKET` | AK/SK signing | `media_upload`, `media_presign` |
 | S3 | `S3_ACCESS_KEY` + `S3_SECRET_KEY` + `S3_BUCKET` | AK/SK signing | `media_upload`, `media_presign` |
@@ -40,7 +39,7 @@ only when preparing the file yourself.
 ## ModelArk
 
 ModelArk provides **Seedream**, **Seedance**, multimodal understanding and
-the gated 3D tools. The key is sent as a Bearer token.
+Files API delivery. The key is sent as a Bearer token.
 
 **Env vars:**
 
@@ -69,21 +68,16 @@ The base URL is region-scoped. If your account is in a different region, update
 
 ## Seed Speech
 
-Seed Speech is the service for **Seed Audio** (full-scene audio generation /
-TTS) and **speech-to-text (ASR)**. A **single Seed Speech API key covers
-both** capabilities — the provider distinguishes them by the
-`X-Api-Resource-Id` header, not by the key. It is a separate key from
-ModelArk and uses a different auth header (`X-Api-Key`, not Bearer).
+Seed Speech provides **Seed Audio** (full-scene audio generation / TTS).
+It is separate from ModelArk and uses `X-Api-Key`, not Bearer. Audio
+transcription and translation use `seed_audio_understand` with the ModelArk key.
 
 **Env vars:**
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `BYTEPLUS_SEED_SPEECH_API_KEY` | empty | Seed Speech API key (Seed Audio + ASR) |
+| `BYTEPLUS_SEED_SPEECH_API_KEY` | empty | Seed Audio generation key |
 | `BYTEPLUS_SEED_AUDIO_BASE_URL` | `https://voice.ap-southeast-1.bytepluses.com` | Seed Speech host |
-| `SEED_SPEECH_ASR_BASE_URL` | `https://voice.ap-southeast-1.bytepluses.com` | Seed Speech ASR host |
-| `SEED_SPEECH_ASR_POLL_INTERVAL_SECONDS` | `3.0` | Seconds between ASR query polls |
-| `SEED_SPEECH_ASR_POLL_MAX_SECONDS` | `600.0` | Maximum total seconds to wait for ASR result |
 
 **How to get the key:**
 
@@ -92,62 +86,13 @@ ModelArk and uses a different auth header (`X-Api-Key`, not Bearer).
 3. Navigate to API key or application management and create a key.
 4. Copy the key. It is distinct from your ModelArk key.
 
-The key must belong to an application with access to the capability you use:
-TTS for Seed Audio, and the ASR resource for `speech_to_text`. If a
-capability is not enabled on the application, provider calls for it are
-rejected with an auth/resource error even though the key itself is valid.
+The key must belong to an application with Seed Audio access. Without that
+entitlement, provider calls are rejected with an auth/resource error even
+when the key itself is valid.
 
 ```dotenv
 BYTEPLUS_SEED_SPEECH_API_KEY=your-seed-speech-key-here
 ```
-
-## Seed Speech ASR (Speech-to-Text)
-
-Speech-to-text (ASR) **reuses `BYTEPLUS_SEED_SPEECH_API_KEY`** — the same key
-that powers Seed Audio. When the key is set, the `speech_to_text` tool is
-registered automatically; it submits audio via HTTP, polls until
-transcription is complete, and returns the full `TranscriptionResult` through
-a required background job, submitted through the ordinary `ark_job_*` tools or
-native MCP task augmentation on a task-capable client.
-
-The ASR-specific settings below only control the host and polling behavior,
-not the credential.
-
-**Env vars:**
-
-| Variable | Default | Purpose |
-|---|---|---|
-| `SEED_SPEECH_ASR_BASE_URL` | `https://voice.ap-southeast-1.bytepluses.com` | Seed Speech ASR HTTP host |
-| `SEED_SPEECH_ASR_POLL_INTERVAL_SECONDS` | `3.0` | Seconds between ASR query polls |
-| `SEED_SPEECH_ASR_POLL_MAX_SECONDS` | `600.0` | Maximum total seconds to wait for ASR result |
-
-## BytePlus VOD (AI MediaKit)
-
-BytePlus VOD AI MediaKit is a single Bearer-authenticated convenience surface
-that powers video enhancement, video transcoding, subtitle burn-in/removal, and
-voice + background audio separation. All six `vod_*` tools share the same API key.
-
-**Env vars:**
-
-| Variable | Default | Purpose |
-|---|---|---|
-| `BYTEPLUS_VOD_MEDIAKIT_API_KEY` | empty | VOD AI MediaKit Bearer key |
-| `BYTEPLUS_VOD_MEDIAKIT_BASE_URL` | `https://mediakit.ap-southeast-1.bytepluses.com/api/v1` | MediaKit base URL |
-
-**How to get the key:**
-
-1. Sign in to **<https://console.byteplus.com>** and enable BytePlus VOD.
-2. Open the **AI MediaKit** console and navigate to **API key** management.
-3. Create an API key and copy it immediately — it is shown once.
-
-```dotenv
-BYTEPLUS_VOD_MEDIAKIT_API_KEY=your-mediakit-key-here
-```
-
-The key is sent as `Authorization: Bearer <key>` against
-`https://mediakit.ap-southeast-1.bytepluses.com/api/v1`. It is startup
-configuration only and is never logged, returned, or accepted as a tool
-argument.
 
 ## BytePlus Vision AI (OmniHuman)
 
@@ -216,7 +161,7 @@ TOS_ENDPOINT=tos-ap-southeast-1.bytepluses.com
   `TOS_PRESIGN_TTL_SECONDS`) for individual objects.
 - Uploaded objects are **not auto-deleted** by this server. Configure a TOS
   bucket lifecycle rule to expire objects under the upload prefixes
-  (`stt-input/`, `references/`) to control storage cost over time.
+  (for example, `references/`) to control storage cost over time.
 - For temporary credentials (STS), also set `TOS_SECURITY_TOKEN`.
 
 ### S3 backend
@@ -246,10 +191,8 @@ settings, taking care to finish active jobs first. The client starts the
 server automatically. Use the [discovery-only connection check](integrations/index.md#verify-without-paid-calls);
 do not start development mode just to test keys.
 
-The `seed-health://status` MCP resource reports `ModelArk configured`,
-`Seed Audio configured`, `STT configured`, `TOS configured`, `S3 configured`,
-and `Object storage backend` values per
-provider. The separate `/health` HTTP route is a liveness probe that returns
+The `seed-health://status` MCP resource reports configured services and storage
+without exposing keys. The separate `/health` HTTP route is a liveness probe that returns
 only `{"status": "healthy"}`. A disabled service may have a missing key or
 feature flag. Ask your setup agent to check names and the configured
 `ARK_MCP_ENV_FILE` path without reading or printing key values.
@@ -261,22 +204,18 @@ Discovery confirms configuration, not provider-key validity or account access.
 ## Quick reference
 
 ```dotenv
-# ModelArk — image + video
+# ModelArk — image + video + understanding
 BYTEPLUS_MODELARK_API_KEY=
 BYTEPLUS_MODELARK_BASE_URL=https://ark.ap-southeast.bytepluses.com/api/v3
 
-# Seed Speech — Seed Audio (TTS) + ASR (STT), one key
+# Seed Speech — Seed Audio generation
 BYTEPLUS_SEED_SPEECH_API_KEY=
 BYTEPLUS_SEED_AUDIO_BASE_URL=https://voice.ap-southeast-1.bytepluses.com
 
-# Seed Speech ASR — host + polling only (reuses the key above)
-SEED_SPEECH_ASR_BASE_URL=https://voice.ap-southeast-1.bytepluses.com
-SEED_SPEECH_ASR_POLL_INTERVAL_SECONDS=3.0
-SEED_SPEECH_ASR_POLL_MAX_SECONDS=600.0
-
-# BytePlus VOD — AI MediaKit (Bearer)
-BYTEPLUS_VOD_MEDIAKIT_API_KEY=
-BYTEPLUS_VOD_MEDIAKIT_BASE_URL=https://mediakit.ap-southeast-1.bytepluses.com/api/v1
+# Vision AI — OmniHuman (optional)
+BYTEPLUS_CV_API_KEY=
+BYTEPLUS_OMNIHUMAN_ENABLED=false
+BYTEPLUS_CV_BASE_URL=https://openapi.cv.bytepluses.com
 
 # Object storage — TOS (optional, default backend)
 TOS_ACCESS_KEY=

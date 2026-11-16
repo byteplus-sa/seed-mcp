@@ -4,7 +4,7 @@ import examples from "../tool-examples.json" with { type: "json" };
 import toolModels from "../tool-models.json" with { type: "json" };
 
 export const SITE_BASE = "/ark-mcp";
-export const SOURCE_BASE = "https://github.com/byteplus-sa/ark-mcp/blob/main/";
+export const SOURCE_BASE = "https://github.com/byteplus-sa/seed-mcp/blob/main/";
 const toolNotes = new Map([
   [
     "seedream_generate_image",
@@ -154,14 +154,9 @@ export function toolPage(tool) {
       : tool.background === "optional"
         ? "Use a direct foreground call for lightweight operations. Submit through `ark_job_submit` when output persistence or a large download may take time. The full arguments still include the `input` wrapper."
         : "Call this tool directly. It is not a background-job target.";
-  const providerTasks = [
-    "seedance_",
-    "hyper3d_",
-    "hitem3d_",
-    "omnihuman_",
-    "vod_",
-    "gen_task_",
-  ].some((prefix) => name.startsWith(prefix));
+  const providerTasks = ["seedance_", "omnihuman_", "gen_task_"].some(
+    (prefix) => name.startsWith(prefix),
+  );
   return `---
 title: ${JSON.stringify(name)}
 description: ${JSON.stringify(`Inputs, outputs, setup requirements and execution guidance for ${name}.`)}
@@ -207,7 +202,7 @@ ${JSON.stringify(call, null, 2)}
     : `Match the input fields below and the full JSON Schema. See the [worked examples](${SITE_BASE}/tools/) for this capability and [Background Execution](${SITE_BASE}/integration-guide/#background-execution) for job/result handling.`
 }
 
-${providerTasks ? `An Ark job ID is not a provider task ID. Video and 3D tasks use [gen_task_get](${SITE_BASE}/tool-reference/gen-task-get/), VOD tasks use [vod_get_task](${SITE_BASE}/tool-reference/vod-get-task/), and avatars use [omnihuman_get_task](${SITE_BASE}/tool-reference/omnihuman-get-task/). Save accepted provider task IDs and resume polling instead of submitting a second generation.` : ""}
+${providerTasks ? `An Ark job ID is not a provider task ID. Seedance video tasks use [gen_task_get](${SITE_BASE}/tool-reference/gen-task-get/), and OmniHuman avatars use [omnihuman_get_task](${SITE_BASE}/tool-reference/omnihuman-get-task/). Foreground status checks use \`persist_output=false\`; persist completed outputs through a background job. Save accepted provider task IDs and resume polling instead of submitting a second generation.` : ""}
 
 ${toolNotes.get(name) || ""}
 

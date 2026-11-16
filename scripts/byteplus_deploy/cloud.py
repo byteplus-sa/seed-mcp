@@ -4,24 +4,21 @@ from __future__ import annotations
 
 import base64
 import binascii
-import importlib.util
 import logging
 import os
 import re
-import sys
 from contextlib import contextmanager
 from contextvars import ContextVar
 from datetime import UTC, datetime
-from functools import cache
 from ipaddress import IPv4Network
-from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
 import httpx
 
+from .signing import OpenApiCredentials, sign_request
+
 if TYPE_CHECKING:
     from collections.abc import Iterator, Mapping
-    from types import ModuleType
 
 REGION_ENDPOINTS = {
     region: {
@@ -100,19 +97,6 @@ def _quiet_http() -> Iterator[None]:
             logger.removeFilter(log_filter)
 
 
-@cache
-def _signer() -> ModuleType:
-    path = Path(__file__).resolve().parents[2] / "src/ark_mcp/providers/byteplus_openapi/signing.py"
-    name = "_byteplus_deploy_signing"
-    spec = importlib.util.spec_from_file_location(name, path)
-    if spec is None or spec.loader is None:
-        raise CloudError("Standalone cloud signer is unavailable.")
-    module = importlib.util.module_from_spec(spec)
-    sys.modules[name] = module
-    spec.loader.exec_module(module)
-    return module
-
-
 def _records(result: dict[str, Any], key: str) -> list[dict[str, Any]]:
     records = result.get(key, [])
     if not isinstance(records, list) or any(not isinstance(record, dict) for record in records):
@@ -159,7 +143,7 @@ class Cloud:
         if not access.strip() or not secret.strip():
             raise CloudError("BYTEPLUS_ACCESS_KEY and BYTEPLUS_SECRET_KEY are required.")
         self.region = region
-        self._credentials = _signer().OpenApiCredentials(access, secret, session)
+        self._credentials = OpenApiCredentials(access, secret, session)
         self._owns_client = client is None
         self._client = (
             client
@@ -194,7 +178,7 @@ class Cloud:
         host = REGION_ENDPOINTS[self.region][service]
         version = "2021-02-18" if service == "kms" else "2020-04-01"
         query = {"Action": action, "Version": version, **parameters}
-        headers = _signer().sign_request(
+        headers = sign_request(
             credentials=self._credentials,
             method="GET",
             host=host,

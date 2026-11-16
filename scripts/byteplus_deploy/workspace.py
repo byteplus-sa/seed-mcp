@@ -195,7 +195,6 @@ class Workspace:
             sources.extend((module / "scripts").glob("*.service"))
             sources.extend((module / "scripts").glob("*.conf"))
             sources.extend((ROOT / "scripts/byteplus_deploy").glob("*.py"))
-            sources.append(ROOT / "src/ark_mcp/providers/byteplus_openapi/signing.py")
             manifest = []
             for source in sources:
                 if source.is_symlink() or not source.is_file():
@@ -280,7 +279,7 @@ class Workspace:
             content = read_private(path, limit=1048576)
             digest.update(content)
             if (
-                entry.startswith(("source/scripts/byteplus_deploy/", "source/src/"))
+                entry.startswith("source/scripts/byteplus_deploy/")
                 and (ROOT / relative.relative_to("source")).read_bytes() != content
             ):
                 raise ValueError("CLI or signer changed since workspace initialization.")

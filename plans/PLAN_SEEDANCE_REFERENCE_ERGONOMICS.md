@@ -3,12 +3,23 @@ title: Seedance Reference Ergonomics & Batch Presign
 type: plan
 status: in-progress
 created: 2026-09-04
-updated: 2026-09-04
+updated: 2026-11-16
 tags: [seedance, media, presign, ergonomics, coercion]
 related: [PLAN_ARK_SEED_MULTIMODAL_MCP.md]
 ---
 
 # Seedance Reference Ergonomics & Batch Presign Implementation Plan
+
+## Current Scope
+
+This is the September 2026 implementation proposal, not a current tool
+inventory. Separate Seedance and batch-presign tool names below are historical:
+use `seedance_create_task` for every configured Seedance model and
+`media_presign` with `object_keys` for batched URL renewal. Native authorized
+`asset://` references remain passthrough-only; no administration, resolution or
+provider-status preflight is added by this plan. Current schemas and examples
+live in [tools](../docs/tools.md) and [native references](../docs/assets.md).
+The old checklist is retained without asserting fresh live validation.
 
 **Goal:** Reduce agent-facing friction and backend round-trips by (1) auto-coercing
 plain-string and `{"url": ...}` reference inputs for Seedance tools, (2) adding a

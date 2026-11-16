@@ -1,8 +1,17 @@
 # Versioning and releases
 
 Ark MCP uses semantic versions (`MAJOR.MINOR.PATCH`) and Git tags (`vX.Y.Z`).
-The first managed release is `v0.2.0`. Releases are approved through pull
-requests, not published for every commit to `main`.
+The upstream Ark MCP release history began with `v0.2.0`; it is not proof of
+a published Seed MCP fork release. Resolve releases from
+[`byteplus-sa/seed-mcp`](https://github.com/byteplus-sa/seed-mcp/releases)
+for this narrowed server. Releases are approved through pull requests,
+not published for every commit to `main`.
+
+> **Breaking capability removal:** export needed saved 3D outputs using the
+> old server before upgrading; the narrowed schema no longer serves them.
+> No compatibility or automatic migration is promised. Read the
+> [migration warning](migration-0.2.md#breaking-capability-migration) before
+> selecting a revision. This cleanup does not publish a release.
 
 ## Release process
 
@@ -56,25 +65,29 @@ pre-stable even though they are ordinary GitHub Releases.
 ## Installing a release
 
 For ordinary client setup, start with [guided setup](setup/install.md).
-Published `v0.3.0` includes the dependency security refresh.
+Upstream Ark MCP's published `v0.3.0` included the dependency security refresh;
+do not install that broader server as a Seed MCP update.
 **The historical `v0.2.0` release predates it.** Follow
 [release selection](setup/manual-install.md#choose-an-installation) and verify
 the current release's notes, manifest and lockfile before installing.
 
 Download the wheel and `SHA256SUMS` from the
-[GitHub Releases page](https://github.com/byteplus-sa/ark-mcp/releases).
+[Seed MCP GitHub Releases page](https://github.com/byteplus-sa/seed-mcp/releases)
+when a suitable release is published.
 Check the downloaded file's SHA-256 against the checksum entry, then install
 that wheel with `uv pip install` in a virtual environment. Do not assume that
 the `ark-mcp` name on PyPI belongs to this project.
 
-Container tags:
+Historical upstream Ark MCP container tags (not narrowed Seed MCP artifacts):
 
 - `ghcr.io/byteplus-sa/ark-mcp:v0.3.0` and `:0.3.0`: the release verified above.
 - `:latest`: the newest successfully published stable numeric version.
 - `:edge`: a passing `main` build, not a release.
 - `:sha-<full-commit-sha>`: a development image for a particular main commit.
 
-Use an image **digest** from the release notes for an immutable deployment
+Do not assume these upstream images contain the narrowed catalog. A Seed MCP
+image must be independently built and verified; this task publishes no image.
+Use an image **digest** from the selected release notes for an immutable deployment
 pin. Containers currently target the Linux AMD64 runner platform; a native
 ARM64 image is not published by this workflow. Configuration, credentials,
 state volumes, and database backups remain operator responsibilities.

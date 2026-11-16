@@ -11,15 +11,16 @@ agent can prepare the installation and client configuration with your
 permission. If your administrator already provides an endpoint, use
 [Connect to a Shared Server](setup/shared-server.md) and skip local setup.
 
-The [ark-mcp-setup skill](https://github.com/byteplus-sa/ark-mcp/tree/main/.agents/skills/ark-mcp-setup) guides
+The [ark-mcp-setup skill](https://github.com/byteplus-sa/seed-mcp/tree/main/.agents/skills/ark-mcp-setup) guides
 installation and updates in the user's preferred agent. It detects the current
 client where possible and asks when ambiguous, distinguishes Claude Code from
 Desktop and TRAE IDE from Work, and defaults to **global/user-level MCP
 registration**. Request project-only setup to change that scope.
 
-The workflow selects the latest published stable GitHub release and stages a
+The workflow selects a verified `byteplus-sa/seed-mcp` stable release and stages a
 locked installation before changing client configuration. If no stable release
-is published, it asks before using a default-branch commit. Existing credentials,
+is published, it asks before using a reviewed commit; no fork release is assumed.
+Never substitute the broader upstream Ark MCP server. Existing credentials,
 other MCP servers, and development checkouts are preserved.
 
 This is an agent-executed workflow, not an unattended installer. Credential
@@ -31,8 +32,10 @@ and account entitlement are not established by those local checks.
 
 For local setup, enter the [provider keys](api-keys.md) you need in the
 private file prepared for you. Never paste keys into chat or shared client
-configuration. Images and video use ModelArk; audio generation and
-speech-to-text use Seed Speech. You do not need every service.
+configuration. Images, video and understanding use ModelArk; audio generation
+uses Seed Speech; talking avatars use Vision AI with OmniHuman enabled.
+Audio transcription is available through understanding, not dedicated ASR.
+You do not need every service.
 
 ## Running the Server
 
@@ -81,6 +84,6 @@ Developing or deploying the server? Use [Transports](transports.md),
 
 ## Next Steps
 
-- [Choose a Tool](capabilities.md) for images, video, audio, understanding, 3D and avatars.
+- [Choose a Tool](capabilities.md) for images, video, audio, understanding and avatars.
 - [Update and Roll Back](setup/updating.md) for an existing installation.
 - [Migrating to 0.2.0](migration-0.2.md) when upgrading old 0.1.x prompts or clients.
