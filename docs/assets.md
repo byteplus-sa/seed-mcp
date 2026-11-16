@@ -1,176 +1,71 @@
-# Private Asset Library (Real People, Virtual Portraits, Copyright IP)
+# Native Seedance Asset References
 
-The ModelArk **private asset library** stores trusted media that Seedance 2.0
-and 2.5 may use as references. It is how you legitimately generate video with
-**verified real people**, **your own virtual characters**, and
-**copyrighted IP** made available in the console. The library comes with
-**Dreamina Seedance Advanced Creation Rights**. The free *Entry* tier already
-allows API access, with 50 assets / 50 groups and 3 `CreateAsset` calls per
-minute.
+**Seedance accepts existing authorized `asset://<id>` references with the
+normal ModelArk Bearer key.** This applies over stdio and shared-key HTTP;
+no asset-management credential or feature flag is needed.
 
-Design and rationale: [`plans/PLAN_MODELARK_ASSET_LIBRARY.md`](../plans/PLAN_MODELARK_ASSET_LIBRARY.md).
-Validation runbook: [`plans/PLAN_MODELARK_ASSET_LIBRARY_VALIDATION.md`](../plans/PLAN_MODELARK_ASSET_LIBRARY_VALIDATION.md).
+The server does not create, list, rename, delete or verify provider assets.
+Obtain IDs and complete any required rights, consent and liveness procedures
+through the provider console or another authorized administration workflow.
+Never invent an asset ID or assume an ID proves consent or ownership.
 
-## Concepts
+## Supported Inputs
 
-| Concept | Meaning |
+| Tool | Asset reference behavior |
 |---|---|
-| **Asset group** | One subject: one real person, one virtual character, one product. Keep all of a subject's files in the same group. |
-| **Asset** | One image, video or audio file in a group, e.g. `asset-20260318035710-kctzf`. |
-| **`AIGC` group** | *Virtual Portrait* tab. Created by API. Must **not** resemble any real person. |
-| **`LivenessFace` group** | *Real-human* tab. Created only by a real-person liveness verification that the person completes themselves. Every upload is face-matched to that person. |
-| **Copyright IP** | *Copyright IP* tab. Console only; copy asset IDs from the console. |
-| **`asset://<asset_id>`** | How an asset is referenced in generation requests. |
+| `seedance_create_task` | Passes native references in `images`, `videos` and `audios` to ModelArk |
+| Seedream, Seed Audio, understanding and OmniHuman | Native provider asset references are not supported; use their documented HTTPS/Base64/artifact input forms |
 
-## Setup
+The server validates the reference syntax and the selected model's request
+limits. **It does not look up asset status, authorization, project membership
+or media type before submission.** The provider decides whether the reference
+is usable. Local schema validation and dry-run success do not prove provider
+acceptance, and an invalid or unusable reference can fail after submission.
+There is no asset-to-URL resolution fallback.
 
-Asset **management** needs BytePlus IAM AK/SK, which is separate from the
-ModelArk API key. The tools are registered only when both keys are set:
+See [model limits](models.md) and the
+[Seedance tool reference](/ark-mcp/tool-reference/seedance-create-task/).
 
-```bash
-BYTEPLUS_MODELARK_ACCESS_KEY=AKLT...        # or AKTP... for STS temporary keys
-BYTEPLUS_MODELARK_SECRET_KEY=...
-BYTEPLUS_MODELARK_SESSION_TOKEN=            # required only for AKTP... keys
-```
+## Submit And Poll
 
-The IAM user needs `ArkFullAccess` on the ModelArk project. All settings are
-listed in [configuration.md](configuration.md#private-asset-library-aksk).
+1. Obtain an authorized, usable ID from the provider workflow.
+2. Discover the configured Seedance model and check its limits.
+3. Submit through `ark_job_submit`, referring to inputs in the prompt by
+   position, such as "Image 1" or "Video 1", not by asset ID.
+4. Keep the Ark job ID and the provider task IDs from the job result.
+5. Poll `gen_task_get` with `persist_output=false`, then persist completed
+   output through a background job. Never resubmit generation to poll.
 
-**Using** assets in Seedance needs only the normal `BYTEPLUS_MODELARK_API_KEY`:
-`asset://` references work even without AK/SK, for example for assets created
-or authorized in the console.
-
-## Tools
-
-| Tool | Provider action | Notes |
-|---|---|---|
-| `ark_asset_group_ensure` | `ListAssetGroups` + `CreateAssetGroup` | **The only way to create an AIGC group.** Reuses the single AIGC group named exactly `subject`, or creates it, so repeating the call is safe. Fails with `ambiguous_asset_group` if several share the name. |
-| `ark_asset_group_list` | `ListAssetGroups` / `GetAssetGroup` | Lists by `group_type` (`AIGC` default, or `LivenessFace`) and fuzzy `name`, paged with `next_token`. **With `group_ids` (1-20, any group type) it reads those groups by ID instead**; `group_ids` cannot be combined with `name`, `next_token` or `sort_order`, and unreadable IDs are returned in `errors` (`id`, `code`, `message`). |
-| `ark_asset_create` | `CreateAsset` ×N, then `GetAsset` polling | Up to 20 files of **one** subject into one group (`group_id` or `subject`). Sources are public HTTPS `url`s or `media_upload` `object_key`s. Waits until Active/Failed by default. Per-file errors are reported inline. `group_created_empty: true` means this call created the subject's group but every source failed; delete it with `ark_asset_delete` if you don't need it (that tool exists only when `BYTEPLUS_MODELARK_ASSETS_ALLOW_DELETE=true`). Background-job capable. |
-| `ark_asset_list` | `ListAssets` / `GetAsset` | Status, type, group, `asset_uri`, `last_inference_time`, and a temporary `preview_url`. Filters by `group_ids`, `statuses` and `name`, paged with `next_token`. **With `asset_ids` (1-20 IDs or `asset://` references) it reads those assets instead**; `asset_ids` cannot be combined with the filters, and unreadable IDs are returned in `errors`. |
-| `ark_asset_update` | `UpdateAsset` / `UpdateAssetGroup` | Exactly one of `asset_id` or `group_id`, plus `name` and/or `description` (`description` only with `group_id`). Asset names are for search only; the model never sees them. Returns `asset` or `group`. |
-| `ark_asset_verification_start` | `CreateVisualValidateSession` | Returns an H5 liveness link for the person to open, plus a token valid for about 30 minutes. |
-| `ark_asset_verification_result` | `GetVisualValidateResult` | Returns the verified person's `LivenessFace` `group_id`; `wait_seconds` polls. Background-job capable. |
-| `ark_asset_delete` | `DeleteAsset` / `DeleteAssetGroup` | **Irreversible.** Exactly one of `asset_id` or `group_id`, and `confirm: true`. Registered only with `BYTEPLUS_MODELARK_ASSETS_ALLOW_DELETE=true`. Deleting a group also removes its assets, so **a non-empty group is refused unless `cascade: true`**. Returns `id`, `kind` (`asset` or `group`), and `deleted`. |
-
-Asset management acts on the whole BytePlus account, not per MCP principal, so
-the shared HTTP key excludes all asset scopes (`assets:read`, `assets:write`,
-`assets:verify`, `assets:delete`). These management workflows require trusted
-local access with AK/SK; registering the tools does not grant shared-key users
-access. Existing authorized `asset://` references still work for Seedance
-generation over HTTP.
-
-`subject` lookup and creation is serialized within one server event loop. If
-separate stdio servers or replicas may create the same subject concurrently,
-pre-create its group and pass `group_id` to `ark_asset_create`. A lookup that
-cannot exhaust its group pages fails with `asset_group_scan_incomplete` instead
-of creating a possibly duplicate group.
-
-Asset tools hold the shared `modelark-openapi` rate-limit slot only around
-each provider request. Processing waits (`wait_until_active`), `CreateAsset`
-spacing, and verification polling therefore never block a Seedance asset
-preflight running at the same time.
-
-## Workflows
-
-### Virtual character → Seedance
-
-1. Make or collect clearly fictional images of the character: a front-facing
-   close-up and a full-body shot, portrait orientation.
-2. `media_upload` each local file (or use public HTTPS URLs).
-3. `ark_asset_create` with `subject: "Teal Hero"` and the sources. All files
-   land in the same AIGC group.
-4. When `all_active` is true, pass the returned `asset_uri` values to
-   `seedance_create_task` (on a Seedance 2.5 model, the default), for example
-   `images: ["asset://asset-…"]`, and refer to them in the prompt as "Image 1", "Image 2" by position, never by ID.
-
-### Verified real person → Seedance
-
-1. `ark_asset_verification_start` with an HTTPS `callback_url`. Send the
-   `h5_link` **only** to the person being verified; they consent and complete
-   the liveness check themselves.
-2. `ark_asset_verification_result` with the token (use `wait_seconds` to
-   poll). It returns that person's `LivenessFace` `group_id`.
-3. `ark_asset_create` with that `group_id` and **only that person's** media.
-   Uploads whose face does not match are rejected.
-4. Use the `asset://` references in Seedance as above.
-
-Real-human assets that another account authorized to you through the
-console QR flow can be used by ID in Seedance, but the management tools can't
-see them.
-
-### Delete an asset or group
-
-**Deletion is opt-in and permanent.** Set
-`BYTEPLUS_MODELARK_ASSETS_ALLOW_DELETE=true` before starting the MCP server;
-`ark_asset_delete` then registers. Inspect the target first with
-`ark_asset_list` (`asset_ids`) or `ark_asset_group_list` (`group_ids`), and
-list a group's members with `ark_asset_list` (`group_ids`). Pass the exact
-ID and `confirm: true`:
+This exact MCP job envelope is a non-billable local request preview:
 
 ```json
-{"input":{"asset_id":"asset-EXAMPLE","confirm":true}}
+{
+  "input": {
+    "tool_name": "seedance_create_task",
+    "arguments": {
+      "input": {
+        "prompt": "Image 1 walks through a softly lit studio.",
+        "images": ["asset://asset-EXAMPLE"],
+        "duration": 5,
+        "resolution": "480p",
+        "dry_run": true
+      }
+    }
+  }
+}
 ```
 
-To delete a group, pass `group_id` instead. A group that still holds assets
-is refused with `asset_group_not_empty`; delete its assets first, or add
-`"cascade": true` to delete the group and its assets together:
+Replace the synthetic ID and remove `dry_run` only when deliberately approving
+paid work. A provider-authorized AIGC image was accepted in earlier regular
+Seedance 2.5 testing; that evidence does not establish every model, input
+modality, account or current asset's availability.
 
-```json
-{"input":{"group_id":"group-EXAMPLE","confirm":true,"cascade":true}}
-```
+## Uploads Are Different
 
-The AIGC group deletion path was verified live with a remaining asset: both
-the group and that asset returned 404 afterward. If a delete call times out or
-returns 5xx, read the target again before any retry because the provider may
-already have deleted it.
+`media_upload` stores ordinary reference files in TOS/S3 and returns
+`object_key` plus a presigned HTTPS URL. It does not register a provider asset
+or return an `asset://` ID. Use `media_presign` to renew those ordinary URLs.
 
-### Copyright IP
-
-Choose the IP and accept its terms in the console (*Copyright Library*), copy
-the asset ID, and use `asset://<id>` in Seedance. Content from CJ7 (a film
-directed by Stephen Chow) is billed at 1.1× the video price.
-
-## `asset://` in generation tools
-
-| Tool family | Behaviour |
-|---|---|
-| Seedance 2.0 / 2.5 (`images`, `videos`, `audios`) | The server passes `asset://` through unchanged. A Seedance 2.5 image asset was accepted in a live provider test; video/audio assets and Seedance 2.0 remain unverified. With AK/SK set, a `GetAsset` preflight (`SEEDANCE_ASSET_PREFLIGHT`) stops the call before billing if an asset is `Processing` or `Failed`. An asset the account can't look up does not block. |
-| Seedream (`images`) and Seed Audio (`audio_references`, `image_reference`) | **Not native.** The provider returned HTTP 400 in the 2026-09-24 probe. With `BYTEPLUS_MODELARK_ASSET_REFERENCE_MODE=off` (default) the tool rejects `asset://` locally. With `resolve` (experimental, needs AK/SK) it swaps in the asset's temporary `GetAsset` URL after checking it is `Active` and the right type. |
-| Everything else (understanding, 3D, VOD, speech-to-text) | Rejected. |
-
-> **Resolve mode caveat.** In resolve mode the model receives an ordinary URL,
-> without the asset library's trust or authorization guarantees, and provider
-> moderation may still block real faces. Whether verified real-human or
-> copyright material may be sent to Seedream or Seed Audio this way is not yet
-> confirmed by BytePlus. Treat it as experimental.
-
-## Limits
-
-| Type | Formats | Limits |
-|---|---|---|
-| Image | jpeg, png, webp, bmp, tiff, gif, heic/heif | W/H 0.4–2.5; each side 300–6000 px; < 30 MB |
-| Video | mp4, mov | 2–30 s; 24–60 fps; each side 300–6000 px; ≤ 200 MB |
-| Audio | wav, mp3 | 2–30 s; ≤ 15 MB |
-
-- `CreateAsset` is asynchronous with no upload-time SLA. The server spaces
-  calls to `BYTEPLUS_MODELARK_ASSET_CREATE_QPM`: 3 on Entry, 120 on Advanced,
-  300 on Premium.
-- `ListAssetGroups` and `ListAssets` require a group-type filter; the tools
-  default it to `AIGC`.
-- Assets live in one `ProjectName` and only work with inference endpoints in
-  the same project.
-- When a paid tier lapses, you can't add assets during the 15-day grace period.
-  After it, **assets created during the paid period are deleted permanently**.
-
-## Security notes
-
-- AK/SK are startup configuration only (env or `/run/secrets`), never tool
-  arguments. Prefer a dedicated IAM user scoped to the asset project, or STS
-  keys with a session token.
-- The verification `h5_link` embeds temporary credentials. The server never
-  logs it or the token.
-- `CreateAsset` source URLs pass the same SSRF policy as other media URLs.
-  `asset://` is never fetched by the server.
-- `skip_moderation` is off by default and only takes effect after content
-  pre-filter is disabled in the console.
+Shared-key HTTP uses the operator's ModelArk key and one `shared-team`
+identity. It does not provide per-member provider accounts or per-user BYOK.
+See [security](security.md) and [background execution](integration-guide.md).

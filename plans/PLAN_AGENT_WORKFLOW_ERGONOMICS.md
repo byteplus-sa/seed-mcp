@@ -3,7 +3,7 @@ title: Agent Workflow Ergonomics — understanding output, strict JSON, timeout 
 type: plan
 status: in-progress
 created: 2026-09-21
-updated: 2026-09-22
+updated: 2026-11-16
 reviewed: 2026-09-22 (subagent plan review; findings folded in)
 tags: [seed_understand, seedream, seedance, media_upload, retry, artifacts, ergonomics]
 source:
@@ -19,6 +19,16 @@ related:
 ---
 
 # Agent Workflow Ergonomics
+
+## Current Scope
+
+The September findings and implementation notes below record the original
+work. Current tool names, schemas and auth are defined by the catalog,
+[tool reference](../docs/api-reference.md) and [security](../docs/security.md).
+Batch operations are parameters on the retained tools, not additional tools.
+Per-user BYOK is future work; shared HTTP uses one `shared-team` identity.
+The remaining live checks and streaming/queue-metric research do not authorize
+restoring removed processing, generation or administration capabilities.
 
 ## Summary
 
@@ -80,11 +90,7 @@ def normalize_timeout(cls, operation: str, *, side_effect: bool = True) -> Provi
 
 Pass `side_effect=False` for:
 - `SeedUnderstandingService.generate` (`chat_completion`)
-- Seedance `get_task` / `list_tasks`, Seed3D get/list, and ASR result queries
-- VOD get-task queries. These do **not** go through `normalize_timeout`: they
-  use `normalize_ambiguous_transport_error` (`vod_mediakit/enhancement.py:146`,
-  plus `transcode.py`, `subtitles.py`, `separate_voice.py`). Give that helper
-  the same `side_effect` keyword and pass `False` from the GET/query paths.
+- Seedance `get_task` / `list_tasks` and OmniHuman task-status reads
 
 Keep `side_effect=True` (the default) for all create, generate, cancel, and
 delete calls.
@@ -180,7 +186,7 @@ and Seedance 2.5 variation tools.
    `ArtifactPersistenceError`. If item 2 fails, item 1's already stored
    artifact disappears from the output too. Change this so each item is
    handled separately:
-   - **URL outputs** (Seedream `url`, Seedance video, Seed3D, VOD): on final
+   - **URL outputs** (Seedream `url`, Seedance video, OmniHuman): on final
      failure, return an unpersisted `ArtifactRef` (`id="provider-url"`,
      `uri=<provider URL>`, `source_expires_at`) with a `persistence_error` on
      that item. Stored items are always kept.
@@ -191,15 +197,12 @@ and Seedance 2.5 variation tools.
      store once. If it still fails, return the base64 inline in a
      `fallback_data` field, capped at `ARTIFACT_INLINE_FALLBACK_MAX_BYTES`
      (default 8 MB). Above the cap, return the error. Never drop it silently.
-5. **Shared persistence-issue model.** Promote `VodArtifactPersistenceIssue`
-   (`_vod_shared.py:10-25`) to `domain/artifacts.py` as
-   `ArtifactPersistenceIssue`. It must be a **strict superset** of the VOD
-   model: keep `code`, `message`, `retryable`, and `artifact_limit_bytes`, with
+5. **Shared persistence-issue model.** Use `ArtifactPersistenceIssue` in
+   `domain/artifacts.py`: keep `code`, `message`, `retryable`, and `artifact_limit_bytes`, with
    the same names and descriptions. Add only an optional
    `source_url_expires_at`. The provider URL goes on the fallback
    `ArtifactRef.uri`, **never** in the issue's `message`, which stays safe to
-   log and free of URLs as documented. Keep `VodArtifactPersistenceIssue` as a
-   type alias so the VOD output schemas don't change.
+   log and free of URLs as documented.
 6. **Fix the variation fallthrough.** In every variation tool, catch
    `ArtifactPersistenceError` explicitly instead of letting it reach
    `except Exception` and be reported as `UNEXPECTED_ERROR`.
@@ -253,7 +256,9 @@ finishes, so a long reasoning run can hit the httpx read timeout
   `persistence_error`. The budget is committed.
 - Seed Audio: a store failure returns `fallback_data` below the cap and the
   error above it.
-- VOD output schema snapshot unchanged (the alias works).
+- The original phase aimed to preserve retained generation and artifact
+  output shapes. This historical test intent is not a compatibility guarantee
+  for the current breaking capability removal; see `docs/migration-0.2.md`.
 
 ## Phase 2 — `seed_understand` output control and strict JSON
 
@@ -473,8 +478,8 @@ Rules:
 
 Add optional `output_path: str | None` to `seedream_generate_image`,
 `seedream_edit_image`, `seed_audio_generate`, `seedance_get_task` (when
-`persist_output`), the Hyper3D/Hitem3D get-task tools, and the VOD get-task
-tools. Add `output_dir` to the `*_variations` tools.
+`persist_output`), and the OmniHuman poller. Add directory output support for
+variations on the retained create tools.
 
 - `output_path` is a file path, or a directory when it ends in `/`. A directory
   gets `<artifact_id>.<ext>`. For a result with more than one artifact
@@ -554,17 +559,14 @@ class SeedanceGetTasksOutput(BaseModel):
   leaves `content` out.
 - **Dedupe** `task_ids` before fetching (keep the first occurrence's order).
 - **Serialize persistence per task.** `seedance_get_task` has no single-flight
-  lock around persistence today, while the VOD tools use
-  `task_artifact_locks.acquire` (`vod_get_enhancement_task.py:154`). Add the
-  same lock around the check-cache → download → store → cache sequence in the
+  lock around persistence in the original baseline. Use
+  `task_artifact_locks.acquire` around the check-cache → download → store → cache sequence in the
   shared Seedance persistence helper, so overlapping polls or batches never
   download the same video twice. `seedance_get_task` benefits too.
 - Keep the existing `persistence_requires_task` gate that `seedance_get_task`
   applies to persistence.
 - Ownership checks match `seedance_get_task` for each ID. An unowned ID goes to
   `errors`; it does not fail the batch.
-- Also add `hyper3d_get_tasks` / `hitem3d_get_tasks` only if they are
-  requested. They are not in scope here.
 
 ---
 
@@ -653,7 +655,6 @@ Where the code departs from the plan:
   - internal SSE streaming for understanding (1.4); only
     `SEED_UNDERSTANDING_TIMEOUT_MS` shipped
   - the rolling queue-latency median and its Prometheus histogram (Phase 4)
-  - `hyper3d_get_tasks` / `hitem3d_get_tasks`
 - **Assumption to verify live:** when a task omits
   `execution_expires_after`, the 48h default is assumed and flagged as
   `expires_at_estimated=true`.

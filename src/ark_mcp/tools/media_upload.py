@@ -71,8 +71,7 @@ class UploadRequest(BaseModel):
         le=604800,
         description=(
             "Presigned URL validity in seconds (60-604800). Defaults to the configured presign "
-            "TTL. VOD tools fetch source URLs asynchronously, so use a long TTL (e.g. 3600) for "
-            "uploads destined for VOD enhancement, transcoding, subtitle, or audio-separation tools."
+            "TTL. Use a long TTL (e.g. 3600) for asynchronous Seedance or OmniHuman inputs."
         ),
     )
 
@@ -253,7 +252,7 @@ class MediaUploadInput(BaseModel):
         le=604800,
         description=(
             "Presigned URL validity in seconds for every item; defaults to the server presign "
-            "TTL. Use >= 3600 for URLs destined for vod_* tools, which fetch asynchronously."
+            "TTL. Use >= 3600 for asynchronous Seedance or OmniHuman inputs."
         ),
     )
     max_concurrent: int = Field(4, ge=1, le=8, description="Concurrent uploads.")
@@ -265,9 +264,7 @@ class MediaUploadItemResult(BaseModel):
     index: int = Field(..., description="0-based position in the request.")
     file_path: str | None = Field(None, description="The item's file_path as given.")
     url: str | None = Field(None, description="Presigned HTTPS GET URL; null if the item failed.")
-    object_key: str | None = Field(
-        None, description="Object key, reusable with media_presign and ark_asset_create."
-    )
+    object_key: str | None = Field(None, description="Object key, reusable with media_presign.")
     expires_at: str | None = Field(None, description="ISO-8601 expiry of url.")
     mime_type: str | None = Field(None, description="MIME type used for the upload.")
     bytes: int | None = Field(None, description="Uploaded byte count.")

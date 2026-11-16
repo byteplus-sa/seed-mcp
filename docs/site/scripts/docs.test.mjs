@@ -56,7 +56,7 @@ test("external URLs, fragment links and source references are preserved correctl
   assert.equal(resolveDocLink("tools.md", "#output"), "#output");
   assert.equal(
     resolveDocLink("getting-started.md", "../.agents/skills/ark-mcp/SKILL.md"),
-    "https://github.com/byteplus-sa/ark-mcp/blob/main/.agents/skills/ark-mcp/SKILL.md",
+    "https://github.com/byteplus-sa/seed-mcp/blob/main/.agents/skills/ark-mcp/SKILL.md",
   );
   assert.throws(
     () => resolveDocLink("tools.md", "../../../private.md"),

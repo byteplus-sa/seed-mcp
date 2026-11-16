@@ -3,7 +3,7 @@ title: Parallel Multiple Generation for Seedance, Audio, and Seedream
 type: plan
 status: in-progress
 created: 2026-07-21
-updated: 2026-07-21
+updated: 2026-11-16
 tags:
   - byteplus
   - modelark
@@ -27,6 +27,17 @@ related:
 <!-- markdownlint-disable MD013 MD025 -->
 
 # Parallel Multiple Generation for Seedance, Audio, and Seedream
+
+## Current Scope
+
+This July 2026 proposal retains its original implementation examples for
+historical context. Separate variation tools were consolidated: current
+clients set `variations` on `seed_audio_generate`,
+`seedream_generate_image` or `seedance_create_task`, through background jobs.
+Do not recreate the old tool names or timeout algorithm from this plan.
+Current behavior and limits live in [tools](../docs/tools.md),
+[runtime](../docs/runtime.md) and [model limits](../docs/models.md).
+Historical provider rates and live-smoke gates below are not newly verified.
 
 ## Outcome
 

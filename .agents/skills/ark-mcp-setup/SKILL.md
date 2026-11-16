@@ -5,6 +5,12 @@ description: Install or update the Ark MCP server in TRAE, Claude, Codex, or ano
 
 # Ark MCP Setup
 
+This project-local skill installs the narrowed Seed MCP fork from
+`byteplus-sa/seed-mcp`. Package, module, tool and skill names remain unchanged.
+Upstream Ark MCP documentation is retained-tool detail only, not an
+installation or release source for this fork. No Seed MCP Pages deployment
+or release is assumed.
+
 Install the server into the user's preferred MCP client, not the client
 application itself. Use this skill for onboarding, updates, registration,
 and credential-file setup. Use `ark-mcp` for generating or understanding media.
@@ -44,7 +50,7 @@ requested; changing MCP scope does not authorize changes to all skill roots.
 
 ## 2. Resolve an Installation
 
-- Default upstream: `https://github.com/byteplus-sa/ark-mcp.git`.
+- Default upstream: `https://github.com/byteplus-sa/seed-mcp.git`.
   Check existing origins against that repository; accept its equivalent
   GitHub SSH URL. Ask before using a fork or a different remote. Never put
   access tokens in Git URLs or shell arguments.
@@ -75,7 +81,10 @@ not evidence that no releases exist. Never silently fall back to `main`.
 
 Stage the selected commit in a new managed checkout, detached from any
 development branch. Inspect its setup instructions and migration notes
-before executing downloaded code. In that directory run:
+before executing downloaded code. The capability narrowing is breaking:
+export needed old 3D outputs with the old server before upgrading; its saved
+3D artifacts are not served by the narrowed schema. Do not promise state
+compatibility or automatic migration. In the staged directory run:
 
 ```bash
 uv sync --locked --no-dev
@@ -90,7 +99,7 @@ and MCP entry until the staged version passes verification.
 Read [credentials.md](references/credentials.md) before handling credentials.
 
 1. Ask which capabilities are needed if unspecified. ModelArk, Seed Speech,
-   VOD MediaKit, and Vision AI use different credentials; never assume one key
+   and Vision AI use different credentials; never assume one key
    unlocks everything. Keep whitelist and destructive-operation flags off.
 2. Create a minimal blank `.env` in a private directory outside the checkout,
    with owner-only access. Preserve an existing file without reading or
@@ -162,8 +171,7 @@ The launch contract requires the successful locked sync above.
    `{"input": {}}` (verify the selected release's schema). Do not run paid
    generation or uploads for setup verification. For this standalone
    preflight process only, set `ARTIFACT_DIR` to a private temporary
-   directory, `ARTIFACT_BACKEND=filesystem`, `FASTMCP_DOCKET_URL=memory://`,
-   `BYTEPLUS_MODELARK_PRICING_REFRESH_SECONDS=0`, and
+   directory, `ARTIFACT_BACKEND=filesystem`, `FASTMCP_DOCKET_URL=memory://`, and
    `READINESS_CHECK_PROVIDERS=false`. Keep active local/remote state and
    optional provider probes out of preflight; do not persist these
    overrides into the user's MCP entry.

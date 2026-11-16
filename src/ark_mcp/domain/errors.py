@@ -15,9 +15,7 @@ from pydantic import BaseModel, Field
 
 ProviderName = Literal[
     "modelark",
-    "modelark-openapi",
     "seed-speech",
-    "byteplus-vod-mediakit",
     "byteplus-vision-cv",
     "tos",
     "s3",

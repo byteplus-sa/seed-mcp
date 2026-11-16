@@ -313,12 +313,15 @@ class TestGenerationTaskHelpers:
         assert task_timestamp(1721400000) == "2024-07-19T14:40:00+00:00"
         assert task_timestamp("2026-10-17T00:00:00Z") == "2026-10-17T00:00:00Z"
 
-    def test_file_url_reads_string_or_nested_url(self) -> None:
-        flat = GenerationTaskResponse(id="t", content={"file_url": "https://x/model.glb"})
-        nested = GenerationTaskResponse(id="t", content={"file_url": {"url": "https://x/m.zip"}})
-        assert flat.file_url == "https://x/model.glb"
-        assert nested.file_url == "https://x/m.zip"
-        assert GenerationTaskResponse(id="t").file_url is None
+    @pytest.mark.parametrize("role", ["video", "last_frame"])
+    def test_output_url_reads_string_or_nested_url(self, role: str) -> None:
+        key = f"{role}_url"
+        url = f"https://example.com/{role}"
+        flat = GenerationTaskResponse(id="t", content={key: url})
+        nested = GenerationTaskResponse(id="t", content={key: {"url": url}})
+        assert getattr(flat, key) == url
+        assert getattr(nested, key) == url
+        assert getattr(GenerationTaskResponse(id="t"), key) is None
 
     def test_unknown_provider_status_maps_to_unknown(self) -> None:
         assert GenTaskStatus("invented_status") is GenTaskStatus.UNKNOWN

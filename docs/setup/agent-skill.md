@@ -8,6 +8,10 @@ discover models, submit work, check progress, keep results and avoid duplicate
 paid requests. It is optional; the MCP tools already describe their inputs
 and outputs.
 
+Use the project-local skill from `byteplus-sa/seed-mcp` for this narrowed
+server. Its name stays `ark-mcp`; installing the upstream Ark MCP skill may
+reintroduce instructions for removed capabilities.
+
 **The server provides tools. The skill provides instructions.** Installing
 the skill does not install the server, connect a client, add credentials or
 enable unavailable products. Complete [server setup](install.md) separately.
@@ -24,7 +28,7 @@ In a coding agent with terminal and file access, replace `[my agent]` and send:
 ```text
 Install the official ark-mcp usage skill for [my agent], user-wide,
 using the Skills CLI:
-npx skills add byteplus-sa/ark-mcp --skill ark-mcp -g
+npx skills add byteplus-sa/seed-mcp --skill ark-mcp -g
 
 Check prerequisites and ask before installing missing software.
 Target only my agent; preserve installation confirmations.
@@ -46,7 +50,7 @@ or unfinished steps, not claim success.
 If you prefer a terminal, run:
 
 ```bash
-npx skills add byteplus-sa/ark-mcp --skill ark-mcp -g
+npx skills add byteplus-sa/seed-mcp --skill ark-mcp -g
 ```
 
 Select only the agents you use and review the installation summary.
@@ -161,7 +165,7 @@ preference: telemetry is not required to install or use the skill.
 <summary>Manual folder installation (fallback)</summary>
 
 If the CLI is unavailable or unsupported for your agent, use the
-[official skill folder](https://github.com/byteplus-sa/ark-mcp/tree/main/.agents/skills/ark-mcp).
+[fork skill folder](https://github.com/byteplus-sa/seed-mcp/tree/main/.agents/skills/ark-mcp).
 Have your agent review and copy the entire folder from one source revision,
 including `SKILL.md`, `references/` and `agents/`, to the supported destination
 above. Do not copy a GitHub HTML page or the entire repository into a skills
@@ -178,7 +182,7 @@ credentials.
 
 Checked 2026-11-11:
 
-- [Official ark-mcp skill](https://github.com/byteplus-sa/ark-mcp/tree/main/.agents/skills/ark-mcp)
+- [Project-local ark-mcp skill](https://github.com/byteplus-sa/seed-mcp/tree/main/.agents/skills/ark-mcp)
 - [Skills CLI commands](https://github.com/vercel-labs/skills/blob/main/docs/commands.md)
 - [skills.sh listing FAQ](https://skills.sh/docs/faq)
 - [Codex skill-root discovery](https://github.com/openai/codex/blob/main/codex-rs/ext/skills/src/host_roots.rs)

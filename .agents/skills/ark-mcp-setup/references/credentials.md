@@ -38,17 +38,16 @@ requested products. This is a template, not a populated credential file:
 ```dotenv
 BYTEPLUS_MODELARK_API_KEY=
 BYTEPLUS_SEED_SPEECH_API_KEY=
-BYTEPLUS_VOD_MEDIAKIT_API_KEY=
 BYTEPLUS_CV_API_KEY=
 ```
 
 Omit unneeded fields. ModelArk covers image/video and understanding;
-Seed Speech covers generation and transcription; VOD and Vision AI have
-separate keys. OmniHuman also needs an explicitly requested
-`BYTEPLUS_OMNIHUMAN_ENABLED=true`. Derive any additional storage or asset
+Seed Speech covers audio generation; Vision AI has its own
+key. Audio understanding and transcription use ModelArk. OmniHuman also needs
+an explicitly requested `BYTEPLUS_OMNIHUMAN_ENABLED=true`. Derive additional storage
 credential names from the selected release's `.env.example` and docs.
-Never enable Premium, 3D, asset deletion, or AK/SK-backed services just because
-those settings exist.
+Never enable optional services or object storage just because settings exist.
+Native Seedance asset references require no separate management credentials.
 
 Do not copy the entire example blindly: it may pin model IDs or enable
 unrequested services. Preserve existing model bindings and region choices.
@@ -108,8 +107,8 @@ exceptions or stack traces reach agent output: they can include input values.
 Do not print `Settings`, environment dictionaries, raw logs, or API responses.
 
 Run startup preflight in isolated temporary artifact/state directories.
-Disable optional provider readiness probes and account-pricing refresh in
-that preflight process. Inspect only the schema/status fields needed to
+Disable optional provider readiness probes in that preflight process.
+Inspect only the schema/status fields needed to
 confirm requested services and tools; suppress raw stderr before it reaches
 the conversation. Explain generic startup failure to the user and offer a
 local review of private logs rather than requesting those logs in chat.

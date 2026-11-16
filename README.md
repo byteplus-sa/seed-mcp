@@ -6,9 +6,12 @@ generation through a typed, safe tool surface.
 
 ## Documentation
 
-Read the [Ark MCP documentation](https://byteplus-sa.github.io/ark-mcp/) for
-installation, client integrations, worked examples, and generated input/output
-schemas for every catalog tool.
+This checkout is the narrowed [`byteplus-sa/seed-mcp`](https://github.com/byteplus-sa/seed-mcp)
+fork; package and tool names remain Ark MCP. Its local guides and generated
+schemas describe current support. The
+[upstream Ark MCP site](https://byteplus-sa.github.io/ark-mcp/) is a reference
+for retained-tool detail only, not this fork's installation source or
+published documentation site. This task publishes no site or release.
 
 The source guides cover [installation](docs/setup/install.md),
 [client integrations](docs/integrations/index.md),
@@ -16,40 +19,40 @@ The source guides cover [installation](docs/setup/install.md),
 [choosing a tool](docs/capabilities.md). See
 [site maintenance](docs/site-maintenance.md) for local development and deployment.
 
-> **Upgrading from 0.1.x?** 0.2.0 consolidates the tool surface and removes
-> the old per-model, per-variation and per-operation tools with no
-> compatibility layer. See the [migration guide](docs/migration-0.2.md).
+> **Breaking capability removal:** the current server narrows the catalog to
+> 21 tools. VOD, 3D, dedicated ASR, asset administration/resolution/preflight
+> and operator live-pricing discovery are removed. Saved 3D artifacts are no
+> longer served by the narrowed schema: **export needed 3D outputs using the
+> old server before upgrading**. There is no compatibility guarantee or
+> automatic migration. See
+> [migration guidance](docs/migration-0.2.md#breaking-capability-migration);
+> the 0.1.x consolidation tables on that page are historical.
 
 ## Releases
 
-Version bumps and changelogs are reviewed in automated release PRs. Merging
-one publishes a tested GitHub Release with Python distributions and versioned
-GHCR images. `latest` follows releases; `edge` follows passing main builds.
-See [release policy and installation](docs/releases.md) and the
+Resolve this fork's available releases independently; upstream Ark MCP tags
+and images do not establish narrowed Seed MCP support. See
+[release policy and installation](docs/releases.md) and the
 [changelog](docs/changelog.md). PyPI publication is not configured.
 
 ## What It Does
 
 The server provides a conditional MCP tool surface across several BytePlus
-products plus artifact access and an optional media upload helper:
+products plus artifact access and an optional media upload helper. The catalog
+contains **21 tools**; eight are always registered, and the rest depend on
+configured service gates. Provider credentials are startup configuration.
+**Per-user BYOK is not implemented**: shared HTTP members use the operator's
+configured provider accounts and one `shared-team` identity.
 
 | Product | Tools | Description |
 |---|---|---|
 | **Seed Audio** | `seed_audio_generate` | Background-task full-scene audio generation through Seed Speech; one clip or 1-5 parallel variations |
 | **Seedream** | `seedream_generate_image` | One background-task image tool through ModelArk: [Seedream 5.5](https://byteplus-sa.github.io/ark-mcp/tool-reference/seedream-generate-image/#seedream-5-5) by default, generation/reference and point/box editing, native transparent PNGs, auto backgrounds, standard-only optimization, validated 1K/1.5K/2K or custom sizes, hashed safety IDs, provider image metadata, 1-10 variations and dry runs. Pro retains transparency-preserving edits; batches are Lite/4.x only. Layer decomposition/OCR are not exposed |
 | **Seedance** | `seedance_create_task` | One background-task video tool for every configured Seedance model (regular 2.5 and Flash bound by default, 2.0 configurable): regular 2.5 accepts `resolution="4k"` ([provider-contract caveat](docs/models.md#video-capabilities-videocapabilities)); Flash supports 480p/720p, 10 images / 5 videos / 5 audios and no Draft. Regular 2.5 Drafts have a 14-day window (7 for creation before 2026-10-28 10:00 UTC+8). Pick the model from `ark_list_models(kind='video')`, create 1-5 variations, or use `dry_run` for a free request and static cost preview; poll with the shared generation task tools |
-| **Hyper3D / Hitem3d** | `hyper3d_create_task`, `hitem3d_create_task` | Background-task 3D submission through ModelArk; poll with the shared generation task tools (gated by `BYTEPLUS_MODELARK_3D_ENABLED`, disabled by default) |
-| **Generation tasks** | `gen_task_get`, `gen_task_list`, `gen_task_cancel_or_delete` | One lifecycle for every ModelArk generation task (Seedance video and 3D): batched status checks (1-50 IDs) with derived queue timing and optionally background output persistence, cursor-paged listing of your own tasks, and guarded cancel/delete |
+| **Generation tasks** | `gen_task_get`, `gen_task_list`, `gen_task_cancel_or_delete` | Seedance lifecycle: batched status checks (1-50 IDs) with derived queue timing and optionally background output persistence, cursor-paged listing of your own tasks, and guarded cancel/delete |
 | **OmniHuman 2.0** | `omnihuman_create_task`, `omnihuman_get_task`, `omnihuman_cancel_task` | Image + audio to talking-avatar video through BytePlus Vision AI; background-task submission, polling with durable video persistence, and queue cancel (gated by `BYTEPLUS_OMNIHUMAN_ENABLED` and `BYTEPLUS_CV_API_KEY`, disabled by default) |
 | **Seed 2.1 Understanding** | `seed_understand` | Background-task video/image understanding and reasoning through ModelArk Chat Completions; always thinks, returns only the final answer, enforces JSON Schemas, and can save the answer to a local file |
 | **Seed Audio Understanding** | `seed_audio_understand` | Background-task audio understanding (transcription, translation, speaker/emotion analysis, summaries, Q&A) through ModelArk Chat Completions `input_audio`; model set by `SEED_AUDIO_UNDERSTANDING_MODEL` (default `seed-2-0-lite-260428`), same thinking, JSON Schema, and `save_to` controls as `seed_understand` |
-| **Speech-to-Text** | `speech_to_text` | Background-task audio transcription through Seed Speech ASR (HTTP) |
-| **VOD AI MediaKit** | `vod_enhance_video` | Submit asynchronous AI video upscaling/enhancement with fast, standard, or professional tiers and target resolutions from 240p to 8K |
-| **VOD AI MediaKit Transcode** | `vod_transcode_video` | Submit async video transcoding (codec, container, resolution, bitrate, frame rate) |
-| **VOD AI MediaKit Subtitles** | `vod_add_subtitles`, `vod_remove_subtitles` | Burn SRT/VTT/ASS or inline cues into video, or remove hardcoded subtitles and recognized on-screen text |
-| **VOD Audio Separation** | `vod_separate_audio` | Submit voice + background (or voice + music + sfx) audio separation via the VOD AI MediaKit (`separate-voice`) |
-| **VOD task polling** | `vod_get_task` | One poller for every `vod_*` task: pass the `task_id` and `operation` the create tool returned; normalized status and outputs with optionally background durable persistence |
-| **Private Asset Library** | `ark_asset_group_ensure`, `ark_asset_group_list`, `ark_asset_create`, `ark_asset_list`, `ark_asset_update`, `ark_asset_verification_start`, `ark_asset_verification_result`, `ark_asset_delete` | Manage Seedance Advanced Creation Rights assets (virtual portraits, verified real people) with BytePlus AK/SK; reference them as `asset://<id>` in Seedance |
 | **Artifacts** | `seed_media_get_artifact`, `seed_media_export_artifact`, `seed_media_persist_url` | Retrieve persisted media inline by artifact ID, locate/copy it to a local path without Base64 round-trips, or durably persist a provider URL whose storage failed |
 | **Object storage** (optional) | `media_upload`, `media_presign` | Background-task upload of 1-50 Base64 or local-file media items to TOS or S3 with per-item results; foreground URL renewal for 1-100 object keys without re-uploading |
 | **Background jobs** | `ark_job_capabilities`, `ark_job_submit`, `ark_job_get`, `ark_job_cancel` | Ordinary MCP tools and the default way to submit and manage long-running work; no task-augmented execution required |
@@ -60,9 +63,11 @@ Key features:
   tools serving them. Understanding modalities describe the named tool:
   `seed_understand` takes images/videos; `seed_audio_understand` takes audio
   only, with a server-configured model.
-- **Cached account pricing** - with AK/SK configured, discovery includes fresh
-  catalog prices without making a provider call. Image and understanding cost
-  estimates use recognized catalog rates, with built-in fallbacks.
+- **Static cost previews** - built-in image, audio, video and understanding
+  estimates support budgeting, not account billing or live pricing discovery.
+- **Native Seedance assets** - pass existing authorized `asset://<id>`
+  references with the ModelArk key. Asset creation, liveness verification,
+  administration, URL resolution and pre-submit status checks are outside this server.
 - **Large audio inputs** - audio understanding supports Files API delivery for
   oversized URLs and video soundtracks, with temporary-upload cleanup.
 - **Organization self-hosting** - the [Compose kit](docs/self-hosting.md)
@@ -76,8 +81,7 @@ Key features:
   provider-key reads and approved, resumable MCP-only configuration sync.
 - **Durable artifacts** — generated media is persisted locally so MCP
   resources remain usable after known provider URL lifetimes (2h audio, 24h
-  ModelArk image/video); VOD MediaKit persistence is best-effort and capped at
-  200 MiB, and completed enhancement URLs have a confirmed 24-hour lifetime
+  ModelArk image/video, about 1h OmniHuman)
 - **Billed outputs are never dropped** — downloads are retried; if storage
   still fails, the result returns the provider URL (or inline bytes) with a
   `persistence_error` instead of an error, recoverable with
@@ -100,7 +104,7 @@ Key features:
   quota; unsupported combinations are rejected at the MCP layer
 - **Draft ownership retention** — authenticated HTTP with regular Seedance 2.5
   enabled requires `STATE_PRUNE_MAX_AGE_DAYS >= 14`; the default is 30 days
-- **Timeout-safe long operations** — generation, transcription, large upload,
+- **Timeout-safe long operations** — generation, understanding, large upload,
   and provider task-submission tools run in the background through the ordinary
   `ark_job_*` tools by default, or native MCP task augmentation on clients that
   support it; completed-output retrieval also supports background execution
@@ -144,7 +148,8 @@ accepts as reference input:
 
 > [!NOTE]
 > **Video references must be pre-hosted.** `seedance_create_task` accepts
-> video references as a **public HTTPS URL only** — there is no inline Base64
+> video references as a **public HTTPS URL or existing authorized `asset://`
+> reference** — there is no inline Base64
 > option. Run `media_upload` in the background through `ark_job_submit` (or MCP
 > task metadata on a task-capable client) to upload Base64 or a local file path
 > (stdio only) to object storage (TOS or S3). Retrieve its presigned HTTPS GET
@@ -173,7 +178,7 @@ flowchart TB
     TR[TRAE IDE]
   end
   subgraph Server["Ark MCP Server (FastMCP)"]
-    Tools["Tools<br/>Seedream · Seedance · Seed Audio · VOD AI MediaKit · Artifacts · Object storage"]
+    Tools["Tools<br/>Seedream · Seedance · Seed Audio · Understanding · OmniHuman · Artifacts · Uploads"]
     Domain["Domain layer<br/>models · capability registry · errors"]
     Runtime["Runtime services<br/>concurrency · budget · ownership · retry"]
     Store["Artifact store<br/>filesystem + .meta.json"]
@@ -183,7 +188,7 @@ flowchart TB
   subgraph Providers["BytePlus"]
     MA["ModelArk gateway<br/>Bearer auth"]
     SS["Seed Speech gateway<br/>X-Api-Key"]
-    VOD["VOD AI MediaKit gateway<br/>Bearer auth"]
+    CV["Vision AI gateway<br/>OmniHuman, Bearer auth"]
   end
   Client <-->|"stdio / HTTP"| Tools
   Tools --> Domain
@@ -200,8 +205,8 @@ flowchart TB
 flowchart LR
   L1["Transport<br/>stdio · Streamable HTTP"] --> L2["Server<br/>FastMCP tools · resources · routes"]
   L2 --> L3["Domain<br/>typed models · capability registry"]
-  L3 --> L4["Provider gateways<br/>ModelArk · Seed Speech"]
-  L4 --> L5["BytePlus<br/>Seedream · Seedance · Seed Audio"]
+  L3 --> L4["Provider gateways<br/>ModelArk · Seed Speech · Vision AI"]
+  L4 --> L5["BytePlus<br/>Seedream · Seedance · Seed Audio · Understanding · OmniHuman"]
   L2 -.-> X["Cross-cutting<br/>security · runtime · observability · artifacts"]
 ```
 
@@ -262,7 +267,7 @@ your agent model discovery, background jobs, progress checks and artifact
 handling. Ask your agent to use the Skills CLI, or run:
 
 ```bash
-npx skills add byteplus-sa/ark-mcp --skill ark-mcp -g
+npx skills add byteplus-sa/seed-mcp --skill ark-mcp -g
 ```
 
 Requires Node.js 22.20+, npm/npx and Git. Select your agents and review the
@@ -291,10 +296,8 @@ tools. `seed_media_get_artifact`, `seed_media_export_artifact`, and
 when their credentials are configured, `media_upload` and
 `media_presign` appear
 only when object storage credentials (TOS or S3) are configured, and
-`speech_to_text` appears only when `BYTEPLUS_SEED_SPEECH_API_KEY` is set.
-`vod_enhance_video`, `vod_transcode_video`, `vod_add_subtitles`,
-`vod_remove_subtitles`, `vod_separate_audio`, and `vod_get_task` appear only when
-`BYTEPLUS_VOD_MEDIAKIT_API_KEY` is set. `omnihuman_create_task`,
+`seed_audio_generate` appears only when `BYTEPLUS_SEED_SPEECH_API_KEY` is set.
+`omnihuman_create_task`,
 `omnihuman_get_task`, and `omnihuman_cancel_task` appear only when
 `BYTEPLUS_OMNIHUMAN_ENABLED=true` and `BYTEPLUS_CV_API_KEY` is set.
 
@@ -379,14 +382,14 @@ make check-env     # Validate environment configuration
 | Document | Description |
 |---|---|
 | [Getting Started](docs/getting-started.md) | Installation, configuration, and first run |
-| [Migrating to 0.2.0](docs/migration-0.2.md) | Removed 0.1.x tools and their replacements |
-| [Architecture](docs/architecture.md) | System structure, two-gateway domain layer, request flow |
+| [Migration Guide](docs/migration-0.2.md#breaking-capability-migration) | Current breaking capability removal and historical 0.1.x consolidation |
+| [Architecture](docs/architecture.md) | System structure, three-provider domain layer, request flow |
 | [Configuration](docs/configuration.md) | Full environment variable reference |
 | [Integration Guide](docs/integration-guide.md) | MCP client setup (Claude, Cursor, VS Code, Inspector) |
 | [API Reference](docs/api-reference.md) | Complete tool schemas, inputs, outputs, and examples |
 | [Use Cases](docs/use-cases.md) | Common scenarios with example tool calls |
 | [Tools](docs/tools.md) | Tool reference with input/output tables |
-| [Private Asset Library](docs/assets.md) | Real-person, virtual portrait and copyright assets for Seedance (AK/SK) |
+| [Native Asset References](docs/assets.md) | Existing authorized Seedance asset references, without administration |
 | [Security](docs/security.md) | Consolidated security model (auth, SSRF, body limits) |
 | [Runtime](docs/runtime.md) | Concurrency, budget, ownership, retry |
 | [Observability](docs/observability.md) | Structured logging, metrics, tracing |
@@ -408,8 +411,8 @@ ark-mcp/
 │   ├── runtime.py             # Lifespan-owned stores, limits, budgets, ownership
 │   ├── config/                # Pydantic Settings, model capability registry
 │   ├── domain/                # ArtifactRef, errors, media, models
-│   ├── providers/             # ModelArk + Seed Speech gateways and adapters
-│   ├── tools/                 # 9 tool handlers + parallel helpers + cost estimation
+│   ├── providers/             # ModelArk + Seed Speech + Vision AI adapters
+│   ├── tools/                 # 21 catalog tools + shared helpers + cost estimation
 │   ├── artifacts/             # Tenant-aware filesystem artifact store
 │   ├── observability/         # Structured logging and Prometheus metrics
 │   └── security/              # Shared-key auth, URL/media policy, safe downloader, HTTP limits

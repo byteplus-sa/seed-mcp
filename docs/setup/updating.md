@@ -14,9 +14,10 @@ installation, use the same terminal-capable coding agent that performed
 
 ```text
 Update my existing ark-seed connection for [my client].
-Read https://byteplus-sa.github.io/ark-mcp/setup/manual-install/
-and select the latest published release after reviewing its migration
-and security notes. Do not use the old unpatched v0.2.0 release.
+Use https://github.com/byteplus-sa/seed-mcp, not the broader upstream server.
+Read its docs/setup/manual-install.md and migration/security notes.
+Select its latest stable release if available; ask before a commit fallback.
+Export needed old 3D outputs with the old server before upgrading.
 Preserve my keys, client settings, projects, artifacts and runtime state.
 Stage and verify the update separately using discovery only.
 Do not read back credentials or run paid tests.
@@ -35,6 +36,9 @@ No separate server-start command is needed.
 
 - Check active worker jobs and provider tasks. Save provider task IDs.
 - Read [release notes](../releases.md) and applicable migration guidance.
+- The narrowed schema no longer serves saved 3D artifacts. Export needed 3D
+  outputs with the old server before upgrading; backups alone do not promise
+  compatibility. See [breaking-capability migration](../migration-0.2.md#breaking-capability-migration).
 - Preserve your private env file, client config, artifact storage and runtime
   database. Do not copy `.env.example` over existing credentials.
 - Inspect the current checkout for changes. Never reset or clean a user's
@@ -43,15 +47,16 @@ No separate server-start command is needed.
 ## Stage a Patched Revision
 
 Choose a reviewed revision containing the dependency security refresh and
-the supported `fastmcp[tasks]>=4.1.8,<4.2` runtime. Published `v0.3.0`
-includes that refresh; the historical `v0.2.0` release is unpatched.
-Do not stage v0.2.0 as an update or downgrade a patched installation to it.
+the supported `fastmcp[tasks]>=4.1.8,<4.2` runtime. Resolve it from the
+Seed MCP fork. Do not substitute upstream Ark MCP's broader `v0.3.0`;
+historical upstream `v0.2.0` is also unpatched.
 Follow [release selection](manual-install.md#choose-an-installation); ask
 before using a reviewed commit when no suitable release exists.
 
 For a newer release, verify its notes, `pyproject.toml`, and `uv.lock` rather
-than trusting the stable tag alone. This site tracks its reviewed `main`
-build, not every historical release. Do not label a commit checkout as stable.
+than trusting the stable tag alone. This handbook describes the checkout,
+not an assumed fork release or Pages deployment. Do not label a commit
+checkout as stable.
 
 Create a separate checkout of the selected patched revision and run
 `uv sync --locked --no-dev` there. Use isolated temporary runtime and artifact

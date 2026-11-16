@@ -1,13 +1,55 @@
 # Migrating to 0.2.0
 
 > **Historical migration guide:** this page records the 0.1.x to 0.2.0
-> transition, including the JWT scopes used at that time. It is not current
-> authentication setup advice. Current hosted HTTP accepts only a shared MCP
-> key; see [breaking-change migration](self-hosting.md#breaking-change-migration).
+> transition and later consolidation notes, including the JWT scopes and
+> broader capability catalog used at that time. The historical tables below
+> are not current support or authentication advice.
 
-**0.2.0 consolidates the tool surface.** One tool per product capability
-replaces the per-model, per-variation and per-operation tools of 0.1.x. With
-every service enabled, `tools/list` now returns **38 tools**. **There is no
+## Breaking Capability Migration
+
+**The current narrowing is a breaking capability removal, not a compatible
+upgrade.** With all services configured, the catalog now contains **21 tools**.
+VOD / AI MediaKit, 3D generation, dedicated ASR (`speech_to_text`), asset
+administration (`ark_asset_*`), asset resolution/preflight and operator AK/SK
+live-pricing discovery have been removed. Historical replacements below do
+not restore these capabilities.
+
+**Old saved 3D artifacts are no longer served by the narrowed media schema.**
+Export needed 3D outputs using the old server **before upgrading**. This
+applies to saved artifacts as well as provider tasks whose outputs still need
+retrieval. Keeping the bytes or state database does not make old 3D metadata
+readable through the new server. No compatibility layer or automatic migration
+is provided.
+
+1. Stop new submissions and reconcile active work using the old server.
+   Retrieve and export needed outputs, especially 3D, before replacing it or
+   allowing provider URLs or artifact retention to expire.
+2. Back up artifact bytes/metadata, SQLite, Redis and the existing task-snapshot
+   encryption key. Retain the old installation for controlled recovery; do not
+   run old and new workers concurrently against the same state.
+3. Remove retired tool calls and settings from clients, prompts, skills and
+   dashboards. `gen_task_*` now handles Seedance only. Use
+   `seed_audio_understand` for model-generated transcription, not as a
+   drop-in replacement for dedicated ASR alignment.
+4. Rediscover configured tools and models after upgrading. Existing authorized
+   Seedance `asset://` references still pass natively with the ModelArk Bearer
+   key, but administration, lookup, resolution and status preflight are absent.
+   Ordinary TOS/S3 uploads do not register provider assets.
+
+Current HTTP authentication remains `MCP_AUTH_MODE=api_key` with
+`MCP_API_KEY_SHA256`: all holders use tenant/principal `shared-team`, one
+ownership boundary, shared budget and fixed ordinary scopes. Provider
+credentials are server-configured. **Per-user BYOK is not implemented** and
+remains future work. The former JWT mode is rejected; ownership is not
+automatically transferred. Follow the separate
+[authentication migration](self-hosting.md#breaking-change-migration).
+
+## Historical Consolidation
+
+**0.2.0 consolidated the tool surface.** One tool per product capability
+replaced the per-model, per-variation and per-operation tools of 0.1.x. The
+broader catalog documented at that time contained **38 tools** when every
+service was enabled, not the current 21. **There was no
 compatibility layer**: clients, prompts, skills and dashboards that name a
 removed tool must switch to its replacement.
 
@@ -66,8 +108,8 @@ flowchart LR
 | `hyper3d_list_tasks`, `hitem3d_list_tasks` | `gen_task_list` |
 | `hyper3d_cancel_or_delete_task`, `hitem3d_cancel_or_delete_task` | `gen_task_cancel_or_delete` |
 
-The create tools `hyper3d_create_task` and `hitem3d_create_task` are
-unchanged.
+The create tools `hyper3d_create_task` and `hitem3d_create_task` were
+unchanged by that consolidation. Both are removed from the current server.
 
 ### Seedream (images)
 
@@ -102,7 +144,8 @@ results.
 | `vod_get_subtitle_addition_task` | `vod_get_task` with `operation="add_subtitles"` |
 | `vod_get_subtitle_removal_task` | `vod_get_task` with `operation="remove_subtitles"` |
 
-Every `vod_*` create tool echoes the `operation` value to pass back.
+At that time, every `vod_*` create tool echoed the `operation` value to pass
+back. All VOD tools are removed from the current server.
 
 ### Object storage
 
@@ -115,6 +158,8 @@ Every `vod_*` create tool echoes the `operation` value to pass back.
 check `failed` in every response.
 
 ### Private asset library
+
+These are historical replacements; no asset-administration tools remain.
 
 | 0.1.x tool | 0.2.0 replacement |
 |---|---|
@@ -140,10 +185,9 @@ This section is historical: the current server rejects `jwt` mode.
 | `seedance:read`, `hyper3d:read`, `hitem3d:read` | `gen:read` |
 | `seedance:delete`, `hyper3d:delete`, `hitem3d:delete` | `gen:delete` |
 
-**Until the identity provider grants `gen:read` and `gen:delete`, those
-principals cannot poll or cancel tasks.** Ownership checks are unchanged: a
-`gen:read` token still sees only the tasks it created. See
-[security.md](security.md) for the full scope table.
+Under the historical JWT mode, principals needed `gen:read` and `gen:delete`
+to poll or cancel their own tasks. Current shared-key holders are all the same
+principal. See [security.md](security.md) for today's fixed scope table.
 
 ## Observability
 

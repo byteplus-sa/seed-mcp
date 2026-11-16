@@ -119,35 +119,22 @@ tool → scope mapping is the `scope` column of the static tool catalog
 | `seed:audio:generate` | `seed_audio_generate` (single clip or variations) |
 | `seedream:generate` | `seedream_generate_image` (generation, editing, variations, and dry runs) |
 | `seedance:create` | `seedance_create_task` (every Seedance model, including variations and dry runs) |
-| `gen:read` | `gen_task_get`, `gen_task_list` (Seedance, Hyper3D and Hitem3d tasks) |
+| `gen:read` | `gen_task_get`, `gen_task_list` (Seedance tasks) |
 | `gen:delete` | `gen_task_cancel_or_delete` |
-| `seed:asr:transcribe` | `speech_to_text` |
 | `understanding:read` | `seed_understand`, `seed_audio_understand` |
-| `hyper3d:create` | `hyper3d_create_task` |
-| `hitem3d:create` | `hitem3d_create_task` |
 | `omnihuman:create` | `omnihuman_create_task` |
 | `omnihuman:read` | `omnihuman_get_task` |
 | `omnihuman:cancel` | `omnihuman_cancel_task` |
-| `vod:enhance` | `vod_enhance_video` |
-| `vod:transcode` | `vod_transcode_video` |
-| `vod:subtitle:add` | `vod_add_subtitles` |
-| `vod:subtitle:remove` | `vod_remove_subtitles` |
-| `vod:read` | All MediaKit task polling tools |
-| `vod:extract` | `vod_separate_audio` |
 | `media:upload` | `media_upload`, `seed_media_persist_url` |
 | `media:presign` | `media_presign` |
 | `artifacts:read` | MCP resource `seed-media://artifacts/{artifact_id}`, `seed_media_get_artifact`, `seed_media_export_artifact` |
 
 These ordinary scopes form the fixed shared-team allowlist. They are not
 per-user roles and cannot be changed through client claims or configuration.
-Account-wide `assets:*` and `moderation:*` scopes are excluded, so shared-key
-callers cannot invoke those administrative tools even if they are registered.
-Trusted local administration still requires the relevant provider gates.
-
-The catalog retains `assets:read`, `assets:write`, `assets:verify` and
-`assets:delete` as permission labels for asset operations. None is granted by
-the shared key; these tools are available only through trusted local mode
-with the required provider credentials and feature flags.
+Account-wide asset and moderation administration is outside this tool surface.
+The catalog has no asset-administration tools or asset permission labels on
+either transport; existing native Seedance references remain supported without
+lookup, resolution or provider-status preflight.
 
 **Create scopes are per product because that is where spend happens; read
 and delete scopes are shared** (`gen:read`, `gen:delete`) because the
@@ -159,31 +146,15 @@ scope: job tools enforce the target tool's scope at submit time, and
 `ark_list_models` returns only configured model IDs and limits.
 
 The `seed-health://status` resource and the `/health`, `/ready`, `/metrics`
-routes are **not** scope-protected at the FastMCP layer. Seed Audio and
-speech-to-text tools are registered only when `BYTEPLUS_SEED_SPEECH_API_KEY`
-is set; Seedream/Seedance tools only when `BYTEPLUS_MODELARK_API_KEY` is set;
-`vod_enhance_video`, `vod_transcode_video`, `vod_add_subtitles`,
-`vod_remove_subtitles`, `vod_separate_audio`, and `vod_get_task` only when
-`BYTEPLUS_VOD_MEDIAKIT_API_KEY` is set. The `media_upload` and
+routes are **not** scope-protected at the FastMCP layer. Seed Audio is
+registered only when `BYTEPLUS_SEED_SPEECH_API_KEY` is set;
+Seedream/Seedance and understanding require `BYTEPLUS_MODELARK_API_KEY`;
+OmniHuman requires `BYTEPLUS_CV_API_KEY` and `BYTEPLUS_OMNIHUMAN_ENABLED=true`.
+The `media_upload` and
 `media_presign` tools are registered only when object storage credentials are set (TOS:
 `TOS_ACCESS_KEY` / `TOS_SECRET_KEY` / `TOS_BUCKET`, or S3:
 `S3_ACCESS_KEY` / `S3_SECRET_KEY` / `S3_BUCKET` with
 `OBJECT_STORAGE_BACKEND=s3`).
-
-### Asset library credentials (AK/SK)
-
-`BYTEPLUS_MODELARK_ACCESS_KEY` / `_SECRET_KEY` (plus `_SESSION_TOKEN` for STS
-keys) sign ModelArk OpenAPI requests with BytePlus V4 HMAC-SHA256
-(`providers/byteplus_openapi/signing.py`). They are startup configuration
-only and are never logged, echoed, or accepted as tool arguments. The
-`ark_asset_*` tools are registered only when both keys are set. Asset
-management acts on the whole BytePlus account rather than per MCP principal.
-Shared-key HTTP excludes every asset scope; use trusted local stdio for
-administration. The real-person
-verification `h5_link` embeds temporary credentials: it is returned to the
-caller but never logged. `asset://<asset_id>` references are validated by
-shape and never fetched by the server; `CreateAsset` source URLs pass the
-standard URL policy. See [assets.md](assets.md).
 
 ### Object storage credentials
 
@@ -307,7 +278,7 @@ via suffix allowlist: `.bytepluses.com`, `.byteplus.com`, `.bytedance.com`,
 `.bytednsdoc.com`, `.volces.com`, `.byteplusvod.com`,
 `.tos-ap-southeast.bytepluses.com`. A caller may extend the list for one download
 only: `omnihuman_get_task` additionally trusts `.tiktokcdn.com`, where OmniHuman
-output videos are served, so `seed_media_persist_url` and `speech_to_text` still
+output videos are served, so `seed_media_persist_url` still
 reject that host.
 
 `seed_media_persist_url` accepts a caller-supplied URL, so it relies on the
@@ -317,13 +288,16 @@ re-validation, and the per-media-type size limits. Any host outside the
 allowlist is rejected; the tool cannot be used to fetch arbitrary URLs. It
 requires the fixed team's `media:upload` scope in `api_key` mode.
 
-For VOD AI MediaKit, video processing and artifact persistence are separate
-outcomes. The tool always preserves a successful provider output URL for the
-authorized caller, then best-effort downloads it through this SSRF-safe path.
+For generation tasks, provider completion and artifact persistence are separate
+outcomes. A completed provider output URL is preserved for the authorized
+caller while requested persistence downloads through this SSRF-safe path.
 Outputs above the 200 MiB video limit or failing host/MIME/download/storage
-checks return `persistence="failed"` without changing provider success into a
-provider failure. Full source URLs and credentials are excluded from logs and
-safe error messages.
+checks do not change provider success into provider failure. Seedance reports
+`outputs[].persistence="failed"` with `persistence_issue`; OmniHuman reports
+top-level `persistence="failed"` with `persistence_issue`. An `ArtifactRef`
+fallback instead carries `persistence_error` alongside its temporary URL or
+inline bytes. These are distinct output shapes, not interchangeable fields.
+Full source URLs and credentials are excluded from logs and safe error messages.
 
 ## Local output paths
 
@@ -422,15 +396,14 @@ with an under-reported size could bypass it. The provider enforces the
 - `truststore.inject_into_ssl()` runs at module import in `server.py` and
   `__main__.py`, so Python uses the macOS Keychain for TLS verification.
 - Provider base URLs (`BYTEPLUS_MODELARK_BASE_URL`,
-  `BYTEPLUS_SEED_AUDIO_BASE_URL`, `BYTEPLUS_VOD_MEDIAKIT_BASE_URL`) are
+  `BYTEPLUS_SEED_AUDIO_BASE_URL`, `BYTEPLUS_CV_BASE_URL`) are
   validated at settings load: must be
   `https://` with a hostname and no embedded credentials; trailing slash
   stripped.
-- VOD AI MediaKit requests are authenticated with
-  `Authorization: Bearer ${BYTEPLUS_VOD_MEDIAKIT_API_KEY}`; the key is never
-  logged, returned, or accepted as a tool argument.
-- Inline `subtitle_text` is treated as sensitive content and is redacted from
-  structured logs together with prompt, subtitle, media URL, and credential fields.
+- ModelArk and Vision AI use separate Bearer keys; Seed Speech uses
+  `X-Api-Key`. Keys are never logged, returned or accepted as tool arguments.
+- Prompt, subtitle, media URL, and credential fields are treated as sensitive
+  content and redacted from structured logs.
 
 ## Settings caching
 

@@ -4,7 +4,7 @@ type: spec
 status: accepted
 horizon: current
 created: 2026-10-17
-updated: 2026-11-12
+updated: 2026-11-16
 tags: [mcp, fastmcp, background-jobs, tasks, security]
 source:
   - https://gofastmcp.com/servers/tasks
@@ -150,7 +150,7 @@ Output `BackgroundJobSnapshot`:
 - **Ownership is checked before the backend is queried.**
 - **`input_required` is unsupported** on this path: the snapshot carries error
   code `-32602` telling the caller to cancel or use a task-capable client.
-- **Job IDs and provider task IDs are distinct.** A Seedance, Seed 3D, VOD or
+- **Job IDs and provider task IDs are distinct.** A Seedance or
   OmniHuman provider `task_id` appears only inside `result.structured_content`.
 
 ### `ark_job_cancel`
@@ -203,8 +203,8 @@ reads it:
 
 | Mode | Foreground call | Used for |
 |---|---|---|
-| `required` | **Rejected before the handler runs** | Generation, editing, understanding, transcription, upload, and provider task creation |
-| `optional` | Runs synchronously | Provider status reads and persistence that may download large outputs (`*_get_task`, `seed_media_persist_url`, selected asset-library calls) |
+| `required` | **Rejected before the handler runs** | `seed_audio_generate`, `seedream_generate_image`, `seedance_create_task`, `omnihuman_create_task`, `media_upload`, `seed_understand`, `seed_audio_understand` |
+| `optional` | Pollers run synchronously with `persist_output=false`; persist-URL can run directly or in a worker | `gen_task_get`, `omnihuman_get_task`, `seed_media_persist_url`; poller output persistence requires background execution, while persist-URL always downloads and stores |
 
 A tool absent from the registry cannot be submitted through `ark_job_submit`,
 including the `ark_job_*` tools themselves.
@@ -242,8 +242,10 @@ Key rotation preserves identity; switching auth modes does not migrate ownership
    `background_job_polled`, `background_job_cancelled`) carry only job ID,
    target, status and path, never arguments or result bodies.
 7. **No existence oracle.** See [shared errors](#errors-shared-by-get-and-cancel).
-8. **No automatic paid retry.** Neither the server nor the documented client
-   workflow resubmits after a timeout or disconnect.
+8. **No automatic job resubmission.** The job bridge and documented client
+   workflow do not resubmit after a timeout or disconnect. This is not a
+   guarantee that underlying provider calls never retry; see the
+   [Seedance transport caveat](../docs/runtime.md#retry-policy-providersretrypy).
 
 ### Breaking-change migration
 

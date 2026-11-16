@@ -137,8 +137,8 @@ async def seed_audio_understand(
 
     Returns only the final answer; the server fixes the model (see ark_list_models).
     For structured output use response_format 'json_schema' ('json_object' is not
-    enforced by the default model). For plain transcription with word timings use
-    speech_to_text. Oversized URL audio and rejected video inputs can use Files API
+    enforced by the default model). Dedicated word-timestamp ASR is not provided.
+    Oversized URL audio and rejected video inputs can use Files API
     (delivery); video frames also consume tokens. Requires background execution (ark_job_submit).
     """
     await context_log(ctx, "info", "Starting Seed audio understanding")

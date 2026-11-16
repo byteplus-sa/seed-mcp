@@ -93,11 +93,6 @@ class SeedUnderstandingFamily(StrEnum):
     TURBO = "turbo"
 
 
-class Seed3DFamily(StrEnum):
-    HYPER3D = "hyper3d"
-    HITEM3D = "hitem3d"
-
-
 class AuthMode(StrEnum):
     LOCAL = "local"
     API_KEY = "api_key"
@@ -116,11 +111,6 @@ class VideoModelBinding(BaseModel):
 class UnderstandingModelBinding(BaseModel):
     model_id: str = Field(min_length=1)
     family: SeedUnderstandingFamily
-
-
-class Seed3DModelBinding(BaseModel):
-    model_id: str = Field(min_length=1)
-    family: Seed3DFamily
 
 
 class Settings(BaseSettings):
@@ -151,12 +141,7 @@ class Settings(BaseSettings):
     seed_speech_api_key: str = Field(
         default="",
         validation_alias="BYTEPLUS_SEED_SPEECH_API_KEY",
-        description="Seed Speech API key for both Seed Audio (TTS) and ASR (speech-to-text).",
-    )
-    vod_mediakit_api_key: str = Field(
-        default="",
-        validation_alias="BYTEPLUS_VOD_MEDIAKIT_API_KEY",
-        description="BytePlus VOD AI MediaKit Bearer API key.",
+        description="Seed Speech API key for full-scene Seed Audio generation.",
     )
 
     cv_api_key: str = Field(
@@ -174,11 +159,6 @@ class Settings(BaseSettings):
     seed_audio_base_url: str = Field(
         default="https://voice.ap-southeast-1.bytepluses.com",
         validation_alias="BYTEPLUS_SEED_AUDIO_BASE_URL",
-    )
-    vod_mediakit_base_url: str = Field(
-        default="https://mediakit.ap-southeast-1.bytepluses.com/api/v1",
-        validation_alias="BYTEPLUS_VOD_MEDIAKIT_BASE_URL",
-        description="BytePlus VOD AI MediaKit HTTPS API base URL.",
     )
     cv_base_url: str = Field(
         default="https://openapi.cv.bytepluses.com",
@@ -201,120 +181,6 @@ class Settings(BaseSettings):
         min_length=1,
         validation_alias="BYTEPLUS_OMNIHUMAN_REQ_KEY",
         description="Vision AI service identifier sent as req_key for OmniHuman requests.",
-    )
-
-    # --- ModelArk OpenAPI (private asset library, AK/SK signed) -------------
-
-    modelark_access_key: str = Field(
-        default="",
-        validation_alias="BYTEPLUS_MODELARK_ACCESS_KEY",
-        description=(
-            "BytePlus IAM access key ID for signed ModelArk OpenAPI calls (asset library). "
-            "Long-term (AKLT...) or STS temporary (AKTP..., requires the session token)."
-        ),
-    )
-    modelark_secret_key: str = Field(
-        default="",
-        validation_alias="BYTEPLUS_MODELARK_SECRET_KEY",
-        description="BytePlus IAM secret access key paired with BYTEPLUS_MODELARK_ACCESS_KEY.",
-    )
-    modelark_session_token: str = Field(
-        default="",
-        validation_alias="BYTEPLUS_MODELARK_SESSION_TOKEN",
-        description="STS session token; required only for temporary (AKTP...) credentials.",
-    )
-    modelark_openapi_base_url: str = Field(
-        default="https://ark.ap-southeast-1.byteplusapi.com",
-        validation_alias="BYTEPLUS_MODELARK_OPENAPI_BASE_URL",
-        description="ModelArk OpenAPI (control plane) HTTPS base URL.",
-    )
-    modelark_region: str = Field(
-        default="ap-southeast-1",
-        min_length=1,
-        validation_alias="BYTEPLUS_MODELARK_REGION",
-        description="Region used in the OpenAPI signing credential scope.",
-    )
-    modelark_pricing_refresh_seconds: int = Field(
-        default=86400,
-        ge=0,
-        validation_alias="BYTEPLUS_MODELARK_PRICING_REFRESH_SECONDS",
-        description=(
-            "Seconds between live price refreshes from the ModelArk pricing catalog "
-            "(requires AK/SK). Prices older than twice this interval are ignored and cost "
-            "estimates fall back to built-in rates. 0 disables live pricing."
-        ),
-    )
-    modelark_project_name: str = Field(
-        default="default",
-        min_length=1,
-        validation_alias="BYTEPLUS_MODELARK_PROJECT_NAME",
-        description=(
-            "Default ModelArk project for asset groups and assets. Assets are only usable by "
-            "inference endpoints in the same project."
-        ),
-    )
-    modelark_assets_allow_delete: bool = Field(
-        default=False,
-        validation_alias="BYTEPLUS_MODELARK_ASSETS_ALLOW_DELETE",
-        description="Register the irreversible ark_asset_delete tool (assets and groups).",
-    )
-    modelark_asset_create_qpm: int = Field(
-        default=3,
-        ge=1,
-        le=6000,
-        validation_alias="BYTEPLUS_MODELARK_ASSET_CREATE_QPM",
-        description=(
-            "Client-side CreateAsset rate limit in requests per minute. Match your Advanced "
-            "Creation Rights tier: 3 (Entry), 120 (Advanced), 300 (Premium)."
-        ),
-    )
-    modelark_asset_verify_callback_url: str = Field(
-        default="",
-        validation_alias="BYTEPLUS_MODELARK_ASSET_VERIFY_CALLBACK_URL",
-        description=(
-            "Default HTTPS CallbackURL for real-person verification sessions when a call "
-            "does not supply one."
-        ),
-    )
-    modelark_asset_reference_mode: Literal["off", "resolve"] = Field(
-        default="off",
-        validation_alias="BYTEPLUS_MODELARK_ASSET_REFERENCE_MODE",
-        description=(
-            "How Seedream and Seed Audio treat asset://<id> references. Seedance accepts "
-            "them natively; Seedream and Seed Audio reject them (HTTP 400, 2026-09-24 probe). "
-            "'off' rejects them locally; 'resolve' swaps in the asset's temporary GetAsset "
-            "URL (experimental, needs AK/SK)."
-        ),
-    )
-    seedance_asset_preflight: bool = Field(
-        default=True,
-        validation_alias="SEEDANCE_ASSET_PREFLIGHT",
-        description=(
-            "Check asset:// references with GetAsset before a billed Seedance submit and "
-            "stop early when an asset is still Processing or Failed. Needs AK/SK."
-        ),
-    )
-
-    # --- Seed Speech ASR (STT) configuration ---------------------------------
-
-    seed_speech_asr_base_url: str = Field(
-        default="https://voice.ap-southeast-1.bytepluses.com",
-        validation_alias="SEED_SPEECH_ASR_BASE_URL",
-        description="Seed Speech ASR HTTP base URL.",
-    )
-    seed_speech_asr_poll_interval_seconds: float = Field(
-        default=3.0,
-        ge=0.5,
-        le=60.0,
-        validation_alias="SEED_SPEECH_ASR_POLL_INTERVAL_SECONDS",
-        description="Seconds between ASR query polls.",
-    )
-    seed_speech_asr_poll_max_seconds: float = Field(
-        default=600.0,
-        ge=10.0,
-        le=3600.0,
-        validation_alias="SEED_SPEECH_ASR_POLL_MAX_SECONDS",
-        description="Maximum total seconds to wait for ASR result.",
     )
 
     # --- Model bindings ------------------------------------------------------
@@ -379,30 +245,6 @@ class Settings(BaseSettings):
             "ModelArk model ID used by seed_audio_understand. Must accept Chat "
             "Completions input_audio parts with deep thinking."
         ),
-    )
-
-    # --- 3D generation feature flag and model bindings ----------------------
-
-    seed3d_enabled: bool = Field(
-        default=False,
-        validation_alias="BYTEPLUS_MODELARK_3D_ENABLED",
-        description=(
-            "Feature flag for ModelArk 3D generation (Hyper3D + Hitem3d). "
-            "Disabled by default. When false, no 3D tools are registered even "
-            "if BYTEPLUS_MODELARK_API_KEY is configured."
-        ),
-    )
-    hyper3d_default_model: str = Field(
-        default="hyper3d-gen2-260112",
-        validation_alias="HYPER3D_DEFAULT_MODEL",
-    )
-    hitem3d_default_model: str = Field(
-        default="hitem3d-2-0-251223",
-        validation_alias="HITEM3D_DEFAULT_MODEL",
-    )
-    seed3d_model_bindings: list[Seed3DModelBinding] = Field(
-        default_factory=list,
-        validation_alias="SEED3D_MODEL_BINDINGS",
     )
 
     # --- MCP transport -------------------------------------------------------
@@ -672,29 +514,14 @@ class Settings(BaseSettings):
         return bool(self.modelark_api_key)
 
     @property
-    def has_seed3d(self) -> bool:
-        """Whether ModelArk 3D generation is enabled (separate flag, same key)."""
-        return self.seed3d_enabled and bool(self.modelark_api_key)
-
-    @property
     def has_seed_audio(self) -> bool:
         """Whether Seed Audio credentials are configured."""
         return bool(self.seed_speech_api_key)
 
     @property
-    def has_vod_mediakit(self) -> bool:
-        """Whether BytePlus VOD AI MediaKit credentials are configured."""
-        return bool(self.vod_mediakit_api_key)
-
-    @property
     def has_omnihuman(self) -> bool:
         """Whether OmniHuman 2.0 is enabled and a Vision AI API key is configured."""
         return self.omnihuman_enabled and bool(self.cv_api_key)
-
-    @property
-    def has_modelark_openapi(self) -> bool:
-        """Whether AK/SK for signed ModelArk OpenAPI calls (asset library) are configured."""
-        return bool(self.modelark_access_key and self.modelark_secret_key)
 
     @property
     def has_tos(self) -> bool:
@@ -726,11 +553,6 @@ class Settings(BaseSettings):
         return [item.strip() for item in self.output_roots.split(",") if item.strip()]
 
     @property
-    def has_stt(self) -> bool:
-        """Whether Seed Speech ASR (STT) is configured. Reuses the Seed Speech key."""
-        return bool(self.seed_speech_api_key)
-
-    @property
     def allowed_origins(self) -> list[str]:
         """Parse the comma-separated allowed origins list."""
         if not self.mcp_allowed_origins:
@@ -757,21 +579,15 @@ class Settings(BaseSettings):
     @field_validator(
         "modelark_base_url",
         "seed_audio_base_url",
-        "seed_speech_asr_base_url",
-        "vod_mediakit_base_url",
         "cv_base_url",
-        "modelark_openapi_base_url",
     )
     @classmethod
     def validate_provider_url(cls, value: str, info: ValidationInfo) -> str:
         parsed = urlsplit(value)
         if parsed.scheme != "https" or not parsed.hostname:
             env_var_map = {
-                "modelark_openapi_base_url": "BYTEPLUS_MODELARK_OPENAPI_BASE_URL",
                 "modelark_base_url": "BYTEPLUS_MODELARK_BASE_URL",
                 "seed_audio_base_url": "BYTEPLUS_SEED_AUDIO_BASE_URL",
-                "seed_speech_asr_base_url": "SEED_SPEECH_ASR_BASE_URL",
-                "vod_mediakit_base_url": "BYTEPLUS_VOD_MEDIAKIT_BASE_URL",
                 "cv_base_url": "BYTEPLUS_CV_BASE_URL",
             }
             variable = env_var_map.get(info.field_name or "", "BYTEPLUS_PROVIDER_BASE_URL")
@@ -849,18 +665,6 @@ class Settings(BaseSettings):
                 )
             ]
 
-        if not self.seed3d_model_bindings:
-            self.seed3d_model_bindings = [
-                Seed3DModelBinding(
-                    model_id=self.hyper3d_default_model,
-                    family=Seed3DFamily.HYPER3D,
-                ),
-                Seed3DModelBinding(
-                    model_id=self.hitem3d_default_model,
-                    family=Seed3DFamily.HITEM3D,
-                ),
-            ]
-
         for label, bindings, default_model in (
             ("Seedream", self.seedream_model_bindings, self.seedream_default_model),
             ("Seedance", self.seedance_model_bindings, self.seedance_default_model),
@@ -869,8 +673,6 @@ class Settings(BaseSettings):
                 self.seed_understanding_model_bindings,
                 self.seed_understanding_default_model,
             ),
-            ("Seed3D", self.seed3d_model_bindings, self.hyper3d_default_model),
-            ("Seed3D", self.seed3d_model_bindings, self.hitem3d_default_model),
         ):
             ids = [binding.model_id for binding in bindings]
             if len(ids) != len(set(ids)):
@@ -921,27 +723,6 @@ class Settings(BaseSettings):
             and self.mcp_host not in {"127.0.0.1", "::1", "localhost"}
         ):
             raise ValueError("HTTP on a non-loopback host requires MCP_AUTH_MODE=api_key.")
-        if bool(self.modelark_access_key) != bool(self.modelark_secret_key):
-            raise ValueError(
-                "BYTEPLUS_MODELARK_ACCESS_KEY and BYTEPLUS_MODELARK_SECRET_KEY must both be set "
-                "or both be empty."
-            )
-        if self.modelark_session_token and not self.has_modelark_openapi:
-            raise ValueError(
-                "BYTEPLUS_MODELARK_SESSION_TOKEN requires BYTEPLUS_MODELARK_ACCESS_KEY and "
-                "BYTEPLUS_MODELARK_SECRET_KEY."
-            )
-        if self.modelark_asset_verify_callback_url:
-            parsed_callback = urlsplit(self.modelark_asset_verify_callback_url)
-            if parsed_callback.scheme != "https" or not parsed_callback.hostname:
-                raise ValueError(
-                    "BYTEPLUS_MODELARK_ASSET_VERIFY_CALLBACK_URL must be an HTTPS URL."
-                )
-        if self.modelark_asset_reference_mode == "resolve" and not self.has_modelark_openapi:
-            raise ValueError(
-                "BYTEPLUS_MODELARK_ASSET_REFERENCE_MODE=resolve requires "
-                "BYTEPLUS_MODELARK_ACCESS_KEY and BYTEPLUS_MODELARK_SECRET_KEY."
-            )
         if bool(self.tos_access_key) != bool(self.tos_secret_key):
             raise ValueError("TOS_ACCESS_KEY and TOS_SECRET_KEY must both be set or both be empty.")
         if self.tos_access_key and not self.tos_endpoint:
@@ -989,10 +770,6 @@ def validate() -> None:
         raise ValueError("BYTEPLUS_MODELARK_BASE_URL must use HTTPS")
     if not settings.seed_audio_base_url.startswith("https://"):
         raise ValueError("BYTEPLUS_SEED_AUDIO_BASE_URL must use HTTPS")
-    if not settings.vod_mediakit_base_url.startswith("https://"):
-        raise ValueError("BYTEPLUS_VOD_MEDIAKIT_BASE_URL must use HTTPS")
-    if not settings.modelark_openapi_base_url.startswith("https://"):
-        raise ValueError("BYTEPLUS_MODELARK_OPENAPI_BASE_URL must use HTTPS")
     if settings.artifact_ttl_seconds <= 0:
         raise ValueError("ARTIFACT_TTL_SECONDS must be positive")
     if settings.mcp_inline_media_max_bytes <= 0:

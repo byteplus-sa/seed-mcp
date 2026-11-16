@@ -1,19 +1,4 @@
-"""BytePlus OpenAPI V4 (HMAC-SHA256) request signing.
-
-Implements the signature scheme documented at
-https://docs.byteplus.com/en/docs/byteplus-platform/reference-how-to-calculate-a-signature
-and specified in ``specs/SPEC_VOD_OPENAPI_PROVIDER_CONTRACT.md``:
-
-- Canonical request: ``METHOD\\n/\\nCanonicalQueryString\\nCanonicalHeaders\\n``
-  ``SignedHeaders\\nHexEncode(Hash(Payload))``
-- Credential scope: ``{YYYYMMDD}/{region}/{service}/request``
-- Authorization: ``HMAC-SHA256 Credential={AK}/{scope}, SignedHeaders={...},``
-  `` Signature={hex}``
-
-STS temporary credentials add a signed ``X-Security-Token`` header. The helpers
-here are pure functions so they can be tested against fixed vectors; they never
-log keys, tokens, or signatures.
-"""
+"""Pure BytePlus OpenAPI V4 signing for infrastructure and secret-manager calls."""
 
 from __future__ import annotations
 
@@ -29,35 +14,31 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, slots=True)
 class OpenApiCredentials:
-    """AK/SK (plus optional STS session token) for BytePlus OpenAPI signing."""
+    """Infrastructure AK/SK with an optional STS session token."""
 
     access_key_id: str
     secret_access_key: str
     session_token: str = ""
 
     def __repr__(self) -> str:
-        return f"OpenApiCredentials(access_key_id={self.access_key_id[:4]}***)"
+        return "OpenApiCredentials(***)"
 
 
 def sha256_hex(payload: bytes) -> str:
-    """Return the lowercase hex SHA-256 digest of ``payload``."""
+    """Return the lowercase hex SHA-256 digest of the payload."""
     return hashlib.sha256(payload).hexdigest()
 
 
-def rfc3986_quote(value: str) -> str:
-    """Percent-encode ``value`` per RFC 3986 (unreserved characters kept)."""
-    return quote(value, safe="-_.~")
-
-
 def canonical_query_string(query: dict[str, str]) -> str:
-    """Sort and percent-encode query parameters into a canonical string."""
+    """Sort and percent-encode query parameters according to RFC 3986."""
     return "&".join(
-        f"{rfc3986_quote(key)}={rfc3986_quote(value)}" for key, value in sorted(query.items())
+        f"{quote(key, safe='-_.~')}={quote(value, safe='-_.~')}"
+        for key, value in sorted(query.items())
     )
 
 
 def signing_key(secret_access_key: str, short_date: str, region: str, service: str) -> bytes:
-    """Derive the request signing key from the secret key and credential scope."""
+    """Derive the signing key from the credential scope."""
     key = secret_access_key.encode("utf-8")
     for part in (short_date, region, service, "request"):
         key = hmac.new(key, part.encode("utf-8"), hashlib.sha256).digest()
@@ -76,18 +57,11 @@ def sign_request(
     now: datetime,
     content_type: str = "application/json",
 ) -> dict[str, str]:
-    """Return the headers that authenticate one OpenAPI request.
-
-    The returned mapping includes ``Host``, ``X-Date``, ``X-Content-Sha256``,
-    ``Authorization``, ``Content-Type`` (when a body is sent) and
-    ``X-Security-Token`` (for STS credentials). ``now`` must be timezone-aware
-    UTC.
-    """
+    """Authenticate one request using an explicit timezone-aware UTC timestamp."""
     request_date = now.strftime("%Y%m%dT%H%M%SZ")
     short_date = now.strftime("%Y%m%d")
     content_sha256 = sha256_hex(payload)
-
-    header_values: dict[str, str] = {
+    header_values = {
         "host": host,
         "x-content-sha256": content_sha256,
         "x-date": request_date,
@@ -119,7 +93,6 @@ def sign_request(
         string_to_sign.encode("utf-8"),
         hashlib.sha256,
     ).hexdigest()
-
     headers = {
         "Host": host,
         "X-Date": request_date,

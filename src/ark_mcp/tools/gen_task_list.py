@@ -62,7 +62,7 @@ class GenTaskSummary(BaseModel):
     task_id: str = Field(..., description="Provider task ID; pass it to gen_task_get for outputs.")
     model: str = Field(..., description="Model ID that ran the task.")
     kind: TaskKind = Field(
-        ..., description="Output kind from the registry binding for model: video, 3d, or unknown."
+        ..., description="Output kind from the registry binding for model: video or unknown."
     )
     status: GenTaskStatus = Field(..., description="Task status.")
     created_at: str = Field(..., description="ISO-8601 task creation time.")
@@ -91,7 +91,7 @@ TOOL_ANNOTATIONS = {
 
 
 async def gen_task_list(input: GenTaskListInput, ctx: Context) -> GenTaskPage | ToolResult:
-    """List your ModelArk generation tasks (Seedance video and 3D), newest first.
+    """List your Seedance video generation tasks, newest first.
 
     Covers tasks created in the last 7 days, the provider's list window. Filter
     by status, model, or task_ids, and follow next_cursor until it is null;

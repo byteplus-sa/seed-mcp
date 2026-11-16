@@ -5,7 +5,6 @@ from __future__ import annotations
 import asyncio
 import base64
 import json
-from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from typing import Any
@@ -16,8 +15,6 @@ import pytest
 from fastmcp.tools import ToolResult
 
 from ark_mcp.artifacts.store import ArtifactPersistenceError
-from ark_mcp.config.env import get_settings
-from ark_mcp.config.model_capabilities import refresh_capability_registry
 from ark_mcp.domain.artifacts import ArtifactRef
 from ark_mcp.domain.errors import NormalizedProviderError, ProviderError
 from ark_mcp.providers.modelark.generation_tasks import GenerationTaskService
@@ -40,21 +37,9 @@ from ark_mcp.tools.gen_task_list import GenTaskListInput, GenTaskPage, gen_task_
 from tests.fixtures.fake_context import FakeContext
 
 SEEDANCE_MODEL = "dreamina-seedance-2-0-260128"
-HYPER3D_MODEL = "hyper3d-gen2-260112"
 VIDEO_URL = "https://tos-ap-southeast.bytepluses.com/video.mp4"
-FILE_URL = "https://tos-ap-southeast.bytepluses.com/model.glb"
 LAST_FRAME_URL = "https://tos-ap-southeast.bytepluses.com/last-frame.jpg"
 ALICE = AuthContext(principal_id="alice", tenant_id="tenant-a", transport="http")
-
-
-@pytest.fixture
-def seed3d_enabled(test_env: None, monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
-    monkeypatch.setenv("BYTEPLUS_MODELARK_3D_ENABLED", "true")
-    get_settings.cache_clear()
-    refresh_capability_registry()
-    yield
-    get_settings.cache_clear()
-    refresh_capability_registry()
 
 
 def _task(
@@ -385,36 +370,6 @@ class TestGenTaskGet:
         assert result.tasks[0].outputs[0].artifact == cached
         await cache.clear()
 
-    async def test_3d_task_persists_model_file_with_inferred_mime(
-        self,
-        seed3d_enabled: None,
-        fake_ctx: FakeContext,
-        temp_store: Any,
-        monkeypatch: pytest.MonkeyPatch,
-    ) -> None:
-        await fake_ctx.lifespan_context["runtime"].task_artifact_cache.clear()
-        task = _task(
-            "t-3d",
-            "succeeded",
-            model=HYPER3D_MODEL,
-            content={"file_url": FILE_URL},
-            usage=GenerationTaskUsage(total_tokens=42),
-        )
-        _serve(monkeypatch, [task])
-        with _download(b"glb-bytes", "model/gltf-binary", FILE_URL):
-            result = await gen_task_get(
-                GenTaskGetInput(task_ids=["t-3d"], persist_output=True), fake_ctx
-            )
-        assert isinstance(result, GenTaskGetOutput)
-        task_out = result.tasks[0]
-        assert (task_out.kind, task_out.family) == ("3d", "seed3d_hyper3d")
-        assert task_out.settings is None and task_out.queue is None and task_out.draft is None
-        [output] = task_out.outputs
-        assert output.role == "model_file"
-        assert output.artifact is not None and output.artifact.mime_type == "model/gltf-binary"
-        assert task_out.usage is not None and task_out.usage.total_tokens == 42
-        await fake_ctx.lifespan_context["runtime"].task_artifact_cache.clear()
-
     async def test_unknown_model_reports_urls_without_persisting(
         self, test_env: None, fake_ctx: FakeContext, monkeypatch: pytest.MonkeyPatch
     ) -> None:
@@ -685,17 +640,17 @@ class TestGenTaskCancelOrDelete:
         assert (result.mode, result.previous_status) == ("delete", "succeeded")
         assert calls["delete"] == ["t-done"]
 
-    async def test_cancel_queued_3d_task(
-        self, seed3d_enabled: None, fake_ctx: FakeContext, monkeypatch: pytest.MonkeyPatch
+    async def test_cancel_queued_video_task(
+        self, test_env: None, fake_ctx: FakeContext, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        calls = _serve(monkeypatch, [_task("t-3d", "queued", model=HYPER3D_MODEL)])
+        calls = _serve(monkeypatch, [_task("t-video", "queued")])
         result = await gen_task_cancel_or_delete(
-            GenTaskCancelOrDeleteInput(task_id="t-3d", mode="cancel", expected_status="queued"),
+            GenTaskCancelOrDeleteInput(task_id="t-video", mode="cancel", expected_status="queued"),
             fake_ctx,
         )
         assert isinstance(result, GenTaskCancelOrDeleteOutput)
         assert result.mode == "cancel"
-        assert calls["delete"] == ["t-3d"]
+        assert calls["delete"] == ["t-video"]
 
     async def test_status_mismatch_is_rejected_before_delete(
         self, test_env: None, fake_ctx: FakeContext, monkeypatch: pytest.MonkeyPatch

@@ -1,8 +1,18 @@
 {
-  "ark_list_models": { "input": {} },
+  "ark_list_models": {
+    "input": {}
+  },
   "ark_job_capabilities": {},
-  "ark_job_get": { "input": { "job_id": "example-job-id-replace-me" } },
-  "ark_job_cancel": { "input": { "job_id": "example-job-id-replace-me" } },
+  "ark_job_get": {
+    "input": {
+      "job_id": "example-job-id-replace-me"
+    }
+  },
+  "ark_job_cancel": {
+    "input": {
+      "job_id": "example-job-id-replace-me"
+    }
+  },
   "seedream_generate_image": {
     "input": {
       "model": "dola-seedream-5-5-261028",
@@ -30,19 +40,29 @@
   "seed_understand": {
     "input": {
       "prompt": "Describe the main objects in this image.",
-      "images": [{ "kind": "url", "url": "https://example.com/reference.jpg" }]
+      "images": [
+        {
+          "kind": "url",
+          "url": "https://example.com/reference.jpg"
+        }
+      ]
     }
   },
   "seed_audio_understand": {
     "input": {
       "prompt": "Summarize this recording.",
-      "audios": [{ "kind": "url", "url": "https://example.com/recording.wav" }]
+      "audios": [
+        {
+          "kind": "url",
+          "url": "https://example.com/recording.wav"
+        }
+      ]
     }
   },
-  "vod_enhance_video": {
-    "input": { "video_url": "https://example.com/video.mp4" }
-  },
   "gen_task_get": {
-    "input": { "task_ids": ["cgt-example-replace-me"], "persist_output": false }
+    "input": {
+      "task_ids": ["cgt-example-replace-me"],
+      "persist_output": false
+    }
   }
 }

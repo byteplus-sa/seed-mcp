@@ -612,4 +612,3 @@ async def test_execute_forces_private_filesystem_artifacts(smoke, settings, tmp_
     assert len(observed) == 1
     assert observed[0].artifact_backend == "filesystem"
     assert Path(observed[0].artifact_dir).is_relative_to(tmp_path)
-    assert observed[0].modelark_pricing_refresh_seconds == 0

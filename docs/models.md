@@ -23,8 +23,6 @@ with an actionable `ValueError`.
 | `SEEDANCE_2_5_FLASH` | `seedance_2_5_flash` |
 | `SEED_2_1_PRO` | `seed_2_1_pro` |
 | `SEED_2_1_TURBO` | `seed_2_1_turbo` |
-| `SEED3D_HYPER3D` | `seed3d_hyper3d` |
-| `SEED3D_HITEM3D` | `seed3d_hitem3d` |
 
 The binding enums (`config/env.py`):
 
@@ -32,7 +30,6 @@ The binding enums (`config/env.py`):
 - `SeedanceFamily`: `STANDARD = "standard"`, `FAST = "fast"`, `MINI = "mini"`,
   `SEEDANCE_2_5 = "seedance_2_5"`, `SEEDANCE_2_5_FLASH = "seedance_2_5_flash"`.
 - `SeedUnderstandingFamily`: `PRO = "pro"`, `TURBO = "turbo"`.
-- `Seed3DFamily`: `HYPER3D = "hyper3d"`, `HITEM3D = "hitem3d"`.
 
 ## Image capabilities (`ImageCapabilities`)
 
@@ -174,25 +171,6 @@ request against the selected model's `VideoCapabilities` (including
 `supported_ratios`) and reports every violation in one error that points to
 `ark_list_models(kind='video')`, which exposes these limits to clients.
 
-## Seed Speech ASR (Speech-to-Text)
-
-Speech-to-text uses the Seed Speech ASR HTTP API. It reuses
-`BYTEPLUS_SEED_SPEECH_API_KEY` — the same key that powers Seed Audio. Audio
-is submitted via HTTP and polled until transcription is complete; the full
-`TranscriptionResult` is returned in the background result after the client
-submits through the ordinary `ark_job_*` tools, or native MCP task augmentation
-where supported.
-
-ASR does not expose a separate provider task tool: its HTTP submit-and-poll
-lifecycle is contained within the Ark background job.
-
-Supported audio formats: `wav`, `mp3`, `ogg`, `raw`, `flac`.
-
-The HTTP base URL is configured via `SEED_SPEECH_ASR_BASE_URL` (default
-`https://voice.ap-southeast-1.bytepluses.com`). Poll interval and max wait
-are tunable via `SEED_SPEECH_ASR_POLL_INTERVAL_SECONDS` and
-`SEED_SPEECH_ASR_POLL_MAX_SECONDS`.
-
 ## Default model IDs
 
 | Field | Env var | Default | Implied family |
@@ -221,10 +199,9 @@ video frames sampled at 0.2 fps also consume input tokens. `delivery` selects
 automatic fallback, direct-only input, or explicit Files API upload.
 See [audio understanding](tools.md#seed_audio_understand).
 
-`ark_list_models` also returns cached account-specific pricing when AK/SK
-enables the background pricing refresher. Unavailable or stale rates are null.
-Image and understanding estimates use recognized fresh catalog units;
-custom endpoint IDs without a catalog match retain built-in estimates.
+`ark_list_models` returns configured models, limits and service availability,
+not account-specific pricing. Cost previews use built-in estimates for
+budgeting; they are not provider quotes.
 
 ## Environment variables
 

@@ -60,14 +60,14 @@ class TestNormalizedProviderError:
         )
         assert error.provider == "modelark"
 
-    def test_vod_mediakit_provider(self) -> None:
+    def test_omnihuman_provider(self) -> None:
         error = NormalizedProviderError(
-            provider="byteplus-vod-mediakit",
-            operation="enhance_video",
+            provider="byteplus-vision-cv",
+            operation="submit_task_v2",
             message="failed",
             retryable=False,
         )
-        assert error.provider == "byteplus-vod-mediakit"
+        assert error.provider == "byteplus-vision-cv"
 
     def test_empty_message(self) -> None:
         error = NormalizedProviderError(

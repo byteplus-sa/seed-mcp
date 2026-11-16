@@ -22,8 +22,20 @@ def test_background_tool_registry_modes_partition_all_targets() -> None:
 
     assert required
     assert optional
-    assert len(required) == 15
-    assert len(optional) == 6
+    assert required == {
+        "seed_audio_generate",
+        "seedream_generate_image",
+        "seedance_create_task",
+        "seed_understand",
+        "seed_audio_understand",
+        "omnihuman_create_task",
+        "media_upload",
+    }
+    assert optional == {
+        "gen_task_get",
+        "omnihuman_get_task",
+        "seed_media_persist_url",
+    }
     assert required.isdisjoint(optional)
     assert required | optional == BACKGROUND_TOOL_SPECS.keys()
 

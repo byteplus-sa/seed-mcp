@@ -1,14 +1,17 @@
 # Documentation Site
 
-The Ark MCP handbook is published through Astro/Starlight. The site framework
+The Ark MCP handbook builds locally through Astro/Starlight. The site framework
 lives in `docs/site/`; human-written pages remain in `docs/`, alongside the
 existing handbook. Tool pages are generated from the static MCP catalog and
 the exact FastMCP/Pydantic input and output schemas.
 
-The unversioned public site tracks the reviewed `main` revision used by its
-deployment workflow, not every published tag. Its generated contracts,
-runtime guidance, Python example and validation apply to that build revision.
-Historical releases can have different dependencies and capabilities. Keep
+This narrowed fork has no verified Pages deployment or published release.
+The inherited `/ark-mcp/` site base is retained for local build compatibility,
+not as a claim that the fork is published at the upstream URL. Source and edit
+links point to `byteplus-sa/seed-mcp`; external Ark MCP Pages links are upstream
+retained-tool references only. Generated contracts and validation apply to
+the checkout used for the build. Historical releases can have different
+dependencies and capabilities. Keep
 the [installation revision guidance](setup/manual-install.md#choose-an-installation)
 current when a suitable patched release is published.
 
@@ -85,7 +88,7 @@ so standalone copies do not depend on an Ark source checkout.
 resolvable local references, as well as the guide's paths and setup boundary.
 Documentation CI also runs for changes to this skill.
 
-Audio, Understanding, 3D and Avatars have separate navigation groups and
+Audio, Understanding and Avatars have separate navigation groups and
 capability sections. Navigation tests ensure category membership and stable
 tool routes; uncategorized or duplicate catalog entries fail the build.
 The BytePlus logo uses the original light/dark SVGs from the reference site
@@ -102,7 +105,11 @@ process. The exporter bypasses the package's eager server entrypoint, clears
 inherited provider configuration, exports every catalog entry, and never
 evaluates registration gates or calls handlers/providers. It writes JSON to
 stdout, not credential files. Tests guard network, settings construction and
-credential reads.
+credential reads. The retained catalog contains 21 tools; `scope.test.mjs`
+guards retired capability settings and tool names in current documentation,
+while dated changelog and 0.2 migration history remain intact. Coordinate
+exporter changes with the owner of `scripts/export_tool_docs.py`; do not filter
+obsolete entries only in the renderer to hide a stale runtime catalog.
 
 Relative Markdown handbook links become project-base-prefixed site routes.
 References outside `docs/` point to GitHub source; reference definitions are
@@ -141,17 +148,15 @@ Source notes under `docs/site/tool-notes/` are not standalone site pages.
 The former `/seedream-5-5/` URL is an Astro static redirect; the old section
 anchors now resolve above the supported-model table.
 
-## GitHub Pages
+## Publication Boundary
 
-`.github/workflows/docs.yml` tests and builds on relevant pull requests and
-pushes. Only a successful `main` push or manual `main` run deploys.
-Pull requests build without Pages write permissions.
-
-To publish, select **Settings > Pages > Build and deployment > Source >
-GitHub Actions** in the repository, then merge the reviewed changes to `main`.
-The intended URL is `https://byteplus-sa.github.io/ark-mcp/`.
-Creating this site locally does not publish it or change repository settings.
-The workflow does not need provider credentials.
+The inherited `.github/workflows/docs.yml` can test, build and deploy on its
+configured events, but its presence does not prove fork Pages setup or a live
+site. Publication requires separately reviewed repository settings, workflow
+permissions, hostname and base configuration. Do not use the upstream
+`https://byteplus-sa.github.io/ark-mcp/` as this fork's deployment target.
+Local generation, checking and building do not publish anything or change
+repository settings, and need no provider credentials.
 
 ## Reference and License
 

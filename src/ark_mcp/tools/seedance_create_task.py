@@ -19,7 +19,6 @@ from ark_mcp.config.env import get_settings
 from ark_mcp.config.model_capabilities import VideoCapabilities, get_capability_registry
 from ark_mcp.domain.models import VariationError, VariationSummary
 from ark_mcp.observability.logger import info as log_info
-from ark_mcp.tools._asset_shared import preflight_seedance_assets
 from ark_mcp.tools._capability_checks import check_video_request, raise_on_violations
 from ark_mcp.tools._cost import estimate_cost
 from ark_mcp.tools._redaction import redact_media_url
@@ -381,7 +380,6 @@ async def seedance_create_task(
         kind="video",
     )
     media = media_payloads(input)
-    await preflight_seedance_assets(ctx, media.asset_ids)
     prompts: list[str | None] = (
         list(input.variation_prompts)
         if input.variation_prompts

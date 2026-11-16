@@ -23,12 +23,10 @@ client is missing tools and that warning is absent, look at
 | Variable | Default | Purpose |
 |---|---|---|
 | `BYTEPLUS_MODELARK_API_KEY` | empty | Enables Seedream, Seedance, and Seed 2.1 understanding; sent as Bearer auth |
-| `BYTEPLUS_SEED_SPEECH_API_KEY` | empty | Enables Seed Audio and speech-to-text; sent as `X-Api-Key` |
-| `BYTEPLUS_VOD_MEDIAKIT_API_KEY` | empty | Enables MediaKit enhancement, transcode, subtitle burn-in/removal, audio-separation, and poll tools; sent as Bearer auth |
+| `BYTEPLUS_SEED_SPEECH_API_KEY` | empty | Enables Seed Audio generation; sent as `X-Api-Key` |
 | `BYTEPLUS_CV_API_KEY` | empty | BytePlus Vision AI Bearer key for OmniHuman; tools also need `BYTEPLUS_OMNIHUMAN_ENABLED=true` |
 | `BYTEPLUS_MODELARK_BASE_URL` | AP Southeast ModelArk URL | HTTPS data-plane base URL |
 | `BYTEPLUS_SEED_AUDIO_BASE_URL` | AP Southeast Seed Speech URL | HTTPS service base URL |
-| `BYTEPLUS_VOD_MEDIAKIT_BASE_URL` | `https://mediakit.ap-southeast-1.bytepluses.com/api/v1` | HTTPS VOD AI MediaKit convenience-endpoint base URL |
 | `SEEDREAM_DEFAULT_MODEL` | `dola-seedream-5-5-261028` | Default image model/endpoint ID (Seedream 5.5; account authorization required) |
 | `SEEDREAM_PROMPT_OPTIMIZATION_MODE` | `standard` | Mode 5.0 Pro sends when a caller omits `prompt_optimization`: `standard` (prompt-following quality) or `fast` (lower latency). Both are provider-accepted; an explicit per-call value wins |
 | `SEEDANCE_DEFAULT_MODEL` | `dreamina-seedance-2-5-260628` | Default video model/endpoint ID used by `seedance_create_task` when `model` is omitted (Seedance 2.5; was 2.0 before the tool consolidation, see the [upgrade note](#seedance-default-model-upgrade-note)) |
@@ -40,10 +38,6 @@ client is missing tools and that warning is absent, look at
 | `SEEDANCE_MODEL_BINDINGS` | empty | JSON list of `{model_id, family}` bindings |
 | `SEED_UNDERSTANDING_MODEL_BINDINGS` | empty | JSON list of `{model_id, family}` bindings |
 | `SEED_AUDIO_UNDERSTANDING_MODEL` | `seed-2-0-lite-260428` | Model/endpoint ID used by `seed_audio_understand`. Any ModelArk model that accepts Chat Completions `input_audio` parts with deep thinking works; change it when a newer audio-capable model ships |
-| `BYTEPLUS_MODELARK_3D_ENABLED` | `false` | Feature flag for 3D generation (Hyper3D + Hitem3d); reuses the ModelArk key, disabled by default |
-| `HYPER3D_DEFAULT_MODEL` | `hyper3d-gen2` | Default Hyper3D model/endpoint ID |
-| `HITEM3D_DEFAULT_MODEL` | `hitem3d-2-0` | Default Hitem3d model/endpoint ID |
-| `SEED3D_MODEL_BINDINGS` | empty | JSON list of `{model_id, family}` bindings (`hyper3d` or `hitem3d`) |
 | `BYTEPLUS_OMNIHUMAN_ENABLED` | `false` | Feature flag for OmniHuman 2.0 (`omnihuman_*` tools); requires `BYTEPLUS_CV_API_KEY` |
 | `BYTEPLUS_CV_BASE_URL` | `https://openapi.cv.bytepluses.com` | HTTPS Vision AI base URL |
 | `BYTEPLUS_OMNIHUMAN_REQ_KEY` | `realman_avatar_picture_omni20_cv` | Service identifier sent as `req_key`; change only if BytePlus issues a new one |
@@ -91,8 +85,8 @@ have an absolute `OUTPUT_ROOTS` entry (comma-separated paths). It never reveals
 root paths or credentials. These are configuration diagnostics only: they do not
 probe provider authorization, check filesystem readiness, or replace the
 request's destination preflight. Client MCP roots are unavailable inside jobs.
-Seedream dry-run `preview.price_source` distinguishes a cached account image
-rate (`catalog`) from the built-in fallback (`builtin`); neither is actual billing.
+Seedream dry-run `preview.price_source` is `builtin`: a budgeting estimate,
+not an account-specific rate or actual billing.
 
 ### Seedance default model upgrade note
 
@@ -161,9 +155,9 @@ feature flag is required. Flash cost previews currently reuse the static
 2.5 per-task fallback, not its token-based provider price.
 
 Credentials are startup-only. If a provider key is absent, its tools are not
-registered. Specifically, `vod_enhance_video` is registered independently
-when `BYTEPLUS_VOD_MEDIAKIT_API_KEY` is non-empty; it does not require the
-ModelArk key. Provider base URLs must use HTTPS, include a hostname, and must
+registered. OmniHuman requires its Vision AI key and explicit enable flag;
+Seed Audio uses its separate Seed Speech key. Provider base URLs must use
+HTTPS, include a hostname, and must
 not contain embedded credentials.
 
 ## Transport and authentication
@@ -198,17 +192,9 @@ FastMCP enforces the fixed ordinary scope allowlist:
 - `seed:audio:generate`
 - `seedream:generate`
 - `seedance:create`
-- `gen:read`, `gen:delete` (`gen_task_*` tools for Seedance and 3D tasks)
-- `seed:asr:transcribe`
+- `gen:read`, `gen:delete` (`gen_task_*` tools for Seedance tasks)
 - `understanding:read`
-- `hyper3d:create`, `hitem3d:create`
 - `omnihuman:create`, `omnihuman:read`, `omnihuman:cancel`
-- `vod:enhance`
-- `vod:transcode`
-- `vod:subtitle:add`
-- `vod:subtitle:remove`
-- `vod:read`
-- `vod:extract`
 - `media:upload`
 - `media:presign`
 - `artifacts:read`
@@ -218,101 +204,6 @@ FastMCP enforces the fixed ordinary scope allowlist:
 There is no automatic ownership transfer. Preserve SQLite, Redis, artifacts
 and the snapshot encryption key; follow
 [the migration procedure](self-hosting.md#breaking-change-migration).
-
-## Seed Speech ASR (STT)
-
-The `speech_to_text` tool is registered when `BYTEPLUS_SEED_SPEECH_API_KEY` is
-set — the same key that enables Seed Audio (TTS). It submits audio via HTTP,
-polls until transcription is complete, and returns the complete
-`TranscriptionResult` through a required background job, submitted through the
-ordinary `ark_job_*` tools or native MCP task augmentation on a task-capable
-client. Audio input accepts
-URL, Base64, or a local file path (stdio only).
-
-| Variable | Default | Purpose |
-|---|---|---|
-| `BYTEPLUS_SEED_SPEECH_API_KEY` | empty | Enables Seed Audio + speech-to-text; sent as `X-Api-Key` header |
-| `SEED_SPEECH_ASR_BASE_URL` | `https://voice.ap-southeast-1.bytepluses.com` | Seed Speech ASR HTTP host |
-| `SEED_SPEECH_ASR_POLL_INTERVAL_SECONDS` | `3.0` | Seconds between ASR query polls |
-| `SEED_SPEECH_ASR_POLL_MAX_SECONDS` | `600.0` | Maximum total seconds to wait for ASR result |
-
-Fixed team scope for speech-to-text:
-
-- `seed:asr:transcribe`
-
-## VOD AI MediaKit
-
-`vod_enhance_video` is registered when `BYTEPLUS_VOD_MEDIAKIT_API_KEY` is
-set. The tool supports the `fast`, `standard`, and `professional` enhancement
-tiers with target resolutions from 240p to 8K (4K for `fast`) and defaults to
-`professional`/`4k`/`high`/24 fps. It serializes the project label upstream as
-case-sensitive `Project` for `standard`/`professional`. Submission returns an asynchronous
-task ID and `operation="enhance"` for `vod_get_task`, the single MediaKit
-poller, which returns and best-effort persists completed outputs. The submit POST is not retried automatically.
-Convenience-endpoint pricing is not yet confirmed, so the tool does not emit a
-cost estimate.
-
-`vod_transcode_video` and `vod_get_task` are also registered when
-`BYTEPLUS_VOD_MEDIAKIT_API_KEY` is set. `vod_transcode_video` submits an async
-transcoding task (codec, container format, scaling, bitrate, frame rate, HDR);
-`vod_get_task` with `operation="transcode"` polls it and best-effort persists
-the completed output.
-The transcode request/status contract is verified from the official AI MediaKit
-API reference; the output URL hostname (`*.byteplusvod.com`) is confirmed and
-trusted for durable persistence. `queue_id`/`Project` request params remain
-unverified and are not exposed.
-
-`vod_add_subtitles` and `vod_remove_subtitles` (polled with `vod_get_task`,
-`operation="add_subtitles"` or `"remove_subtitles"`) use the same API key.
-Addition accepts a public HTTPS SRT, VTT, or ASS file or inline timed cues and
-burns them into the output video. Removal defaults to dialogue-subtitle mode;
-the broader `text` mode may also erase titles, labels, or watermarks. Both
-submit asynchronously, use `client_token` to reconcile ambiguous submissions,
-and preserve the provider URL when optional durable persistence is skipped or
-fails. The optional `project` and removal `model_version` fields are legacy
-convenience-endpoint extensions and are omitted unless explicitly supplied.
-
-## VOD AI MediaKit audio separation
-
-`vod_separate_audio` and `vod_get_task` are registered when
-`BYTEPLUS_VOD_MEDIAKIT_API_KEY` is set, sharing the same Bearer-authenticated
-convenience surface as enhancement and transcoding.
-
-`vod_separate_audio` submits a `POST /api/v1/tools/separate-voice` task from a
-public HTTPS `audio_url` or `video_url` (exactly one) plus an optional `scene`
-(`Audio` default, `Music`, `Drama`, `Narrate`) and `output_format` (`aac`
-default, `mp3`, `wav`, `m4a`, `flac`). `vod_get_task` with
-`operation="separate_audio"` polls `GET /api/v1/tasks/{task_id}` and returns
-each separated track (`voice`, `background`, `music`, `sfx`) as an output with
-its expiring `source_url` (valid 24 hours) plus a durable `artifact` reference
-when best-effort persistence succeeds. An `output_path` directory receives
-every track.
-
-## Private asset library (AK/SK)
-
-The `ark_asset_*` tools are registered only when both
-`BYTEPLUS_MODELARK_ACCESS_KEY` and `BYTEPLUS_MODELARK_SECRET_KEY` are set; they
-do not need `BYTEPLUS_MODELARK_API_KEY`. Seedance `asset://` references need
-only the API key. See [assets.md](assets.md).
-
-| Variable | Default | Description |
-|---|---|---|
-| `BYTEPLUS_MODELARK_ACCESS_KEY` | empty | BytePlus IAM access key (`AKLT…` long-term or `AKTP…` STS) for signed ModelArk OpenAPI calls |
-| `BYTEPLUS_MODELARK_SECRET_KEY` | empty | Matching secret key; must be set together with the access key |
-| `BYTEPLUS_MODELARK_SESSION_TOKEN` | empty | STS session token, required for `AKTP…` keys (sent as signed `X-Security-Token`) |
-| `BYTEPLUS_MODELARK_PRICING_REFRESH_SECONDS` | `86400` | Background account-price refresh interval when AK/SK exists; `0` disables. Values below 60 seconds are clamped to 60; snapshots expire after twice the effective interval |
-| `BYTEPLUS_MODELARK_OPENAPI_BASE_URL` | `https://ark.ap-southeast-1.byteplusapi.com` | ModelArk OpenAPI host (HTTPS) |
-| `BYTEPLUS_MODELARK_REGION` | `ap-southeast-1` | Signing region |
-| `BYTEPLUS_MODELARK_PROJECT_NAME` | `default` | Default project for groups and assets; must match the inference endpoint's project |
-| `BYTEPLUS_MODELARK_ASSETS_ALLOW_DELETE` | `false` | Registers the irreversible `ark_asset_delete` tool (assets and groups) |
-| `BYTEPLUS_MODELARK_ASSET_CREATE_QPM` | `3` | Client-side `CreateAsset` pacing; set to your tier (3 Entry, 120 Advanced, 300 Premium) |
-| `BYTEPLUS_MODELARK_ASSET_VERIFY_CALLBACK_URL` | empty | Default HTTPS redirect for real-person verification |
-| `BYTEPLUS_MODELARK_ASSET_REFERENCE_MODE` | `off` | Seedream / Seed Audio `asset://` handling: `off` rejects, `resolve` swaps in the temporary asset URL (experimental; needs AK/SK) |
-| `SEEDANCE_ASSET_PREFLIGHT` | `true` | With AK/SK, check `asset://` references with `GetAsset` before a billed Seedance submit |
-
-Account-wide asset scopes (`assets:read`, `assets:write`, `assets:verify`,
-`assets:delete`) are excluded from shared-key HTTP. Use trusted local stdio
-for asset administration; configuring AK/SK does not grant remote access.
 
 ## Object storage (TOS or S3, optional)
 
@@ -412,7 +303,7 @@ jobs should write files.** Path writing is stdio-only. See
 | `BYTEPLUS_CONNECT_TIMEOUT_MS` | `10000` | Provider connection timeout |
 | `BYTEPLUS_REQUEST_TIMEOUT_MS` | `600000` | Full provider request timeout |
 | `SEED_UNDERSTANDING_TIMEOUT_MS` | unset (uses `BYTEPLUS_REQUEST_TIMEOUT_MS`) | Request timeout for `seed_understand` and `seed_audio_understand` chat completions. Deep thinking is always on, so long analyses may need more than the general request timeout |
-| `FASTMCP_DOCKET_URL` | `memory://` | FastMCP background-task backend used by generation, transcription, upload, provider submission, understanding, and optional media-persistence calls; Redis can retain task state across restarts of the same single-replica deployment; it does not make SQLite state horizontally scalable |
+| `FASTMCP_DOCKET_URL` | `memory://` | FastMCP background-task backend used by generation, upload, provider submission, understanding (including audio transcription), and optional media-persistence calls; Redis can retain task state across restarts of the same single-replica deployment; it does not make SQLite state horizontally scalable |
 | `FASTMCP_TASKS_ENCRYPTION_KEY` | unset | Required for API-key-authenticated Redis task backends; use at least 32 random characters and keep the same key across restarts |
 | `FASTMCP_DOCKET_CONCURRENCY` | `10` | Maximum active background tasks per worker; provider/principal limits still apply |
 | `ARK_LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, or `ERROR` |

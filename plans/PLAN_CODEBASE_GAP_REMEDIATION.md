@@ -3,7 +3,7 @@ title: ModelArk MCP Codebase Gap Remediation Plan
 type: plan
 status: in-progress
 created: 2026-07-23
-updated: 2026-07-23
+updated: 2026-11-16
 tags:
   - modelark
   - fastmcp
@@ -35,6 +35,18 @@ related:
 <!-- markdownlint-disable MD013 MD024 MD025 MD060 -->
 
 # ModelArk MCP Codebase Gap Remediation Plan
+
+## Current Scope
+
+The findings, examples and checkpoints below record the July 2026 baseline.
+They are not current installation or auth instructions, and their validation
+counts are historical. The referenced session-scoped gap report is not a
+shipped handbook dependency. Current HTTP uses `MCP_AUTH_MODE=api_key`,
+`MCP_API_KEY_SHA256` and fixed tenant/principal `shared-team`; JWT configuration
+below is obsolete and per-user BYOK remains future work.
+Use [security](../docs/security.md), [runtime](../docs/runtime.md) and
+[the current tool reference](../docs/api-reference.md) for the 21-tool server.
+Outstanding external validation is not marked complete by this cleanup.
 
 ## Outcome
 

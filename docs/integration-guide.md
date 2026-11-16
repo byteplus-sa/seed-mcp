@@ -56,8 +56,7 @@ change; the standard `ark_job_*` protocol surface is the portable contract.
    configuration and visible to the current principal.
 2. Call `ark_job_submit` with `tool_name` and the exact `arguments` object the
    original tool accepts.
-3. Store the returned Ark `job_id`. Do not confuse it with a Seedance, Seed 3D,
-   or VOD provider task ID returned later by the original tool.
+3. Store the returned Ark `job_id`. Do not confuse it with a Seedance or OmniHuman provider task ID returned later by the original tool.
 4. Poll `ark_job_get` no faster than `poll_after_ms` until `status` is terminal.
 5. Read the original MCP tool result from `result`. For provider-submission
    tools, its `structured_content` contains the provider task ID.
@@ -87,8 +86,8 @@ decomposition, even when the provider API supports those operations.
 
 1. Discover the model and dry-run the intended request. Record an explicit
    paid-attempt limit and USD estimate budget covering generation, any
-   `seed_understand` reviews and edits. `preview.price_source` is `catalog` or
-   `builtin`, not an actual charge. Stop when either limit is reached.
+   `seed_understand` reviews and edits. `preview.price_source` is `builtin`,
+   not an account-specific quote or actual charge. Stop when either limit is reached.
 2. Submit once through `ark_job_submit`. Keep the Ark job ID and completed
    per-call `request_id`, submitted `seed`, final `prompt_sha256`,
    `request_options`, usage, artifact ID and artifact SHA-256. Store the original
@@ -319,9 +318,8 @@ If only some products' tools are registered:
 
 - No ModelArk key → no `seedream_generate_image`, `seedance_create_task`,
   `gen_task_*`, `seed_understand`, or `seed_audio_understand`
-- No Seed Speech key → no `seed_audio_generate` or `speech_to_text`
-- Optional products (Seed 3D, OmniHuman, VOD MediaKit, object storage, asset
-  library) also need their own keys or feature flags; see
+- Seed Audio, OmniHuman and object storage need their own credentials
+  or feature flags; see
   [Configuration](configuration.md).
 
 `ark_list_models` reports which optional services are enabled.

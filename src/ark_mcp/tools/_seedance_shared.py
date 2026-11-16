@@ -35,7 +35,6 @@ from ark_mcp.providers.modelark.schemas import (
 from ark_mcp.providers.modelark.seedance import SeedanceService
 from ark_mcp.providers.retry import call_with_retry
 from ark_mcp.runtime import billed_provider_slot, get_principal, get_runtime
-from ark_mcp.tools._asset_shared import collect_asset_ids
 from ark_mcp.tools._cost import DEFAULT_MAX_CONCURRENT, estimate_cost, log_cost_estimate
 from ark_mcp.tools._errors import provider_error_result
 from ark_mcp.tools._parallel import (
@@ -224,10 +223,6 @@ class MediaPayloads:
     images: list[dict[str, Any]] | None
     videos: list[dict[str, Any]] | None
     audios: list[dict[str, Any]] | None
-
-    @property
-    def asset_ids(self) -> list[str]:
-        return collect_asset_ids(self.images, self.videos, self.audios)
 
 
 def media_payloads(request: Any) -> MediaPayloads:

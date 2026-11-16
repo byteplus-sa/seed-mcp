@@ -13,11 +13,11 @@ cannot.
 ## Choose an Installation
 
 Select the latest published non-draft, non-prerelease
-[GitHub release](https://github.com/byteplus-sa/ark-mcp/releases).
-**Checked 2026-11-13:** `v0.3.0` is published and includes the dependency
-security refresh with `fastmcp[tasks]>=4.1.8,<4.2`. The historical `v0.2.0`
-release locks FastMCP/tasks to `4.0.3`; do not use it for a new installation or
-downgrade a patched installation to it.
+[Seed MCP GitHub release](https://github.com/byteplus-sa/seed-mcp/releases)
+when available. Do not substitute an upstream Ark MCP release: it can restore
+the broader, removed capability surface. No fork release is assumed here.
+The selected revision must include the dependency security refresh with
+`fastmcp[tasks]>=4.1.8,<4.2`; historical upstream `v0.2.0` is unpatched.
 
 Verify the selected release's notes, manifest and lockfile before executing
 it, rather than assuming every feature on main is released. If no suitable
@@ -38,14 +38,20 @@ commands run once in a terminal on the same machine where the client will
 launch Ark:
 
 ```bash
-git clone https://github.com/byteplus-sa/ark-mcp.git
-cd ark-mcp
-git switch --detach v0.3.0
+git clone --no-checkout https://github.com/byteplus-sa/seed-mcp.git seed-mcp
+git -C seed-mcp switch --detach "<approved-commit-sha>"
+```
+
+Run the following inside that staged checkout:
+
+```bash
 uv sync --locked --no-dev
 ```
 
-The example pins the release verified above. Resolve the current release
-and record its tag and commit SHA when performing a new setup.
+Replace the placeholder with the resolved, approved release commit, or an
+explicitly approved commit fallback. Record its tag/ref and SHA. Export needed
+old 3D outputs before upgrading; see the
+[breaking migration warning](../migration-0.2.md#breaking-capability-migration).
 
 Preserve any existing installation and client entry until the new one passes
 verification. Do not reset, clean, or overwrite a dirty checkout, and do not
@@ -132,7 +138,6 @@ not provider-key validity or account entitlement.
 An agent performing a separate startup preflight should use a private
 temporary `ARTIFACT_DIR`, `ARTIFACT_BACKEND=filesystem`, and
 `FASTMCP_DOCKET_URL=memory://`. Disable optional probes for that process with
-`BYTEPLUS_MODELARK_PRICING_REFRESH_SECONDS=0` and
 `READINESS_CHECK_PROVIDERS=false`. Do not save these overrides into normal
 client configuration. Suppress raw validation exceptions and stderr; report
 only failure status and invalid field names, never values.

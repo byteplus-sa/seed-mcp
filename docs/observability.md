@@ -64,12 +64,13 @@ Policy (per the module docstring): never log prompt text, full media URLs,
 Base64, subtitles, or credentials. Redaction is a safety net; call sites
 avoid passing these fields in the first place.
 
-`vod_enhance_video` and `vod_get_task` log lifecycle and safe
-persistence messages only. Their
-source and output URLs and Bearer credential are not logged. A successful
-enhancement whose best-effort artifact copy fails remains a successful tool
-result with `persistence="failed"`; operators should therefore monitor the
-returned persistence field in addition to MCP/provider success metrics.
+Generation and polling logs contain safe lifecycle metadata, not source/output
+URLs or credentials. Provider success does not imply successful artifact
+storage. Monitor `ArtifactRef.persistence_error` for Seedream/Seed Audio
+fallbacks, `outputs[].persistence_issue` with `outputs[].persistence` for
+Seedance, and top-level `persistence_issue` with `persistence` for OmniHuman.
+These are distinct result shapes; successful MCP/provider metrics alone do
+not prove that output was stored.
 
 ## Prometheus metrics (`observability/metrics.py`)
 
@@ -104,11 +105,9 @@ labels). All Histograms use the `prometheus_client` default buckets
 > `seedance_create_task_complete`) for a single task, and
 > `seedance_variations_complete` for a variations call.
 
-VOD AI MediaKit mutation POSTs are intentionally not passed through the automatic
-retry helper because they are non-idempotent and a timeout may be ambiguous.
-Consequently, `ark_mcp_retry_attempts_total` should not increase for the
-submission. Read-only task polling may retry provider-marked
-retryable failures such as HTTP 429.
+Retry metrics describe actual provider retry attempts, not permission to repeat
+a billable submission. An ambiguous outcome must be reconciled; read-only
+task polling can retry provider-marked retryable failures such as HTTP 429.
 
 ### `MetricsMiddleware`
 

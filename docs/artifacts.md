@@ -1,16 +1,23 @@
 # Durable Artifacts
 
-Provider media URLs expire — 2 hours for audio, 24 hours for image/video/3D —
-so the server persists every generated output to a local store and
+Provider media URLs expire: 2 hours for Seed Audio, 24 hours for ModelArk
+image/video, and about 1 hour for OmniHuman. When persistence is enabled,
+the server copies generated outputs to its configured artifact store and
 re-exposes it as a stable MCP resource `seed-media://artifacts/{artifact_id}`.
 This document describes the artifact store, its lifecycle, and the
 ownership model.
+
+> **Breaking capability removal:** old saved 3D artifacts are no longer served
+> by the narrowed image/audio/video schema. Export needed 3D outputs using the
+> old server **before upgrading**. Retained bytes and metadata do not guarantee
+> compatibility. See
+> [migration guidance](migration-0.2.md#breaking-capability-migration).
 
 ## Two expiry windows — keep them distinct
 
 | Concept | Where | Default | Meaning |
 |---|---|---|---|
-| **Provider URL expiry** (`source_expires_at`) | on `ArtifactRef` | 2h (audio) / 24h (image/video) | how long the original provider URL is valid |
+| **Provider URL expiry** (`source_expires_at`) | on `ArtifactRef` | 2h (Seed Audio) / 24h (ModelArk image/video) / about 1h (OmniHuman) | how long the original provider URL is valid |
 | **Local artifact TTL** (`expires_at`) | on `ArtifactRef`, from `ARTIFACT_TTL_SECONDS` | 604800 (7 days), must be `> 0` | how long the persisted copy is kept |
 
 The local TTL is **independent** of the provider URL expiry. Even after the
@@ -68,7 +75,7 @@ artifacts **sharded by the first 2 characters of the UUIDv4 id**:
 | `local_path` | `str \| None` | `None` | absolute local path written for `output_path` / `output_dir` |
 | `export_error` | `str \| None` | `None` | why the requested local copy was not written |
 
-`MediaType` is a `StrEnum`: `IMAGE`, `AUDIO`, `VIDEO`, `THREE_D`.
+`MediaType` is a `StrEnum`: `IMAGE`, `AUDIO`, `VIDEO`.
 
 ## The store protocol (`artifacts/store.py`)
 
@@ -126,9 +133,10 @@ idempotent); a final failure surfaces as `storage_failed`.
 
 ## Persistence failures
 
-A billed output is never dropped because storage failed. When persistence
-fails after the retries above, the tool call still succeeds and the returned
-`ArtifactRef` carries `persistence_error` (`ArtifactPersistenceIssue`):
+For Seedream and Seed Audio, recoverable persistence failures return an
+`ArtifactRef` carrying `persistence_error` (`ArtifactPersistenceIssue`).
+Inline output without a provider URL must fit the fallback cap described below.
+Seedance and OmniHuman use distinct task-output fields described after the table.
 
 | Field | Meaning |
 |---|---|
@@ -142,7 +150,7 @@ The reference takes one of two shapes:
 
 | `id` | Used for | Where the bytes are |
 |---|---|---|
-| `provider-url` | URL outputs (Seedream `url`, Seedance video/last frame, Seed 3D files) and inline outputs that also came with a provider URL | `uri` is the temporary provider URL, valid until `source_expires_at` |
+| `provider-url` | Seedream URL outputs and inline outputs that also came with a provider URL | `uri` is the temporary provider URL, valid until `source_expires_at` |
 | `inline-fallback` | Inline Base64 outputs with no provider URL (Seed Audio, Seedream `b64_json`) | `fallback_data`, up to `ARTIFACT_INLINE_FALLBACK_MAX_BYTES` (default 8 MiB; `0` disables) |
 
 Inline Base64 is retried once against the store before falling back. An inline
@@ -158,10 +166,14 @@ downloader and limits, and returns a new durable `ArtifactRef`.
 In variation batches, a variation whose output was generated but not stored
 reports `error.phase="persisting"`.
 
-For Seedance and Seed 3D get tools, an unpersisted result is not cached, so the
-next poll with `persist_output=true` tries again while the provider URL is
-still valid. MediaKit get tools keep their per-output persistence status
-(`persisted`, `failed`, ...) alongside the provider `source_url`.
+For Seedance and OmniHuman, provider completion remains successful when
+requested persistence fails. Seedance reports `outputs[].persistence="failed"`
+and `outputs[].persistence_issue`; OmniHuman reports top-level
+`persistence="failed"` and `persistence_issue`. Keep the returned `source_url`;
+an `ArtifactRef` need not exist on failure. Poll again in a background job with
+`persist_output=true`, or use `seed_media_persist_url` before expiry. Successful
+copies are cached, so later polls can retry failed outputs without duplicating
+the successful ones.
 
 ## Local copies
 

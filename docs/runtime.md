@@ -8,7 +8,7 @@ budget ledger, provider-task and object-key ownership, persistence caching,
 per-task persistence single-flight, and the provider retry policy.
 
 All state lives in a single SQLite database at
-`<artifact_dir>/runtime.sqlite3` (default `artifact_dir` is `.artifacts`),
+`<artifact_dir>/runtime.sqlite3` (default `artifact_dir` is `~/.ark-mcp/artifacts`),
 shared by the ownership stores, budget ledger, and task-artifact cache. The
 ownership table also stores MCP task owners and atomic execution claims. The
 database is opened in WAL mode (`PRAGMA journal_mode=WAL`) with a
@@ -44,7 +44,7 @@ provider/principal limiters and per-task lock registry have no close method.
 Two distinct layers, acquired together for every billable call:
 
 - **Provider-level** — one global `asyncio.Semaphore` per provider bucket:
-  `"modelark"`, `"seed-speech"`, `"vod-mediakit"`, `"tos"`, and `"s3"`.
+  `"modelark"`, `"seed-speech"`, `"vision-cv"`, `"tos"`, and `"s3"`.
   Each is independently sized to `provider_limit`, so the default cap is five
   concurrent calls per provider rather than five shared across all providers.
 - **Principal-level** — one `asyncio.Semaphore(principal_limit)` per
@@ -95,7 +95,7 @@ come from provider latency, not from a server-wide lock. The other bounds:
 | Variation batch | `variation_batch_deadline(...)` | `tools/_parallel.py` | See [Parallel variations](#parallel-variations-tools_parallelpy) |
 
 - **A client's foreground deadline is not a server timeout.** Generation,
-  understanding, transcription and upload tools use task mode `required`, so
+  understanding and upload tools use task mode `required`, so
   they run in the background worker and a foreground call is rejected before
   the provider is called. See
   [SPEC_BACKGROUND_JOBS.md](../specs/SPEC_BACKGROUND_JOBS.md) and
@@ -109,7 +109,7 @@ come from provider latency, not from a server-wide lock. The other bounds:
 `RuntimeServices.task_artifact_locks` is a process-local
 `TaskArtifactPersistenceLocks` registry keyed by `(provider, task_id)`. A lock
 entry exists only while a holder or waiter is active and is removed when its
-user count reaches zero. Enhancement polling uses it to recheck the durable
+user count reaches zero. Provider-task polling uses it to recheck the durable
 task-artifact cache inside the critical section and share a just-created
 artifact with concurrent waiters, while different task IDs remain concurrent.
 Cache failures are best-effort: they emit safe warnings but do not erase a
@@ -159,50 +159,33 @@ one team-wide cap. Rotating the MCP key does not reset the budget history.
 
 ### Cost estimation (`tools/_cost.py`)
 
-The estimator behind the daily budget and the cost log. Image and understanding
-estimates use fresh, recognized prices from the ModelArk pricing catalog when
-available; unmatched models, unsupported units, and other products use built-in
-rates.
+The estimator behind the daily budget and cost log uses built-in heuristics
+only. Discovery returns no pricing fields, and no operator-account price
+refresher runs. `price_source` is `builtin`. Estimates are not provider
+quotes, settlement amounts or guarantees of an actual spend ceiling.
 
-**Live prices.** With AK/SK configured, the server loads the account's prices
-(discounts applied) from `ListModelChargeItems` in the background at startup and refreshes them
-every `BYTEPLUS_MODELARK_PRICING_REFRESH_SECONDS` (default 86400, 24 hours). The snapshot
-lives in an in-process price book (`providers/modelark/pricing.py`) keyed by
-catalog name, which is the configured model ID without its trailing version
-date. A snapshot older than twice the refresh interval is ignored. If a refresh
-fails, the previous snapshot is kept until it expires and the failure is logged
-as `pricing_refresh_failed`. The `cost_estimate` log line carries
-`price_source` (`live` or `builtin`).
-The refresher uses the server's resolved settings for credentials, endpoint,
-region, model bindings, timeouts, and snapshot freshness, including when the
-server was constructed with explicit settings instead of environment defaults.
-
-**Built-in rates** (used when there is no fresh price for the model):
+**Built-in rates:**
 
 | Constant | Value |
 |---|---|
 | `COST_PER_IMAGE` | `0.03` USD |
 | `COST_PER_AUDIO_SECOND` | `0.0031` USD |
 | `COST_PER_VIDEO_TASK` | `0.07` USD (`0.35` for Seedance 2.5) |
-| `COST_PER_STT_SECOND` | `0.0006` USD |
 | `COST_UNDERSTANDING_INPUT_PER_MTOK` / `_OUTPUT_PER_MTOK` | `0.50` / `3.00` USD |
-| `COST_PER_3D_TASK_HYPER3D` / `_HITEM3D` | `0.25` / `1.0` USD |
 | `DEFAULT_MAX_CONCURRENT` | `5` |
 
 `estimate_cost(product, variations, ..., model_id=None)`:
 
 | `product` | Formula |
 |---|---|
-| `"image"` | Live: `variations * ToICompletion` price per piece. Built-in: `variations * 0.03`. Rounded to 4 decimals |
-| `"understanding"` | Live: `InferencePrompt` and `InferenceCompletion` per-K-token prices scaled to millions of tokens. Built-in: the per-Mtok constants. Uses `prompt_tokens` and `max_tokens` |
+| `"image"` | `round(variations * 0.03, 4)` |
+| `"understanding"` | `round(variations * (prompt_tokens / 1000000 * 0.50 + max_tokens / 1000000 * 3.00), 4)`; missing token counts are zero |
 | `"audio"` | `round(variations * max(duration_seconds, 10) * 0.0031, 2)` — **floor of 10 seconds per variation** |
-| `"video"` | `round(variations * 0.07, 2)` (Seedance 2.5 uses `0.35`); live video prices are token-based and not yet used |
-| `"3d"` | Per-task built-in rate by family; live prices are not yet used |
-| `"stt"` | Built-in per-second rate with a 10 second floor |
+| `"video"` | `round(variations * 0.07, 2)`; regular 2.5 and Flash use `0.35` per task, selected by registry family; a registered model-specific override wins |
 | (any other) | `0.0` |
 
-> Live prices are looked up by model ID. Built-in video estimates retain the
-> selected model family's rate, including Seedance 2.5.
+Video estimates do not account for resolution or duration. Flash uses the
+static 2.5 per-task estimate, not its token-based provider price.
 
 ## Provider task ownership (`SQLiteTaskOwnershipStore`)
 
@@ -302,6 +285,14 @@ random_value=random.random)`:
     `delay = max(0.0, base + jitter)`.
 - Each retry increments `ark_mcp_retry_attempts_total{provider, operation}`.
 
+**Seedance transport caveat:** create-task timeouts are normalized as
+ambiguous and are not retried. However, the existing adapter normalizes raw
+`httpx.ConnectError` and other `httpx.TransportError` failures as retryable
+without marking completion ambiguous. `call_with_retry` can therefore repeat
+a create request even when provider acceptance is uncertain. The replay guard
+does not deduplicate retries inside one handler. This remains a runtime risk,
+not a guarantee of exactly-once billing; do not add client-side retries.
+
 ## Billable call composition (`billed_provider_slot`)
 
 A single async context manager ties the above together:
@@ -339,10 +330,12 @@ reservation.
 | `RuntimeError` | builtin | `get_runtime`, `BudgetLedger.reserve` | missing runtime services / reservation ID |
 | `PermissionError` | builtin | `get_principal`, `require_owner` | missing token, missing principal/tenant claims, ownership mismatch |
 
-`NormalizedProviderError` carries: `provider` (`modelark` or `seed-speech`),
+`NormalizedProviderError` carries: `provider` (including `modelark`, `seed-speech`,
+`byteplus-vision-cv`, `tos` and `s3`),
 `operation`, `http_status`, `code`, `message`, `request_id`, `retryable`,
 `ambiguous_completion`, `retry_after_seconds`. Transport-layer normalizers in
-`BaseHttpGateway`:
+`BaseHttpGateway` follow the table below. The Vision AI error provider label
+`byteplus-vision-cv` is distinct from its concurrency limiter bucket `vision-cv`.
 
 | Method | `code` | `retryable` | `ambiguous_completion` |
 |---|---|---|---|
@@ -355,13 +348,9 @@ Timeout classification depends on whether the call can create provider state:
 
 | Call | Examples | Timeout result | Auto-retried? |
 |---|---|---|---|
-| Mutation | Seedance/Seed 3D create, cancel, delete; Seedream/Seed Audio generate; MediaKit submit | `retryable=False`, `ambiguous_completion=True` | No — reconcile by task/request ID |
-| Read-only poll | Seedance and Seed 3D `get_task`/`list_tasks`, ASR `query_asr`, MediaKit task polls | `retryable=True`, `ambiguous_completion=False` | Yes |
+| Mutation | Seedance/OmniHuman create, cancel, delete; Seedream/Seed Audio generate | `retryable=False`, `ambiguous_completion=True` | No — reconcile by task/request ID |
+| Read-only poll | Seedance `get_task`/`list_tasks`, OmniHuman status | `retryable=True`, `ambiguous_completion=False` | Yes |
 | Chat completion | `seed_understand`, `seed_audio_understand` | `retryable=True`, `ambiguous_completion=False` | No (`retry_timeouts=False`) |
-
-MediaKit polls apply the same rule to their own transport normalizer:
-poll timeouts and connection failures are retryable and non-ambiguous, while
-submit failures stay ambiguous.
 
 ## Parallel variations (`tools/_parallel.py`)
 
