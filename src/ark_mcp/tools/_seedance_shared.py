@@ -19,7 +19,7 @@ from pydantic import BaseModel, Field, model_validator
 from ark_mcp.config.env import SEEDANCE_DRAFT_MAX_AGE_DAYS, get_settings
 from ark_mcp.config.model_capabilities import VideoCapabilities
 from ark_mcp.domain.artifacts import MediaType
-from ark_mcp.domain.errors import ProviderError
+from ark_mcp.domain.errors import AcceptedTaskError, ProviderError
 from ark_mcp.domain.media import (
     ASSET_REFERENCE_URL_DESCRIPTION,
     MediaSource,
@@ -27,6 +27,7 @@ from ark_mcp.domain.media import (
 )
 from ark_mcp.domain.models import VariationError, VariationResult, VariationSummary
 from ark_mcp.observability.logger import info as log_info
+from ark_mcp.providers.factory import modelark_gateway
 from ark_mcp.providers.modelark.generation_tasks import GenerationTaskService
 from ark_mcp.providers.modelark.schemas import (
     GenerationTaskResponse,
@@ -34,7 +35,8 @@ from ark_mcp.providers.modelark.schemas import (
 )
 from ark_mcp.providers.modelark.seedance import SeedanceService
 from ark_mcp.providers.retry import call_with_retry
-from ark_mcp.runtime import billed_provider_slot, get_principal, get_runtime
+from ark_mcp.runtime import billed_provider_slot, get_principal, get_runtime, record_accepted_task
+from ark_mcp.security.credentials import redact_request_secrets
 from ark_mcp.tools._cost import DEFAULT_MAX_CONCURRENT, estimate_cost, log_cost_estimate
 from ark_mcp.tools._errors import provider_error_result
 from ark_mcp.tools._parallel import (
@@ -273,6 +275,7 @@ async def submit_seedance_request(
     request: SeedanceCreateProviderRequest,
 ) -> tuple[str, str | None]:
     """Submit one billed Seedance task and record its owner; raises ``ProviderError``."""
+    await get_runtime(ctx).ownership_store.require_capacity()
     async with billed_provider_slot(
         ctx,
         provider="modelark",
@@ -280,7 +283,7 @@ async def submit_seedance_request(
         estimated_cost_usd=estimate_cost(product="video", variations=1, video_family=caps.family),
     ):
         task_id, request_id = await call_with_retry(lambda: service.create_task(request))
-    await get_runtime(ctx).ownership_store.record("modelark", task_id, get_principal(ctx))
+    await record_accepted_task(ctx, "modelark", task_id, request_id)
     return task_id, request_id
 
 
@@ -296,7 +299,7 @@ async def execute_seedance_create(
     await ctx.report_progress(progress=50, total=100)
     provider_request = build_seedance_request(request, caps, media, prompt=prompt)
     log_cost_estimate(product="video", variations=1, video_family=caps.family)
-    service = SeedanceService()
+    service = SeedanceService(gateway=modelark_gateway(ctx))
     try:
         task_id, request_id = await submit_seedance_request(ctx, service, caps, provider_request)
     except ProviderError as exc:
@@ -319,7 +322,7 @@ async def run_seedance_variations(
     """Submit one Seedance task per prompt in parallel, capturing failures per variation."""
     settings = get_settings()
     log_cost_estimate(product="video", variations=len(prompts), video_family=caps.family)
-    service = SeedanceService()
+    service = SeedanceService(gateway=modelark_gateway(ctx))
 
     async def create_one(index: int, progress: VariationProgress) -> VariationResult:
         try:
@@ -332,6 +335,7 @@ async def run_seedance_variations(
         except ProviderError as exc:
             return VariationResult(
                 index=index,
+                task_id=exc.task_id if isinstance(exc, AcceptedTaskError) else None,
                 error=VariationError(
                     code=exc.code or "PROVIDER_ERROR",
                     message=exc.message,
@@ -343,7 +347,10 @@ async def run_seedance_variations(
             )
         except Exception as exc:
             return VariationResult(
-                index=index, error=VariationError(code="UNEXPECTED_ERROR", message=str(exc))
+                index=index,
+                error=VariationError(
+                    code="UNEXPECTED_ERROR", message=redact_request_secrets(str(exc))
+                ),
             )
 
     try:
@@ -360,7 +367,7 @@ async def run_seedance_variations(
         model=caps.model_id,
         total=summary.total,
         succeeded=summary.succeeded,
-        failed=summary.failed,
+        failed=sum(result.error is not None for result in summary.variations),
     )
     return summary
 
@@ -394,7 +401,7 @@ async def load_draft_task(draft_task_id: str, ctx: Context) -> GenerationTaskRes
     await get_runtime(ctx).ownership_store.require_owner(
         "modelark", draft_task_id, get_principal(ctx)
     )
-    service = GenerationTaskService()
+    service = GenerationTaskService(gateway=modelark_gateway(ctx))
     try:
         task, _ = await call_with_retry(lambda: service.get_task(draft_task_id))
     except ProviderError as exc:

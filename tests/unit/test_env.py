@@ -1,10 +1,22 @@
-"""Unit tests for environment configuration."""
+"""Configuration contracts for specs/SPEC_HOSTED_BYOK.md."""
 
 from __future__ import annotations
 
 import pytest
 
-from ark_mcp.config.env import Settings
+from ark_mcp.config.env import AuthMode, Settings
+
+
+def _http_settings(**overrides: object) -> Settings:
+    return Settings(
+        _env_file=None,
+        **{
+            "MCP_TRANSPORT": "http",
+            "MCP_AUTH_MODE": "byok",
+            "MCP_IDENTITY_HMAC_KEY": "a" * 64,
+            **overrides,
+        },
+    )
 
 
 class TestSettings:
@@ -22,9 +34,12 @@ class TestSettings:
         assert settings.artifact_ttl_seconds == 604800
         assert settings.mcp_inline_media_max_bytes == 8388608
 
-    def test_http_body_limit_default_covers_video_upload(self) -> None:
-        settings = Settings(_env_file=None)
-        assert settings.mcp_http_max_body_bytes == 300 * 1024 * 1024
+    def test_http_admission_defaults_are_bounded(self) -> None:
+        settings = _http_settings()
+        assert settings.mcp_http_max_body_bytes == 2 * 1024 * 1024
+        assert settings.http_max_in_flight == 64
+        assert settings.state_max_records == 100_000
+        assert settings.rate_limit_trust_proxy_headers is False
 
     def test_has_modelark_false_when_empty(self) -> None:
         settings = Settings(_env_file=None)
@@ -157,26 +172,114 @@ class TestSettings:
         with pytest.raises(ValueError):
             Settings(_env_file=None, MCP_TRANSPORT="invalid")
 
-    def test_non_loopback_http_requires_api_key(self) -> None:
-        with pytest.raises(ValueError, match="requires MCP_AUTH_MODE=api_key"):
-            Settings(_env_file=None, MCP_TRANSPORT="http", MCP_HOST="0.0.0.0")
+    @pytest.mark.parametrize("host", ["127.0.0.1", "::1", "localhost", "0.0.0.0"])
+    def test_http_requires_byok_even_on_loopback(self, host: str) -> None:
+        with pytest.raises(ValueError, match="HTTP requires MCP_AUTH_MODE=byok"):
+            _http_settings(MCP_HOST=host, MCP_AUTH_MODE="local")
 
-    def test_api_key_requires_verifier_configuration(self) -> None:
-        with pytest.raises(ValueError, match="API key auth requires"):
-            Settings(_env_file=None, MCP_AUTH_MODE="api_key")
+    @pytest.mark.parametrize("mode", ["api_key", "jwt", ""])
+    def test_retired_auth_modes_are_rejected(self, mode: str) -> None:
+        with pytest.raises(ValueError, match="MCP_AUTH_MODE"):
+            _http_settings(MCP_AUTH_MODE=mode)
+        assert set(AuthMode) == {"local", "byok"}
+
+    def test_http_defaults_to_byok_without_operator_provider_credentials(self) -> None:
+        settings = Settings(_env_file=None, MCP_TRANSPORT="http", MCP_IDENTITY_HMAC_KEY="a" * 64)
+        assert settings.mcp_auth_mode is AuthMode.BYOK
+        assert not settings.has_modelark
+        assert not settings.has_seed_audio
+        assert not settings.has_omnihuman
+
+    def test_stdio_needs_no_hmac_or_provider_credentials(self) -> None:
+        settings = Settings(_env_file=None, MCP_TRANSPORT="stdio", MCP_AUTH_MODE="local")
+        assert settings.identity_hmac_key.get_secret_value() == ""
+        assert settings.mcp_auth_mode is AuthMode.LOCAL
+
+    @pytest.mark.parametrize("key", ["", "short", "g" * 64, "a" * 63, "A" * 64, "a" * 65])
+    def test_http_requires_lowercase_hex_identity_hmac(self, key: str) -> None:
+        with pytest.raises(ValueError, match="MCP_IDENTITY_HMAC_KEY"):
+            _http_settings(MCP_IDENTITY_HMAC_KEY=key)
+
+    def test_identity_hmac_is_masked_in_settings(self) -> None:
+        settings = _http_settings()
+        assert "a" * 64 not in repr(settings)
+        assert "a" * 64 not in settings.model_dump_json()
+        assert settings.identity_key_version == 1
+
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "MCP_IDENTITY_KEY_VERSION",
+            "MCP_HTTP_MAX_BODY_BYTES",
+            "MCP_HTTP_MAX_IN_FLIGHT",
+            "STATE_MAX_RECORDS",
+            "RATE_LIMIT_RPM",
+        ],
+    )
+    @pytest.mark.parametrize("value", [0, -1])
+    def test_http_limits_and_identity_version_must_be_positive(self, name: str, value: int) -> None:
+        with pytest.raises(ValueError, match=name):
+            _http_settings(**{name: value})
+
+    def test_local_rate_limiting_can_be_disabled(self) -> None:
+        assert Settings(_env_file=None, RATE_LIMIT_RPM=0).rate_limit_rpm == 0
+
+    @pytest.mark.parametrize(
+        "name,official",
+        [
+            ("BYTEPLUS_MODELARK_BASE_URL", "https://ark.ap-southeast.bytepluses.com/api/v3"),
+            ("BYTEPLUS_SEED_AUDIO_BASE_URL", "https://voice.ap-southeast-1.bytepluses.com"),
+            ("BYTEPLUS_CV_BASE_URL", "https://openapi.cv.bytepluses.com"),
+        ],
+    )
+    @pytest.mark.parametrize(
+        "suffix", ["/other", "/../other", "?query=1", "#fragment", "/%2e%2e/other"]
+    )
+    def test_http_rejects_confused_provider_origins(
+        self, name: str, official: str, suffix: str
+    ) -> None:
+        with pytest.raises(ValueError, match="fixed official provider base URLs"):
+            _http_settings(**{name: official + suffix})
+
+    @pytest.mark.parametrize(
+        "name",
+        ["BYTEPLUS_MODELARK_BASE_URL", "BYTEPLUS_SEED_AUDIO_BASE_URL", "BYTEPLUS_CV_BASE_URL"],
+    )
+    @pytest.mark.parametrize(
+        "url,error",
+        [
+            ("https://provider.example.com", "fixed official provider base URLs"),
+            (
+                "https://user:test-password@provider.example.com",  # pragma: allowlist secret
+                "must not contain credentials",
+            ),
+            ("http://provider.example.com", "must use HTTPS"),
+        ],
+    )
+    def test_http_rejects_untrusted_provider_urls(self, name: str, url: str, error: str) -> None:
+        with pytest.raises(ValueError, match=error):
+            _http_settings(**{name: url})
+
+    def test_http_rejects_provider_readiness_probes(self) -> None:
+        with pytest.raises(ValueError, match="HTTP readiness must not call providers"):
+            _http_settings(READINESS_CHECK_PROVIDERS=True)
+
+    def test_settings_have_no_retired_bearer_configuration(self) -> None:
+        aliases = {
+            field.validation_alias
+            for field in Settings.model_fields.values()
+            if isinstance(field.validation_alias, str)
+        }
+        assert not any(alias.startswith("MCP_JWT_") for alias in aliases)
+        assert aliases.isdisjoint({"MCP_API_KEY_SHA256", "MCP_TENANT_CLAIM", "MCP_PUBLIC_BASE_URL"})
 
     @pytest.mark.parametrize("retention", [1, 7, 13])
     @pytest.mark.parametrize("model", ["dreamina-seedance-2-5-260628", "ep-draft"])
     def test_authenticated_draft_models_reject_short_ownership_retention(
-        self, monkeypatch: pytest.MonkeyPatch, retention: int, model: str
+        self, retention: int, model: str
     ) -> None:
-        monkeypatch.setenv("BYTEPLUS_MODELARK_API_KEY", "sk-test")
         with pytest.raises(ValueError, match="STATE_PRUNE_MAX_AGE_DAYS must be at least 14"):
-            Settings(
-                _env_file=None,
-                MCP_TRANSPORT="http",
-                MCP_AUTH_MODE="api_key",
-                MCP_API_KEY_SHA256="a" * 64,
+            _http_settings(
                 SEEDANCE_DEFAULT_MODEL=model,
                 SEEDANCE_MODEL_FAMILY="seedance_2_5",
                 STATE_PRUNE_MAX_AGE_DAYS=retention,
@@ -185,30 +288,18 @@ class TestSettings:
     @pytest.mark.parametrize("retention", [14, 30])
     @pytest.mark.parametrize("model", ["dreamina-seedance-2-5-260628", "ep-draft"])
     def test_authenticated_draft_models_accept_full_ownership_retention(
-        self, monkeypatch: pytest.MonkeyPatch, retention: int, model: str
+        self, retention: int, model: str
     ) -> None:
-        monkeypatch.setenv("BYTEPLUS_MODELARK_API_KEY", "sk-test")
-        settings = Settings(
-            _env_file=None,
-            MCP_TRANSPORT="http",
-            MCP_AUTH_MODE="api_key",
-            MCP_API_KEY_SHA256="a" * 64,
+        settings = _http_settings(
             SEEDANCE_DEFAULT_MODEL=model,
             SEEDANCE_MODEL_FAMILY="seedance_2_5",
             STATE_PRUNE_MAX_AGE_DAYS=retention,
         )
         assert settings.state_prune_max_age_days == retention
 
-    def test_nondefault_draft_binding_requires_full_ownership_retention(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv("BYTEPLUS_MODELARK_API_KEY", "sk-test")
+    def test_nondefault_draft_binding_requires_full_ownership_retention(self) -> None:
         with pytest.raises(ValueError, match="STATE_PRUNE_MAX_AGE_DAYS must be at least 14"):
-            Settings(
-                _env_file=None,
-                MCP_TRANSPORT="http",
-                MCP_AUTH_MODE="api_key",
-                MCP_API_KEY_SHA256="a" * 64,
+            _http_settings(
                 SEEDANCE_DEFAULT_MODEL="ep-flash",
                 SEEDANCE_MODEL_BINDINGS=[
                     {"model_id": "ep-flash", "family": "seedance_2_5_flash"},
@@ -221,10 +312,9 @@ class TestSettings:
         "transport,auth_mode,provider_key,model,family",
         [
             ("stdio", "local", "sk-test", "ep-draft", "seedance_2_5"),
-            ("http", "local", "sk-test", "ep-draft", "seedance_2_5"),
-            ("http", "api_key", "", "ep-draft", "seedance_2_5"),
-            ("http", "api_key", "sk-test", "ep-flash", "seedance_2_5_flash"),
-            ("http", "api_key", "sk-test", "ep-legacy", "standard"),
+            ("stdio", "local", "", "ep-draft", "seedance_2_5"),
+            ("http", "byok", "", "ep-flash", "seedance_2_5_flash"),
+            ("http", "byok", "", "ep-legacy", "standard"),
         ],
     )
     def test_configurations_without_authenticated_drafts_keep_short_retention(
@@ -235,7 +325,7 @@ class TestSettings:
             BYTEPLUS_MODELARK_API_KEY=provider_key,
             MCP_TRANSPORT=transport,
             MCP_AUTH_MODE=auth_mode,
-            MCP_API_KEY_SHA256="a" * 64,
+            MCP_IDENTITY_HMAC_KEY="a" * 64,
             SEEDANCE_DEFAULT_MODEL=model,
             SEEDANCE_MODEL_FAMILY=family,
             STATE_PRUNE_MAX_AGE_DAYS=1,
@@ -276,8 +366,8 @@ class TestSettings:
         assert settings.readiness_provider_timeout_seconds == 5.0
 
     def test_rate_limit_defaults(self) -> None:
-        settings = Settings(_env_file=None)
-        assert settings.rate_limit_rpm == 0
+        settings = _http_settings()
+        assert settings.rate_limit_rpm == 60
         assert settings.rate_limit_burst == 0
 
     def test_rate_limit_env_overrides(self) -> None:

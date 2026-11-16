@@ -22,7 +22,13 @@ from typing import TYPE_CHECKING, Any
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-from ark_mcp.config.env import SeedanceFamily, SeedreamFamily, SeedUnderstandingFamily, get_settings
+from ark_mcp.config.env import (
+    SeedanceFamily,
+    SeedreamFamily,
+    SeedUnderstandingFamily,
+    get_settings,
+    has_request_settings,
+)
 
 
 class ModelFamily(StrEnum):
@@ -492,7 +498,9 @@ _registry: CapabilityRegistry | None = None
 
 
 def get_capability_registry() -> CapabilityRegistry:
-    """Return the cached capability registry."""
+    """Keep HTTP server bindings request-local; cache only process defaults."""
+    if has_request_settings():
+        return CapabilityRegistry()
     global _registry
     if _registry is None:
         _registry = CapabilityRegistry()
@@ -501,6 +509,8 @@ def get_capability_registry() -> CapabilityRegistry:
 
 def refresh_capability_registry() -> CapabilityRegistry:
     """Force-rebuild the capability registry (e.g. after config change)."""
+    if has_request_settings():
+        return CapabilityRegistry()
     global _registry
     _registry = CapabilityRegistry()
     return _registry

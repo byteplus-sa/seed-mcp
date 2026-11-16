@@ -3,6 +3,11 @@
 Configuration is loaded from environment variables or `.env` by Pydantic
 Settings. Copy `.env.example` to `.env`. Empty values are ignored.
 
+Provider-key environment variables below apply to **local stdio only**.
+HTTP uses live request BYOK headers and registers its 9 provider/discovery
+tools (12 with OmniHuman) without operator generation keys. No HTTP fallback
+to environment provider keys exists. Keep private configuration outside Git.
+
 `.env` is resolved **relative to the server's working directory**. Most MCP
 clients set that correctly from their server configuration, so this is rarely
 the problem. When a client cannot, it finds no `.env`, and the server starts
@@ -154,11 +159,17 @@ the model does not prove provider activation or account entitlement. No new
 feature flag is required. Flash cost previews currently reuse the static
 2.5 per-task fallback, not its token-based provider price.
 
-Credentials are startup-only. If a provider key is absent, its tools are not
-registered. OmniHuman requires its Vision AI key and explicit enable flag;
-Seed Audio uses its separate Seed Speech key. Provider base URLs must use
-HTTPS, include a hostname, and must
-not contain embedded credentials.
+On stdio, missing startup keys omit their tools. On HTTP, only the OmniHuman
+enable flag affects provider-tool registration; keys are checked at invocation.
+HTTP fixes provider origins to `https://ark.ap-southeast.bytepluses.com/api/v3`,
+`https://voice.ap-southeast-1.bytepluses.com` and
+`https://openapi.cv.bytepluses.com`. Userinfo, query/fragment, path-confused or
+nonofficial origins are rejected. Local overrides require credential-free HTTPS.
+
+Optional HTTP `X-ModelArk-Seedance-Endpoint` and
+`X-ModelArk-Seedream-Endpoint` defaults must exactly match a registered binding
+for the product. An explicit tool `model` wins. No arbitrary opaque `ep-*`
+lineage inference or caller-selected base URL is supported.
 
 ## Transport and authentication
 
@@ -169,43 +180,32 @@ not contain embedded credentials.
 | `MCP_PORT` | `3000` | HTTP listen port |
 | `MCP_ALLOWED_HOSTS` | loopback hosts | Comma-separated accepted Host headers |
 | `MCP_ALLOWED_ORIGINS` | empty | Comma-separated accepted browser Origins |
-| `MCP_HTTP_MAX_BODY_BYTES` | `314572800` (300 MiB) | Maximum HTTP request body; sized to inline the largest supported Base64 media upload (200 MiB video inflates ~4/3x). A smaller value logs a warning at startup (large inlined uploads will 413). |
-| `READINESS_CHECK_PROVIDERS` | `false` | When true, `/ready` also checks provider connectivity |
+| `MCP_HTTP_MAX_BODY_BYTES` | `2097152` (2 MiB) | Positive maximum streamed HTTP request body |
+| `MCP_HTTP_MAX_IN_FLIGHT` | `64` | Positive admission bound before body handling, including discovery |
+| `READINESS_CHECK_PROVIDERS` | `false` | Local diagnostic setting only; HTTP readiness never probes providers |
 | `READINESS_PROVIDER_TIMEOUT_SECONDS` | `2.0` | Per-provider timeout for readiness checks |
-| `RATE_LIMIT_RPM` | `0` | Max HTTP requests per minute per client IP; 0 disables |
+| `RATE_LIMIT_RPM` | `60` | Max HTTP requests per minute per client IP; positive required on HTTP |
 | `RATE_LIMIT_BURST` | `0` | Token bucket burst size; 0 defaults to `RATE_LIMIT_RPM` |
 | `RATE_LIMIT_TRUST_PROXY_HEADERS` | `false` | Trust the first `X-Forwarded-For` entry for rate-limit keys; enable only behind a trusted proxy |
-| `MCP_AUTH_MODE` | `local` | `local` or `api_key`; Docker, Compose and Terraform default to `api_key` |
-| `MCP_API_KEY_SHA256` | empty | Required for `api_key`: lowercase SHA-256 hex digest of the shared MCP key, never the raw key |
+| `MCP_AUTH_MODE` | `byok` | HTTP requires `byok`; explicit `local` is stdio-only; `api_key` removed |
+| `MCP_IDENTITY_HMAC_KEY` | empty | Required for HTTP: operator random 32-byte secret encoded as 64 lowercase hex; not a customer credential |
+| `MCP_IDENTITY_KEY_VERSION` | `1` | Positive HMAC identity version; changes ownership namespace when changed |
 
 `FASTMCP_TRANSPORT`, `FASTMCP_HOST`, and `FASTMCP_PORT` are accepted as
 aliases for the corresponding `MCP_*` transport settings.
 
-`local` auth is accepted only for stdio or loopback HTTP. Binding HTTP to a
-non-loopback address fails closed unless `api_key` mode and a valid digest
-are configured. API key mode assigns one `shared-team` tenant/principal
-with ordinary tool permissions, a shared budget and shared data access, excluding
-account-wide admin scopes. See [shared-key setup and rotation](self-hosting.md#shared-mcp-key).
-The internal tenant claim key is fixed to `tenant_id`, not an operator setting.
-FastMCP enforces the fixed ordinary scope allowlist:
-
-- `seed:audio:generate`
-- `seedream:generate`
-- `seedance:create`
-- `gen:read`, `gen:delete` (`gen_task_*` tools for Seedance tasks)
-- `understanding:read`
-- `omnihuman:create`, `omnihuman:read`, `omnihuman:cancel`
-- `media:upload`
-- `media:presign`
-- `artifacts:read`
-
-**Breaking change:** `jwt` mode is rejected. Retired `MCP_JWT_*`,
-`MCP_TENANT_CLAIM` and `MCP_PUBLIC_BASE_URL` settings are not used.
-There is no automatic ownership transfer. Preserve SQLite, Redis, artifacts
-and the snapshot encryption key; follow
-[the migration procedure](self-hosting.md#breaking-change-migration).
+Clients send `X-MCP-Client-Secret` (client-generated 32 random bytes as
+64 lowercase hex) plus only the selected provider header:
+`X-ModelArk-Api-Key`, `X-Seed-Speech-Api-Key`, or `X-OmniHuman-Api-Key`.
+Provider operations including dry runs require these; discovery is anonymous.
+`Authorization` is rejected. There is no OAuth, signup or server-issued key.
+Keep HMAC configuration and client credentials stable for ownership continuity.
+Fresh SQLite is required, with no old-schema migration or scope recovery bridge.
+See [HTTP client setup](setup/shared-server.md) and [security](security.md).
 
 ## Object storage (TOS or S3, optional)
+
+This section is stdio-only. HTTP exposes no upload, presign or artifact tools.
 
 The `media_upload` and `media_presign` tools are registered when the selected
 object-storage backend is configured. `media_upload` uploads 1-50 files to a
@@ -253,7 +253,8 @@ S3-compatible storage.
 |---|---|---|
 | `ARTIFACT_BACKEND` | `filesystem` | `filesystem` (local disk) or `object_storage` (TOS/S3) |
 | `STATE_BACKEND` | `sqlite` | Task ownership/budget/cache backend; only `sqlite` (single instance) is implemented |
-| `ARTIFACT_DIR` | `~/.ark-mcp/artifacts` | Media, metadata, ownership, and budget state |
+| `STATE_MAX_RECORDS` | `100000` | Positive ownership/budget retained-state capacity; exhaustion fails closed |
+| `ARTIFACT_DIR` | `~/.seed-mcp/artifacts` | Media, metadata, ownership, and budget state; separate from `ark-mcp` |
 | `ARTIFACT_TTL_SECONDS` | `604800` | Artifact retention, in seconds |
 | `ARTIFACT_SWEEP_INTERVAL_SECONDS` | `3600` | Interval between background artifact/state expiry sweeps |
 | `STATE_PRUNE_MAX_AGE_DAYS` | `30` | Max age for ownership/budget/cache rows before pruning; at least 14 for authenticated HTTP with regular Seedance 2.5 enabled |
@@ -262,12 +263,12 @@ S3-compatible storage.
 | `ARTIFACT_DOWNLOAD_MAX_ATTEMPTS` | `3` | Attempts (1-10) for a retryable output download (timeouts, network errors, 408/429/5xx), with 1s, 2s, 4s, ... backoff. Expired, untrusted, or oversized sources are never retried |
 | `ARTIFACT_INLINE_FALLBACK_MAX_BYTES` | `8388608` (8 MiB) | When inline Base64 output (Seed Audio, Seedream `b64_json`) cannot be stored, return it inline in `ArtifactRef.fallback_data` up to this decoded size; `0` disables |
 | `PROVIDER_MAX_CONCURRENCY` | `5` | Process-wide slots per provider |
-| `PRINCIPAL_MAX_CONCURRENCY` | `3` | Shared slots across the whole team on authenticated HTTP; skipped in local mode |
-| `DAILY_BUDGET_USD` | `0` | Per-principal UTC daily estimate limit, team-wide on shared-key HTTP; zero records only |
+| `PRINCIPAL_MAX_CONCURRENCY` | `3` | Slots per credential/client-derived HTTP owner; skipped for local stdio |
+| `DAILY_BUDGET_USD` | `0` | Per-owner UTC daily estimate limit; zero records only, not an account-wide spend guarantee |
 | `PERSISTENCE_CACHE_MAX_SIZE` | `10000` | Max cached provider task IDs in artifact-resolution cache |
 | `PERSISTENCE_CACHE_TTL_SECONDS` | `86400` | TTL for cached task-to-artifact mappings (seconds) |
 
-Authenticated HTTP servers with ModelArk credentials and any regular
+HTTP servers with any regular
 `seedance_2_5` binding (including custom or non-default models) require
 `STATE_PRUNE_MAX_AGE_DAYS >= 14` to retain Draft ownership throughout the
 promotion window. Shorter values fail at startup; increase existing overrides
@@ -275,7 +276,10 @@ or keep the 30-day default. Flash-only, legacy-only, local, and disabled
 ModelArk configurations retain the one-day minimum. Increasing retention does
 not recover already-pruned ownership rows; missing ownership remains denied.
 
-A billed output is never dropped because storage failed; see
+Seed Audio/Seedream `persist` and OmniHuman get `persist_output` default to
+false on every transport. HTTP rejects explicit true and returns temporary
+provider URLs; local callers can explicitly opt into persistence.
+A local billed output retains fallback delivery when storage fails; see
 [Artifacts](artifacts.md#persistence-failures).
 
 The filesystem backend enforces principal and tenant ownership. It is suitable
@@ -304,7 +308,7 @@ jobs should write files.** Path writing is stdio-only. See
 | `BYTEPLUS_REQUEST_TIMEOUT_MS` | `600000` | Full provider request timeout |
 | `SEED_UNDERSTANDING_TIMEOUT_MS` | unset (uses `BYTEPLUS_REQUEST_TIMEOUT_MS`) | Request timeout for `seed_understand` and `seed_audio_understand` chat completions. Deep thinking is always on, so long analyses may need more than the general request timeout |
 | `FASTMCP_DOCKET_URL` | `memory://` | FastMCP background-task backend used by generation, upload, provider submission, understanding (including audio transcription), and optional media-persistence calls; Redis can retain task state across restarts of the same single-replica deployment; it does not make SQLite state horizontally scalable |
-| `FASTMCP_TASKS_ENCRYPTION_KEY` | unset | Required for API-key-authenticated Redis task backends; use at least 32 random characters and keep the same key across restarts |
+| `FASTMCP_TASKS_ENCRYPTION_KEY` | unset | Local task snapshot protection only; HTTP has no task backend or snapshots |
 | `FASTMCP_DOCKET_CONCURRENCY` | `10` | Maximum active background tasks per worker; provider/principal limits still apply |
 | `ARK_LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, or `ERROR` |
 
@@ -315,16 +319,9 @@ server restart discards active and retained task state.
 
 ### Background task ownership and recovery
 
-**Keep the runtime database with the queue.** MCP task ownership is persisted in
-`runtime.sqlite3` using the fixed `tenant_id` claim key and principal. Every
-`tasks/get`, `tasks/update`, and `tasks/cancel` request checks that owner.
-Missing identity or ownership fails closed in `api_key` mode. All shared-key
-members use the same `shared-team` owner, including after key rotation.
-
-One shared server process gives all of its clients one queue: in local auth
-mode every loopback client is the same `local`/`local` principal, so a job
-submitted by one client is visible to the others. This remains single-instance
-state; see [transports.md](transports.md).
+**Local stdio only.** Keep the runtime database with any retained local queue.
+HTTP exposes no `ark_job_*`, native task augmentation or task snapshots.
+Do not use HTTP as a shared local-job server. See [transports.md](transports.md).
 
 Before a required-task handler starts, it atomically records an execution claim
 in the same database. If that MCP task is delivered again, the handler returns
@@ -333,10 +330,8 @@ over automatic recovery: after an interrupted submission, reconcile its provider
 outcome before creating a new operation. Optional output-retrieval tasks can be
 retried because they do not submit paid generation work.
 
-The default in-memory queue still loses task results at process exit. With Redis,
-retain the runtime database, backend, and encryption key together, and run only
-one application replica. Snapshot encryption protects caller credentials and
-HTTP headers stored by FastMCP; Redis must also restrict access to task arguments
-and results, which may contain media URLs and prompts. `rediss://` protects the
-connection and does not replace snapshot encryption. A wrong or missing key
-cannot decrypt existing encrypted snapshots. See [deployment.md](deployment.md).
+The default local in-memory queue loses task results at process exit. Local
+Redis retention does not distribute SQLite or make replicas safe. Restrict
+access to retained arguments/results and protect configured snapshot keys.
+HTTP retains only minimal scoped state, never customer credentials.
+Durable HTTP submission records, idempotency and crash recovery remain next phase.

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import pytest
+from pydantic import ValidationError
+
 from ark_mcp.security.auth_context import PrincipalContext
 
 
@@ -17,6 +20,20 @@ class TestPrincipalContextIsLocal:
             principal_id="local",
             tenant_id="tenant-a",
             transport="http",
-            scopes=frozenset({"seedance:read"}),
+            scopes=frozenset({"gen:read"}),
         )
         assert spoofed.is_local is False
+
+    @pytest.mark.parametrize(
+        "field,value",
+        [("principal_id", "other"), ("tenant_id", "other"), ("transport", "stdio")],
+    )
+    def test_http_ownership_identity_is_immutable(self, field: str, value: str) -> None:
+        principal = PrincipalContext(
+            principal_id="owner-a", tenant_id="credential-a", transport="http"
+        )
+        with pytest.raises(ValidationError, match="frozen"):
+            setattr(principal, field, value)
+        assert principal.principal_id == "owner-a"
+        assert principal.tenant_id == "credential-a"
+        assert not principal.is_local

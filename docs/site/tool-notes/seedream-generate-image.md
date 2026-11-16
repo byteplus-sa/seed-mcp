@@ -32,7 +32,8 @@ cannot be combined with multiple variations. On 5.5/Pro, optional
 stable hash, not personal data. It is redacted from previews and structured logs.
 
 JPEG is always opaque, including with `background="auto"`. Base64 delivery
-requires `persist=true`. Pro transparency still requires exactly one
+requires `persist=true` and is therefore local stdio only; HTTP rejects
+persistence true and uses URL delivery. Pro transparency still requires exactly one
 already-transparent PNG; it does not gain text-to-transparent generation.
 Custom endpoint IDs must bind to family `seedream_5_5`. See the
 [model capabilities](/ark-mcp/models/#image-capabilities-imagecapabilities)

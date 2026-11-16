@@ -4,6 +4,17 @@ This is the technical reference for background execution. For everyday setup,
 start with [Set Up Ark MCP](setup/install.md) and [your client guide](integrations/index.md).
 Users can ask their client in plain language; the client handles tool calls.
 
+**Choose the transport first.** Background workflows below are local stdio only.
+HTTP BYOK exposes 9 tools (12 with OmniHuman), direct foreground provider calls
+and anonymous static discovery. It has no jobs/native tasks/storage/artifact
+tools/resources. Keep persistence false and download expiring provider URLs
+on the client. See [HTTP setup](setup/shared-server.md).
+Anonymous discovery lists configured bindings without environment provider
+keys; `services[].enabled` reports registration, not customer entitlement.
+Explicit per-call `io.modelcontextprotocol/tasks` opt-in is rejected before
+provider dispatch, snapshot capture/save or queue creation. Omit the opt-in;
+ordinary jobs are unavailable on HTTP.
+
 ## Prerequisites
 
 Complete guided setup or connect to an existing shared server first.
@@ -23,7 +34,7 @@ before provider clients are created.
 
 ## Background Execution
 
-**Long-running work stays asynchronous for every client.** The server exposes
+**Local stdio long-running work uses the worker.** The server exposes
 two entry paths to the same FastMCP Docket worker:
 
 | Entry path | Client requirement | Result retrieval |
@@ -44,8 +55,7 @@ foreground call made directly to a required-task tool is still rejected before
 provider submission.
 
 The repository tests both paths with the locked FastMCP **4.1.8** runtime. The
-ordinary path is covered in-process, over a real subprocess stdio transport, and
-over authenticated Streamable HTTP without advertising the task extension.
+ordinary local path is covered in-process and over a real subprocess stdio transport.
 These tests use mocked providers and do not make billable generation calls.
 Exact desktop/IDE releases and their automatic tool-selection behavior can
 change; the standard `ark_job_*` protocol surface is the portable contract.
@@ -71,6 +81,15 @@ dry-run example with bounded polling and error checks. The
 [first-run guide](setup/first-run.md) provides copyable generation prompts and
 optional no-charge checks.
 
+For Seedance, retain every known accepted task/request ID even when an error
+is present. A variation can have both `task_id` and `error` after bookkeeping
+failure; `submitted` counts known IDs and `failed` counts entries with errors,
+so the counters overlap. A single-call failure remains error `ToolResult`
+text with IDs rather than structured success output. Never resubmit accepted
+work. HTTP polling requires recorded ownership; otherwise reconcile with the
+provider using those IDs. Trusted stdio permits unrecorded IDs, but still
+rejects a recorded owner mismatch.
+
 ### Native task workflow
 
 A client that negotiates the task extension can call the same tools with task
@@ -88,7 +107,7 @@ decomposition, even when the provider API supports those operations.
    paid-attempt limit and USD estimate budget covering generation, any
    `seed_understand` reviews and edits. `preview.price_source` is `builtin`,
    not an account-specific quote or actual charge. Stop when either limit is reached.
-2. Submit once through `ark_job_submit`. Keep the Ark job ID and completed
+2. Submit once, directly on HTTP or through `ark_job_submit` on stdio. Keep any Ark job ID and completed
    per-call `request_id`, submitted `seed`, final `prompt_sha256`,
    `request_options`, usage, artifact ID and artifact SHA-256. Store the original
    prompt and reference hashes in a private manifest; the hash is not the prompt.
@@ -96,8 +115,8 @@ decomposition, even when the provider API supports those operations.
    A delivered PNG is not automatically a passing image. Inspection problems
    do not cause paid rerolls.
 4. Review the immutable output visually, using an authorized human or
-   `seed_understand` through an ordinary job. Export/read a durable image or
-   upload it with `media_upload` for a provider-readable reference. Evaluate
+   `seed_understand` (direct HTTP, ordinary job on stdio). Use its provider URL;
+   local stdio can also export/read or upload a durable image. Evaluate
    exact spelling/case, forbidden text (including absence checks), object/person
    counts, geometry, visibility, anatomy and composition against the brief.
    An understanding response is fallible evidence, not authoritative OCR.
@@ -246,7 +265,7 @@ submit/status/persistence sequence is tested offline by the smoke-workflow tests
 
 ## Providing Credentials
 
-Use a private file outside the repository, referenced by `ARK_MCP_ENV_FILE`.
+For stdio use a private file outside the repository, referenced by `ARK_MCP_ENV_FILE`.
 Enter keys locally, never in chat, client JSON or shared configuration.
 [Guided setup](setup/install.md) prepares that file; [Provider Keys](api-keys.md)
 explains which fields you need. Inherited environment variables can override
@@ -314,7 +333,7 @@ diagnostics locally, not dump complete logs into chat. See
 
 ### Tools Missing
 
-If only some products' tools are registered:
+On local stdio, if only some products' tools are registered:
 
 - No ModelArk key → no `seedream_generate_image`, `seedance_create_task`,
   `gen_task_*`, `seed_understand`, or `seed_audio_understand`
@@ -322,7 +341,9 @@ If only some products' tools are registered:
   or feature flags; see
   [Configuration](configuration.md).
 
-`ark_list_models` reports which optional services are enabled.
+`ark_list_models` reports which optional services are enabled. HTTP registers
+provider tools without operator keys, subject to the OmniHuman flag; invocation
+still requires the selected live provider key and client secret.
 
 ## Environment Variables Reference
 
@@ -337,18 +358,21 @@ If only some products' tools are registered:
 | `MCP_TRANSPORT` | No | `stdio` | `stdio` or `http` |
 | `MCP_HOST` | No | `127.0.0.1` | HTTP bind address |
 | `MCP_PORT` | No | `3000` | HTTP port |
-| `MCP_AUTH_MODE` | No | `local` | Set `api_key` for non-loopback HTTP; Docker, Compose and Terraform already default to `api_key` |
-| `MCP_API_KEY_SHA256` | For `api_key` | — | Lowercase SHA-256 digest of the shared MCP key; never the raw key |
+| `MCP_AUTH_MODE` | No | `byok` | Required mode for HTTP; explicit `local` is stdio-only |
+| `MCP_IDENTITY_HMAC_KEY` | HTTP operator | empty | 64 lowercase hex from 32 random bytes; not a customer credential |
+| `MCP_IDENTITY_KEY_VERSION` | No | `1` | Positive identity namespace version |
 | `MCP_ALLOWED_HOSTS` | For HTTP | loopback | Accepted Host headers |
 | `MCP_ALLOWED_ORIGINS` | For browser HTTP | — | Accepted browser origins |
 | `ARTIFACT_DIR` | No | `.artifacts` | Local artifact storage |
 | `ARTIFACT_TTL_SECONDS` | No | `604800` (7 days) | Artifact retention |
 
-Clients send the shared MCP key in a private bearer header; provider keys stay
-on the server. Every member uses tenant/principal `shared-team` with fixed
-ordinary scopes, shared ownership and one budget. Asset and moderation
-administration is excluded. For key generation, rotation and migration without
-automatic ownership transfer, see [Self-Hosting](self-hosting.md#shared-mcp-key).
+HTTP clients send only the selected `X-ModelArk-Api-Key`,
+`X-Seed-Speech-Api-Key` or `X-OmniHuman-Api-Key`, plus required
+`X-MCP-Client-Secret` (client-generated 32 random bytes as 64 lowercase hex).
+Discovery is anonymous/static; provider calls including dry runs need headers.
+Keys are not persisted and there is no environment fallback, OAuth, signup or
+server-issued key. Fresh SQLite uses credential-tenant/client-owner scoping
+without compatibility migration. See [Self-Hosting](self-hosting.md).
 
 See [Configuration](configuration.md) for model bindings, body limits,
 concurrency, and budget settings.

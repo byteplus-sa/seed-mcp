@@ -1,5 +1,8 @@
 # Private Credential File
 
+The env-file workflow below is for local stdio. For a remote connection use
+[HTTP client credentials](#http-client-credentials) instead.
+
 ## Location and Permissions
 
 Resolve the private configuration directory using `platforms.md` and place
@@ -117,3 +120,31 @@ local review of private logs rather than requesting those logs in chat.
 and tool availability. They do not validate the API key with the provider.
 Do not run a billable operation to prove authentication without permission.
 An empty file is not successful onboarding when generation was requested.
+
+## HTTP Client Credentials
+
+Use only an operator-approved trusted HTTPS URL. The server receives live
+provider credentials but does not persist them or fall back to startup keys.
+Prepare private client environment/secret-store entries for only the desired
+provider headers, plus `X-MCP-Client-Secret`. Do not create a server-side
+provider-key bundle or ask for `MCP_IDENTITY_HMAC_KEY`; it is operator-only.
+
+Generate the client secret once using the OS cryptographic RNG or trusted
+secret manager: exactly 32 random bytes encoded as 64 lowercase hex.
+For a manual private session, `openssl rand -hex 32` produces that format.
+Never run it where agent tools, shared terminals, screenshots or logs capture
+the output. The user enters the generated value directly into protected client
+configuration. Do not read it back or substitute an example/test value.
+
+Map the selected `X-ModelArk-Api-Key`, `X-Seed-Speech-Api-Key` or
+`X-OmniHuman-Api-Key` and `X-MCP-Client-Secret` to private environment entries
+as supported by the target client. Only the selected key is required, including
+dry runs; discovery is anonymous. No OAuth, signup, server-issued key or
+`Authorization` is used. Protect plaintext env files as described above and
+do not source them as shell code.
+
+Keep the client secret and provider key stable to poll earlier work. Changes
+alter ownership scope with no recovery bridge. Separate provider keys/projects
+are needed to prevent direct upstream access by others sharing a key.
+Validate configuration syntax and discovery without printing secret values;
+exact-client header handling remains unverified until tested there.

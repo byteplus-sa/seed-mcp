@@ -11,7 +11,6 @@ from typing import Any
 
 import httpx
 
-from ark_mcp.config.env import get_settings
 from ark_mcp.observability.logger import debug as log_debug
 from ark_mcp.providers.modelark.client import ModelArkGateway
 from ark_mcp.providers.modelark.schemas import (
@@ -22,16 +21,12 @@ from ark_mcp.providers.modelark.schemas import (
     ChatThinkingConfig,
     ChatUsage,
 )
-from ark_mcp.providers.modelark.seedance import _parse_success_body
 
 
 class SeedUnderstandingService:
     """Service layer for Seed 2.1 multimodal understanding."""
 
-    def __init__(self, gateway: ModelArkGateway | None = None) -> None:
-        if gateway is None:
-            timeout_ms = get_settings().seed_understanding_timeout_ms
-            gateway = ModelArkGateway(timeout=timeout_ms / 1000 if timeout_ms else None)
+    def __init__(self, gateway: ModelArkGateway) -> None:
         self._gateway = gateway
 
     async def generate(
@@ -48,20 +43,19 @@ class SeedUnderstandingService:
             response = await self._gateway.post(
                 "/chat/completions", request.model_dump(exclude_none=True)
             )
-        except httpx.TimeoutException:
-            raise ModelArkGateway.normalize_timeout("chat_completion", side_effect=False) from None
-        except httpx.ConnectError as exc:
-            raise ModelArkGateway.normalize_connection_error("chat_completion", exc) from exc
         except httpx.TransportError as exc:
-            raise ModelArkGateway.normalize_transport_error("chat_completion", exc) from exc
+            raise ModelArkGateway.normalize_transport_error(
+                "chat_completion", exc, side_effect=True
+            ) from None
 
         request_id = ModelArkGateway.extract_request_id(response)
 
         if response.status_code >= 400:
             raise ModelArkGateway.normalize_error(response, "chat_completion")
 
-        body = _parse_success_body(response, "chat_completion")
-        parsed = ChatCompletionProviderResponse.model_validate(body)
+        parsed = ModelArkGateway.parse_response(
+            response, "chat_completion", ChatCompletionProviderResponse, side_effect=True
+        )
         log_debug(
             "chat_completion_complete",
             model=request.model,

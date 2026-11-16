@@ -22,226 +22,118 @@ Upstream release details:
 Stage upgrades separately, finish active jobs before restarting, and preserve
 runtime state, artifact storage and any task-snapshot encryption key.
 
-## Auth modes
+## HTTP BYOK Boundary
 
-`AuthMode` (`config/env.py`) accepts only `local` and `api_key`.
+`AuthMode` accepts `byok` (default) and explicit stdio-only `local`.
+The former `api_key` mode is removed. All HTTP, including loopback, requires
+BYOK and the operator's `MCP_IDENTITY_HMAC_KEY` (64 lowercase hex from 32
+random bytes), with positive `MCP_IDENTITY_KEY_VERSION` (default `1`).
+This key derives identity; it is not a customer credential.
 
-| Mode | Transport | Behavior |
-|---|---|---|
-| `local` (Python default) | `stdio` or loopback HTTP | No FastMCP auth provider; a single trusted principal `local`. |
-| `api_key` | HTTP | `SharedKeyVerifier`, hash-only verification and one non-admin team identity. |
+There is no OAuth, signup, server-issued key or bearer-token passthrough.
+`Authorization` is rejected with safe guidance. Clients send
+`X-MCP-Client-Secret` and the selected `X-ModelArk-Api-Key`,
+`X-Seed-Speech-Api-Key`, or `X-OmniHuman-Api-Key`. The client secret must be
+client-generated 32 random bytes encoded as 64 lowercase hex.
+Only the selected provider key is required, including on dry runs.
 
-Docker, Compose and Terraform default to `api_key`. `build_auth_provider`
-returns `None` for `LOCAL` or a `SharedKeyVerifier` for `API_KEY`.
-**Fail-closed is structural and startup-time:** if
-`MCP_TRANSPORT=http` + `MCP_AUTH_MODE=local` + `MCP_HOST` is not in
-`{127.0.0.1, ::1, localhost}`, `Settings` construction raises
-`ValueError("HTTP on a non-loopback host requires MCP_AUTH_MODE=api_key.")` and
-the server never starts.
+Raw ASGI header validation rejects duplicate, empty, non-ASCII, whitespace,
+control and oversized values without echoing them. Keys are opaque printable
+ASCII of at most 4096 characters. Live credentials are never restored from
+task snapshots, persisted in SQLite/artifacts/cache keys, or put in tool inputs.
+Request and provider contexts are released on completion/cancellation.
+Gateways receive explicit keys and never fall back to environment provider
+credentials for HTTP.
 
-## Shared-key verification
+## Principal and Tenant
 
-`MCP_AUTH_MODE=api_key` requires `MCP_API_KEY_SHA256`, a lowercase 64-character
-SHA-256 digest. The bearer key must be 32 random bytes encoded as lowercase
-hex; [key generation and rotation](self-hosting.md#shared-mcp-key) use a private
-file, never command-line secret arguments. The verifier hashes the incoming
-ASCII key and compares digests with `hmac.compare_digest`. It does not cache
-authentication or log credentials. The digest is masked in settings
-representations. There is no login or OAuth discovery endpoint.
+Domain-separated HMAC derives the credential tenant from identity version,
+provider, fixed official origin and exact provider key; the client secret
+then derives the owner. Unrelated keys do not alter ownership. Same key plus
+different client secret means a different owner. This is credential possession,
+not verified human or organization identity.
 
-All holders receive principal/tenant `shared-team` and the fixed
-`SHARED_TEAM_SCOPES` allowlist. They share ownership, budget, and concurrency;
-they can read or cancel each other's permitted work. There is no per-member
-audit identity, automatic expiry, or individual revocation. Rotate the key for
-everyone to remove a member. Identity is independent of the credential, so
-rotation preserves team history. Switching auth modes is not a data migration.
-Account-wide asset and moderation scopes are excluded.
+Fresh SQLite ownership uses `(provider, tenant_id, task_id)` as primary key
+and stores an immutable `principal_id`. Reads/claims/lists use that namespace;
+conflicts cannot transfer ownership. Missing records, database errors or
+capacity exhaustion fail closed before upstream access when known.
+Post-acceptance recording failure is ambiguous, never an automatic replay.
 
-TLS, Host/Origin enforcement, body limits, configured rate limits, ownership
-checks, and remote filesystem restrictions apply unchanged. Redis snapshot
-encryption is required for authenticated Redis task backends: a hash-only server configuration
-does not eliminate raw bearer credentials from live request/task context.
-Reload by recreating the application process/container after draining work;
-editing `.env` alone does not revoke running access.
+Keep HMAC configuration and credentials stable to preserve scope across
+restarts. Changing a provider key, client secret, HMAC key or version changes
+scope; no compatibility migration or recovery bridge exists. Sharing a
+provider key still permits direct upstream access outside this boundary.
+Use separate provider keys/projects for stronger separation.
 
-## Principal and tenant extraction
+## Scope Taxonomy
 
-`get_principal(ctx)` (`runtime.py`) resolves the principal identity from the
-verified internal bearer-token context. `SharedKeyVerifier` supplies
-`sub="shared-team"`, `tenant_id="shared-team"` and the fixed ordinary scopes;
-clients cannot override these by submitting claims.
+Catalog scope strings remain capability metadata, not customer-selected roles,
+OAuth grants or a common team identity. HTTP admission enforces the selected
+provider key and client owner. Local stdio trusts its local principal.
 
-Generic bearer-claim extraction remains internal so ownership boundaries can
-be tested independently of the shared-key verifier:
+All 12 scope strings in the catalog are retained below as metadata, not auth
+grants. A label does not register a tool or grant access to provider accounts.
 
-- **`sub` claim → `token.subject` → `token.client_id`** (first truthy `str`
-  wins). Missing → `PermissionError("The access token is missing a principal identity.")`.
-- **Tenant** is read from the fixed `"tenant_id"` claim key.
-  Missing/non-string → `PermissionError`. This key is not configurable.
-- A missing token → `PermissionError("An authenticated access token is required.")`.
-
-There is **no anonymous remote principal**; shared-key HTTP fails closed. The only
-way to get an `is_local` principal (`principal_id == "local"` with
-`transport == "stdio"`) is `LOCAL` mode, which returns `PrincipalContext()`
-untouched (`local`/`local`, empty scopes, `transport="stdio"`). This holds for
-loopback HTTP too, and is intentional: it is what lets all clients of one shared
-loopback server see each other's background jobs.
-
-The trust implication is explicit: with `MCP_AUTH_MODE=local` over loopback,
-**any local process or user that can reach the port acts as the `local`
-principal** — including billable tool calls and artifact or job reads. This
-matches the `stdio` trust model, but the port is reachable by every local
-account, so bind loopback only and do not expose it through a proxy.
-
-### `PrincipalContext` / `AuthContext`
-
-A frozen Pydantic model (`security/auth_context.py`):
-
-| Field | Type | Default |
-|---|---|---|
-| `principal_id` | `str` | `"local"` |
-| `tenant_id` | `str` | `"local"` |
-| `scopes` | `frozenset[str]` | `frozenset()` |
-| `transport` | `Literal["stdio", "http"]` | `"stdio"` |
-
-`is_local` returns `principal_id == "local" and transport == "stdio"`.
-`AuthContext` is a compatibility alias for `PrincipalContext`.
-
-## Scope taxonomy
-
-`component_auth(settings, *scopes)` returns `None` in `LOCAL` mode, or
-`require_scopes(*scopes)` (a FastMCP `AuthCheck`) in `API_KEY` mode. The
-tool → scope mapping is the `scope` column of the static tool catalog
-(`tools/_catalog.py`), applied by `server.py::register_tools`:
-
-| Scope | Protects |
-|---|---|
-| `seed:audio:generate` | `seed_audio_generate` (single clip or variations) |
-| `seedream:generate` | `seedream_generate_image` (generation, editing, variations, and dry runs) |
-| `seedance:create` | `seedance_create_task` (every Seedance model, including variations and dry runs) |
-| `gen:read` | `gen_task_get`, `gen_task_list` (Seedance tasks) |
+| Catalog scope metadata | Tools |
+| --- | --- |
+| `artifacts:read` | `seed_media_get_artifact`, `seed_media_export_artifact` (stdio only) |
+| `media:upload` | `media_upload`, `seed_media_persist_url` (stdio only) |
+| `media:presign` | `media_presign` (stdio only) |
+| `seed:audio:generate` | `seed_audio_generate` |
+| `seedream:generate` | `seedream_generate_image` |
+| `seedance:create` | `seedance_create_task` |
+| `gen:read` | `gen_task_get`, `gen_task_list` |
 | `gen:delete` | `gen_task_cancel_or_delete` |
 | `understanding:read` | `seed_understand`, `seed_audio_understand` |
 | `omnihuman:create` | `omnihuman_create_task` |
 | `omnihuman:read` | `omnihuman_get_task` |
 | `omnihuman:cancel` | `omnihuman_cancel_task` |
-| `media:upload` | `media_upload`, `seed_media_persist_url` |
-| `media:presign` | `media_presign` |
-| `artifacts:read` | MCP resource `seed-media://artifacts/{artifact_id}`, `seed_media_get_artifact`, `seed_media_export_artifact` |
 
-These ordinary scopes form the fixed shared-team allowlist. They are not
-per-user roles and cannot be changed through client claims or configuration.
-Account-wide asset and moderation administration is outside this tool surface.
-The catalog has no asset-administration tools or asset permission labels on
-either transport; existing native Seedance references remain supported without
-lookup, resolution or provider-status preflight.
+HTTP exposes 9 provider/discovery tools, or 12 with OmniHuman enabled, without
+requiring operator provider keys. Anonymous `ark_list_models` lists configured
+model bindings even without an environment provider key. `services[].enabled`
+describes registration, not customer entitlement or key validity. Jobs, native tasks, storage/artifact tools and all MCP
+resources are absent on HTTP. They remain local stdio capabilities within the
+21-entry catalog. No asset administration exists on either transport.
 
-**Create scopes are per product because that is where spend happens; read
-and delete scopes are shared** (`gen:read`, `gen:delete`) because the
-ownership store already limits every principal to its tasks. Every shared-key
-member is that same principal, including for result reads and cancellations.
+## HTTP Admission and Routing
 
-`ark_job_*` and `ark_list_models` need an authenticated principal but no
-scope: job tools enforce the target tool's scope at submit time, and
-`ark_list_models` returns only configured model IDs and limits.
+`HardenedFastMCP.http_app()` enforces stateless HTTP, Host/Origin protection
+and live credentials on every entry path; stdio-configured HTTP construction
+is rejected. Set `MCP_ALLOWED_HOSTS` explicitly for ingress and allow browser
+Origins only where needed. Proxy headers are not trusted by default.
+Explicit per-call `io.modelcontextprotocol/tasks` opt-in is rejected before
+provider dispatch, task-snapshot capture/save or queue creation, including
+on discovery. Omit the opt-in and call HTTP tools directly.
 
-The `seed-health://status` resource and the `/health`, `/ready`, `/metrics`
-routes are **not** scope-protected at the FastMCP layer. Seed Audio is
-registered only when `BYTEPLUS_SEED_SPEECH_API_KEY` is set;
-Seedream/Seedance and understanding require `BYTEPLUS_MODELARK_API_KEY`;
-OmniHuman requires `BYTEPLUS_CV_API_KEY` and `BYTEPLUS_OMNIHUMAN_ENABLED=true`.
-The `media_upload` and
-`media_presign` tools are registered only when object storage credentials are set (TOS:
-`TOS_ACCESS_KEY` / `TOS_SECRET_KEY` / `TOS_BUCKET`, or S3:
-`S3_ACCESS_KEY` / `S3_SECRET_KEY` / `S3_BUCKET` with
-`OBJECT_STORAGE_BACKEND=s3`).
+| Setting | Default | Rule |
+| --- | --- | --- |
+| `RATE_LIMIT_RPM` | `60` | Positive per-IP limit with bounded map cardinality |
+| `RATE_LIMIT_BURST` | `0` | Uses RPM when zero |
+| `MCP_HTTP_MAX_BODY_BYTES` | `2097152` (2 MiB) | Positive streamed body cap |
+| `MCP_HTTP_MAX_IN_FLIGHT` | `64` | Positive global admission limit before body handling, including discovery |
+| `STATE_MAX_RECORDS` | `100000` | Positive state bound; never evict live owners to admit work |
 
-### Object storage credentials
+`/health` and `/ready` are anonymous minimal process/state probes; HTTP
+readiness never contacts providers. `/metrics` is unavailable on HTTP.
+`seed-health://status` and artifact resources are stdio-only.
 
-Object storage access key and secret key are loaded from environment
-variables at startup (`TOS_ACCESS_KEY` / `TOS_SECRET_KEY` or
-`S3_ACCESS_KEY` / `S3_SECRET_KEY`) and never accepted as tool arguments.
-The bucket is **private** — presigned URLs grant temporary read access to
-individual objects. Object keys are server-generated UUIDs under a
-caller-supplied prefix; `key_prefix` is sanitized to alphanumeric, `-`, `_`,
-and `/`. File-path input is restricted to the `stdio` transport to prevent
-remote file reads over HTTP.
+Provider origins are fixed to official ModelArk, Seed Speech and Vision AI
+URLs listed in [configuration](configuration.md). No arbitrary hosts,
+userinfo, query/fragment or path-confused base URLs are accepted.
+Endpoint headers select exact registry bindings only; explicit tool `model`
+wins and arbitrary opaque `ep-*` lineage is not inferred.
 
-Uploaded object keys are recorded in the SQLite `object_key_ownership`
-ledger keyed by `(principal_id, tenant_id)`. `media_presign`
-verifies the caller owns each key (an unowned key returns `NOT_OWNED` for that
-key only) before minting a read
-URL; a remote principal cannot re-presign another tenant's object. In `LOCAL`
-mode, unrecorded keys remain presignable by the single local principal. A
-successful `record` or `require_owner` refreshes the row's `created_at`
-timestamp, so regularly presigned keys are not expired by the state sweeper.
-Rows are pruned by the background state sweeper after
-`STATE_PRUNE_MAX_AGE_DAYS` (default `30`) of inactivity; a long-lived key
-that has not been presigned within that window must be re-uploaded before it
-can be presigned again by a remote principal.
-
-## Host / Origin protection
-
-Enabled in `__main__.py` for HTTP transport via FastMCP-native guards
-(`host_origin_protection=True` plus `allowed_hosts`/`allowed_origins`). This
-is **not** a custom middleware in this repo.
-
-| Env var | Default | Notes |
-|---|---|---|
-| `MCP_ALLOWED_HOSTS` | `127.0.0.1,localhost,[::1]` | comma-separated |
-| `MCP_ALLOWED_ORIGINS` | `""` (empty → all browser origins rejected) | each must be an `http`/`https` URL with a hostname |
-
-When deploying behind a public hostname, set **both** the public hostname
-(in `MCP_ALLOWED_HOSTS`) and the allowed browser origins (in
-`MCP_ALLOWED_ORIGINS`).
-
-## Body-limit middleware (`security/http_middleware.py`)
-
-`RequestBodyLimitMiddleware` (ASGI) — the only custom ASGI middleware
-shipped in `security/`. Wired for HTTP transport only.
-
-| Env var | Default | Notes |
-|---|---|---|
-| `MCP_HTTP_MAX_BODY_BYTES` | `314_572_800` (300 MiB), `ge=1` | rejects oversized bodies; sized to inline the largest supported Base64 media upload (200 MiB video inflates ~4/3x) |
-
-Behavior: reads `Content-Length`; if `> max_bytes` → `413 "Request body too
-large"`; on unparseable `Content-Length` → `400`. It also wraps `receive` to
-enforce the limit on streamed bodies; if the response has already started,
-it re-raises `RequestBodyTooLarge` (the connection errors out rather than
-sending a clean 413 mid-stream).
-
-## Rate limiting (`security/http_middleware.py`)
-
-`RateLimitMiddleware` (ASGI) — a per-client-IP token bucket rate limiter,
-wired for HTTP transport only when `RATE_LIMIT_RPM > 0`. Disabled by default.
-
-| Env var | Default | Notes |
-|---|---|---|
-| `RATE_LIMIT_RPM` | `0` (disabled) | Maximum HTTP requests per minute per client IP |
-| `RATE_LIMIT_BURST` | `0` (defaults to `RATE_LIMIT_RPM`) | Token bucket burst capacity |
-
-Behavior: each client IP gets an in-memory token bucket. The refill rate is
-`rpm / 60` tokens per second. Each request consumes one token. When the
-bucket is empty, the middleware returns `429 "Rate limit exceeded"` with a
-`Retry-After` header indicating the seconds until the next token is
-available, plus `X-RateLimit-Limit`, `X-RateLimit-Remaining`, and
-`X-RateLimit-Reset` headers so well-behaved clients can self-throttle. The
-bucket dict is protected by an `asyncio.Lock`, and expired buckets are evicted
-once more than 10,000 keys are tracked.
-
-| Env var | Default | Notes |
-|---|---|---|
-| `RATE_LIMIT_TRUST_PROXY_HEADERS` | `false` | Key buckets on the first `X-Forwarded-For` entry instead of the socket peer IP |
-
-**Enable proxy headers only behind a proxy that overwrites
-`X-Forwarded-For`.** Otherwise a client can choose its own bucket key and
-evade the limit.
-
-Both ASGI middlewares are applied by `HardenedFastMCP.http_app`
-(`server.py`) whenever `MCP_TRANSPORT=http`, so they are active whether the
-server starts through `python -m ark_mcp` or `fastmcp run`.
+HTTP rejects `persist=true`, `persist_output=true`, local paths and stored
+artifact references before dispatch. Seed Audio/Seedream/OmniHuman get
+persistence defaults are false globally. Clients retrieve expiring outputs.
+Files API temporary uploads are cleaned up using the same request key;
+remote file expiry is distinct from output URL expiry/local persistence.
 
 ## SSRF-safe downloader (`security/safe_downloader.py`)
+
+Artifact download and persistence below are **local stdio only**. HTTP never
+exposes this downloader through artifact or storage tools.
 
 `SafeDownloader` downloads provider media (for `copy_from_trusted_url`) with
 two-layer SSRF defense. Constructor defaults: `timeout=120.0s`,
@@ -286,7 +178,7 @@ same controls: the URL goes through `copy_from_trusted_url` with this host
 allowlist, full SSRF validation and IP pinning, per-hop redirect
 re-validation, and the per-media-type size limits. Any host outside the
 allowlist is rejected; the tool cannot be used to fetch arbitrary URLs. It
-requires the fixed team's `media:upload` scope in `api_key` mode.
+is available only on trusted local stdio.
 
 For generation tasks, provider completion and artifact persistence are separate
 outcomes. A completed provider output URL is preserved for the authorized
@@ -397,64 +289,24 @@ with an under-reported size could bypass it. The provider enforces the
   `__main__.py`, so Python uses the macOS Keychain for TLS verification.
 - Provider base URLs (`BYTEPLUS_MODELARK_BASE_URL`,
   `BYTEPLUS_SEED_AUDIO_BASE_URL`, `BYTEPLUS_CV_BASE_URL`) are
-  validated at settings load: must be
-  `https://` with a hostname and no embedded credentials; trailing slash
-  stripped.
+  validated at settings load: local overrides require HTTPS with a hostname
+  and no embedded credentials; HTTP accepts only the fixed official origins.
 - ModelArk and Vision AI use separate Bearer keys; Seed Speech uses
   `X-Api-Key`. Keys are never logged, returned or accepted as tool arguments.
 - Prompt, subtitle, media URL, and credential fields are treated as sensitive
   content and redacted from structured logs.
 
-## Settings caching
+## Failure and Launch Limits
 
-`get_settings()` is `@lru_cache(maxsize=1)`; `refresh_settings()` clears the
-cache. Operators must recreate the running application after configuration
-changes; refreshing a settings cache alone does not rebuild the verifier.
-Follow [key rotation](self-hosting.md#rotation-and-removal) to revoke a key.
+Uncertain mutation transport failures and malformed 2xx responses are
+ambiguous/nonretryable, including billable understanding completions.
+Mutation 5xx responses are ambiguous and never automatically retried,
+even when `retryable=true`. Eligible 429 rejections, demonstrably pre-dispatch
+failures and reads can retain bounded retries; understanding disables all
+automatic `TIMEOUT` retries. Diagnostics retain safe codes/request IDs, never
+raw exceptions or echoed secrets. Reconcile accepted work before resubmission.
 
-
-## MCP background task boundaries
-
-**MCP task results use the same tenant/principal boundary as provider tasks.**
-`TenantTasksExtension` records task ownership under the `mcp` namespace in the
-runtime ownership database and checks it before get, update, or cancel.
-The internal bearer context must include the fixed `tenant_id` claim key.
-FastMCP's own client/subject namespace remains an additional check, not the
-application's source of tenant isolation. Ownership tests retain generic
-bearer identities to verify cross-tenant rejection even when client and subject
-match. Production shared-key requests all resolve to `shared-team`; these
-checks do not isolate members of the team.
-
-The ordinary `ark_job_*` tools reuse this boundary. Submission
-resolves only an immutable allowlist of task-enabled tools, requires the target
-tool's exact scope before queueing, and claims the server-generated job ID
-for the current tenant and principal. Capability discovery returns only
-configured targets permitted by the caller. Get and cancel check ownership
-before consulting the task backend, and unknown or cross-principal IDs never
-return another caller's result. Arguments, prompts, URLs, and result bodies are
-not added to logs or metric labels.
-
-**Authenticated Redis task backends require snapshot encryption at startup.**
-Set `FASTMCP_TASKS_ENCRYPTION_KEY` from a secret manager with at least 32 random
-characters. FastMCP snapshots contain caller tokens and inbound HTTP headers;
-without encryption these would be stored as plaintext. Use backend access
-controls and TLS as well: snapshot encryption does not encrypt every task
-argument or media result. Preserve the same key for retained tasks; replacing it
-makes old snapshots unreadable and their execution fails closed.
-
-Required-task workers atomically claim their MCP task ID in SQLite before
-provider work. Claims survive restarts, so redelivery of an already-started task
-fails with an ambiguous-outcome/reconciliation message instead of automatically
-repeating a billable operation. This is not an exactly-once provider guarantee:
-a new submission has a new ID, and deleting runtime state removes its execution
-history. Keep the single-replica restriction and preserve the database whenever
-retaining a Redis queue. Ownership/execution rows follow the existing state
-retention policy; retained queue state must not outlive that history.
-
-## Breaking-change migration
-
-The old `jwt` auth mode is rejected. Retired `MCP_JWT_*`, `MCP_TENANT_CLAIM`
-and `MCP_PUBLIC_BASE_URL` settings are not used. There is no automatic transfer
-of former user or local ownership to `shared-team`. Preserve SQLite, artifacts,
-Redis and the existing snapshot encryption key while migrating clients.
-See the [migration procedure](self-hosting.md#breaking-change-migration).
+Single-instance SQLite is the only state backend. PostgreSQL, multi-replica
+coordination, durable idempotency and crash recovery are next phase.
+No exactly-once inference or public-launch readiness is claimed.
+See [SPEC_HOSTED_BYOK.md](../specs/SPEC_HOSTED_BYOK.md).

@@ -8,7 +8,7 @@ from dataclasses import asdict, dataclass
 from typing import TYPE_CHECKING, Any
 
 from .cloud import Cloud
-from .private import PRODUCT_KEYS
+from .private import IDENTITY_SETTINGS, validator
 from .workspace import read_private
 
 if TYPE_CHECKING:
@@ -68,12 +68,12 @@ class SecretReference:
 
 
 def parse_bundle(value: str) -> dict[str, str]:
-    """Parse only product keys; absent or empty entries intentionally disable products."""
+    """Parse only operator HMAC identity; customer credentials are never accepted."""
     try:
         if not isinstance(value, str) or len(value.encode()) > 30720:
             raise ValueError
         supplied = json.loads(value, object_pairs_hook=unique_object)
-        if not isinstance(supplied, dict) or set(supplied) - PRODUCT_KEYS:
+        if not isinstance(supplied, dict) or set(supplied) != IDENTITY_SETTINGS:
             raise ValueError
         for key in supplied:
             token = supplied[key]
@@ -84,16 +84,15 @@ def parse_bundle(value: str) -> dict[str, str]:
                 or any(character in token for character in "$`#\"'\\")
             ):
                 raise ValueError
-        if not any(supplied.values()):
-            raise ValueError
-        return {key: supplied.get(key, "") for key in sorted(PRODUCT_KEYS)}
+        validator().validate_identity(supplied)
+        return supplied
     except (TypeError, ValueError, UnicodeError):
         raise ValueError(
-            "Secret value must be a bounded JSON bundle containing only literal product API keys."
+            "Secret value must contain only MCP_IDENTITY_HMAC_KEY and MCP_IDENTITY_KEY_VERSION as validated strings."
         ) from None
 
 
-def fetch_provider_keys(
+def fetch_operator_identity(
     reference: SecretReference, *, cloud: Cloud | None = None
 ) -> dict[str, str]:
     """Verify exact generic-secret identity before reading its explicitly pinned version."""

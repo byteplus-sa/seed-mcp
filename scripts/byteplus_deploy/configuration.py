@@ -1,4 +1,4 @@
-"""Private, explicitly approved provider-only Secret Manager sync transactions."""
+"""Private, explicitly approved operator-identity-only Secret Manager sync transactions."""
 
 from __future__ import annotations
 
@@ -9,8 +9,8 @@ import shlex
 from typing import TYPE_CHECKING, Any
 
 from .cloud import Cloud
-from .private import PRODUCT_KEYS, configuration_digest, replace_provider_keys, validator
-from .secrets import SecretReference, fetch_provider_keys
+from .private import IDENTITY_SETTINGS, configuration_digest, replace_operator_identity, validator
+from .secrets import SecretReference, fetch_operator_identity
 from .workspace import Workspace, atomic_private, read_private
 
 if TYPE_CHECKING:
@@ -40,8 +40,8 @@ def status(workspace: Workspace) -> dict[str, Any]:
     journal = workspace.journal()
     pending = journal.get("config_update")
     return {
-        "configured_keys": {key: bool(values.get(key)) for key in sorted(PRODUCT_KEYS)},
-        "source": journal.get("provider_secret_source"),
+        "configured_keys": {key: bool(values.get(key)) for key in sorted(IDENTITY_SETTINGS)},
+        "source": journal.get("operator_secret_source"),
         "pending": (
             {
                 "status": pending["status"],
@@ -69,12 +69,12 @@ def plan(workspace: Workspace, args: argparse.Namespace) -> dict[str, Any]:
     workspace.cleanup_temporaries()
     prepare_configuration(workspace, argparse_namespace())
     reference = SecretReference.load(args.secret_reference_file)
-    keys = fetch_provider_keys(reference)
+    keys = fetch_operator_identity(reference)
     original = read_private(workspace.path / "host.env")
     previous_values = validator().load_environment(
         workspace.path / "host.env", expected_uid=os.getuid()
     )
-    candidate = replace_provider_keys(original, keys)
+    candidate = replace_operator_identity(original, keys)
     sequence = journal.get("config_sequence", 0) + 1
     pending = {
         "source": reference.metadata(),
@@ -82,7 +82,7 @@ def plan(workspace: Workspace, args: argparse.Namespace) -> dict[str, Any]:
         "previous_digest": configuration_digest(original),
         "next_digest": configuration_digest(candidate),
         "changed_keys": sorted(
-            key for key in PRODUCT_KEYS if previous_values.get(key, "") != keys.get(key, "")
+            key for key in IDENTITY_SETTINGS if previous_values.get(key, "") != keys.get(key, "")
         ),
         "status": "planned",
         "host_operation": f"config-{sequence}-1",
@@ -96,21 +96,21 @@ def plan(workspace: Workspace, args: argparse.Namespace) -> dict[str, Any]:
         "source": pending["source"],
         "changed_keys": pending["changed_keys"],
         "approve_config": pending["approval"],
-        "maintenance": "Pause producers and drain jobs before apply. Only MCP is recreated; paid work is not guaranteed to survive interruption.",
+        "maintenance": "Pause new requests and drain foreground calls before apply. Changing HMAC identity resets every ownership scope with no recovery bridge; do not replay ambiguous paid work.",
     }
 
 
 def argparse_namespace() -> argparse.Namespace:
     import argparse
 
-    return argparse.Namespace(provider_env_file=None, secret_reference_file=None)
+    return argparse.Namespace(operator_env_file=None, secret_reference_file=None)
 
 
 def _saved_plan(workspace: Workspace) -> tuple[dict[str, Any], bytes]:
     _provenance(workspace)
     pending = workspace.journal().get("config_update")
     if not isinstance(pending, dict):
-        raise ValueError("No provider configuration plan exists.")
+        raise ValueError("No operator identity plan exists.")
     candidate = read_private(workspace.path / "config.candidate.env")
     previous = read_private(workspace.path / "config.previous.env")
     if (
@@ -195,7 +195,7 @@ def apply(workspace: Workspace, args: argparse.Namespace) -> None:
                 candidate,
                 [
                     "--kind",
-                    "provider-update",
+                    "identity-update",
                     "--previous-digest",
                     pending["previous_digest"],
                     "--digest",
@@ -217,7 +217,7 @@ def apply(workspace: Workspace, args: argparse.Namespace) -> None:
     atomic_private(workspace.path / "host.env", candidate)
     journal = workspace.journal()
     journal.update(
-        configuration_sha256=pending["next_digest"], provider_secret_source=pending["source"]
+        configuration_sha256=pending["next_digest"], operator_secret_source=pending["source"]
     )
     journal["config_update"]["status"] = "cleanup"
     workspace.save_journal(journal)
@@ -239,7 +239,7 @@ def _cleanup(workspace: Workspace, args: argparse.Namespace) -> None:
         or journal["configuration_sha256"] != expected
     ):
         raise ValueError(
-            "Provider cleanup requires the exact reconciled configuration and approval."
+            "Identity cleanup requires the exact reconciled configuration and approval."
         )
     workspace.cleanup_temporaries()
     for filename in ("config.previous.env", "config.candidate.env"):

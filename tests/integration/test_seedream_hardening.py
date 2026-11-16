@@ -182,7 +182,7 @@ async def test_inspection_uses_persisted_url_or_inline_fallback_bytes(
             return_value=httpx.Response(200, json={"data": [item]})
         )
         result = await seedream_generate_image(
-            SeedreamGenerateInput(prompt="test", output_format="png"), fake_ctx
+            SeedreamGenerateInput(prompt="test", output_format="png", persist=True), fake_ctx
         )
     assert route.call_count == 1
     assert isinstance(result, SeedreamGenerateOutput)
@@ -214,6 +214,7 @@ async def test_persisted_image_inspection_does_not_invent_provider_metadata(
                 background="transparent",
                 variations=variations,
                 images=[{"kind": "url", "url": "https://example.com/transparent.png"}],
+                persist=True,
             ),
             fake_ctx,
         )
@@ -244,6 +245,7 @@ async def test_inspection_mismatch_keeps_billed_artifact(fake_ctx: FakeContext) 
                 prompt="red square",
                 background="transparent",
                 images=[{"kind": "url", "url": "https://example.com/transparent.png"}],
+                persist=True,
             ),
             fake_ctx,
         )
@@ -279,7 +281,7 @@ async def test_variation_inspection_cancellation_preserves_persisted_outputs(
             )
         )
         result = await seedream_generate_image(
-            SeedreamGenerateInput(prompt="test", variations=2, seed=42), fake_ctx
+            SeedreamGenerateInput(prompt="test", variations=2, seed=42, persist=True), fake_ctx
         )
     assert route.call_count == 2
     assert isinstance(result, SeedreamGenerateOutput)
@@ -325,7 +327,9 @@ async def test_inspection_unavailability_preserves_artifact_and_redacts_exceptio
                 200, json={"data": [{"b64_json": base64.b64encode(raw).decode()}]}
             )
         )
-        result = await seedream_generate_image(SeedreamGenerateInput(prompt="test"), fake_ctx)
+        result = await seedream_generate_image(
+            SeedreamGenerateInput(prompt="test", persist=True), fake_ctx
+        )
     assert route.call_count == 1
     assert isinstance(result, SeedreamGenerateOutput)
     assert len(result.artifacts) == 1
@@ -357,7 +361,7 @@ async def test_storage_presign_error_during_inspection_retains_billed_output(
             )
         )
         result = await seedream_generate_image(
-            SeedreamGenerateInput(prompt="test", variations=variations), fake_ctx
+            SeedreamGenerateInput(prompt="test", variations=variations, persist=True), fake_ctx
         )
     assert route.call_count == variations
     assert isinstance(result, SeedreamGenerateOutput)
@@ -426,7 +430,10 @@ async def test_inspection_detects_format_and_size_disagreement(fake_ctx: FakeCon
             )
         )
         result = await seedream_generate_image(
-            SeedreamGenerateInput(prompt="test", size="1024x1024", output_format="png"), fake_ctx
+            SeedreamGenerateInput(
+                prompt="test", size="1024x1024", output_format="png", persist=True
+            ),
+            fake_ctx,
         )
     assert route.call_count == 1
     assert isinstance(result, SeedreamGenerateOutput)
@@ -469,6 +476,7 @@ async def test_55_edit_jobs_accept_point_and_bbox_with_real_reference(
                 client,
                 {
                     "prompt": "Change red to blue",
+                    "persist": True,
                     "images": [
                         {
                             "kind": "base64",

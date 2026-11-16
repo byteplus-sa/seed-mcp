@@ -14,31 +14,31 @@ test("deployment guide distinguishes partial live provisioning from end-to-end v
   assert.match(content, /Partial Terraform state was preserved/);
   assert.match(
     content,
-    /temporary VM, both disks, and security group.*removed/i,
+    /temporary VM, both disks,? and security group.*removed/i,
   );
-  assert.match(content, /existing team server.*unchanged/i);
+  assert.match(content, /does not validate the new BYOK application/i);
   assert.match(content, /HTTPS.*resume.*updates.*not yet.*live/i);
 });
 
 test("deployment guide separates operator tools from member access", () => {
-  const content = page("byteplus-terraform.md");
+  const content = page("byteplus-terraform.md").replace(/\s+/g, " ");
   assert.match(content, /## Requirements/);
   assert.match(content, /## Set Up Dependencies/);
   assert.match(content, /## Set Up IAM and Credentials/);
   assert.match(content, /members.*do not need.*IAM/i);
   assert.match(content, /ArkCLI.*bytedcli.*not required/i);
   assert.match(content, /Docker.*installed.*VM/i);
-  assert.match(content, /Windows.*not supported/i);
+  assert.match(content, /Windows.*not established/i);
   assert.match(content, /Git.*archive/i);
   assert.match(content, /uv python install 3\.12/);
   assert.match(content, /uv sync --locked --no-dev --python 3\.12/);
-  assert.match(content, /brew install hashicorp\/tap\/terraform/);
+  assert.match(content, /Terraform `>=1\.9,<2\.0`/);
   assert.match(content, /terraform version/);
   assert.match(content, /deploy_byteplus\.py --help/);
 });
 
 test("deployment credentials retain explicit safety and permission boundaries", () => {
-  const content = page("byteplus-terraform.md");
+  const content = page("byteplus-terraform.md").replace(/\s+/g, " ");
   for (const name of [
     "BYTEPLUS_ACCESS_KEY",
     "BYTEPLUS_SECRET_KEY",
@@ -52,10 +52,10 @@ test("deployment credentials retain explicit safety and permission boundaries", 
     assert.ok(content.includes(name), name);
   }
   assert.match(content, /not a validated least-privilege IAM policy/i);
-  assert.match(content, /root.*guest/i);
+  assert.match(content, /Guest commands run as root/i);
   assert.match(content, /CLI.*does not create.*IAM/i);
   assert.match(content, /STS.*requires a new plan/);
-  assert.match(content, /mode.?`?0600/);
+  assert.match(content, /mode `0600`/);
   assert.match(content, /Do not mix raw `terraform apply`, manual disk/);
   assert.doesNotMatch(content, /export (?:BYTEPLUS_|CR_PAT)[A-Z_]*=/);
 });
@@ -99,53 +99,36 @@ test("dependency and account setup links use official documentation", () => {
   );
 });
 
-test("Secret Manager guide documents pinned operator sync and maintenance boundaries", () => {
+test("hosted provider-secret sync is superseded without replacement key custody", () => {
   const content = page("secret-manager.md").replace(/\s+/g, " ");
-  for (const command of ["status", "plan", "apply", "discard"]) {
-    assert.ok(content.includes(`config ${command}`), command);
-  }
-  for (const field of [
-    "region",
-    "account_id",
-    "project_name",
-    "secret_name",
-    "version_id",
-  ]) {
-    assert.ok(content.includes(`"${field}"`), field);
-  }
-  assert.match(content, /never implicitly follows.*CURRENT/);
-  assert.match(content, /VM receives no KMS IAM/);
-  assert.match(content, /Pause producers and drain active jobs/);
-  assert.match(content, /do not prove provider credentials work/);
-  assert.match(content, /live sync have not been validated/);
-  assert.match(content, /omitted or empty entries disable/);
-  assert.match(content, /separately reviewed source\/helper migration/);
+  assert.match(content, /provider-secret sync is superseded/i);
+  assert.match(content, /must not fetch one from Secret Manager/);
+  assert.match(content, /not a customer credential/);
+  assert.match(content, /MCP_IDENTITY_HMAC_KEY/);
+  assert.match(content, /MCP_IDENTITY_KEY_VERSION/);
+  assert.match(content, /SPEC_PROVIDER_SECRET_SYNC\.md/);
+  assert.doesNotMatch(content, /config (?:plan|apply)|--secret-reference-file/);
   assert.ok(page("byteplus-terraform.md").includes("(secret-manager.md)"));
   assert.ok(page("setup/shared-server.md").includes("(../secret-manager.md)"));
-  for (const block of page("secret-manager.md").matchAll(
-    /```bash\n([\s\S]*?)\n```/g,
-  )) {
-    assert.equal(spawnSync("bash", ["-n"], { input: block[1] }).status, 0);
-  }
 });
 
-test("Secret Manager setup and rotation instructions preserve unrelated service keys", () => {
-  const content = page("secret-manager.md").replace(/\s+/g, " ");
-  assert.match(content, /## Set Up Private Reference Files/);
-  assert.match(content, /install -d -m 0700/);
-  assert.match(content, /chmod 0600/);
-  assert.match(content, /ModelArk.*BYTEPLUS_MODELARK_API_KEY/);
-  assert.match(content, /Seed Speech.*BYTEPLUS_SEED_SPEECH_API_KEY/);
-  assert.match(content, /Vision AI.*BYTEPLUS_CV_API_KEY/);
-  assert.match(content, /Only these three names are allowed/);
-  assert.doesNotMatch(content, /BYTEPLUS_VOD_MEDIAKIT_API_KEY/);
-  assert.match(content, /1\. Create.*replacement.*provider/i);
-  assert.match(content, /2\. Create a new.*Generic secret version/);
-  assert.match(content, /Keep every other provider key unchanged/);
-  assert.match(content, /3\. Update.*version_id/);
-  assert.match(content, /4\. Run.*config plan/);
-  assert.match(content, /5\. Pause producers.*config apply/);
-  assert.match(content, /6\. Confirm.*config status/);
-  assert.match(content, /Revoke the old provider key only after/);
-  assert.match(content, /Creating a KMS version alone does not update the VM/);
+test("hosted deployment keeps fresh state and future launch limits explicit", () => {
+  for (const path of [
+    "deployment.md",
+    "self-hosting.md",
+    "byteplus-terraform.md",
+  ]) {
+    const content = page(path).replace(/\s+/g, " ");
+    assert.match(content, /MCP_IDENTITY_HMAC_KEY/, path);
+    assert.match(content, /64 lowercase hex/, path);
+    assert.match(content, /fresh.*SQLite|SQLite.*fresh/i, path);
+    assert.match(content, /idempotency.*crash recovery/, path);
+    assert.match(content, /public.launch/, path);
+    assert.doesNotMatch(
+      content,
+      /MCP_API_KEY_SHA256|MCP_AUTH_MODE=api_key/,
+      path,
+    );
+    assert.doesNotMatch(content, /--env BYTEPLUS_.*API_KEY/, path);
+  }
 });

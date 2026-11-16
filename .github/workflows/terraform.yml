@@ -5,7 +5,6 @@ on:
     paths:
       - "deploy/terraform/**"
       - "deploy/compose/**"
-      - "scripts/generate_mcp_key.py"
       - "scripts/deploy_byteplus.py"
       - "scripts/byteplus_deploy/**"
       - "tests/unit/test_byteplus*.py"
@@ -18,7 +17,6 @@ on:
     paths:
       - "deploy/terraform/**"
       - "deploy/compose/**"
-      - "scripts/generate_mcp_key.py"
       - "scripts/deploy_byteplus.py"
       - "scripts/byteplus_deploy/**"
       - "tests/unit/test_byteplus*.py"

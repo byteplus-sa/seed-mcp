@@ -6,7 +6,7 @@ answer. Deep thinking is always enabled (depth set by ``reasoning_effort``);
 the reasoning trace is discarded and never returned, logged, or saved.
 Optional ``response_format`` enforces JSON or a JSON Schema at generation
 time, and ``save_to`` writes the answer straight to a local file. The server
-registers the handler as a required MCP background task and forces
+uses foreground HTTP or required stdio background tasks and forces
 ``stream: false`` for the provider. The completion loop is shared with
 ``seed_audio_understand`` in ``_understanding_shared``.
 """
@@ -24,6 +24,7 @@ from ark_mcp.config.model_capabilities import get_capability_registry
 from ark_mcp.domain.artifacts import MediaType
 from ark_mcp.domain.media import MediaSource
 from ark_mcp.observability.logger import warning as log_warning
+from ark_mcp.security.credentials import provider_api_key
 from ark_mcp.tools._task_execution import context_log
 from ark_mcp.tools._understanding_shared import (
     SeedUnderstandOutput,
@@ -62,7 +63,7 @@ class UnderstandingVideoInput(MediaSource):
         if isinstance(data, dict) and data.get("kind") == "base64":
             raise ValueError(
                 "Video Base64 is not supported by the chat endpoint; "
-                "upload via media_upload and pass a URL."
+                "upload to public HTTPS storage and pass a URL (media_upload is stdio only)."
             )
         return data
 
@@ -73,7 +74,7 @@ class SeedUnderstandInput(UnderstandingOptions):
     images: list[UnderstandingImageInput] | None = Field(
         None,
         max_length=32,
-        description="Images to understand. Upload local files with media_upload first.",
+        description="Images as HTTPS URLs or inline Base64. Stdio can upload local files with media_upload first.",
     )
     videos: list[UnderstandingVideoInput] | None = Field(
         None,
@@ -97,18 +98,14 @@ async def seed_understand(
 
     Returns only the final answer (deep thinking is always on, its trace is never
     returned). Use response_format for JSON output and save_to to write the answer
-    to a file. Choose the model with ark_list_models(kind='understanding'). Requires
-    background execution (ark_job_submit).
+    to a file on stdio. Choose the model with ark_list_models(kind='understanding').
+    HTTP runs in the foreground; stdio requires background execution (ark_job_submit).
     """
+    provider_api_key(ctx, "modelark")
     await context_log(ctx, "info", "Starting Seed 2.1 multimodal understanding")
     await ctx.report_progress(progress=10, total=100)
 
     settings = get_settings()
-    if not settings.has_understanding:
-        raise ValueError(
-            "BYTEPLUS_MODELARK_API_KEY is not configured. Set it in .env to enable understanding tools."
-        )
-
     registry = get_capability_registry()
     caps = registry.get_understanding_capabilities(input.model)
 

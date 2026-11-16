@@ -5,11 +5,14 @@ from __future__ import annotations
 import asyncio
 import math
 import time
+from contextlib import ExitStack
 from typing import TYPE_CHECKING
 
 from starlette.responses import PlainTextResponse
 
+from ark_mcp.config.env import Settings, settings_scope
 from ark_mcp.observability.logger import warning as log_warning
+from ark_mcp.security.credentials import request_credentials_scope
 
 if TYPE_CHECKING:
     from starlette.types import ASGIApp, Message, Receive, Scope, Send
@@ -17,6 +20,53 @@ if TYPE_CHECKING:
 
 class RequestBodyTooLarge(Exception):
     pass
+
+
+class ByokHeadersMiddleware:
+    """Bind validated credentials only for the lifetime of a live ASGI request."""
+
+    def __init__(self, app: ASGIApp, *, settings: Settings) -> None:
+        self.app = app
+        self.settings = settings
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http":
+            await self.app(scope, receive, send)
+            return
+        with ExitStack() as stack:
+            stack.enter_context(settings_scope(self.settings))
+            try:
+                stack.enter_context(request_credentials_scope(scope.get("headers", [])))
+            except ValueError as exc:
+                await PlainTextResponse(str(exc), status_code=400)(scope, receive, send)
+                return
+            await self.app(scope, receive, send)
+
+
+class InFlightLimitMiddleware:
+    """Reject overload before reading a body instead of growing an unbounded queue."""
+
+    def __init__(self, app: ASGIApp, *, max_in_flight: int) -> None:
+        self.app = app
+        self.maximum = max_in_flight
+        self.active = 0
+
+    async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
+        if scope["type"] != "http" or scope.get("path") in {"/health", "/ready"}:
+            await self.app(scope, receive, send)
+            return
+        if self.active >= self.maximum:
+            await PlainTextResponse(
+                "Server concurrency limit reached.",
+                status_code=503,
+                headers={"Retry-After": "1"},
+            )(scope, receive, send)
+            return
+        self.active += 1
+        try:
+            await self.app(scope, receive, send)
+        finally:
+            self.active -= 1
 
 
 class RequestBodyLimitMiddleware:
@@ -159,8 +209,10 @@ class RateLimitMiddleware:
         """Try to consume one token. Return 0 on success, or seconds to wait."""
         now = time.monotonic()
         async with self._lock:
-            if len(self._buckets) > self._MAX_BUCKETS:
+            if ip not in self._buckets and len(self._buckets) >= self._MAX_BUCKETS:
                 self._evict_expired()
+                if len(self._buckets) >= self._MAX_BUCKETS:
+                    return 60.0
             tokens, last_refill = self._buckets.get(ip, (self.capacity, now))
             elapsed = now - last_refill
             tokens = min(self.capacity, tokens + elapsed * self._rate)

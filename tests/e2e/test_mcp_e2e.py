@@ -46,6 +46,8 @@ ARK_BASE = "https://ark.test.example.com/api/v3"
 
 @pytest.fixture
 def e2e_server(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> object:
+    monkeypatch.setenv("MCP_TRANSPORT", "stdio")
+    monkeypatch.setenv("MCP_AUTH_MODE", "local")
     monkeypatch.setenv("BYTEPLUS_MODELARK_API_KEY", "sk-test-modelark")
     monkeypatch.setenv("BYTEPLUS_SEED_SPEECH_API_KEY", "sk-test-speech")
     monkeypatch.setenv("TOS_ACCESS_KEY", "ak-test-tos")
@@ -602,7 +604,7 @@ class TestSeedreamGenerateImageE2E:
                 result = await _call_background_tool(
                     client,
                     "seedream_generate_image",
-                    {"input": {"prompt": "a red circle"}},
+                    {"input": {"prompt": "a red circle", "persist": True}},
                 )
 
         assert not result.is_error
@@ -631,7 +633,7 @@ class TestSeedreamGenerateImageE2E:
                 _, result = await _call_compatibility_tool(
                     client,
                     "seedream_generate_image",
-                    {"input": {"prompt": "a blue square"}},
+                    {"input": {"prompt": "a blue square", "persist": True}},
                 )
 
         assert result["is_error"] is False
@@ -676,7 +678,7 @@ class TestSeedreamGenerateImageE2E:
                 result = await _call_background_tool(
                     client,
                     "seedream_generate_image",
-                    {"input": {"prompt": "a green triangle"}},
+                    {"input": {"prompt": "a green triangle", "persist": True}},
                 )
                 artifact_uri = result.structured_content["artifacts"][0]["uri"]
                 content = await client.read_resource(artifact_uri)
@@ -824,7 +826,7 @@ class TestSeedAudioE2E:
             result = await _call_background_tool(
                 client,
                 "seed_audio_generate",
-                {"input": {"text_prompt": "a short ambient scene"}},
+                {"input": {"text_prompt": "a short ambient scene", "persist": True}},
             )
             artifact_uri = result.structured_content["artifact"]["uri"]
             content = await client.read_resource(artifact_uri)
@@ -1057,7 +1059,7 @@ class TestVariationToolsE2E:
             result = await _call_background_tool(
                 client,
                 "seed_audio_generate",
-                {"input": {"text_prompt": "gentle rain", "variations": 2}},
+                {"input": {"text_prompt": "gentle rain", "variations": 2, "persist": True}},
             )
 
         assert not result.is_error
@@ -1083,6 +1085,7 @@ class TestVariationToolsE2E:
                             "prompt": "A small paper boat",
                             "variations": 2,
                             "seed": 10,
+                            "persist": True,
                         }
                     },
                 )

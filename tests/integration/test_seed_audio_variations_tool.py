@@ -109,6 +109,7 @@ class TestSeedAudioVariationsTool:
                 SeedAudioGenerateInput(
                     text_prompt="hello",
                     variations=3,
+                    persist=True,
                 ),
                 fake_ctx,
             )
@@ -148,6 +149,7 @@ class TestSeedAudioVariationsTool:
                 SeedAudioGenerateInput(
                     variation_prompts=["good", "bad", "good"],
                     variations=3,
+                    persist=True,
                 ),
                 fake_ctx,
             )
@@ -189,7 +191,7 @@ class TestSeedAudioVariationsTool:
 
         with patch("ark_mcp.artifacts.registry.get_artifact_store", return_value=temp_store):
             result = await seed_audio_generate(
-                SeedAudioGenerateInput(variation_prompts=["solo"]), fake_ctx
+                SeedAudioGenerateInput(variation_prompts=["solo"], persist=True), fake_ctx
             )
 
         assert isinstance(result, SeedAudioGenerateOutput)

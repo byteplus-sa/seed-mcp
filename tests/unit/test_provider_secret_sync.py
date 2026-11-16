@@ -14,20 +14,24 @@ from unittest.mock import AsyncMock
 import pytest
 from scripts.byteplus_deploy import cli, configuration
 from scripts.byteplus_deploy.private import (
-    PRODUCT_KEYS,
+    IDENTITY_SETTINGS,
     configuration_digest,
     make_configuration_values,
-    replace_provider_keys,
+    replace_operator_identity,
 )
 from scripts.byteplus_deploy.workspace import ROOT, Workspace, atomic_private
 
+IDENTITY_BUNDLE_NAME = "ark-operator-identity"
+SYNTHETIC_CUSTOMER = "test-key"
 REFERENCE = {
     "region": "ap-southeast-1",
     "account_id": "1234567890",
     "project_name": "default",
-    "secret_name": "ark-team-providers",
+    "secret_name": IDENTITY_BUNDLE_NAME,
     "version_id": "b58a7e97-3000-4e6e-90c4-c01958333717",
 }
+ORIGINAL_IDENTITY = {"MCP_IDENTITY_HMAC_KEY": "a" * 64, "MCP_IDENTITY_KEY_VERSION": "1"}
+REPLACEMENT_IDENTITY = {"MCP_IDENTITY_HMAC_KEY": "b" * 64, "MCP_IDENTITY_KEY_VERSION": "1"}
 
 
 @pytest.fixture
@@ -43,11 +47,8 @@ def workspace(tmp_path: Path) -> Workspace:
             "ark_mcp_image": "ghcr.io/example/ark-mcp@sha256:" + "a" * 64,
         },
     )
-    payload, token = make_configuration_values(
-        {"BYTEPLUS_MODELARK_API_KEY": "synthetic-original"}, "mcp.team.test"
-    )
+    payload = make_configuration_values(ORIGINAL_IDENTITY, "mcp.team.test")
     atomic_private(result.path / "host.env", payload)
-    atomic_private(result.path / "team.key", (token + "\n").encode())
     journal = result.journal()
     journal.update(
         phase="ready",
@@ -69,8 +70,8 @@ def args(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> argparse.Namespace:
     atomic_private(reference, json.dumps(REFERENCE).encode())
     monkeypatch.setattr(
         configuration,
-        "fetch_provider_keys",
-        lambda _: {"BYTEPLUS_MODELARK_API_KEY": "synthetic-replacement"},
+        "fetch_operator_identity",
+        lambda _: REPLACEMENT_IDENTITY,
     )
     return argparse.Namespace(secret_reference_file=reference, retry_failed=False)
 
@@ -81,16 +82,17 @@ def test_plan_and_status_never_disclose_values_and_preserve_host(
     original = (workspace.path / "host.env").read_bytes()
     plan = configuration.plan(workspace, args(tmp_path, monkeypatch))
     output = json.dumps(plan) + json.dumps(configuration.status(workspace))
-    assert "synthetic-" not in output
-    assert plan["changed_keys"] == ["BYTEPLUS_MODELARK_API_KEY"]
+    assert ORIGINAL_IDENTITY["MCP_IDENTITY_HMAC_KEY"] not in output
+    assert REPLACEMENT_IDENTITY["MCP_IDENTITY_HMAC_KEY"] not in output
+    assert plan["changed_keys"] == ["MCP_IDENTITY_HMAC_KEY"]
     assert plan["source"] == REFERENCE
     assert (workspace.path / "host.env").read_bytes() == original
     candidate = (workspace.path / "config.candidate.env").read_bytes()
-    assert b"synthetic-replacement" in candidate
+    assert REPLACEMENT_IDENTITY["MCP_IDENTITY_HMAC_KEY"].encode() in candidate
     before = dict(line.split("=", 1) for line in original.decode().splitlines())
     after = dict(line.split("=", 1) for line in candidate.decode().splitlines())
-    assert {k: v for k, v in before.items() if k not in PRODUCT_KEYS} == {
-        k: v for k, v in after.items() if k not in PRODUCT_KEYS
+    assert {k: v for k, v in before.items() if k not in IDENTITY_SETTINGS} == {
+        k: v for k, v in after.items() if k not in IDENTITY_SETTINGS
     }
 
 
@@ -102,7 +104,7 @@ def test_config_plan_refuses_competing_or_ambiguous_work(
     journal = workspace.journal()
     journal[pending] = {"status": "working"}
     workspace.save_journal(journal)
-    monkeypatch.setattr(configuration, "fetch_provider_keys", lambda _: pytest.fail("KMS read"))
+    monkeypatch.setattr(configuration, "fetch_operator_identity", lambda _: pytest.fail("KMS read"))
     with pytest.raises(ValueError, match="pending"):
         configuration.plan(workspace, supplied)
 
@@ -128,7 +130,6 @@ def test_apply_and_resume_use_staged_bytes_without_another_secret_read(
     plan = configuration.plan(workspace, supplied)
     supplied.approve_config = plan["approve_config"]
     candidate = (workspace.path / "config.candidate.env").read_bytes()
-    original_key = (workspace.path / "team.key").read_bytes()
     transfers = []
     cloud = SimpleNamespace(verify_instance=lambda *args: None, close=lambda: None)
     monkeypatch.setattr(configuration, "Cloud", lambda _: cloud)
@@ -140,7 +141,9 @@ def test_apply_and_resume_use_staged_bytes_without_another_secret_read(
         workspace.save_journal(journal)
 
     monkeypatch.setattr(cli, "Guest", lambda *args, **kwargs: SimpleNamespace(transfer=transfer))
-    monkeypatch.setattr(configuration, "fetch_provider_keys", lambda _: pytest.fail("KMS reread"))
+    monkeypatch.setattr(
+        configuration, "fetch_operator_identity", lambda _: pytest.fail("KMS reread")
+    )
     verification = AsyncMock(side_effect=[ValueError("temporary verification outage"), None])
     monkeypatch.setattr(cli, "verify_deployment", verification)
     with pytest.raises(ValueError, match="outage"):
@@ -151,8 +154,8 @@ def test_apply_and_resume_use_staged_bytes_without_another_secret_read(
     assert transfers[0][1] == transfers[1][1] == candidate
     assert transfers[0][3]["timeout"] == 2400
     assert (workspace.path / "host.env").read_bytes() == candidate
-    assert (workspace.path / "team.key").read_bytes() == original_key
-    assert workspace.journal()["provider_secret_source"] == REFERENCE
+    assert not (workspace.path / "team.key").exists()
+    assert workspace.journal()["operator_secret_source"] == REFERENCE
     assert "config_update" not in workspace.journal()
     assert not (workspace.path / "config.previous.env").exists()
 
@@ -177,10 +180,8 @@ def test_host_recreates_only_app_and_restores_old_config_on_failure(
     directory = tmp_path / "config"
     directory.mkdir(mode=0o700)
     env = directory / ".env"
-    old, _ = make_configuration_values(
-        {"BYTEPLUS_MODELARK_API_KEY": "synthetic-original"}, "mcp.team.test"
-    )
-    candidate = replace_provider_keys(old, {"BYTEPLUS_MODELARK_API_KEY": "synthetic-new"})
+    old = make_configuration_values(ORIGINAL_IDENTITY, "mcp.team.test")
+    candidate = replace_operator_identity(old, REPLACEMENT_IDENTITY)
     atomic_private(env, old)
     receiver.receipt(directory, configuration_digest(old))
     commands = []
@@ -225,14 +226,12 @@ def test_host_rejects_nonprovider_changes_before_process_mutation(
     directory = tmp_path / "config"
     directory.mkdir(mode=0o700)
     env = directory / ".env"
-    old, _ = make_configuration_values(
-        {"BYTEPLUS_MODELARK_API_KEY": "synthetic-original"}, "mcp.team.test"
-    )
+    old = make_configuration_values(ORIGINAL_IDENTITY, "mcp.team.test")
     candidate = old.replace(b"DAILY_BUDGET_USD=25", b"DAILY_BUDGET_USD=26")
     atomic_private(env, old)
     receiver.receipt(directory, configuration_digest(old))
     monkeypatch.setattr(module.subprocess, "run", lambda *args, **kwargs: pytest.fail("mutation"))
-    with pytest.raises(ValueError, match="provider"):
+    with pytest.raises(ValueError, match="identity"):
         module.update(
             candidate,
             configuration_digest(old),
@@ -242,6 +241,44 @@ def test_host_rejects_nonprovider_changes_before_process_mutation(
             expected_uid=os.getuid(),
         )
     assert env.read_bytes() == old
+
+
+def test_customer_key_is_rejected_before_host_staging(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    updater = helper("update_config")
+    monkeypatch.setitem(sys.modules, "check_env", helper("check_env"))
+    original = make_configuration_values(ORIGINAL_IDENTITY, "mcp.team.test")
+    payload = original + f"BYTEPLUS_MODELARK_API_KEY={SYNTHETIC_CUSTOMER}\n".encode()
+    monkeypatch.setattr(updater, "write_private", lambda *args: pytest.fail("secret file write"))
+    with pytest.raises(ValueError) as caught:
+        updater.update(
+            payload,
+            configuration_digest(original),
+            configuration_digest(payload),
+            "config-1-1",
+            env=tmp_path / ".env",
+            expected_uid=os.getuid(),
+        )
+    assert SYNTHETIC_CUSTOMER not in str(caught.value)
+    assert not list(tmp_path.iterdir())
+
+
+def test_customer_bundle_is_rejected_before_operator_staging(
+    workspace: Workspace, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    supplied = args(tmp_path, monkeypatch)
+    monkeypatch.setattr(
+        configuration,
+        "fetch_operator_identity",
+        lambda _: {**REPLACEMENT_IDENTITY, "BYTEPLUS_MODELARK_API_KEY": SYNTHETIC_CUSTOMER},
+    )
+    original = (workspace.path / "host.env").read_bytes()
+    with pytest.raises(ValueError):
+        configuration.plan(workspace, supplied)
+    assert (workspace.path / "host.env").read_bytes() == original
+    assert not (workspace.path / "config.candidate.env").exists()
+    assert not (workspace.path / "config.previous.env").exists()
 
 
 @pytest.mark.parametrize("activated", [False, True])
@@ -368,7 +405,7 @@ def test_interrupted_staged_secret_cleanup_is_resumable_without_cloud_access(
             configuration.apply(workspace, supplied)
     assert workspace.journal().get("config_update")
     monkeypatch.setattr(configuration, "Cloud", lambda _: pytest.fail("cloud access"))
-    monkeypatch.setattr(configuration, "fetch_provider_keys", lambda _: pytest.fail("KMS read"))
+    monkeypatch.setattr(configuration, "fetch_operator_identity", lambda _: pytest.fail("KMS read"))
     cli.resume_deployment(workspace, argparse.Namespace(retry_failed=False))
     assert "config_update" not in workspace.journal()
     assert not (workspace.path / "config.previous.env").exists()
@@ -381,25 +418,26 @@ def test_initial_secret_deployment_reuses_keys_and_does_not_reread_kms(
     workspace: Workspace, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     (workspace.path / "host.env").unlink()
-    (workspace.path / "team.key").unlink()
+    journal = workspace.journal()
+    journal.pop("configuration_sha256")
+    workspace.save_journal(journal)
     reference = tmp_path / "reference.json"
     atomic_private(reference, json.dumps(REFERENCE).encode())
     calls = []
 
     def fetch(source: Any) -> dict[str, str]:
         calls.append(source)
-        return {"BYTEPLUS_MODELARK_API_KEY": "synthetic-initial"}
+        return REPLACEMENT_IDENTITY
 
-    monkeypatch.setattr(cli, "fetch_provider_keys", fetch)
-    supplied = argparse.Namespace(provider_env_file=None, secret_reference_file=reference)
+    monkeypatch.setattr(cli, "fetch_operator_identity", fetch)
+    supplied = argparse.Namespace(operator_env_file=None, secret_reference_file=reference)
     cli.prepare_configuration(workspace, supplied)
     original = (workspace.path / "host.env").read_bytes()
-    team = (workspace.path / "team.key").read_bytes()
     cli.prepare_configuration(workspace, supplied)
     assert len(calls) == 1
-    assert workspace.journal()["provider_secret_source"] == REFERENCE
+    assert workspace.journal()["operator_secret_source"] == REFERENCE
     assert (workspace.path / "host.env").read_bytes() == original
-    assert (workspace.path / "team.key").read_bytes() == team
+    assert not (workspace.path / "team.key").exists()
 
 
 def test_real_cli_config_status_and_help_never_read_kms_or_print_secrets(
@@ -412,8 +450,8 @@ def test_real_cli_config_status_and_help_never_read_kms_or_print_secrets(
         text=True,
         check=True,
     )
-    assert json.loads(result.stdout)["configured_keys"]["BYTEPLUS_MODELARK_API_KEY"] is True
-    assert "synthetic-original" not in result.stdout + result.stderr
+    assert json.loads(result.stdout)["configured_keys"]["MCP_IDENTITY_HMAC_KEY"] is True
+    assert ORIGINAL_IDENTITY["MCP_IDENTITY_HMAC_KEY"] not in result.stdout + result.stderr
     help_result = subprocess.run(
         [sys.executable, str(entrypoint), "config", "plan", "--help"],
         capture_output=True,
@@ -444,10 +482,8 @@ def test_pending_config_blocks_image_updates_and_premature_verification(
 
 def test_host_transaction_inspection_verifies_receipts_without_values(tmp_path: Path) -> None:
     updater = helper("update_config")
-    original, _ = make_configuration_values(
-        {"BYTEPLUS_MODELARK_API_KEY": "synthetic-original"}, "mcp.team.test"
-    )
-    candidate = replace_provider_keys(original, {"BYTEPLUS_MODELARK_API_KEY": "synthetic-new"})
+    original = make_configuration_values(ORIGINAL_IDENTITY, "mcp.team.test")
+    candidate = replace_operator_identity(original, REPLACEMENT_IDENTITY)
     env = tmp_path / ".env"
     atomic_private(env, candidate)
     atomic_private(tmp_path / "installation.sha256", configuration_digest(original).encode())
@@ -489,10 +525,8 @@ def test_terminal_host_reconciliation_durably_removes_staged_secrets(
     updater = helper("update_config")
     receiver = helper("receive_config")
     monkeypatch.setitem(sys.modules, "receive_config", receiver)
-    original, _ = make_configuration_values(
-        {"BYTEPLUS_MODELARK_API_KEY": "synthetic-original"}, "mcp.team.test"
-    )
-    candidate = replace_provider_keys(original, {"BYTEPLUS_MODELARK_API_KEY": "synthetic-new"})
+    original = make_configuration_values(ORIGINAL_IDENTITY, "mcp.team.test")
+    candidate = replace_operator_identity(original, REPLACEMENT_IDENTITY)
     current = candidate if status == "applied" else original
     env = tmp_path / ".env"
     atomic_private(env, current)
@@ -538,10 +572,8 @@ def test_successful_host_update_syncs_after_every_secret_file_deletion(
     receiver = helper("receive_config")
     monkeypatch.setitem(sys.modules, "receive_config", receiver)
     monkeypatch.setitem(sys.modules, "check_env", helper("check_env"))
-    original, _ = make_configuration_values(
-        {"BYTEPLUS_MODELARK_API_KEY": "synthetic-original"}, "mcp.team.test"
-    )
-    candidate = replace_provider_keys(original, {"BYTEPLUS_MODELARK_API_KEY": "synthetic-new"})
+    original = make_configuration_values(ORIGINAL_IDENTITY, "mcp.team.test")
+    candidate = replace_operator_identity(original, REPLACEMENT_IDENTITY)
     env = tmp_path / ".env"
     atomic_private(env, original)
     receiver.receipt(tmp_path, configuration_digest(original))
@@ -618,7 +650,7 @@ def test_provider_receive_destroys_decryptable_transfer_material(
             "--envelope",
             str(envelope),
             "--kind",
-            "provider-update",
+            "identity-update",
         ],
     )
 
@@ -700,9 +732,7 @@ def test_recovery_failed_host_evidence_is_preserved(
     updater = helper("update_config")
     receiver = helper("receive_config")
     monkeypatch.setitem(sys.modules, "receive_config", receiver)
-    old, _ = make_configuration_values(
-        {"BYTEPLUS_MODELARK_API_KEY": "synthetic-original"}, "mcp.team.test"
-    )
+    old = make_configuration_values(ORIGINAL_IDENTITY, "mcp.team.test")
     env = tmp_path / ".env"
     atomic_private(env, old)
     receiver.receipt(tmp_path, configuration_digest(old))
@@ -755,7 +785,7 @@ def test_hard_crash_atomic_temporaries_are_removed_by_reconciliation(
         check=False,
     )
     assert result.returncode == 17, result.stderr
-    pattern = ".provider-????????" if host else ".deploy-????????"
+    pattern = ".identity-????????" if host else ".deploy-????????"
     assert list(directory.glob(pattern))
     if host:
         receiver = helper("receive_config")

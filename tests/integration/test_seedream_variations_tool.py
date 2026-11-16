@@ -99,6 +99,7 @@ class TestSeedreamVariationsTool:
                     prompt="a red circle",
                     variations=3,
                     seed=42,
+                    persist=True,
                 ),
                 fake_ctx,
             )
@@ -145,6 +146,7 @@ class TestSeedreamVariationsTool:
                     prompt="test",
                     variations=3,
                     seed=10,
+                    persist=True,
                 ),
                 fake_ctx,
             )
@@ -174,6 +176,7 @@ class TestSeedreamVariationsTool:
                 SeedreamGenerateInput(
                     variation_prompts=["prompt A", "prompt B"],
                     variations=2,
+                    persist=True,
                 ),
                 fake_ctx,
             )
@@ -219,7 +222,7 @@ class TestSeedreamVariationsTool:
 
         with patch("ark_mcp.artifacts.registry.get_artifact_store", return_value=temp_store):
             result = await seedream_generate_image(
-                SeedreamGenerateInput(prompt="test", variations=1),
+                SeedreamGenerateInput(prompt="test", variations=1, persist=True),
                 fake_ctx,
             )
 
@@ -282,7 +285,7 @@ class TestSeedreamVariationsTool:
 
         with patch("ark_mcp.artifacts.registry.get_artifact_store", return_value=temp_store):
             result = await seedream_generate_image(
-                SeedreamGenerateInput(prompt="test", variations=2, seed=None),
+                SeedreamGenerateInput(prompt="test", variations=2, seed=None, persist=True),
                 fake_ctx,
             )
 

@@ -77,9 +77,39 @@ MCP_TRANSPORT = "stdio"
 MCP_AUTH_MODE = "local"
 ```
 
-Preserve unrelated tables and comments. Never put provider keys in `env`.
+Preserve unrelated tables and comments. Never put provider keys in stdio `env`.
 Project configuration with machine-specific absolute paths is not a portable
 team setup and should not be committed automatically.
+
+## HTTP BYOK
+
+For an existing trusted endpoint, replace the local entry with a remote one.
+Replace the angle-bracket placeholders with private environment variable names,
+not secret values. Load those variables privately in the actual Codex launch environment;
+do not put them in command-line flags or chat.
+
+```toml
+[mcp_servers.ark-seed]
+url = "https://mcp.example.com/mcp"
+tool_timeout_sec = 660
+
+[mcp_servers.ark-seed.env_http_headers]
+X-ModelArk-Api-Key = "<MODELARK_KEY_ENV_VAR>"
+X-MCP-Client-Secret = "<CLIENT_SECRET_ENV_VAR>"
+```
+
+Use `X-Seed-Speech-Api-Key` or `X-OmniHuman-Api-Key` with separately named private
+environment variables when needed. Only the selected provider key is required.
+Generate the client secret privately from 32 random bytes as 64 lowercase hex,
+once per intended owner. No `Authorization`, OAuth, signup or server-issued key
+is used. Do not use `bearer_token_env_var`.
+
+Discovery is anonymous/static. HTTP has 9 tools (12 with OmniHuman), direct
+foreground calls and no jobs/native tasks/storage/artifacts/resources.
+Keep persistence false and retrieve expiring URLs yourself. Optional endpoint
+headers need exact registered bindings; explicit tool `model` wins.
+See [private setup and ownership](../setup/shared-server.md).
+This is a configuration template, not an exact-client live verification claim.
 
 </details>
 

@@ -53,7 +53,7 @@ async def test_output_path_writes_file(
     _patch(monkeypatch, [{"b64_json": base64.b64encode(PNG).decode(), "output_format": "png"}])
     target = root / "elements" / "e7" / "hero.png"
     result = await seedream_generate_image(
-        SeedreamGenerateInput(prompt="hero", output_path=str(target)), fake_ctx
+        SeedreamGenerateInput(prompt="hero", output_path=str(target), persist=True), fake_ctx
     )
     assert isinstance(result, SeedreamGenerateOutput)
     assert result.artifacts[0].local_path == str(target)
@@ -66,7 +66,8 @@ async def test_output_dir_names_files_by_artifact_id(
 ) -> None:
     _patch(monkeypatch, [{"b64_json": base64.b64encode(PNG).decode(), "output_format": "png"}])
     result = await seedream_generate_image(
-        SeedreamGenerateInput(prompt="hero", output_path=str(root / "e8") + "/"), fake_ctx
+        SeedreamGenerateInput(prompt="hero", output_path=str(root / "e8") + "/", persist=True),
+        fake_ctx,
     )
     assert isinstance(result, SeedreamGenerateOutput)
     ref = result.artifacts[0]
@@ -83,7 +84,9 @@ async def test_bad_output_path_rejected_before_provider_call(
     calls = _patch(monkeypatch, [{"b64_json": base64.b64encode(PNG).decode()}])
     with pytest.raises(OutputPathError):
         await seedream_generate_image(
-            SeedreamGenerateInput(prompt="x", output_path=str(tmp_path / "outside.png")),
+            SeedreamGenerateInput(
+                prompt="x", output_path=str(tmp_path / "outside.png"), persist=True
+            ),
             fake_ctx,
         )
     assert calls == []
@@ -95,7 +98,9 @@ async def test_multi_image_requires_directory(
     calls = _patch(monkeypatch, [])
     with pytest.raises(OutputPathError, match="directory"):
         await seedream_generate_image(
-            SeedreamGenerateInput(prompt="x", max_images=3, output_path=str(root / "a.png")),
+            SeedreamGenerateInput(
+                prompt="x", max_images=3, output_path=str(root / "a.png"), persist=True
+            ),
             fake_ctx,
         )
     assert calls == []
@@ -119,7 +124,9 @@ async def test_persistence_failure_returns_provider_url_and_keeps_other_items(
             )
         ),
     ):
-        result = await seedream_generate_image(SeedreamGenerateInput(prompt="two"), fake_ctx)
+        result = await seedream_generate_image(
+            SeedreamGenerateInput(prompt="two", persist=True), fake_ctx
+        )
     assert isinstance(result, SeedreamGenerateOutput)
     stored, fallback = result.artifacts
     assert stored.uri.startswith("seed-media://")
@@ -142,7 +149,9 @@ async def test_download_retry_then_success(
         )
     )
     with patch("ark_mcp.security.safe_downloader.SafeDownloader._download_once", new=download):
-        result = await seedream_generate_image(SeedreamGenerateInput(prompt="x"), fake_ctx)
+        result = await seedream_generate_image(
+            SeedreamGenerateInput(prompt="x", persist=True), fake_ctx
+        )
     assert isinstance(result, SeedreamGenerateOutput)
     assert result.artifacts[0].persistence_error is None
 
@@ -191,7 +200,7 @@ async def test_variation_cancelled_while_persisting_returns_unpersisted_partial(
         new=never_finishes,
     ):
         result = await seedream_generate_image(
-            SeedreamGenerateInput(prompt="slow", variations=2),
+            SeedreamGenerateInput(prompt="slow", variations=2, persist=True),
             fake_ctx,
         )
 

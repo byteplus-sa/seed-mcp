@@ -18,17 +18,19 @@ from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Protocol, cast
 
 from cachetools import TTLCache
-from fastmcp.server.dependencies import get_access_token
 
 from ark_mcp.artifacts.filesystem_store import FilesystemArtifactStore
 from ark_mcp.artifacts.object_storage_store import ObjectStorageArtifactStore
 from ark_mcp.config.env import Settings
 from ark_mcp.domain.artifacts import ArtifactRef
-from ark_mcp.domain.errors import ProviderError
+from ark_mcp.domain.errors import AcceptedTaskError, NormalizedProviderError, ProviderError
+from ark_mcp.observability.logger import error as log_error
 from ark_mcp.observability.logger import info as log_info
 from ark_mcp.observability.logger import warning as log_warning
 from ark_mcp.observability.metrics import BUDGET_REJECTIONS
+from ark_mcp.providers.base import safe_provider_text
 from ark_mcp.security.auth_context import AuthContext, PrincipalContext
+from ark_mcp.security.credentials import request_principal
 from ark_mcp.security.safe_downloader import SafeDownloader
 
 if TYPE_CHECKING:
@@ -137,6 +139,8 @@ class OwnedTask:
 
 
 class TaskOwnershipStore(Protocol):
+    async def require_capacity(self) -> None: ...
+
     async def claim(self, provider: str, task_id: str, owner: AuthContext) -> bool: ...
 
     async def record(self, provider: str, task_id: str, owner: AuthContext) -> None: ...
@@ -235,54 +239,26 @@ def _ownership_timestamp(moment: datetime) -> str:
 class SQLiteTaskOwnershipStore:
     """Small single-instance ownership database for provider task IDs."""
 
-    def __init__(self, database_path: Path) -> None:
+    def __init__(self, database_path: Path, *, max_records: int = 100_000) -> None:
         self._connection = _open_sqlite_connection(database_path)
+        self._max_records = max_records
         self._ensure_schema()
         self._connection.commit()
         self._lock = asyncio.Lock()
 
     def _ensure_schema(self) -> None:
-        """Create or migrate the ownership table to provider-scoped keys."""
+        """Create fresh credential-scoped state; old ownership schemas are unsupported."""
         with self._connection:
-            columns = {
+            primary_key = {
                 str(row[1])
                 for row in self._connection.execute("PRAGMA table_info(task_ownership)").fetchall()
+                if row[5]
             }
-            legacy_exists = self._table_exists("task_ownership_legacy")
-            if columns and "provider" not in columns:
-                if legacy_exists:
-                    self._connection.execute(
-                        """
-                        INSERT OR REPLACE INTO task_ownership_legacy
-                        SELECT task_id, principal_id, tenant_id, created_at FROM task_ownership
-                        """
-                    )
-                    self._connection.execute("DROP TABLE task_ownership")
-                else:
-                    self._connection.execute(
-                        "ALTER TABLE task_ownership RENAME TO task_ownership_legacy"
-                    )
-                legacy_exists = True
-            self._create_table()
-            if legacy_exists:
-                self._connection.execute(
-                    """
-                    INSERT OR REPLACE INTO task_ownership(
-                        provider, task_id, principal_id, tenant_id, created_at
-                    )
-                    SELECT 'modelark', task_id, principal_id, tenant_id, created_at
-                    FROM task_ownership_legacy
-                    """
+            if primary_key and primary_key != {"provider", "tenant_id", "task_id"}:
+                raise ValueError(
+                    "Ownership schema is unsupported; use a fresh Seed MCP state directory."
                 )
-                self._connection.execute("DROP TABLE task_ownership_legacy")
-
-    def _table_exists(self, table: str) -> bool:
-        return (
-            self._connection.execute(
-                "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?", (table,)
-            ).fetchone()
-            is not None
-        )
+            self._create_table()
 
     def _create_table(self) -> None:
         self._connection.execute(
@@ -293,7 +269,7 @@ class SQLiteTaskOwnershipStore:
                 principal_id TEXT NOT NULL,
                 tenant_id TEXT NOT NULL,
                 created_at TEXT NOT NULL,
-                PRIMARY KEY(provider, task_id)
+                PRIMARY KEY(provider, tenant_id, task_id)
             )
             """
         )
@@ -308,25 +284,21 @@ class SQLiteTaskOwnershipStore:
         created_at = _ownership_timestamp(datetime.now(UTC))
 
         def _run() -> None:
-            self._connection.execute(
-                """
-                INSERT INTO task_ownership(
-                    provider, task_id, principal_id, tenant_id, created_at
+            with self._connection:
+                self._connection.execute("BEGIN IMMEDIATE")
+                row = self._connection.execute(
+                    "SELECT principal_id FROM task_ownership WHERE provider=? AND tenant_id=? AND task_id=?",
+                    (provider, owner.tenant_id, task_id),
+                ).fetchone()
+                if row is not None:
+                    if row[0] != owner.principal_id:
+                        raise PermissionError("Task is not available to this principal.")
+                    return
+                self._require_capacity()
+                self._connection.execute(
+                    "INSERT INTO task_ownership(provider, task_id, principal_id, tenant_id, created_at) VALUES (?, ?, ?, ?, ?)",
+                    (provider, task_id, owner.principal_id, owner.tenant_id, created_at),
                 )
-                VALUES (?, ?, ?, ?, ?)
-                ON CONFLICT(provider, task_id) DO UPDATE SET
-                    principal_id = excluded.principal_id,
-                    tenant_id = excluded.tenant_id
-                """,
-                (
-                    provider,
-                    task_id,
-                    owner.principal_id,
-                    owner.tenant_id,
-                    created_at,
-                ),
-            )
-            self._connection.commit()
 
         await _run_locked(self._lock, _run)
 
@@ -334,18 +306,30 @@ class SQLiteTaskOwnershipStore:
         created_at = _ownership_timestamp(datetime.now(UTC))
 
         def _run() -> bool:
-            cursor = self._connection.execute(
-                """
-                INSERT INTO task_ownership(provider, task_id, principal_id, tenant_id, created_at)
-                VALUES (?, ?, ?, ?, ?)
-                ON CONFLICT(provider, task_id) DO NOTHING
-                """,
-                (provider, task_id, owner.principal_id, owner.tenant_id, created_at),
-            )
-            self._connection.commit()
-            return cursor.rowcount == 1
+            with self._connection:
+                self._connection.execute("BEGIN IMMEDIATE")
+                row = self._connection.execute(
+                    "SELECT 1 FROM task_ownership WHERE provider=? AND tenant_id=? AND task_id=?",
+                    (provider, owner.tenant_id, task_id),
+                ).fetchone()
+                if row is not None:
+                    return False
+                self._require_capacity()
+                self._connection.execute(
+                    "INSERT INTO task_ownership(provider, task_id, principal_id, tenant_id, created_at) VALUES (?, ?, ?, ?, ?)",
+                    (provider, task_id, owner.principal_id, owner.tenant_id, created_at),
+                )
+                return True
 
         return await _run_locked(self._lock, _run)
+
+    def _require_capacity(self) -> None:
+        count = self._connection.execute("SELECT COUNT(*) FROM task_ownership").fetchone()[0]
+        if count >= self._max_records:
+            raise RuntimeError("Task ownership capacity reached; new submissions are unavailable.")
+
+    async def require_capacity(self) -> None:
+        await _run_locked(self._lock, self._require_capacity)
 
     async def require_owner(self, provider: str, task_id: str, owner: AuthContext) -> None:
         def _run() -> tuple[str, str] | None:
@@ -354,9 +338,9 @@ class SQLiteTaskOwnershipStore:
                 self._connection.execute(
                     """
                     SELECT principal_id, tenant_id FROM task_ownership
-                    WHERE provider = ? AND task_id = ?
+                    WHERE provider = ? AND tenant_id = ? AND task_id = ?
                     """,
-                    (provider, task_id),
+                    (provider, owner.tenant_id, task_id),
                 ).fetchone(),
             )
 
@@ -732,8 +716,15 @@ class BudgetExceededError(ValueError):
 class BudgetLedger:
     """SQLite-backed daily budget reservations for one server instance."""
 
-    def __init__(self, database_path: Path, *, daily_limit_usd: float | None = None) -> None:
+    def __init__(
+        self,
+        database_path: Path,
+        *,
+        daily_limit_usd: float | None = None,
+        max_records: int = 100_000,
+    ) -> None:
         self._connection = _open_sqlite_connection(database_path)
+        self._max_records = max_records
         self._connection.execute(
             """
             CREATE TABLE IF NOT EXISTS budget_reservations (
@@ -759,6 +750,13 @@ class BudgetLedger:
         usage_date = datetime.now(UTC).date()
 
         def _run() -> int:
+            count = self._connection.execute("SELECT COUNT(*) FROM budget_reservations").fetchone()[
+                0
+            ]
+            if count >= self._max_records:
+                raise BudgetExceededError(
+                    "Budget record capacity reached; new requests are unavailable."
+                )
             row = self._connection.execute(
                 """
                 SELECT COALESCE(SUM(amount_usd), 0) FROM budget_reservations
@@ -874,9 +872,13 @@ def build_state_stores(
         note="Only one replica may run with the SQLite state backend.",
     )
     return (
-        SQLiteTaskOwnershipStore(database_path),
+        SQLiteTaskOwnershipStore(database_path, max_records=settings.state_max_records),
         SQLiteObjectKeyOwnershipStore(database_path),
-        BudgetLedger(database_path, daily_limit_usd=settings.daily_budget_usd or None),
+        BudgetLedger(
+            database_path,
+            daily_limit_usd=settings.daily_budget_usd or None,
+            max_records=settings.state_max_records,
+        ),
         SQLiteTaskArtifactCache(
             database_path,
             ttl_seconds=settings.persistence_cache_ttl_seconds,
@@ -943,27 +945,41 @@ def get_runtime(ctx: Context) -> RuntimeServices:
 
 
 def get_principal(ctx: Context) -> PrincipalContext:
-    """Derive application ownership from local mode or the verified token."""
+    """Resolve trusted local ownership or the selected live HTTP provider scope."""
     settings = get_runtime(ctx).settings
-    if settings.mcp_auth_mode.value == "local":
+    if settings.mcp_transport == "stdio":
         return PrincipalContext()
+    return request_principal()
 
-    token = get_access_token()
-    if token is None:
-        raise PermissionError("An authenticated access token is required.")
-    claims = token.claims or {}
-    principal_id = claims.get("sub") or token.subject or token.client_id
-    tenant_id = claims.get("tenant_id")
-    if not isinstance(principal_id, str) or not principal_id:
-        raise PermissionError("The access token is missing a principal identity.")
-    if not isinstance(tenant_id, str) or not tenant_id:
-        raise PermissionError("The access token is missing tenant claim 'tenant_id'.")
-    return PrincipalContext(
-        principal_id=principal_id,
-        tenant_id=tenant_id,
-        scopes=frozenset(token.scopes),
-        transport="http",
-    )
+
+async def record_accepted_task(
+    ctx: Context,
+    provider: Literal["modelark", "vision-cv"],
+    task_id: str,
+    request_id: str | None,
+) -> None:
+    """Never report an accepted but unrecorded task as safe to resubmit."""
+    try:
+        await get_runtime(ctx).ownership_store.record(provider, task_id, get_principal(ctx))
+    except Exception:
+        log_error("ownership_record_failed", provider=provider, action="record")
+        raise AcceptedTaskError(
+            NormalizedProviderError(
+                provider="modelark" if provider == "modelark" else "byteplus-vision-cv",
+                operation="create_task",
+                code="OWNERSHIP_RECORD_FAILED",
+                message=(
+                    f"The provider accepted task_id={safe_provider_text(task_id)}, "
+                    "but its ownership could not be recorded. Do not resubmit. "
+                    "Reconcile through the provider using the accepted task ID and any "
+                    "diagnostic request ID; polling through MCP requires recorded ownership."
+                ),
+                request_id=safe_provider_text(request_id) or None,
+                retryable=False,
+                ambiguous_completion=True,
+            ),
+            task_id=task_id,
+        ) from None
 
 
 @asynccontextmanager
@@ -981,7 +997,9 @@ async def billed_provider_slot(
     still have consumed billable tokens). It is released for other errors.
     On cancellation it is committed if the provider call had already started
     (the outcome is unknown) and released if the call was still waiting for a
-    limiter slot, so a cancelled call never leaves a dangling reservation.
+    limiter slot. Finalization is best-effort: failures are logged without
+    replacing the provider outcome, and failed commits leave the reservation
+    reserved so it still consumes allowance. Cancellation cleanup is shielded.
     """
     runtime = get_runtime(ctx)
     owner = get_principal(ctx)
@@ -989,6 +1007,21 @@ async def billed_provider_slot(
         owner,
         CostEstimate(product=product, amount_usd=estimated_cost_usd),
     )
+
+    async def finalize(action: Literal["commit", "release"]) -> None:
+        try:
+            if action == "commit":
+                await runtime.budget_ledger.commit(reservation)
+            else:
+                await runtime.budget_ledger.release(reservation)
+        except Exception:
+            log_error(
+                "budget_finalization_failed",
+                provider=provider,
+                action=action,
+                reservation_id=reservation.reservation_id,
+            )
+
     dispatched = False
     try:
         async with runtime.provider_limiters.acquire(provider, owner):
@@ -996,22 +1029,18 @@ async def billed_provider_slot(
             yield
     except ProviderError as exc:
         if exc.ambiguous_completion or exc.code == "TIMEOUT":
-            await runtime.budget_ledger.commit(reservation)
+            await finalize("commit")
         else:
-            await runtime.budget_ledger.release(reservation)
+            await finalize("release")
         raise
     except asyncio.CancelledError:
-        with suppress(Exception):
-            if dispatched:
-                await asyncio.shield(runtime.budget_ledger.commit(reservation))
-            else:
-                await asyncio.shield(runtime.budget_ledger.release(reservation))
+        await asyncio.shield(finalize("commit" if dispatched else "release"))
         raise
     except Exception:
-        await runtime.budget_ledger.release(reservation)
+        await finalize("release")
         raise
     else:
-        await runtime.budget_ledger.commit(reservation)
+        await finalize("commit")
 
 
 async def _state_sweeper(runtime: RuntimeServices, settings: Settings) -> None:

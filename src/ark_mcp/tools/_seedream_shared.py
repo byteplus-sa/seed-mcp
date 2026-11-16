@@ -23,9 +23,11 @@ from ark_mcp.domain.models import (
     VariationSummary,
 )
 from ark_mcp.observability.logger import info as log_info
+from ark_mcp.providers.factory import modelark_gateway
 from ark_mcp.providers.modelark.seedream import SeedreamService
 from ark_mcp.providers.retry import call_with_retry
 from ark_mcp.runtime import billed_provider_slot, get_principal, get_runtime
+from ark_mcp.security.credentials import redact_request_secrets
 from ark_mcp.security.media_policy import decode_base64_safely, get_media_limits
 from ark_mcp.tools._cost import DEFAULT_MAX_CONCURRENT, estimate_cost, log_cost_estimate
 from ark_mcp.tools._parallel import VariationProgress, run_variation_batch, variation_batch_deadline
@@ -270,7 +272,7 @@ async def run_seedream_variations(
     log_cost_estimate(product="image", variations=len(prompts), model_id=caps.model_id)
     store = get_runtime(ctx).artifact_store
     owner = get_principal(ctx)
-    service = SeedreamService()
+    service = SeedreamService(gateway=modelark_gateway(ctx))
     generations: dict[int, SeedreamGenerationMetadata] = {}
 
     async def generate_one(index: int, progress: VariationProgress) -> VariationResult:
@@ -364,14 +366,18 @@ async def run_seedream_variations(
             return VariationResult(
                 index=index,
                 seed=seeds[index],
-                error=VariationError(code="UNEXPECTED_ERROR", message=str(exc)),
+                error=VariationError(
+                    code="UNEXPECTED_ERROR", message=redact_request_secrets(str(exc))
+                ),
             )
 
     try:
         summary = await run_variation_batch(
             count=len(prompts),
             factory=generate_one,
-            batch_deadline=variation_batch_deadline(len(prompts), settings),
+            batch_deadline=variation_batch_deadline(
+                len(prompts), settings, persists=request.persist
+            ),
             max_concurrent=DEFAULT_MAX_CONCURRENT,
         )
     finally:

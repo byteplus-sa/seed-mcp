@@ -17,10 +17,12 @@ from ark_mcp.artifacts.export import export_ref, prepare_local_export
 from ark_mcp.domain.errors import ProviderError
 from ark_mcp.domain.models import GenTaskLookupError
 from ark_mcp.observability.logger import info as log_info
+from ark_mcp.providers.factory import modelark_gateway
 from ark_mcp.providers.modelark.generation_tasks import GenerationTaskService
 from ark_mcp.providers.modelark.schemas import GenerationTaskResponse
 from ark_mcp.providers.retry import call_with_retry
 from ark_mcp.runtime import get_principal, get_runtime
+from ark_mcp.security.credentials import provider_api_key
 from ark_mcp.tools._errors import provider_error_result
 from ark_mcp.tools._generation_tasks_shared import (
     RECOMMENDED_POLL_AFTER_MS,
@@ -32,6 +34,7 @@ from ark_mcp.tools._generation_tasks_shared import (
     needs_full_fetch,
     persist_task_outputs,
 )
+from ark_mcp.tools._http_policy import validate_http_options
 from ark_mcp.tools._local_export import output_dir_field, overwrite_field
 from ark_mcp.tools._task_execution import context_log, persistence_requires_task
 
@@ -56,8 +59,8 @@ class GenTaskGetInput(BaseModel):
         False,
         description=(
             "Copy each succeeded task's outputs into durable artifact storage, once per task. "
-            "Requires background execution (ark_job_submit or native task augmentation); leave "
-            "false for a foreground status poll."
+            "Stdio background execution only (ark_job_submit or native task augmentation). "
+            "Must be false over HTTP; defaults to URL-only foreground polling."
         ),
     )
     output_dir: str | None = output_dir_field("succeeded tasks' outputs")
@@ -96,9 +99,11 @@ async def gen_task_get(input: GenTaskGetInput, ctx: Context) -> GenTaskGetOutput
     Pass every task ID in one call. queued or running is not a failure: poll again after
     recommended_poll_after_ms, never resubmit the create tool (that bills a second task).
     Provider output URLs expire in about 24 hours; once all_terminal is true, call again
-    through ark_job_submit with persist_output=true to keep durable artifacts. IDs the
-    caller does not own are listed in errors.
+    on stdio through ark_job_submit with persist_output=true to keep durable artifacts.
+    HTTP requires persist_output=false. IDs the caller does not own are listed in errors.
     """
+    validate_http_options(ctx, persist=input.persist_output, persist_field="persist_output")
+    provider_api_key(ctx, "modelark")
     task_error = persistence_requires_task(ctx, input.persist_output)
     if task_error is not None:
         return task_error
@@ -127,7 +132,7 @@ async def gen_task_get(input: GenTaskGetInput, ctx: Context) -> GenTaskGetOutput
             owned.append(task_id)
 
     try:
-        found = await _fetch_tasks(owned, errors) if owned else {}
+        found = await _fetch_tasks(owned, errors, ctx) if owned else {}
     except ProviderError as exc:
         await context_log(ctx, "error", f"Failed to list tasks: {exc.message}")
         return provider_error_result(exc)
@@ -158,9 +163,9 @@ async def gen_task_get(input: GenTaskGetInput, ctx: Context) -> GenTaskGetOutput
 
 
 async def _fetch_tasks(
-    owned: list[str], errors: list[GenTaskLookupError]
+    owned: list[str], errors: list[GenTaskLookupError], ctx: Context
 ) -> dict[str, GenerationTaskResponse]:
-    service = GenerationTaskService()
+    service = GenerationTaskService(gateway=modelark_gateway(ctx))
     found: dict[str, GenerationTaskResponse] = {}
     try:
         for page_num in range(1, _MAX_LIST_PAGES + 1):

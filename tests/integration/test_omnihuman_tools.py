@@ -312,8 +312,12 @@ class TestGet:
 
         monkeypatch.setattr(runtime.artifact_store, "copy_from_trusted_url", copy_from_trusted_url)
 
-        first = await omnihuman_get_task(OmniHumanGetTaskInput(task_id="oh-1"), fake_ctx)
-        second = await omnihuman_get_task(OmniHumanGetTaskInput(task_id="oh-1"), fake_ctx)
+        first = await omnihuman_get_task(
+            OmniHumanGetTaskInput(task_id="oh-1", persist_output=True), fake_ctx
+        )
+        second = await omnihuman_get_task(
+            OmniHumanGetTaskInput(task_id="oh-1", persist_output=True), fake_ctx
+        )
 
         assert isinstance(first, OmniHumanTaskOutput)
         assert isinstance(second, OmniHumanTaskOutput)
@@ -336,7 +340,9 @@ class TestGet:
 
         monkeypatch.setattr(runtime.artifact_store, "copy_from_trusted_url", copy_from_trusted_url)
 
-        result = await omnihuman_get_task(OmniHumanGetTaskInput(task_id="oh-1"), fake_ctx)
+        result = await omnihuman_get_task(
+            OmniHumanGetTaskInput(task_id="oh-1", persist_output=True), fake_ctx
+        )
 
         assert isinstance(result, OmniHumanTaskOutput)
         assert result.status == "succeeded"
@@ -367,7 +373,9 @@ class TestGet:
         stub_get(monkeypatch, succeeded_result())
         fake_ctx.task_id = None
 
-        result = await omnihuman_get_task(OmniHumanGetTaskInput(task_id="oh-1"), fake_ctx)
+        result = await omnihuman_get_task(
+            OmniHumanGetTaskInput(task_id="oh-1", persist_output=True), fake_ctx
+        )
 
         assert isinstance(result, ToolResult)
         assert result.is_error

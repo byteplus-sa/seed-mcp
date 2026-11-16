@@ -105,11 +105,22 @@ process. The exporter bypasses the package's eager server entrypoint, clears
 inherited provider configuration, exports every catalog entry, and never
 evaluates registration gates or calls handlers/providers. It writes JSON to
 stdout, not credential files. Tests guard network, settings construction and
-credential reads. The retained catalog contains 21 tools; `scope.test.mjs`
+credential reads. Exported `transports` metadata distinguishes stdio registration
+and background mode from HTTP registration, foreground execution and selected
+credential header. Top-level `registration_gate` and `background` describe
+stdio for existing consumers. The catalog contains 21 local tools; HTTP has
+9 or 12 with OmniHuman. The renderer shows both execution paths and direct HTTP
+examples, never an HTTP job wrapper. `scope.test.mjs`
 guards retired capability settings and tool names in current documentation,
 while dated changelog and 0.2 migration history remain intact. Coordinate
 exporter changes with the owner of `scripts/export_tool_docs.py`; do not filter
 obsolete entries only in the renderer to hide a stale runtime catalog.
+
+When source contracts are changing concurrently, rerun export tests and
+`prepare:docs` against the final catalog gates. Defaults, header names, direct
+client examples and transport inventories are checked by
+`tests/unit/test_export_tool_docs.py`. Current docs cannot reintroduce the
+retired shared-key HTTP setup; historical changelog text may remain.
 
 Relative Markdown handbook links become project-base-prefixed site routes.
 References outside `docs/` point to GitHub source; reference definitions are

@@ -15,10 +15,10 @@ from fastmcp import Context
 from fastmcp.tools import ToolResult
 from pydantic import BaseModel, Field, JsonValue, model_validator
 
-from ark_mcp.config.env import get_settings
 from ark_mcp.config.model_capabilities import VideoCapabilities, get_capability_registry
 from ark_mcp.domain.models import VariationError, VariationSummary
 from ark_mcp.observability.logger import info as log_info
+from ark_mcp.security.credentials import provider_api_key
 from ark_mcp.tools._capability_checks import check_video_request, raise_on_violations
 from ark_mcp.tools._cost import estimate_cost
 from ark_mcp.tools._redaction import redact_media_url
@@ -273,21 +273,27 @@ class SeedanceCreateTaskInput(BaseModel):
 
 
 class SeedanceTaskRef(BaseModel):
-    """One submitted Seedance task (or a failed submission)."""
+    """One Seedance submission, retaining accepted IDs even when bookkeeping fails."""
 
     index: int = Field(..., description="0-based variation index (0 for a single request).")
     task_id: str | None = Field(
         None,
         description=(
             "Provider task ID; poll it with gen_task_get. For draft=true, pass it as "
-            "draft_task_id once the Draft has succeeded. Null when submission failed."
+            "draft_task_id once the Draft has succeeded. Null when acceptance is unknown "
+            "or submission failed. Retained alongside error after bookkeeping failure; "
+            "MCP polling requires recorded ownership."
         ),
     )
     request_id: str | None = Field(
         None, description="Provider request ID for this submission, when returned."
     )
     error: VariationError | None = Field(
-        None, description="Why this submission failed; null when it was accepted."
+        None,
+        description=(
+            "Submission or post-acceptance bookkeeping failure. May coexist with task_id; "
+            "do not resubmit accepted tasks. Null only when both succeeded."
+        ),
     )
 
 
@@ -321,8 +327,16 @@ class SeedanceCreateTaskOutput(BaseModel):
         default_factory=list,
         description="One entry per requested variation, in order; empty for a dry run.",
     )
-    submitted: int = Field(0, description="Number of tasks the provider accepted.")
-    failed: int = Field(0, description="Number of submissions that failed.")
+    submitted: int = Field(
+        0, description="Number of known accepted task IDs, including tasks with bookkeeping errors."
+    )
+    failed: int = Field(
+        0,
+        description=(
+            "Number of entries with submission or bookkeeping errors. Accepted tasks with "
+            "errors count in both submitted and failed, so these counts may overlap."
+        ),
+    )
     recommended_poll_after_ms: int | None = Field(
         None,
         description="Suggested delay in milliseconds before the first gen_task_get poll; null for a dry run.",
@@ -349,14 +363,10 @@ async def seedance_create_task(
     fail before submission. Regular 2.5 accepts 4K locally; verify provider support.
     Flash only 480p/720p, without Draft.
     Draft previews are 480p; finals are 1080p. Cost previews are static.
-    Submit via ark_job_submit, then poll task IDs with gen_task_get; never resubmit
-    to poll, because each create starts new billed tasks.
+    HTTP submits in the foreground; stdio uses ark_job_submit. Poll task IDs with
+    gen_task_get; never resubmit to poll, because each create starts new billed tasks.
     """
-    settings = get_settings()
-    if not settings.has_modelark:
-        raise ValueError(
-            "BYTEPLUS_MODELARK_API_KEY is not configured. Set it in .env to enable Seedance tools."
-        )
+    provider_api_key(ctx, "modelark")
     await context_log(ctx, "info", "Creating Seedance video generation task")
     await ctx.report_progress(progress=10, total=100)
 
@@ -449,8 +459,8 @@ def _variations_output(
             )
             for result in summary.variations
         ],
-        submitted=summary.succeeded,
-        failed=summary.failed,
+        submitted=sum(result.task_id is not None for result in summary.variations),
+        failed=sum(result.error is not None for result in summary.variations),
         recommended_poll_after_ms=RECOMMENDED_POLL_AFTER_MS,
     )
 

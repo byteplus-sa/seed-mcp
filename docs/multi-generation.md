@@ -1,12 +1,17 @@
 # Multi-Generation
 
 The server supports two mechanisms for producing multiple outputs from one
-background job: **native provider batch** (one API call, many outputs) and
+tool call: **native provider batch** (one API call, many outputs) and
 **client-side parallel variation** (many independent API calls with bounded
-concurrency). By default a client submits through `ark_job_submit`, receives
+concurrency). On stdio a client submits through `ark_job_submit`, receives
 an Ark job ID, and polls `ark_job_get`; a task-capable client may instead
 receive an MCP task ID and poll `tasks/get`. Either terminal response contains
 the same typed output, referred to below as the **background result**.
+
+HTTP uses direct foreground calls and returns that tool result directly.
+It has no jobs/native tasks/storage/artifact tools/resources. HTTP persistence
+must be false; local explicit true remains supported, with false the global
+default. Download HTTP provider URLs yourself before expiry.
 
 ## Native provider batch
 
@@ -22,8 +27,8 @@ API and is only supported by **Lite** and **4.x** model families.
 3. The provider adapter translates `max_images` into
    `sequential_image_generation: "auto"` with
    `sequential_image_generation_options: {"max_images": N}`.
-4. The provider returns all N images in a single response. Each image is
-   persisted as a separate `ArtifactRef` and returned in the background result.
+4. The provider returns images in one response. Each is returned as a
+   provider-URL reference, or explicitly persisted as a local artifact.
 
 This is a **single `POST /images/generations` call** — one request, one
 response, multiple outputs. It is the most efficient path and should be
@@ -136,8 +141,25 @@ Seedance variations are fundamentally different from Seedream/Seed Audio
 because each variation creates a **separate provider task**. They are not a
 separate tool: call `seedance_create_task` with `variations` (1-5) and
 optionally `variation_prompts` (exactly one per variation). The background
-result lists every variation in `tasks` (`index`, `task_id` or `error`) with
-`submitted` and `failed` counts. Poll all task IDs at once with
+result lists every variation in `tasks` (`index`, `task_id`, `request_id`,
+`error`). `task_id` and `error` can coexist after an accepted task's
+ownership-record failure: `submitted` counts known accepted IDs, while
+`failed` counts entries with errors. These counts can overlap, so do not
+subtract `failed` to decide how many tasks were accepted.
+
+Budget-finalization exceptions log `ERROR` event `budget_finalization_failed`
+without replacing the provider result/error or adding to `failed`. Failed
+commit/release leaves conservative reserved allowance; pre-dispatch reservation
+failures still fail closed. Cancellation cleanup is shielded best effort, not
+a guarantee that no reserved rows remain.
+
+Preserve every accepted ID and never resubmit it because ownership recording
+failed. These `AcceptedTaskError` failures are ambiguous/nonretryable.
+HTTP polling requires recorded ownership; otherwise reconcile directly with
+the provider using task/request IDs. Trusted stdio permits unrecorded IDs,
+but still rejects a recorded owner mismatch. A single-call failure remains error
+`ToolResult` text containing known IDs, not structured success output.
+Poll recorded task IDs at once with
 `gen_task_get` (1-50 task IDs, one provider list call per page of 20;
 `all_terminal` tells you when to stop, and `output_dir` writes finished videos
 locally). **Never resubmit `seedance_create_task` to poll**: that starts new

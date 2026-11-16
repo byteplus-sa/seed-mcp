@@ -10,7 +10,12 @@ from typing import TYPE_CHECKING, Any, ClassVar
 from ark_mcp.config.env import get_settings
 from ark_mcp.domain.errors import NormalizedProviderError, ProviderError, ProviderName
 from ark_mcp.observability.logger import error as log_error
-from ark_mcp.providers.base import BaseHttpGateway
+from ark_mcp.providers.base import (
+    BaseHttpGateway,
+    require_api_key,
+    retry_after_seconds,
+    safe_provider_text,
+)
 from ark_mcp.providers.vision_cv.schemas import (
     CONTENT_FILTER_CODE,
     INTERNAL_ERROR_CODES,
@@ -22,8 +27,6 @@ if TYPE_CHECKING:
     import httpx
 
 _ECHOED_BODY_MARKER = ", body:"
-_MESSAGE_MAX_CHARS = 600
-_URL_PATTERN = re.compile(r"https?://\S+", re.IGNORECASE)
 _NESTED_FAILURE = re.compile(r"failed with HTTP (\d{3})")
 _NESTED_CODE = re.compile(r'"code"\s*:\s*"([^"]+)"')
 _NESTED_DETAIL = re.compile(
@@ -76,10 +79,7 @@ def clean_provider_message(message: str, fallback: str) -> str:
     if nested is not None and nested.is_rejection and nested.detail:
         message = f"{nested.code or 'Rejected'}: {nested.detail}"
     head = message.split(_ECHOED_BODY_MARKER, 1)[0]
-    cleaned = _URL_PATTERN.sub("[REDACTED_URL]", head).strip() or fallback
-    if len(cleaned) > _MESSAGE_MAX_CHARS:
-        return f"{cleaned[: _MESSAGE_MAX_CHARS - 3].rstrip()}..."
-    return cleaned
+    return safe_provider_text(head, fallback)
 
 
 class VisionCvGateway(BaseHttpGateway):
@@ -90,16 +90,21 @@ class VisionCvGateway(BaseHttpGateway):
     def __init__(
         self,
         *,
-        api_key: str | None = None,
+        api_key: str,
         base_url: str | None = None,
         timeout: float | None = None,
         connect_timeout: float | None = None,
     ) -> None:
-        settings = get_settings()
-        self._api_key = api_key or settings.cv_api_key
-        self._base_url = (base_url or settings.cv_base_url).rstrip("/")
-        self._timeout = timeout or settings.request_timeout_ms / 1000
-        self._connect_timeout = connect_timeout or settings.connect_timeout_ms / 1000
+        self._api_key = require_api_key(api_key)
+        self._base_url = (base_url if base_url is not None else get_settings().cv_base_url).rstrip(
+            "/"
+        )
+        self._timeout = timeout if timeout is not None else get_settings().request_timeout_ms / 1000
+        self._connect_timeout = (
+            connect_timeout
+            if connect_timeout is not None
+            else get_settings().connect_timeout_ms / 1000
+        )
         self._client: httpx.AsyncClient | None = None
 
     def _headers(self) -> dict[str, str]:
@@ -117,7 +122,7 @@ class VisionCvGateway(BaseHttpGateway):
     def extract_request_id(response: httpx.Response) -> str | None:
         """Extract the diagnostic ``x-tt-logid`` header."""
         value = response.headers.get("x-tt-logid")
-        return str(value) if value is not None else None
+        return safe_provider_text(value) or None
 
     @classmethod
     def normalize_error(cls, response: httpx.Response, operation: str) -> ProviderError:
@@ -153,7 +158,12 @@ class VisionCvGateway(BaseHttpGateway):
         message = (
             clean_provider_message(envelope.message, fallback) if envelope is not None else fallback
         )
-        request_id = (envelope.request_id if envelope is not None else None) or fallback_request_id
+        request_id = (
+            safe_provider_text(
+                (envelope.request_id if envelope is not None else None) or fallback_request_id
+            )
+            or None
+        )
 
         nested = parse_nested_error(envelope.message) if envelope is not None else None
         rejected = nested is not None and nested.is_rejection
@@ -163,10 +173,6 @@ class VisionCvGateway(BaseHttpGateway):
         )
         ambiguous = mutation and server_failure and not throttled
         retryable = throttled or (server_failure and not mutation)
-        try:
-            retry_after_seconds = float(retry_after) if retry_after is not None else None
-        except ValueError:
-            retry_after_seconds = None
 
         normalized = NormalizedProviderError(
             provider=cls.PROVIDER,
@@ -177,7 +183,7 @@ class VisionCvGateway(BaseHttpGateway):
             request_id=request_id,
             retryable=retryable,
             ambiguous_completion=ambiguous,
-            retry_after_seconds=retry_after_seconds,
+            retry_after_seconds=retry_after_seconds(retry_after),
         )
         log_error(
             "vision_cv_error",
@@ -202,7 +208,7 @@ class VisionCvGateway(BaseHttpGateway):
                 http_status=http_status,
                 code="INVALID_RESPONSE",
                 message="Vision AI returned a success response in an unexpected shape.",
-                request_id=request_id,
+                request_id=safe_provider_text(request_id) or None,
                 retryable=False,
                 ambiguous_completion=mutation,
             )
@@ -211,18 +217,4 @@ class VisionCvGateway(BaseHttpGateway):
     @classmethod
     def ambiguous_transport_error(cls, operation: str, exc: Exception) -> ProviderError:
         """Normalize a post-dispatch transport failure of a mutation."""
-        return ProviderError(
-            NormalizedProviderError(
-                provider=cls.PROVIDER,
-                operation=operation,
-                http_status=None,
-                code="TRANSPORT_ERROR",
-                message=(
-                    f"Transport error during '{operation}': {type(exc).__name__}. "
-                    "The operation may have succeeded; do not retry blindly."
-                ),
-                request_id=None,
-                retryable=False,
-                ambiguous_completion=True,
-            )
-        )
+        return cls.normalize_transport_error(operation, exc)

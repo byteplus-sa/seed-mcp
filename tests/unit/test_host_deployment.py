@@ -121,25 +121,24 @@ def test_update_preserves_other_services_and_persists_image(tmp_path: Path) -> N
     assert changed["services"]["ark-mcp"]["stop_grace_period"] == "660s"
 
 
-def test_provider_configuration_excludes_legacy_and_account_secrets(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    "key",
+    [
+        "MCP_JWT_ISSUER",
+        "S3_SECRET_KEY",
+        "BYTEPLUS_MODELARK_ACCESS_KEY",
+        "BYTEPLUS_MODELARK_API_KEY",
+        "BYTEPLUS_MODELARK_SEEDANCE_2_5_PREMIUM_ENABLED",
+    ],
+)
+def test_host_configuration_rejects_legacy_and_account_secrets(tmp_path: Path, key: str) -> None:
     from scripts.byteplus_deploy.private import make_configuration
 
     provider = tmp_path / "providers.env"
-    provider.write_text(
-        "BYTEPLUS_MODELARK_API_KEY=synthetic-provider\nMCP_JWT_ISSUER=old\nS3_SECRET_KEY=unused\nBYTEPLUS_MODELARK_ACCESS_KEY=unused\n"
-        "BYTEPLUS_MODELARK_SEEDANCE_2_5_PREMIUM_ENABLED=true\n"
-    )
+    provider.write_text("MCP_IDENTITY_HMAC_KEY=" + "a" * 64 + f"\n{key}=unused\n")
     provider.chmod(0o600)
-    payload, token = make_configuration(provider, "mcp.team.test")
-    values = dict(line.split("=", 1) for line in payload.decode().splitlines())
-    assert values["BYTEPLUS_MODELARK_API_KEY"] == "synthetic-provider"
-    assert "MCP_JWT_ISSUER" not in values
-    assert "S3_SECRET_KEY" not in values
-    assert "BYTEPLUS_MODELARK_ACCESS_KEY" not in values
-    assert "BYTEPLUS_MODELARK_SEEDANCE_2_5_PREMIUM_ENABLED" not in values
-    assert token not in payload.decode()
-    assert values["REDIS_PASSWORD"] != values["FASTMCP_TASKS_ENCRYPTION_KEY"]
-    assert json.loads(json.dumps(values)) == values
+    with pytest.raises(ValueError, match="only operator"):
+        make_configuration(provider, "mcp.team.test")
 
 
 def test_configuration_is_published_atomically_and_receipt_recovers(
@@ -152,9 +151,9 @@ def test_configuration_is_published_atomically_and_receipt_recovers(
     directory = tmp_path / "config"
     monkeypatch.setattr(helper, "CONFIG", directory)
     provider = tmp_path / "providers"
-    provider.write_text("BYTEPLUS_MODELARK_API_KEY=synthetic-provider\n")
+    provider.write_text("MCP_IDENTITY_HMAC_KEY=" + "a" * 64 + "\n")
     provider.chmod(0o600)
-    payload, _ = make_configuration(provider, "mcp.team.test")
+    payload = make_configuration(provider, "mcp.team.test")
     digest = configuration_digest(payload)
     original_link = helper.os.link
     observed = []
@@ -189,9 +188,9 @@ def test_interrupted_configuration_publication_leaves_no_partial_env(
     directory = tmp_path / "config"
     monkeypatch.setattr(helper, "CONFIG", directory)
     provider = tmp_path / "providers"
-    provider.write_text("BYTEPLUS_MODELARK_API_KEY=synthetic-provider\n")
+    provider.write_text("MCP_IDENTITY_HMAC_KEY=" + "a" * 64 + "\n")
     provider.chmod(0o600)
-    payload, _ = make_configuration(provider, "mcp.team.test")
+    payload = make_configuration(provider, "mcp.team.test")
 
     def interrupted(*args: object, **kwargs: object) -> None:
         raise OSError("simulated publication interruption")
@@ -295,7 +294,7 @@ def test_installer_extracts_only_the_complete_expected_archive(
         "receive_config.py",
         "update_image.py",
         "update_config.py",
-        "generate_mcp_key.py",
+        "generate_identity_secret.py",
     }
     archive = {name: "synthetic helper source\n" for name in names}
     if invalid:

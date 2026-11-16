@@ -25,6 +25,11 @@ opening manual configuration snippets. It requires terminal and file-editing
 access; ordinary chat alone cannot install software. For a team-provided
 endpoint, [connect over HTTPS](../setup/shared-server.md) instead.
 
+Local launch/job instructions below are stdio-only. HTTP has 9 tools (12 with
+OmniHuman), anonymous static discovery and direct foreground calls, with no
+jobs/native tasks/storage/artifact tools/resources. See the private-header
+examples for [Codex](codex.md#http-byok) and [Claude Code](claude-code.md#http-byok).
+
 Default to user-level registration so Ark is available across projects.
 Choose project-only scope when you need it. Your agent should preserve other
 MCP entries and ask before replacing an existing connection.
@@ -54,6 +59,9 @@ After saving the entry, review the client's server trust prompt and enable
 `ark-seed`. Check active jobs before reloading or restarting a client.
 
 Use this request in the client:
+
+On HTTP omit `ark_job_capabilities` and report only static models/tools; it is
+not an HTTP tool and discovery does not validate request credentials.
 
 ```text
 Use only the ark-seed server. List its tools, call ark_list_models with

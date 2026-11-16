@@ -13,12 +13,16 @@ from typing import Any
 from unittest.mock import AsyncMock, patch
 
 import pytest
-from fastmcp.server.auth import AccessToken
 
 from ark_mcp.config.env import Settings
 from ark_mcp.providers.modelark.generation_tasks import GenerationTaskService
 from ark_mcp.providers.modelark.schemas import GenerationTaskResponse
 from ark_mcp.providers.modelark.seedance import SeedanceService
+from ark_mcp.security.credentials import (
+    provider_api_key,
+    provider_scope,
+    request_credentials_scope,
+)
 from ark_mcp.tools.seedance_create_task import (
     SeedanceAudioInput,
     SeedanceCreateTaskInput,
@@ -590,18 +594,17 @@ class TestSeedance25DraftMode:
         settings = Settings(
             _env_file=None,
             MCP_TRANSPORT="http",
-            MCP_AUTH_MODE="api_key",
-            MCP_API_KEY_SHA256="a" * 64,
+            MCP_AUTH_MODE="byok",
+            MCP_IDENTITY_HMAC_KEY="a" * 64,
+            BYTEPLUS_MODELARK_BASE_URL="https://ark.ap-southeast.bytepluses.com/api/v3",
+            BYTEPLUS_SEED_AUDIO_BASE_URL="https://voice.ap-southeast-1.bytepluses.com",
             STATE_PRUNE_MAX_AGE_DAYS=retention,
             ARTIFACT_DIR=str(tmp_path / "artifacts"),
         )
-        token = AccessToken(
-            token="redacted",
-            client_id="draft-owner",
-            scopes=["seedance:generate"],
-            claims={"sub": "draft-owner", "tenant_id": "draft-team"},
-        )
-        monkeypatch.setattr("ark_mcp.runtime.get_access_token", lambda: token)
+        owner_headers = [
+            (b"x-modelark-api-key", b"synthetic-draft-owner-key"),
+            (b"x-mcp-client-secret", b"b" * 64),
+        ]
         created = datetime(2026, 10, 28, 2, tzinfo=UTC)
         provider_reads: list[str] = []
         provider_creates: list[Any] = []
@@ -609,6 +612,7 @@ class TestSeedance25DraftMode:
         async def mock_get(
             self: GenerationTaskService, task_id: str
         ) -> tuple[GenerationTaskResponse, str | None]:
+            assert provider_api_key(ctx, "modelark") == "synthetic-draft-owner-key"
             provider_reads.append(task_id)
             return _draft_task(created_at=created.isoformat()), None
 
@@ -622,8 +626,9 @@ class TestSeedance25DraftMode:
         monkeypatch.setattr(SeedanceService, "close", _mock_close)
         runtime = await create_runtime_services(settings)
         try:
-            ctx = FakeContext(lifespan_context={"runtime": runtime})
-            owner = get_principal(ctx)
+            ctx = FakeContext(lifespan_context={"runtime": runtime}, task_id=None)
+            with request_credentials_scope(owner_headers), provider_scope(settings, "modelark"):
+                owner = get_principal(ctx)
             assert not owner.is_local
             with patch("ark_mcp.runtime.datetime", wraps=datetime) as clock:
                 clock.now.return_value = created
@@ -639,18 +644,25 @@ class TestSeedance25DraftMode:
                     await _state_sweeper(runtime, settings)
 
             request = SeedanceCreateTaskInput(draft_task_id="cgt-draft", dry_run=True)
-            for claims in [
-                {"sub": "other-owner", "tenant_id": "draft-team"},
-                {"sub": "draft-owner", "tenant_id": "other-team"},
+            for key, secret in [
+                (b"synthetic-draft-owner-key", b"c" * 64),
+                (b"synthetic-other-provider-key", b"b" * 64),
             ]:
-                token = token.model_copy(update={"claims": claims})
-                with pytest.raises(PermissionError, match="not owned"):
+                with (
+                    request_credentials_scope(
+                        [(b"x-modelark-api-key", key), (b"x-mcp-client-secret", secret)]
+                    ),
+                    provider_scope(settings, "modelark"),
+                    pytest.raises(PermissionError, match="not owned"),
+                ):
                     await seedance_create_task(request, ctx)
             assert provider_reads == []
-            token = token.model_copy(
-                update={"claims": {"sub": "draft-owner", "tenant_id": "draft-team"}}
-            )
-            with patch("ark_mcp.tools._seedance_shared.datetime", wraps=datetime) as clock:
+            with (
+                request_credentials_scope(owner_headers),
+                provider_scope(settings, "modelark"),
+                patch("ark_mcp.tools._seedance_shared.datetime", wraps=datetime) as clock,
+            ):
+                assert get_principal(ctx) == owner
                 clock.now.return_value = created + age
                 if age > timedelta(days=14):
                     if retention == 14:

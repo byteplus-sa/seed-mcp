@@ -1,6 +1,6 @@
 ---
 name: ark-mcp-setup
-description: Install or update the Ark MCP server in TRAE, Claude, Codex, or another agent. Detect the client, default to global scope, prefer stable releases, and guide private API-key entry.
+description: Set up or update Seed MCP in Claude, Codex, TRAE or another client. Use for local stdio installation or a trusted HTTP BYOK connection with private credential entry.
 ---
 
 # Ark MCP Setup
@@ -48,6 +48,12 @@ Global MCP registration is separate from installing this skill globally.
 Create or distribute skills through the host's skill installer only when
 requested; changing MCP scope does not authorize changes to all skill roots.
 
+If the user supplies an existing trusted HTTP endpoint, skip local installation,
+release staging and local server credential files. Follow the HTTP BYOK branch
+in [clients.md](references/clients.md#http-byok) and
+[credentials.md](references/credentials.md#http-client-credentials).
+Do not deploy a server as a side effect. Ask which transport if unresolved.
+
 ## 2. Resolve an Installation
 
 - Default upstream: `https://github.com/byteplus-sa/seed-mcp.git`.
@@ -94,7 +100,7 @@ Do not upgrade dependencies independently or rewrite `uv.lock`. Use absolute
 paths and an argument array in client configuration. Keep the prior version
 and MCP entry until the staged version passes verification.
 
-## 4. Prepare Private Credential Entry
+## 4. Prepare Private Credential Entry (Local stdio)
 
 Read [credentials.md](references/credentials.md) before handling credentials.
 
@@ -192,3 +198,17 @@ The launch contract requires the successful locked sync above.
 
 For repeat runs, keep an already-current installation unchanged unless repair
 is needed. Preserve credentials and user-selected flags during updates.
+
+For HTTP, verify anonymous/static `ark_list_models` and 9 tools (12 with
+OmniHuman enabled), no resources, no job tools/native tasks and direct foreground
+execution. Discovery does not validate keys or entitlement. Dry runs still
+require the selected provider header plus client secret and are optional;
+never use a billable call for setup without explicit approval.
+
+HTTP keys are not persisted by the server; there is no provider-key fallback.
+No OAuth, signup or server-issued key is supported. Keep persistence false.
+The operator HMAC key/version is not a customer credential and must never be
+requested from an operator for client setup. Changing provider/client/HMAC
+credentials changes ownership scope with no recovery bridge. Fresh SQLite
+has no old-schema migration; durable idempotency/crash recovery and
+multi-replica/public launch remain outside this foundation.

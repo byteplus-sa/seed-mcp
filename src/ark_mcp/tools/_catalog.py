@@ -26,20 +26,26 @@ def _always(_settings: Settings) -> bool:
     return True
 
 
+def _local(settings: Settings) -> bool:
+    return settings.mcp_transport == "stdio"
+
+
 def _modelark(settings: Settings) -> bool:
-    return settings.has_modelark
+    return settings.mcp_transport == "http" or settings.has_modelark
 
 
 def _seed_audio(settings: Settings) -> bool:
-    return settings.has_seed_audio
+    return settings.mcp_transport == "http" or settings.has_seed_audio
 
 
 def _object_storage(settings: Settings) -> bool:
-    return settings.has_object_storage
+    return _local(settings) and settings.has_object_storage
 
 
 def _omnihuman(settings: Settings) -> bool:
-    return settings.has_omnihuman
+    return settings.omnihuman_enabled and (
+        settings.mcp_transport == "http" or settings.has_omnihuman
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -53,6 +59,7 @@ class CatalogEntry:
     background: BackgroundMode | None = None
     gate: Callable[[Settings], bool] = _always
     annotations: str = "TOOL_ANNOTATIONS"
+    provider: Literal["modelark", "seed-speech", "vision-cv"] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -82,6 +89,15 @@ def _entry(
         background=background,
         gate=gate,
         annotations=annotations,
+        provider=(
+            "modelark"
+            if gate is _modelark
+            else "seed-speech"
+            if gate is _seed_audio
+            else "vision-cv"
+            if gate is _omnihuman
+            else None
+        ),
     )
 
 
@@ -92,6 +108,7 @@ CATALOG: tuple[CatalogEntry, ...] = (
         None,
         module="background_jobs",
         annotations="CAPABILITIES_TOOL_ANNOTATIONS",
+        gate=_local,
     ),
     _entry(
         "ark_job_submit",
@@ -99,6 +116,7 @@ CATALOG: tuple[CatalogEntry, ...] = (
         None,
         module="background_jobs",
         annotations="SUBMIT_TOOL_ANNOTATIONS",
+        gate=_local,
     ),
     _entry(
         "ark_job_get",
@@ -106,6 +124,7 @@ CATALOG: tuple[CatalogEntry, ...] = (
         None,
         module="background_jobs",
         annotations="GET_TOOL_ANNOTATIONS",
+        gate=_local,
     ),
     _entry(
         "ark_job_cancel",
@@ -113,15 +132,19 @@ CATALOG: tuple[CatalogEntry, ...] = (
         None,
         module="background_jobs",
         annotations="CANCEL_TOOL_ANNOTATIONS",
+        gate=_local,
     ),
     _entry("ark_list_models", "ArkListModelsOutput", None),
-    _entry("seed_media_get_artifact", "SeedMediaGetArtifactOutput", "artifacts:read"),
-    _entry("seed_media_export_artifact", "SeedMediaExportArtifactOutput", "artifacts:read"),
+    _entry("seed_media_get_artifact", "SeedMediaGetArtifactOutput", "artifacts:read", gate=_local),
+    _entry(
+        "seed_media_export_artifact", "SeedMediaExportArtifactOutput", "artifacts:read", gate=_local
+    ),
     _entry(
         "seed_media_persist_url",
         "SeedMediaPersistUrlOutput",
         "media:upload",
         background="optional",
+        gate=_local,
     ),
     _entry(
         "seed_audio_generate",

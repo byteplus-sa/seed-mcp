@@ -1,11 +1,14 @@
-# Docker Compose kit: organization self-hosting
+# Docker Compose Kit: BYOK Foundation
 
-Runs one Ark Seed MCP server for one organization: Caddy (TLS) in front of the
-server, with Redis for background jobs. Only Caddy is exposed.
-Use `MCP_AUTH_MODE=api_key` (default) with `MCP_API_KEY_SHA256`
-for one trusted team. No identity provider is required;
-members share data, budget and ordinary tool permissions, but no account-wide
-admin access. See [key generation and rotation](../../docs/self-hosting.md#shared-mcp-key).
+Runs one Seed MCP instance behind Caddy TLS. Only Caddy is exposed.
+Clients provide their own provider keys and a locally generated client secret
+in private HTTP headers. There is no signup, OAuth or server-issued MCP key,
+and no Redis task worker on HTTP.
+
+The operator supplies `MCP_IDENTITY_HMAC_KEY`, not customer provider keys.
+Keep it stable to preserve ownership, and use a fresh state volume. This kit
+is single-instance; durable submission recovery, PostgreSQL and public-launch
+hardening remain follow-up work.
 
 ```bash
 cp .env.example .env    # then fill in every REQUIRED value
@@ -16,7 +19,6 @@ docker compose up -d --build
 |---|---|
 | `compose.yaml` | Services, networks, volumes, and the pinned security settings |
 | `Caddyfile` | TLS, request size limit, streaming, and blocking `/metrics` and `/ready` from outside |
-| `.env.example` | Hostname, shared MCP key hash, BytePlus keys, guardrails, and job secrets |
+| `.env.example` | Hostname, operator HMAC configuration and bounded HTTP/state limits |
 
-Full guide, including shared-key setup and rotation, fixed permissions, sizing,
-backups, and the security checklist: [docs/self-hosting.md](../../docs/self-hosting.md).
+Full setup and security limitations: [docs/self-hosting.md](../../docs/self-hosting.md).

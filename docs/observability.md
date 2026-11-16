@@ -1,6 +1,8 @@
 # Observability
 
-The server ships structured JSON logging and a Prometheus metrics endpoint.
+The server ships structured JSON logging and internal Prometheus metrics.
+The `/metrics` endpoint is unavailable on HTTP; it is not a public monitoring
+surface. HTTP `/health` and `/ready` expose minimal state without provider probes.
 Provider HTTP calls also emit OpenTelemetry spans, but the server does not
 configure an OTel exporter — spans are no-ops unless you wire up an SDK.
 
@@ -60,6 +62,10 @@ Redacted keys (case-insensitive): `authorization`, `x-api-key`, `api_key`,
 `subtitle`, `subtitles`, `url`, `media_url`, `audio_url`, `image_url`,
 `video_url`, `subtitle_text`.
 
+The BYOK provider headers, client secret and operator HMAC key are sensitive
+too. Live request secret echoes, including URL-encoded forms, are redacted.
+Do not log raw exceptions, request headers or provider URLs.
+
 Policy (per the module docstring): never log prompt text, full media URLs,
 Base64, subtitles, or credentials. Redaction is a safety net; call sites
 avoid passing these fields in the first place.
@@ -71,6 +77,31 @@ fallbacks, `outputs[].persistence_issue` with `outputs[].persistence` for
 Seedance, and top-level `persistence_issue` with `persistence` for OmniHuman.
 These are distinct result shapes; successful MCP/provider metrics alone do
 not prove that output was stored.
+
+### Finalization and validation
+
+`billed_provider_slot` logs commit/release exceptions as `ERROR` event
+`budget_finalization_failed` with safe `provider`, `action` (`commit` or
+`release`) and `reservation_id` fields, never raw exception text. These events
+do not replace the provider result/error, raise `AcceptedTaskError`, or add to
+Seedance's `failed` count. Failed finalization leaves conservative reserved
+allowance; monitor the event and ledger rather than treating it as a new
+provider failure. Reservation before dispatch still fails closed. Cancellation
+cleanup is shielded best effort, not a guarantee that no reserved rows remain.
+
+Seedance and OmniHuman share `record_accepted_task`. An accepted task's
+ownership-record failure logs `ownership_record_failed` and surfaces an
+ambiguous/nonretryable `AcceptedTaskError` retaining task/request IDs.
+Seedance's `submitted` and `failed` counts can overlap for these ownership
+errors, not for budget-finalization log events.
+
+Understanding JSON Schema validation is offline: `$ref`, `$dynamicRef` and
+`$recursiveRef` must be fragment-only (`#...`), and external schemas are never
+retrieved. Nonlocal references are rejected before dispatch; unresolved
+references during answer validation become `schema_violation` diagnostics
+without discarding the billed completion. `understanding_schema_violation`
+and `understanding_schema_violation_retry` describe answer validation, not a
+provider transport failure or permission to blindly replay a request.
 
 ## Prometheus metrics (`observability/metrics.py`)
 
@@ -131,6 +162,12 @@ ordinary `ark_job_submit` admission without labeling job IDs, principals,
 prompts, or URLs. Its `target` values come only from the immutable background
 tool registry. Unknown target strings are deliberately not emitted as labels.
 
+The `tool` labels on request, execution-duration and admission-duration metrics
+are catalog names or the fixed value `unknown`. Arbitrary unknown tool names
+collapse to `unknown` in both middleware and worker instrumentation; they never
+create one retained series per caller-supplied name. This differs from unknown
+background `target` values, which are skipped entirely.
+
 `success` means a returned value without an MCP error, `error` means a returned
 `ToolResult` with `is_error=True`, `exception` means a raised Python exception,
 and `cancelled` means an executing handler was interrupted by cancellation.
@@ -142,27 +179,21 @@ terminal metrics; a replayed worker attempt emits its own execution sample.
 
 ### `/metrics` endpoint
 
-```python
-@server.custom_route("/metrics", methods=["GET"])
-async def metrics(_request):
-    return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
-```
-
-- **Content type:** `text/plain; version=0.0.4; charset=utf-8`.
-- Uses the default `prometheus_client.REGISTRY`, so it also exposes the
-  built-in `process_*` (e.g. `process_resident_memory_bytes`,
-  `process_open_fds`) and `python_*` metrics.
-- **Auth:** this route is registered with no `auth=` argument, so it is **not
-  protected** by the FastMCP auth provider. On Streamable HTTP, protect
-  `/metrics` at the reverse proxy / ingress layer. `/health` and `/ready` are
-  likewise unauthenticated at the FastMCP layer.
+HTTP does not register this route. Internal counters remain useful to tests
+and approved operator instrumentation but are not publicly exposed.
+Background admission/execution metrics above apply only to local stdio,
+where jobs/native tasks remain supported.
 
 ## OpenTelemetry / tracing
 
 Spans are emitted around provider HTTP requests in `providers/base.py`:
 
 ```python
-with get_tracer().start_as_current_span(f"provider.{self.PROVIDER}.{operation}") as span:
+with get_tracer().start_as_current_span(
+    f"provider.{self.PROVIDER}.{operation}",
+    record_exception=False,
+    set_status_on_exception=False,
+) as span:
     span.set_attribute("provider.name", self.PROVIDER)
     span.set_attribute("http.request.method", method)
     ...
@@ -173,7 +204,7 @@ with get_tracer().start_as_current_span(f"provider.{self.PROVIDER}.{operation}")
   `provider.modelark.post`, `provider.seed_speech.post`).
 - **Attributes:** `provider.name`, `http.request.method`, and
   `http.response.status_code` (success path only). On exception,
-  `record_span_error(span, exc)` records the exception event.
+  a sanitized generic exception records the event; raw exception text is not used.
 - **Scope:** spans exist **only** around provider HTTP calls through
   `BaseHttpGateway._request`. There are no spans around tool execution,
   artifact store ops, budget reservation, the retry loop, resource reads, or
@@ -192,8 +223,8 @@ with get_tracer().start_as_current_span(f"provider.{self.PROVIDER}.{operation}")
   observable via the SQLite ledger; in-flight only via the process metrics).
 - `ARTIFACT_OPERATIONS` has a `status` label, but call sites only ever emit
   `success` (failures raise before the counter is touched).
-- `/metrics`, `/health`, `/ready` are unauthenticated at the FastMCP layer —
-  protect them at ingress.
+- HTTP `/metrics` is unavailable. Anonymous `/health` and `/ready` return
+  minimal process/state status, not credentials or provider readiness.
 
 See [configuration.md](configuration.md) for the related env vars and
 [deployment.md](deployment.md) for probe/monitoring guidance.

@@ -71,7 +71,10 @@ Repeating the generation prompt could create another charge.
 
 Download results you want to keep. Provider links expire, and inline previews
 depend on your client. If a preview is unavailable, use the returned download
-link. For persistent storage, see [Artifacts](../artifacts.md).
+link. Local stdio can explicitly opt into [Artifacts](../artifacts.md);
+persistence defaults to false. HTTP returns temporary URLs and rejects server
+persistence. HTTP calls run directly in the foreground, with no jobs/native
+tasks/storage/artifact tools or resources.
 
 ## Discover Before Spending
 
@@ -99,7 +102,8 @@ preview is unavailable, stop and explain what is missing.
 
 A request preview is not a generated image. Only approve a dry-run call
 with `dry_run: true`, never a substitute generation call. Seedream must be
-enabled even for a preview.
+enabled even for a preview. HTTP previews still require the selected provider
+key and client secret in private headers; discovery alone is anonymous.
 
 ## Technical Reference
 

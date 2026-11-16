@@ -88,6 +88,41 @@ These machine-specific paths are not portable team defaults. Each teammate
 needs their own private env file and installation. Do not commit populated
 credential files or automatically commit this configuration.
 
+## HTTP BYOK
+
+For an existing trusted endpoint, use a remote entry instead of the local
+launcher. This example contains environment placeholders only; inject those
+variables privately into the actual Claude Code launch environment. Verify
+environment expansion and custom-header support in the installed client.
+
+```json
+{
+  "mcpServers": {
+    "ark-seed": {
+      "type": "http",
+      "url": "https://mcp.example.com/mcp",
+      "headers": {
+        "X-ModelArk-Api-Key": "${SEED_MCP_MODELARK_KEY}",
+        "X-MCP-Client-Secret": "${SEED_MCP_CLIENT_SECRET}"
+      }
+    }
+  }
+}
+```
+
+Only the selected key is needed: use `X-Seed-Speech-Api-Key` for Seed Audio or
+`X-OmniHuman-Api-Key` for enabled OmniHuman. The client secret is privately
+generated once from 32 random bytes, encoded as 64 lowercase hex.
+There is no OAuth, signup, server-issued key or `Authorization` header.
+Do not put real keys in CLI flags, chat or committed JSON.
+
+HTTP exposes 9 tools (12 with OmniHuman), anonymous static discovery and direct
+foreground calls. Jobs/native tasks/storage/artifact tools/resources are absent.
+Set client timeouts for long calls, keep persistence false and retrieve
+expiring URLs yourself. Endpoint headers are exact registry defaults; explicit
+tool `model` wins. Follow [private setup](../setup/shared-server.md).
+Exact-client verification remains pending until checked in the selected release.
+
 </details>
 
 ## Verify

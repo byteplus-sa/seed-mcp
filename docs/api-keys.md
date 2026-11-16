@@ -1,20 +1,21 @@
 # API Keys Guide
 
-For the separate key members use to connect to a hosted MCP server, see
-[shared MCP key generation](self-hosting.md#shared-mcp-key).
-That key is not a BytePlus provider key. The credentials below stay on the
-server and must not be distributed to shared-server members.
+HTTP BYOK uses your provider key in the selected `X-ModelArk-Api-Key`,
+`X-Seed-Speech-Api-Key` or `X-OmniHuman-Api-Key` header, plus
+`X-MCP-Client-Secret` (client-generated 32 random bytes as 64 lowercase hex).
+Only the selected key is needed. Discovery is anonymous/static and never
+validates your provider entitlement. See [private HTTP setup](setup/shared-server.md).
+There is no OAuth, signup or server-issued key; `Authorization` is rejected.
 
-For administrator-managed BytePlus deployments, follow
-[Secret Manager setup and provider-key updates](secret-manager.md).
-That workflow pins one complete three-provider bundle, requires an approved
-sync to update the VM, and preserves the separate shared MCP connection key.
-It does not manage IAM or object-storage credentials.
+The table below describes **local stdio startup settings and upstream auth**,
+not HTTP client header names. Hosted provider-secret sync is
+[superseded](secret-manager.md). The operator's `MCP_IDENTITY_HMAC_KEY` is
+identity configuration, not a customer credential.
 
 This server calls several BytePlus services. Each uses a distinct credential
 and auth scheme — they are **not interchangeable**. You only need the keys for
-the products you want to use; absent credentials simply skip registering that
-tool set.
+the products you want to use. On stdio, absent credentials omit that tool set;
+HTTP registration is credential-independent (OmniHuman still needs its flag).
 
 | Service | Env var | Auth header | Tools it enables |
 |---|---|---|---|
@@ -27,10 +28,10 @@ tool set.
 With [guided setup](setup/install.md), your agent prepares a private blank
 credential file and opens it for you. **Enter keys there, not in chat or MCP
 client JSON.** You do not need to copy the full example configuration or
-configure services you do not use. If using a shared server, its operator
-manages provider keys; your client uses the operator's connection credentials.
+configure services you do not use. HTTP clients supply their own provider
+headers privately; the operator must be trusted with those live requests.
 
-All keys below are **startup configuration**, never tool arguments. The
+All env keys below are **local startup configuration**, never tool arguments. The
 examples are field-name references for that private file, not shell commands.
 Preserve existing files and keep credentials outside repositories and shared
 folders. See [manual credential setup](setup/manual-install.md#prepare-private-credentials)
@@ -63,8 +64,8 @@ Files API delivery. The key is sent as a Bearer token.
 BYTEPLUS_MODELARK_API_KEY=your-modelark-key-here
 ```
 
-The base URL is region-scoped. If your account is in a different region, update
-`BYTEPLUS_MODELARK_BASE_URL` to match.
+The base URL is region-scoped. Local stdio can configure another HTTPS provider
+base; HTTP fixes official origins and never accepts arbitrary endpoint hosts.
 
 ## Seed Speech
 
@@ -110,6 +111,8 @@ AK/SK-signed requests on `cv.byteplusapi.com`; this server uses the API-key
 path only.
 
 ## Object storage (TOS or S3)
+
+Stdio only; HTTP exposes no object-storage or artifact tools.
 
 Object storage is **optional** but enables several workflows: the `media_upload` and
 `media_presign` tools and Seedance video references
@@ -191,14 +194,14 @@ settings, taking care to finish active jobs first. The client starts the
 server automatically. Use the [discovery-only connection check](integrations/index.md#verify-without-paid-calls);
 do not start development mode just to test keys.
 
-The `seed-health://status` MCP resource reports configured services and storage
+The stdio-only `seed-health://status` MCP resource reports configured services and storage
 without exposing keys. The separate `/health` HTTP route is a liveness probe that returns
 only `{"status": "healthy"}`. A disabled service may have a missing key or
 feature flag. Ask your setup agent to check names and the configured
 `ARK_MCP_ENV_FILE` path without reading or printing key values.
 
-If a tool is missing entirely, its provider credentials were absent at startup.
-Tools are registered conditionally based on which keys are present.
+On stdio, a missing provider key omits its tools. HTTP always exposes the
+9 supported provider/discovery tools, or 12 with OmniHuman enabled.
 Discovery confirms configuration, not provider-key validity or account access.
 
 ## Quick reference

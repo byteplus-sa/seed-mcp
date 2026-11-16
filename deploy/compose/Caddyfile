@@ -6,13 +6,12 @@
 # inside the site block below.
 
 {$MCP_PUBLIC_HOST} {
-	# Matches the server's MCP_HTTP_MAX_BODY_BYTES default (inline Base64 video).
+	# URL-only HTTP: match the default 2 MiB application body limit.
 	request_body {
-		max_size 300MB
+		max_size 2097152
 	}
 
-	# Operational endpoints stay inside the Docker network. /ready also lists
-	# which providers are configured. Scrape /metrics as http://ark-mcp:3000/metrics.
+	# Readiness stays internal. Public HTTP metrics are disabled by the application.
 	@internal path /metrics /metrics/* /ready /ready/*
 	respond @internal 404
 

@@ -21,262 +21,97 @@ related:
 
 ## Scope
 
-**Long-running Ark work runs in the FastMCP Docket worker, never in the
-foreground request.** Clients reach it through one of two entry points that
-share the same queue, worker, ownership store and replay guard:
+This contract is **stdio-only**. Local long-running tools use the FastMCP
+Docket worker through ordinary `ark_job_*` tools, or native task augmentation
+for capable clients. HTTP exposes neither route, creates no task snapshots
+or queue entries, and runs provider tools directly in the foreground.
+See [SPEC_HOSTED_BYOK.md](SPEC_HOSTED_BYOK.md).
 
-- **`ark_job_*` ordinary tools (default).** Work on any MCP client over stdio
-  or Streamable HTTP, with no task-extension negotiation.
-- **Native task augmentation.** For clients that negotiate
-  `io.modelcontextprotocol/tasks`; polled through `tasks/get`.
+## Tool Contracts
 
-This spec covers the `ark_job_*` contract, the registry that decides which
-tools may run in the background, and the security invariants both paths keep.
-Client workflows live in
-[integration-guide.md](../docs/integration-guide.md#background-execution).
+| Tool | Input | Result |
+| --- | --- | --- |
+| `ark_job_capabilities` | No input wrapper; `{}` | Configured targets with `tool_name`, `task_mode`, `required_scope`, `description`, `input_schema` |
+| `ark_job_submit` | `input.tool_name`, `input.arguments` (complete target arguments, normally `{"input": {...}}`) | Server-generated `job_id`, `target_tool`, `status=working`, timestamps, TTL and `poll_after_ms` |
+| `ark_job_get` | `input.job_id` | Status, timestamps, TTL, `result` and optional `error` |
+| `ark_job_cancel` | `input.job_id` | Cooperative local cancellation; does not cancel accepted provider work |
 
-| Concern | Code |
-|---|---|
-| Tool handlers | `src/ark_mcp/tools/background_jobs.py` |
-| Registry and FastMCP adapter | `src/ark_mcp/background_jobs.py` |
-| Public models | `src/ark_mcp/domain/background_jobs.py` |
-| Ownership and replay guard | `src/ark_mcp/security/tasks.py` |
-| Registration | `src/ark_mcp/tools/_catalog.py` (static catalog), `src/ark_mcp/server.py` (`register_tools`, `_task_config`, `_task_handler`) |
+Get/cancel check ownership before backend access. Unknown or unavailable jobs
+do not reveal another owner's result. Memory-backed jobs belong to the same
+stdio process; a second process cannot retrieve them.
 
-## Lifecycle
+Check terminal status and `result.is_error`. The original tool result is in
+`result.structured_content`; a provider `task_id` is not the Ark `job_id`.
+`input_required` is unsupported by ordinary jobs and needs cancellation or
+a capable client, not treatment as success.
+
+## Execution Policy
+
+`tools/_catalog.py` supplies the immutable background registry.
+
+| Mode | Targets |
+| --- | --- |
+| Required | `seed_audio_generate`, `seedream_generate_image`, `seedance_create_task`, `omnihuman_create_task`, `media_upload`, `seed_understand`, `seed_audio_understand` |
+| Optional | `gen_task_get`, `omnihuman_get_task`, `seed_media_persist_url` |
+
+On stdio a required tool's foreground invocation is rejected before provider
+work. Pollers run in the foreground with `persist_output=false`; explicit
+persistence requires background execution. The persist-URL tool can run in
+either mode; persist-URL always downloads and stores.
+
+The three changed persistence defaults (Seed Audio, Seedream and OmniHuman get)
+are false globally, including stdio. A local caller must explicitly request
+true to retain outputs.
+
+## Lifecycle and Safety
 
 ```mermaid
 sequenceDiagram
-    participant C as MCP client
-    participant J as ark_job_* tools
-    participant O as Ownership store
-    participant D as Docket worker
+    participant C as Stdio client
+    participant J as Job tools
+    participant W as Local worker
     participant P as Provider
-
-    C->>J: ark_job_submit(tool_name, arguments)
-    J->>J: registry lookup, scope check, argument validation
-    J->>D: create_task (durable enqueue)
-    D-->>J: server-generated job_id
-    J->>O: claim("mcp", job_id, principal)
-    J-->>C: status=working, job_id, poll_after_ms
-    D->>O: claim("mcp-execution", job_id) for required targets
-    D->>P: target tool handler
-    loop until terminal
+    C->>J: Submit allowlisted target and validated arguments
+    J->>W: Enqueue local task
+    J-->>C: job_id and poll_after_ms
+    W->>W: Claim required execution once
+    W->>P: Run target using local configured key
+    loop Until terminal
         C->>J: ark_job_get(job_id)
-        J->>O: require_owner("mcp", job_id)
-        J-->>C: working, or terminal result
+        J-->>C: Status or original result
     end
 ```
 
-## Tool contracts
+Unknown/unregistered targets and invalid arguments fail before enqueue.
+Submission uses a server-generated ID, never a client-selected one. If
+ownership recording fails after enqueue, cancellation is attempted and the
+request fails closed. Required execution claims in the `mcp-execution`
+namespace prevent silent replay of an already-started local job.
 
-### `ark_job_capabilities`
+Default `FASTMCP_DOCKET_URL=memory://` loses active/retained jobs at process
+exit. Local optional Redis retention does not distribute SQLite state or
+enable multiple replicas. Keep local state and any configured snapshot key
+with retained jobs. HTTP must not use a task backend to preserve BYOK headers.
 
-**Lists the targets the caller may submit.** Input: none.
+Job events omit arguments, results, prompts and credentials. Cancellation or a
+lost response may leave accepted provider work running. Reconcile saved
+provider task/request IDs instead of automatically resubmitting. Neither the
+job bridge nor provider retries promise exactly-once billing.
 
-Output `BackgroundJobCapabilities { targets: list[BackgroundJobTarget] }`:
+## Local Outputs
 
-| Field | Type | Meaning |
-|---|---|---|
-| `tool_name` | `str` | Registered target tool name |
-| `task_mode` | `"required"` \| `"optional"` | Native task mode of the target |
-| `required_scope` | `str` | Tool scope checked against the fixed team allowlist in `api_key` mode |
-| `description` | `str` | Target tool description |
-| `input_schema` | `dict` | JSON Schema of the target's arguments |
+Workers have no MCP roots. `output_path`, `output_dir` and `save_to` require
+server-configured absolute `OUTPUT_ROOTS`; otherwise validation rejects the
+request before provider work. Persistence itself does not need output roots.
+See [integration workflows](../docs/integration-guide.md#background-execution).
 
-- **Only targets registered on this server instance** are returned; a tool
-  whose provider credentials are absent is not registered, so it is silently
-  omitted. No credential state is exposed.
-- **Shared-key mode filters by the fixed ordinary scopes**; local mode returns
-  every registered target. Account-wide asset and moderation administration
-  is not permitted by the shared key.
+## Implementation and Limits
 
-### `ark_job_submit`
+Handlers live in `tools/background_jobs.py`; the adapter in `background_jobs.py`
+is the only consumer of pinned FastMCP task internals. The dependency remains
+bounded to `fastmcp[tasks]>=4.1.8,<4.2`. There is no job-list or ordinary
+input-update tool. Keep job IDs.
 
-**Validates and durably enqueues one target, then returns at once.**
-
-Input `BackgroundJobSubmitInput`:
-
-| Field | Type | Constraint |
-|---|---|---|
-| `tool_name` | `str` | 1–128 chars; must be a registry key |
-| `arguments` | `dict[str, JsonValue]` | The target's complete arguments object, usually `{"input": {...}}` |
-
-Output `BackgroundJobAccepted`:
-
-| Field | Type | Meaning |
-|---|---|---|
-| `job_id` | `str` | Server-generated ID, 20–128 chars of `[A-Za-z0-9_-]` |
-| `target_tool` | `str` | Target tool name |
-| `status` | `"working"` | Always `working` at acceptance |
-| `created_at` | timezone-aware datetime | Job creation time |
-| `ttl_ms` | `int \| null` | Result retention, from the Docket execution TTL; `null` when unlimited |
-| `poll_after_ms` | `int` | Suggested delay before the first poll (task poll interval, 2 s for Ark targets) |
-
-Order of checks, each failing as a `ToolError` **before any queue write or
-provider call** unless noted:
-
-1. Unknown `tool_name` → "not supported".
-2. Shared-key caller without the target's `required_scope` → "not authorized".
-3. Target not registered in this configuration → "not available".
-4. Registered task mode differs from the registry → "invalid execution policy".
-5. Argument names not accepted by the target signature, or FastMCP coercion
-   and validation failure → error; no job is created.
-6. After enqueue, the job ID is claimed for the caller. **If the claim fails,
-   the new job is cancelled** and the call fails closed.
-
-The server never accepts a client-chosen job ID and **never retries a
-submission internally**. A timeout or disconnect is ambiguous: the job may
-exist, so callers must not resubmit automatically.
-
-### `ark_job_get`
-
-**Returns current state and, when terminal, the original tool result.**
-
-Input `BackgroundJobIdInput { job_id }` with the same pattern as above.
-
-Output `BackgroundJobSnapshot`:
-
-| Field | Type | Meaning |
-|---|---|---|
-| `job_id` | `str` | Job ID |
-| `status` | `working` \| `input_required` \| `completed` \| `failed` \| `cancelled` | Current state |
-| `created_at`, `updated_at` | datetime | Creation and last observed update |
-| `ttl_ms` | `int \| null` | Result retention |
-| `poll_after_ms` | `int` | Suggested delay before the next poll |
-| `result` | `BackgroundJobToolResult \| null` | `content`, `structured_content`, `is_error`, `meta` of the target's `CallToolResult` |
-| `error` | `BackgroundJobError \| null` | `code`, `message`, `data` from the task backend |
-
-- **Ownership is checked before the backend is queried.**
-- **`input_required` is unsupported** on this path: the snapshot carries error
-  code `-32602` telling the caller to cancel or use a task-capable client.
-- **Job IDs and provider task IDs are distinct.** A Seedance or
-  OmniHuman provider `task_id` appears only inside `result.structured_content`.
-
-### `ark_job_cancel`
-
-Input `BackgroundJobIdInput`. Output `BackgroundJobCancelled { job_id,
-status: "cancelled" }`.
-
-**Cancellation stops the local worker cooperatively.** It does not claim that
-a provider operation already accepted by BytePlus was cancelled.
-
-### Errors shared by get and cancel
-
-Unknown, expired, malformed and cross-owner job IDs all return the **same
-outward error**, so the response is not an existence oracle:
-
-- Shared-key mode: "Background job is not available to this principal."
-- Local mode: a message explaining that local jobs are process-local and must
-  be polled through the same server process (or one shared HTTP server).
-
-### Tool annotations
-
-| Tool | readOnly | destructive | idempotent | openWorld |
-|---|---|---|---|---|
-| `ark_job_capabilities` | true | false | true | false |
-| `ark_job_submit` | false | false | false | true |
-| `ark_job_get` | true | false | true | false |
-| `ark_job_cancel` | false | true | false | true |
-
-All four are foreground tools with no `TaskConfig`. In `api_key` mode they require an
-authenticated token but no scope of their own; the target's scope is enforced
-inside `ark_job_submit` and `ark_job_capabilities`.
-
-## Background-tool registry
-
-**The static tool catalog (`src/ark_mcp/tools/_catalog.py`) is the single
-source of truth** for which tools exist, their scopes, and which run in the
-background. `BACKGROUND_TOOL_SPECS` in `src/ark_mcp/background_jobs.py` is
-derived from it at import time: an immutable `MappingProxyType` of tool name →
-`BackgroundToolSpec(mode, required_scope)` for every entry with a background
-mode. A background entry without a scope fails at import. Every consumer
-reads it:
-
-- `_task_config(name)` builds the native `TaskConfig` (poll interval 2 s).
-- `register_tools` takes the tool scope from the catalog entry.
-- `_task_handler` wraps **required** targets with `guard_task_execution` and
-  instruments every registered target.
-- `ark_job_capabilities` and `ark_job_submit` resolve targets from it.
-- `record_background_job_submission` ignores names outside it, which bounds
-  metric cardinality.
-
-| Mode | Foreground call | Used for |
-|---|---|---|
-| `required` | **Rejected before the handler runs** | `seed_audio_generate`, `seedream_generate_image`, `seedance_create_task`, `omnihuman_create_task`, `media_upload`, `seed_understand`, `seed_audio_understand` |
-| `optional` | Pollers run synchronously with `persist_output=false`; persist-URL can run directly or in a worker | `gen_task_get`, `omnihuman_get_task`, `seed_media_persist_url`; poller output persistence requires background execution, while persist-URL always downloads and stores |
-
-A tool absent from the registry cannot be submitted through `ark_job_submit`,
-including the `ark_job_*` tools themselves.
-
-## Security invariants
-
-Hosted HTTP supports only `MCP_AUTH_MODE=api_key`; every member is
-tenant/principal `shared-team`.
-Members deliberately share job ownership, budget and concurrency. The shared
-key's fixed scopes exclude account-wide asset and moderation administration.
-The internal bearer context retains generic claim extraction for ownership
-tests, with a fixed `tenant_id` claim key; clients cannot configure that key or
-choose an identity.
-Key rotation preserves identity; switching auth modes does not migrate ownership.
-
-1. **Allowlist only.** `tool_name` must be a registry key and registered on
-   the running server.
-2. **Target-scope authorization.** In `api_key` mode the caller must hold the
-   target's exact scope before validation or enqueue.
-3. **Application ownership.** Job IDs are claimed in the `TaskOwnershipStore`
-   under the `mcp` namespace, keyed by principal and tenant. `ark_job_get`,
-   `ark_job_cancel` and every native `tasks/*` method call
-   `require_mcp_task_owner` first (`TenantTasksExtension._owned_handler`).
-   Native task creation claims ownership in
-   `TenantTasksExtension.intercept_tool_call`. FastMCP's own client/subject
-   task scope is defense in depth, not the tenant boundary.
-4. **Replay guard.** `guard_task_execution` claims each required execution in
-   the `mcp-execution` namespace before the handler runs. A redelivered
-   execution finds the claim and **fails instead of repeating billable
-   provider work**. Claims are never released. Optional targets stay
-   repeatable and rely on the persistence single-flight cache.
-5. **Snapshot protection.** `api_key` mode with a Redis Docket backend refuses to
-   start without `FASTMCP_TASKS_ENCRYPTION_KEY`.
-6. **Safe logging.** Job events (`background_job_accepted`,
-   `background_job_polled`, `background_job_cancelled`) carry only job ID,
-   target, status and path, never arguments or result bodies.
-7. **No existence oracle.** See [shared errors](#errors-shared-by-get-and-cancel).
-8. **No automatic job resubmission.** The job bridge and documented client
-   workflow do not resubmit after a timeout or disconnect. This is not a
-   guarantee that underlying provider calls never retry; see the
-   [Seedance transport caveat](../docs/runtime.md#retry-policy-providersretrypy).
-
-### Breaking-change migration
-
-The former `jwt` mode is rejected; retired `MCP_JWT_*`, `MCP_TENANT_CLAIM`
-and `MCP_PUBLIC_BASE_URL` settings are not used. Old user-owned or local jobs
-do not automatically become shared-team jobs. Preserve the SQLite ownership
-and execution records, Redis state, artifacts and snapshot encryption key.
-See [migration guidance](../docs/self-hosting.md#breaking-change-migration)
-before changing a retained deployment.
-
-## Observability
-
-`ark_mcp_background_job_submissions_total{target, status, path}` counts
-admissions: `status` is `accepted` or `rejected`, `path` is `compatibility`
-(`ark_job_submit`) or `native`. See
-[observability.md](../docs/observability.md).
-
-## Known constraints
-
-- **FastMCP internals.** The adapter imports `fastmcp_tasks.creation.create_task`
-  and `fastmcp_tasks.handlers.tasks_get` / `tasks_cancel`, which are not public
-  API. The dependency is bounded to `fastmcp[tasks]>=4.1.8,<4.2`; only
-  `BackgroundJobBridge` may import them.
-- **No listing or input API.** There is no `ark_job_list` and no
-  `ark_job_update`; callers keep the job ID returned at submission.
-- **Single replica.** Ownership and execution claims live in the SQLite
-  runtime database; see [deployment.md](../docs/deployment.md#background-tasks-in-a-single-replica-deployment).
-
-## Sources
-
-- [FastMCP background tasks](https://gofastmcp.com/servers/tasks), accessed
-  2026-09-13.
-- [MCP tasks specification](https://modelcontextprotocol.io/specification/2025-11-25/basic/utilities/tasks),
-  accessed 2026-09-13.
+The HTTP foundation's durable pre-dispatch records, idempotency and crash
+recovery remain future work. Old shared HTTP jobs and state have no migration
+bridge into BYOK. Exact desktop-client task support must be verified separately.

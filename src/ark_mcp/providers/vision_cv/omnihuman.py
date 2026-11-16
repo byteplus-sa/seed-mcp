@@ -10,6 +10,7 @@ from pydantic import ValidationError
 
 from ark_mcp.config.env import get_settings
 from ark_mcp.observability.logger import debug as log_debug
+from ark_mcp.providers.base import safe_provider_text
 from ark_mcp.providers.vision_cv.client import (
     VisionCvGateway,
     clean_provider_message,
@@ -38,8 +39,8 @@ _VIDEO_URL_TTL = timedelta(hours=1)
 class OmniHumanService:
     """Service layer for OmniHuman 2.0 tasks on the Vision AI common v3 API."""
 
-    def __init__(self, gateway: VisionCvGateway | None = None, req_key: str | None = None) -> None:
-        self._gateway = gateway or VisionCvGateway()
+    def __init__(self, gateway: VisionCvGateway, req_key: str | None = None) -> None:
+        self._gateway = gateway
         self._req_key = req_key or get_settings().omnihuman_req_key
 
     async def create(self, request: OmniHumanSubmitRequest) -> OmniHumanSubmission:
@@ -50,7 +51,7 @@ class OmniHumanService:
         )
         self._require_success(response, envelope, _OPERATION_SUBMIT, mutation=True)
         task_id = (envelope.data or {}).get("task_id")
-        if not isinstance(task_id, str) or not task_id:
+        if not isinstance(task_id, str) or not task_id.strip():
             raise VisionCvGateway.invalid_response(
                 _OPERATION_SUBMIT,
                 http_status=response.status_code,
@@ -78,7 +79,7 @@ class OmniHumanService:
                 return OmniHumanTaskResult(
                     status="failed",
                     request_id=request_id,
-                    error_code=nested.code or str(envelope.code),
+                    error_code=safe_provider_text(nested.code) or str(envelope.code),
                     error_message=clean_provider_message(
                         envelope.message, "OmniHuman generation failed."
                     ),
@@ -157,14 +158,10 @@ class OmniHumanService:
     ) -> tuple[httpx.Response, CvEnvelope]:
         try:
             response = await self._gateway.post(path, body)
-        except httpx.TimeoutException:
-            raise VisionCvGateway.normalize_timeout(operation, side_effect=mutation) from None
-        except httpx.ConnectError as exc:
-            raise VisionCvGateway.normalize_connection_error(operation, exc) from exc
         except httpx.TransportError as exc:
-            if mutation:
-                raise VisionCvGateway.ambiguous_transport_error(operation, exc) from exc
-            raise VisionCvGateway.normalize_transport_error(operation, exc) from exc
+            raise VisionCvGateway.normalize_transport_error(
+                operation, exc, side_effect=mutation
+            ) from None
 
         envelope = self._parse_envelope(response)
         if response.status_code >= 400:
@@ -212,4 +209,6 @@ class OmniHumanService:
 
     @staticmethod
     def _request_id(response: httpx.Response, envelope: CvEnvelope) -> str | None:
-        return envelope.request_id or VisionCvGateway.extract_request_id(response)
+        return safe_provider_text(envelope.request_id) or VisionCvGateway.extract_request_id(
+            response
+        )

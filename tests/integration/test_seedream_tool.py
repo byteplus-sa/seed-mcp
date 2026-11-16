@@ -70,7 +70,7 @@ class TestSeedreamGenerateImageTool:
             ),
         ):
             result = await seedream_generate_image(
-                SeedreamGenerateInput(prompt="a red circle"), fake_ctx
+                SeedreamGenerateInput(prompt="a red circle", persist=True), fake_ctx
             )
 
         assert isinstance(result, SeedreamGenerateOutput)
@@ -97,7 +97,7 @@ class TestSeedreamGenerateImageTool:
 
         with patch("ark_mcp.artifacts.registry.get_artifact_store", return_value=temp_store):
             result = await seedream_generate_image(
-                SeedreamGenerateInput(prompt="test image"), fake_ctx
+                SeedreamGenerateInput(prompt="test image", persist=True), fake_ctx
             )
 
         assert len(result.artifacts) == 1
@@ -123,7 +123,9 @@ class TestSeedreamGenerateImageTool:
                 "data": [{"b64_json": base64.b64encode(b"fake").decode(), "output_format": "png"}],
             },
         )
-        result = await seedream_generate_image(SeedreamGenerateInput(prompt="test"), fake_ctx)
+        result = await seedream_generate_image(
+            SeedreamGenerateInput(prompt="test", persist=True), fake_ctx
+        )
         assert isinstance(result, SeedreamGenerateOutput)
         assert result.artifacts[0].mime_type == "image/png"
 

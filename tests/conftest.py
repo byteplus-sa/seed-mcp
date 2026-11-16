@@ -14,6 +14,10 @@ _SETTINGS_ENV_PREFIXES = (
     "LAS_",
     "SEEDREAM_",
     "SEEDANCE_",
+    "SEED_UNDERSTANDING_",
+    "SEED_AUDIO_",
+    "STATE_",
+    "OUTPUT_",
     "TOS_",
     "S3_",
     "OBJECT_STORAGE_",
@@ -50,8 +54,10 @@ def isolate_settings_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     # Likewise for OmniHuman: a developer .env with the flag and key set would
     # register the omnihuman_* tools in every test.
     monkeypatch.setenv("BYTEPLUS_OMNIHUMAN_ENABLED", "false")
-    from ark_mcp.config.env import get_settings
+    from ark_mcp.config.env import Settings, get_settings
 
+    monkeypatch.setitem(Settings.model_config, "env_file", None)
+    monkeypatch.setitem(Settings.model_config, "secrets_dir", None)
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()

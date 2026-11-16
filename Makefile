@@ -19,7 +19,7 @@ ENTRY   := src/ark_mcp/server.py:mcp
 
 .DEFAULT_GOAL := help
 
-.PHONY: help bootstrap install sync build dev start start-http shared-http test test-watch audit-capabilities \
+.PHONY: help bootstrap install sync build dev start start-http test test-watch audit-capabilities \
         lint typecheck format pre-commit-install pre-commit-run pre-commit-run-all \
         secrets-baseline audit inspect inspect-dev check-env clean setup
 
@@ -50,11 +50,8 @@ dev: ## Run server in dev mode over stdio with auto-reload
 start: ## Run the server over stdio
 	$(FASTMCP) run $(ENTRY)
 
-start-http: ## Run the server over Streamable HTTP (localhost:3000)
+start-http: ## Run BYOK HTTP (requires MCP_IDENTITY_HMAC_KEY)
 	MCP_TRANSPORT=http MCP_HOST=127.0.0.1 MCP_PORT=3000 $(UV) run python -m ark_mcp
-
-shared-http: ## Run one shared loopback HTTP server (all local clients share jobs)
-	MCP_AUTH_MODE=local MCP_TRANSPORT=http MCP_HOST=127.0.0.1 MCP_PORT=$${MCP_PORT:-3000} $(UV) run python -m ark_mcp
 
 # --- Quality gates ---------------------------------------------------------
 

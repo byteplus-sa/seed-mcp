@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Iterator
+from pathlib import Path
 from typing import Any
 
 import pytest
@@ -118,7 +119,10 @@ async def test_reasons_never_contain_secret_values(configured: None) -> None:
     assert "ak-test-tos" not in rendered
 
 
-async def test_no_models_without_modelark_key(monkeypatch: pytest.MonkeyPatch) -> None:
+async def test_no_models_without_modelark_key(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    monkeypatch.setenv("ARTIFACT_DIR", str(tmp_path / "artifacts"))
     get_settings.cache_clear()
     refresh_capability_registry()
     try:

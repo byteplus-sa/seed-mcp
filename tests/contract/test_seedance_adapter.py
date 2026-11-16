@@ -6,6 +6,8 @@ covered in ``test_generation_tasks_adapter.py``.
 
 from __future__ import annotations
 
+import traceback
+
 import httpx
 import pytest
 import respx
@@ -16,6 +18,7 @@ from ark_mcp.providers.modelark.schemas import (
     SeedanceContentItem,
 )
 from ark_mcp.providers.modelark.seedance import SeedanceService
+from ark_mcp.providers.retry import RetryPolicy, call_with_retry
 
 MODELARK_BASE = "https://ark.ap-southeast.bytepluses.com/api/v3"
 
@@ -200,3 +203,110 @@ class TestSeedanceInvalidResponse:
             await service.create_task(request)
         assert exc_info.value.code == "INVALID_RESPONSE"
         assert exc_info.value.http_status == 200
+
+
+@pytest.mark.parametrize(
+    "failure",
+    [
+        httpx.ReadError,
+        httpx.WriteError,
+        httpx.ReadTimeout,
+        httpx.WriteTimeout,
+        httpx.RemoteProtocolError,
+        httpx.LocalProtocolError,
+        httpx.TransportError,
+    ],
+)
+@respx.mock
+async def test_lost_create_response_is_never_resubmitted(
+    service: SeedanceService, failure: type[httpx.TransportError]
+) -> None:
+    canary = "synthetic-request-secret-canary"
+    route = respx.post(f"{MODELARK_BASE}/contents/generations/tasks").mock(
+        side_effect=[
+            failure(f"{canary} https://private.example/input?token={canary}"),
+            httpx.Response(200, json={"id": "duplicate-task"}),
+        ]
+    )
+    request = SeedanceService.build_request(model="test", content=[])
+    try:
+        with pytest.raises(ProviderError) as info:
+            await call_with_retry(
+                lambda: service.create_task(request),
+                policy=RetryPolicy(base_delay_seconds=0),
+            )
+        assert route.call_count == 1
+        assert info.value.ambiguous_completion is True
+        assert info.value.retryable is False
+        assert info.value.__cause__ is None
+        assert canary not in "".join(traceback.format_exception(info.value))
+        assert "private.example" not in info.value.message
+    finally:
+        await service.close()
+
+
+@pytest.mark.parametrize("failure", [httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout])
+@respx.mock
+async def test_predispatch_failure_can_retry_create(
+    service: SeedanceService, failure: type[httpx.TransportError]
+) -> None:
+    route = respx.post(f"{MODELARK_BASE}/contents/generations/tasks").mock(
+        side_effect=[
+            failure("not dispatched"),
+            httpx.Response(200, json={"id": "task-created"}, headers={"X-Request-Id": "req-safe"}),
+        ]
+    )
+    request = SeedanceService.build_request(model="test", content=[])
+    try:
+        assert await call_with_retry(
+            lambda: service.create_task(request),
+            policy=RetryPolicy(base_delay_seconds=0),
+        ) == ("task-created", "req-safe")
+        assert route.call_count == 2
+    finally:
+        await service.close()
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        b"",
+        b"not json",
+        b"[]",
+        b"null",
+        b'"unexpected"',
+        b"{}",
+        b'{"id":null}',
+        b'{"id":1}',
+        b'{"id":{}}',
+        b'{"id":""}',
+        b'{"id":"  "}',
+        b'{"id":"\\n\\t"}',
+    ],
+)
+@respx.mock
+async def test_invalid_create_response_is_ambiguous_without_retry(
+    service: SeedanceService, body: bytes
+) -> None:
+    route = respx.post(f"{MODELARK_BASE}/contents/generations/tasks").mock(
+        side_effect=[
+            httpx.Response(200, content=body, headers={"X-Request-Id": "req-accepted"}),
+            httpx.Response(200, json={"id": "duplicate-task"}),
+        ]
+    )
+    request = SeedanceService.build_request(model="test", content=[])
+    try:
+        with pytest.raises(ProviderError) as info:
+            await call_with_retry(
+                lambda: service.create_task(request),
+                policy=RetryPolicy(base_delay_seconds=0),
+            )
+        assert route.call_count == 1
+        assert info.value.code == "INVALID_RESPONSE"
+        assert info.value.http_status == 200
+        assert info.value.request_id == "req-accepted"
+        assert info.value.ambiguous_completion is True
+        assert info.value.retryable is False
+        assert info.value.__cause__ is None
+    finally:
+        await service.close()

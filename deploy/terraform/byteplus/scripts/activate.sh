@@ -12,12 +12,12 @@ if ! mountpoint -q /srv/ark-mcp; then
 fi
 
 python3 /opt/ark-mcp/check_env.py /srv/ark-mcp/config/.env
-for directory in redis-data caddy-data caddy-config; do
+for directory in caddy-data caddy-config; do
     install -d -m 0750 "/srv/ark-mcp/$directory"
 done
-install -d -m 0750 -o 1001 -g 1001 /srv/ark-mcp/ark-state
+install -d -m 0750 -o 1001 -g 1001 /srv/ark-mcp/byok-state
 docker compose --env-file /srv/ark-mcp/config/.env -f /opt/ark-mcp/compose.yaml config --quiet
 systemctl enable docker.service ark-mcp.service
 systemctl start docker.service
 systemctl restart ark-mcp.service
-printf '%s\n' 'Stack started. Verify HTTPS /health and unauthenticated POST /mcp returns 401.'
+printf '%s\n' 'Stack started. Verify HTTPS /health, anonymous discovery and rejection of credential-free provider calls. No customer keys belong on this host.'

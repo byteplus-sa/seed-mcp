@@ -16,6 +16,7 @@ from mcp_types.version import MODERN_PROTOCOL_VERSIONS
 from prometheus_client import Counter, Histogram
 
 from ark_mcp.background_jobs import background_tool_spec
+from ark_mcp.tools._catalog import catalog_entry
 
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
@@ -70,6 +71,10 @@ RETRY_ATTEMPTS = Counter(
 )
 
 
+def _tool_label(tool_name: str) -> str:
+    return tool_name if catalog_entry(tool_name) is not None else "unknown"
+
+
 def record_background_job_submission(
     *,
     target: str,
@@ -112,6 +117,7 @@ def instrument_tool_execution[**Parameters, ReturnValue](
     handler: Callable[Parameters, Awaitable[ReturnValue]], *, tool_name: str
 ) -> Callable[Parameters, Awaitable[ReturnValue]]:
     """Measure real task workers while preserving foreground middleware counts."""
+    tool_name = _tool_label(tool_name)
 
     @wraps(handler)
     async def measured(*args: Parameters.args, **kwargs: Parameters.kwargs) -> ReturnValue:
@@ -145,7 +151,7 @@ class MetricsMiddleware(Middleware):
         context: MiddlewareContext[mt.CallToolRequestParams],
         call_next: CallNext[mt.CallToolRequestParams, ToolResult],
     ) -> ToolResult:
-        tool_name = context.message.name
+        tool_name = _tool_label(context.message.name)
         started = perf_counter()
         accepted = False
         native_submission = _is_native_background_submission(context)

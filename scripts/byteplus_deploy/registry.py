@@ -181,7 +181,7 @@ class _Registry:
 
 
 def check_image(image: str, username: str | None = None, token: str | None = None) -> None:
-    """Verify a pinned GHCR image's integrity, Linux AMD64 platform and shared-key mode."""
+    """Verify a pinned GHCR image's integrity, Linux AMD64 platform and BYOK mode."""
     if not isinstance(image, str) or (reference := _REFERENCE.fullmatch(image)) is None:
         raise RegistryError("Use a GHCR image pinned to a lowercase sha256 digest.")
     if (username is None) != (token is None) or (
@@ -240,5 +240,5 @@ def check_image(image: str, username: str | None = None, token: str | None = Non
         ):
             raise RegistryError("Image config environment is malformed.")
         modes = [value for value in environment if value.startswith("MCP_AUTH_MODE=")]
-        if modes != ["MCP_AUTH_MODE=api_key"]:
-            raise RegistryError("Image must explicitly default to MCP_AUTH_MODE=api_key.")
+        if modes != ["MCP_AUTH_MODE=byok"]:
+            raise RegistryError("Image must explicitly default to MCP_AUTH_MODE=byok.")

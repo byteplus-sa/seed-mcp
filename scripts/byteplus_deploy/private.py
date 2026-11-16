@@ -1,4 +1,4 @@
-"""Allowlisted provider settings and host-bound encrypted transfer."""
+"""Allowlisted operator settings and host-bound encrypted transfer."""
 
 from __future__ import annotations
 
@@ -18,23 +18,6 @@ if TYPE_CHECKING:
     from pathlib import Path
     from types import ModuleType
 
-PROVIDERS = {
-    "BYTEPLUS_MODELARK_API_KEY",
-    "BYTEPLUS_SEED_SPEECH_API_KEY",
-    "BYTEPLUS_CV_API_KEY",
-    "BYTEPLUS_MODELARK_BASE_URL",
-    "BYTEPLUS_SEED_AUDIO_BASE_URL",
-    "BYTEPLUS_OMNIHUMAN_ENABLED",
-}
-LIMITS = {
-    "DAILY_BUDGET_USD",
-    "RATE_LIMIT_RPM",
-    "RATE_LIMIT_BURST",
-    "PROVIDER_MAX_CONCURRENCY",
-    "PRINCIPAL_MAX_CONCURRENCY",
-    "ARTIFACT_TTL_SECONDS",
-}
-
 
 def validator() -> ModuleType:
     """Load the existing pure host validator without importing the MCP server."""
@@ -47,60 +30,59 @@ def validator() -> ModuleType:
     return module
 
 
-PRODUCT_KEYS = frozenset(validator().PRODUCT_KEYS)
+IDENTITY_SETTINGS = frozenset(validator().IDENTITY_SETTINGS)
 
 
 def configuration_digest(payload: bytes) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
-def make_configuration(provider_file: Path, hostname: str) -> tuple[bytes, str]:
-    """Generate one new deployment configuration; callers persist and reuse it."""
+def make_configuration(operator_file: Path, hostname: str) -> bytes:
+    """Load operator-only inputs; never generate a client credential."""
     import os
 
     checker = validator()
-    original = checker.load_environment(provider_file, expected_uid=os.getuid())
+    original = checker.load_environment(operator_file, expected_uid=os.getuid())
     return make_configuration_values(original, hostname)
 
 
-def make_configuration_values(original: dict[str, str], hostname: str) -> tuple[bytes, str]:
-    """Create a first deployment from validated provider inputs, never rotate retained keys."""
+def make_configuration_values(original: dict[str, str], hostname: str) -> bytes:
+    """Build operator configuration per specs/SPEC_HOSTED_BYOK.md."""
     checker = validator()
+    if set(original) - checker.HOSTED_SETTINGS:
+        raise ValueError(
+            "Hosted inputs must contain only operator settings, never customer keys or job settings."
+        )
     template = ROOT / "deploy/compose/.env.example"
-    values: dict[str, str] = {}
-    for line in template.read_text().splitlines():
-        if line and line[0].isupper() and "=" in line:
-            key, value = line.split("=", 1)
-            if "ACCESS_KEY" not in key and "SECRET_KEY" not in key and "SESSION_TOKEN" not in key:
-                values[key] = value
-    values.update({key: value for key, value in original.items() if key in PROVIDERS | LIMITS})
-    token = secrets.token_hex(32)
-    values.update(
-        MCP_PUBLIC_HOST=hostname,
-        MCP_AUTH_MODE="api_key",
-        MCP_API_KEY_SHA256=configuration_digest(token.encode()),
-        REDIS_PASSWORD=secrets.token_hex(32),
-        FASTMCP_TASKS_ENCRYPTION_KEY=secrets.token_hex(32),
-        ARTIFACT_BACKEND="filesystem",
-    )
-    for key, value in values.items():
-        if any(character in value for character in "\r\n$`#\"'\\"):
-            raise ValueError(f"{key} must be a plain literal value.")
+    values = checker.parse_environment(template.read_text())
+    values.update(original)
+    values["MCP_PUBLIC_HOST"] = hostname
+    for value in values.values():
+        if not isinstance(value, str) or any(
+            ord(character) < 32 or ord(character) > 126 or character in "$`#\"'\\"
+            for character in value
+        ):
+            raise ValueError("Operator settings must be plain literal ASCII values.")
     checker.validate_environment(values)
-    return "".join(f"{key}={value}\n" for key, value in values.items()).encode(), token
+    return "".join(f"{key}={value}\n" for key, value in values.items()).encode()
 
 
-def replace_provider_keys(payload: bytes, keys: dict[str, str]) -> bytes:
-    """Replace the complete product-key set while preserving every other literal line."""
+def replace_operator_identity(payload: bytes, identity: dict[str, str]) -> bytes:
+    """Replace only operator identity; changes reset scopes without a recovery bridge."""
+    checker = validator()
+    checker.validate_environment(checker.parse_environment(payload.decode()))
+    if set(identity) != IDENTITY_SETTINGS:
+        raise ValueError("Only the complete operator HMAC identity may be synced.")
+    checker.validate_identity(identity)
     lines = payload.decode().splitlines(keepends=True)
     result = []
     for line in lines:
         key = line.partition("=")[0]
-        if key not in PRODUCT_KEYS:
+        if key not in IDENTITY_SETTINGS:
             result.append(line)
     if result and not result[-1].endswith("\n"):
         result[-1] += "\n"
-    result.extend(f"{key}={keys.get(key, '')}\n" for key in sorted(PRODUCT_KEYS))
+    result.extend(f"{key}={identity[key]}\n" for key in sorted(IDENTITY_SETTINGS))
     return "".join(result).encode()
 
 

@@ -290,9 +290,9 @@ Size limits (applied before upload):
 
 ### Transport restrictions
 
-`file_path` input is available **only in stdio transport**. Over HTTP,
-only Base64 `data` is accepted. This prevents remote clients from reading
-arbitrary files on the server host:
+Storage tools are **stdio-only**, including Base64 uploads and presigning.
+HTTP exposes no storage or artifact tools/resources. Local file-path policy
+also prevents remote reads:
 
 ```python
 if input.file_path is not None:
@@ -302,12 +302,10 @@ if input.file_path is not None:
         )
 ```
 
-### Shared-team access
+### Local Access
 
-In `api_key` mode, `media_upload` checks `media:upload` and `media_presign`
-checks `media:presign`, both included in the fixed ordinary team scopes.
-All members use tenant/principal `shared-team` and can presign one another's
-team-owned uploads. Clients cannot request different scopes or identities. See
+`media_upload` and `media_presign` use the trusted local stdio principal and
+configured storage credentials. HTTP clients must host media externally. See
 [security.md](security.md#scope-taxonomy).
 
 ## Setup guide

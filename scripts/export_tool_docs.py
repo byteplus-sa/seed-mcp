@@ -6,7 +6,8 @@ Run with the installed project Python in a fresh process:
 The build orchestrator captures stdout; this script writes no output files.
 Each tool includes its FastMCP description and exact inputSchema wrapper,
 the catalog's explicit outputSchema, scope, background mode (null means
-foreground-only), and a human-readable registration_gate. Gates describe
+foreground-only on stdio), and transport-specific registration/execution metadata.
+The legacy top-level registration_gate and background fields describe stdio. Gates describe
 configuration requirements, not the current environment or provider entitlement.
 """
 
@@ -23,6 +24,7 @@ from typing import Any
 _ENV_ALLOWLIST = ("PATH", "SYSTEMROOT", "WINDIR", "TMPDIR", "TEMP", "TMP")
 _REGISTRATION_GATES = {
     "_always": "Always registered; no provider credentials required.",
+    "_local": "Local stdio only; no provider credentials required.",
     "_modelark": "Requires BYTEPLUS_MODELARK_API_KEY.",
     "_seed_audio": "Requires BYTEPLUS_SEED_SPEECH_API_KEY.",
     "_object_storage": (
@@ -31,6 +33,17 @@ _REGISTRATION_GATES = {
         "with S3_ACCESS_KEY, S3_SECRET_KEY and S3_BUCKET."
     ),
     "_omnihuman": "Requires BYTEPLUS_OMNIHUMAN_ENABLED=true and BYTEPLUS_CV_API_KEY.",
+}
+_HTTP_REGISTRATION_GATES = {
+    "_always": "Anonymous static discovery; no provider credentials required.",
+    "_modelark": "Always registered on HTTP; invocation requires the selected request key.",
+    "_seed_audio": "Always registered on HTTP; invocation requires the selected request key.",
+    "_omnihuman": "Requires BYTEPLUS_OMNIHUMAN_ENABLED=true; no operator provider key.",
+}
+_PROVIDER_HEADERS = {
+    "modelark": "X-ModelArk-Api-Key",
+    "seed-speech": "X-Seed-Speech-Api-Key",
+    "vision-cv": "X-OmniHuman-Api-Key",
 }
 
 
@@ -61,6 +74,18 @@ def export_tool_docs() -> dict[str, Any]:
         gate_name = entry.gate.__name__
         if gate_name not in _REGISTRATION_GATES:
             raise ValueError(f"Undocumented registration gate: {gate_name}")
+        transports: dict[str, Any] = {
+            "stdio": {
+                "registration_gate": _REGISTRATION_GATES[gate_name],
+                "background": entry.background,
+            }
+        }
+        if gate_name in _HTTP_REGISTRATION_GATES:
+            transports["http"] = {
+                "registration_gate": _HTTP_REGISTRATION_GATES[gate_name],
+                "background": None,
+                "credential_header": _PROVIDER_HEADERS[entry.provider] if entry.provider else None,
+            }
         definition = resolve_tool_definition(entry)
         task = (
             TaskConfig(mode=entry.background, poll_interval=timedelta(seconds=2))
@@ -83,6 +108,7 @@ def export_tool_docs() -> dict[str, Any]:
                 "scope": entry.scope,
                 "background": entry.background,
                 "registration_gate": _REGISTRATION_GATES[gate_name],
+                "transports": transports,
             }
         )
     return {"tools": tools}

@@ -7,6 +7,14 @@ re-exposes it as a stable MCP resource `seed-media://artifacts/{artifact_id}`.
 This document describes the artifact store, its lifecycle, and the
 ownership model.
 
+Artifact storage/tools/resources are **stdio-only**. Seed Audio/Seedream
+`persist` and OmniHuman get `persist_output` default to false globally.
+Local callers may explicitly request true; HTTP rejects it and local paths.
+HTTP clients download temporary provider URLs themselves.
+Audio-understanding Files API uploads are separate remote temporary files:
+cleanup uses the same live request key and residual files expire remotely,
+independently of output URL expiry and local artifact TTL.
+
 > **Breaking capability removal:** old saved 3D artifacts are no longer served
 > by the narrowed image/audio/video schema. Export needed 3D outputs using the
 > old server **before upgrading**. Retained bytes and metadata do not guarantee
@@ -34,7 +42,7 @@ delegated to a bucket lifecycle policy — `delete_expired` is a no-op there.
 | Env var | Default | Notes |
 |---|---|---|
 | `ARTIFACT_BACKEND` | `"filesystem"` | `filesystem` or `object_storage` (requires TOS/S3 credentials) |
-| `ARTIFACT_DIR` | `~/.ark-mcp/artifacts` | local media + `runtime.sqlite3` state; resolved via `Path(...).expanduser().resolve()` |
+| `ARTIFACT_DIR` | `~/.seed-mcp/artifacts` | local media + `runtime.sqlite3` state; resolved via `Path(...).expanduser().resolve()` |
 | `ARTIFACT_TTL_SECONDS` | `604800` (7 days) | must be `> 0` |
 
 `FilesystemArtifactStore` (`artifacts/filesystem_store.py`) lays out

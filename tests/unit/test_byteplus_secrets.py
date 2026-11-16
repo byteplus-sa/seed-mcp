@@ -8,17 +8,18 @@ from typing import Any
 import httpx
 import pytest
 from scripts.byteplus_deploy.cloud import Cloud, CloudError
-from scripts.byteplus_deploy.secrets import SecretReference, fetch_provider_keys, parse_bundle
+from scripts.byteplus_deploy.secrets import SecretReference, fetch_operator_identity, parse_bundle
 from scripts.byteplus_deploy.workspace import atomic_private
 
+IDENTITY_BUNDLE_NAME = "ark-operator-identity"
 REFERENCE = {
     "region": "ap-southeast-1",
     "account_id": "1234567890",
     "project_name": "default",
-    "secret_name": "ark-team-providers",
+    "secret_name": IDENTITY_BUNDLE_NAME,
     "version_id": "b58a7e97-3000-4e6e-90c4-c01958333717",
 }
-BUNDLE = {"BYTEPLUS_MODELARK_API_KEY": "synthetic-provider"}
+BUNDLE = {"MCP_IDENTITY_HMAC_KEY": "a" * 64, "MCP_IDENTITY_KEY_VERSION": "1"}
 
 
 def reference(tmp_path: Path, **changes: Any) -> SecretReference:
@@ -57,9 +58,8 @@ def test_pinned_read_signs_kms_and_suppresses_secret_diagnostics(
         httpx.Client(transport=httpx.MockTransport(handler)),
     )
     with caplog.at_level(logging.DEBUG):
-        keys = fetch_provider_keys(reference(tmp_path), cloud=cloud)
-    assert keys["BYTEPLUS_MODELARK_API_KEY"] == "synthetic-provider"
-    assert keys["BYTEPLUS_CV_API_KEY"] == ""
+        keys = fetch_operator_identity(reference(tmp_path), cloud=cloud)
+    assert keys == BUNDLE
     assert [item.url.params["Action"] for item in seen] == ["DescribeSecret", "GetSecretValue"]
     assert seen[1].url.params["VersionID"] == REFERENCE["version_id"]
     assert all(item.url.host == "kms.ap-southeast-1.byteplusapi.com" for item in seen)
@@ -112,7 +112,7 @@ def test_identity_mismatch_prevents_value_retrieval(tmp_path: Path, field: str, 
             return payload
 
     with pytest.raises(ValueError, match="identity"):
-        fetch_provider_keys(reference(tmp_path), cloud=Client())  # type: ignore[arg-type]
+        fetch_operator_identity(reference(tmp_path), cloud=Client())  # type: ignore[arg-type]
     assert seen == ["DescribeSecret"]
 
 
@@ -134,7 +134,7 @@ def test_version_and_value_failures_are_sanitized(tmp_path: Path, payload: Any) 
             return response(action) if action == "DescribeSecret" else payload
 
     with pytest.raises(ValueError) as caught:
-        fetch_provider_keys(reference(tmp_path), cloud=Client())  # type: ignore[arg-type]
+        fetch_operator_identity(reference(tmp_path), cloud=Client())  # type: ignore[arg-type]
     assert "synthetic-provider" not in str(caught.value)
 
 
@@ -151,6 +151,13 @@ def test_version_and_value_failures_are_sanitized(tmp_path: Path, payload: Any) 
         '{"BYTEPLUS_MODELARK_API_KEY": "$INTERPOLATION"}',
         '{"BYTEPLUS_MODELARK_API_KEY": " leading-space"}',
         '{"BYTEPLUS_MODELARK_API_KEY": "unicode-\\u00e9"}',
+        '{"MCP_IDENTITY_HMAC_KEY": null, "MCP_IDENTITY_KEY_VERSION": "1"}',
+        '{"MCP_IDENTITY_HMAC_KEY": true, "MCP_IDENTITY_KEY_VERSION": "1"}',
+        '{"MCP_IDENTITY_HMAC_KEY": "a", "MCP_IDENTITY_HMAC_KEY": "b", "MCP_IDENTITY_KEY_VERSION": "1"}',
+        json.dumps({**BUNDLE, "MCP_IDENTITY_KEY_VERSION": "0"}),
+        json.dumps({**BUNDLE, "MCP_IDENTITY_KEY_VERSION": 1}),
+        json.dumps({**BUNDLE, "MCP_IDENTITY_HMAC_KEY": "A" * 64}),
+        json.dumps({**BUNDLE, "BYTEPLUS_MODELARK_API_KEY": "synthetic-provider"}),
     ],
 )
 def test_bundle_rejects_empty_wrong_types_duplicates_and_unsafe_values(value: str) -> None:

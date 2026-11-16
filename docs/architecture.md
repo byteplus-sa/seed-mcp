@@ -1,258 +1,104 @@
 # Architecture
 
-This document describes the structure of the Ark Seed Multimodal MCP
-Server as shipped today. The catalog contains 21 tools across generation,
-understanding, task lifecycle, storage, background jobs and artifacts.
+The static catalog contains 21 local stdio tools. HTTP exposes only nine
+discovery/provider tools, or twelve when OmniHuman is enabled. The
+[BYOK specification](../specs/SPEC_HOSTED_BYOK.md) defines the forward-only
+boundary implemented by this server.
 
-## Design goals
-
-- **Small, typed tool surface** — a handful of Pydantic-validated tools rather
-  than a wide REST API.
-- **Dedicated provider gateways, one domain layer** — Seedance and Seedream
-  and understanding share the ModelArk host and Bearer auth; Seed Audio uses
-  Seed Speech and `X-Api-Key`; OmniHuman uses Vision AI and its own Bearer key.
-  The differences are hidden behind normalized adapters.
-- **Durable artifacts** — known provider media URLs expire (2h Seed Audio; 24h
-  ModelArk image/video; about 1h OmniHuman), so persistence copies outputs
-  to filesystem or object storage and re-exposes stable
-  `seed-media://artifacts/{id}` MCP resources. Billed output remains available
-  through a fallback reference when persistence fails.
-- **Safe by default** — local `stdio` requires no auth; remote HTTP requires
-  shared-key hash verification, Host/Origin protection, and body limits.
-- **Observable and budget-aware** — structured logs, Prometheus metrics, and a
-  per-principal daily budget ledger.
-- **Timeout-safe long operations** — generation, understanding, upload, and
-  provider-submission calls run through the ordinary `ark_job_*` tools by
-  default, or native MCP task augmentation where a client supports it;
-  completed-media retrieval supports optional background persistence.
-
-## Layered structure
-
-```text
-src/ark_mcp/
-├── __main__.py            # entry point; truststore injection; transport wiring
-├── server.py              # FastMCP factory; tool/resource/route registration
-├── config/                # settings (env), model capability registry
-│   ├── env.py
-│   └── model_capabilities.py
-├── domain/                # pure models: ArtifactRef, MediaSource, errors
-│   ├── artifacts.py
-│   ├── media.py
-│   ├── models.py
-│   └── errors.py
-├── tools/                 # MCP tool implementations (+ _cost, _parallel, _errors)
-├── providers/             # dedicated HTTP gateways + retry policy
-│   ├── base.py            # BaseHttpGateway: spans, metrics, error normalization
-│   ├── retry.py
-│   ├── modelark/          # Seedream, Seedance, understanding and Files API
-│   ├── seed_speech/       # Seed Audio
-│   └── vision_cv/         # Vision AI (Bearer; OmniHuman 2.0 submit/query/cancel)
-├── runtime.py             # lifespan-owned services (limiter, budget, ownership)
-├── artifacts/             # durable artifact store (filesystem backend)
-│   ├── store.py           # ArtifactStore protocol
-│   └── filesystem_store.py
-├── security/              # auth, SSRF-safe downloads, URL/media policy, body limit
-├── observability/         # structured logging + Prometheus metrics
-└── transports (via FastMCP) # stdio + Streamable HTTP
-```
-
-## Provider gateway domain layer
-
-```mermaid
-flowchart LR
-    Client["MCP Client\n(stdio / HTTP)"] --> Server["FastMCP server\n(server.py)"]
-    Server --> Domain["Domain layer\n(tools/ + domain/)"]
-    Domain --> Gateway["Provider gateways\n(providers/)"]
-    Gateway -->|"Bearer auth"| ModelArk["ModelArk\nSeedream + Seedance + understanding + Files API"]
-    Gateway -->|"X-Api-Key"| SeedSpeech["Seed Speech\nSeed Audio"]
-    Gateway -->|"Bearer auth"| VisionCv["Vision AI\nOmniHuman 2.0"]
-    Server -.durable.-> Store["Artifact store\n(filesystem)"]
-    Server -.state.-> Runtime["Runtime services\n(runtime.py)"]
-```
-
-- **ModelArk gateway** (`providers/modelark/`) — serves Seedream (image),
-  Seedance (video), understanding and Files API delivery. Uses
-  `Authorization: Bearer` and base URL
-  `https://ark.ap-southeast.bytepluses.com/api/v3`.
-- **Seed Speech gateway** (`providers/seed_speech/`) — serves Seed Audio.
-  Uses `X-Api-Key` and base URL `https://voice.ap-southeast-1.bytepluses.com`.
-- **Vision AI gateway** (`providers/vision_cv/`) — serves the `omnihuman_*` tools
-  through the common v3 task API (`submit_task_v2`, `get_result_v2`,
-  `cancel_task`). It uses Bearer auth (`BYTEPLUS_CV_API_KEY`), defaults to
-  `https://openapi.cv.bytepluses.com`, and treats `code == 10000` in the
-  response body as the only success signal.
-- These gateways extend `BaseHttpGateway` (`providers/base.py`), which wraps every
-  outbound request in an OpenTelemetry span, records Prometheus
-  provider metrics, and normalizes transport/HTTP errors into a single
-  `ProviderError` carrying a `NormalizedProviderError`.
-
-Provider submissions can have ambiguous outcomes after a timeout. Do not
-resubmit potentially accepted work blindly. Persist completed media separately
-from provider task polling, and inspect persistence failures.
-
-Existing authorized `asset://` references pass natively to Seedance. There is
-no signed asset administration gateway, lookup, resolution or status preflight.
-Discovery uses static model bindings and performs no provider calls or live
-account-pricing refresh. Cost previews are built-in estimates.
-
-## Long-running task flow
-
-Generation and variation calls, uploads, multimodal understanding (including
-audio transcription), and Seedance and OmniHuman submissions are registered
-with `execution.taskSupport="required"` and a two-second recommended poll
-interval. FastMCP's Docket worker runs the existing tool handler after returning
-the MCP task ID, while the handler retains the normal provider timeout, budget,
-concurrency, error, and usage accounting paths.
-
-Because most clients cannot negotiate task augmentation, the default path
-submits the same registered handlers through the ordinary `ark_job_submit` tool
-and polls `ark_job_get`. The adapter is intentionally thin: it resolves an
-allowlisted task-enabled tool, enforces the target's scope and ownership, and
-delegates creation, status, and cancellation to the pinned FastMCP task
-backend. It does not introduce a second queue or execute provider work inside
-the foreground request.
-
-Seedance and OmniHuman get calls use optional task support: foreground
-execution remains available for short processing-status checks, while task
-augmentation protects the completed-output download and persistence path. List,
-presign, artifact-read, and cancel/delete operations stay foreground.
-
-```mermaid
-sequenceDiagram
-    participant C as MCP client
-    participant S as FastMCP server
-    participant W as Docket worker
-    participant A as BytePlus API or object storage
-    alt Ordinary-tool client (default)
-        C->>S: ark_job_submit(target, arguments)
-        S-->>C: Ark job ID (working)
-    else Client supports task augmentation
-        C->>S: original tools/call + task metadata
-        S-->>C: MCP task ID (working)
-    end
-    S->>W: enqueue long-running tool
-    W->>A: generation, understanding, upload, submission, or persistence
-    loop recommended every 2 seconds until terminal
-        alt Ordinary-tool path
-            C->>S: ark_job_get(job ID)
-        else Native task path
-            C->>S: tasks/get
-        end
-        S-->>C: working status or terminal result
-    end
-    A-->>W: completion
-    W->>S: store final tool result
-    Note over C,S: terminal response preserves the typed tool output
-    opt Provider submission result
-        Note over S,C: typed output includes provider task ID
-        C->>S: product get tool(provider task ID)
-        S->>A: foreground status request
-        A-->>S: provider task status
-        S-->>C: typed provider task output
-    end
-```
-
-## Server lifecycle and runtime services
-
-`server.py::create_server` builds the FastMCP instance. The server lifespan
-is owned by `runtime.py::build_lifespan`, which constructs a single
-`RuntimeServices` object and yields it as the FastMCP lifespan context:
-
-```mermaid
-sequenceDiagram
-    participant M as __main__ / FastMCP
-    participant L as build_lifespan
-    participant R as RuntimeServices
-    participant T as Tool call
-    M->>L: start lifespan
-    L->>R: create_runtime_services(settings)
-    L->>M: yield {"runtime": RuntimeServices}
-    M->>T: invoke tool
-    T->>R: get_runtime(ctx)
-    R-->>T: services
-    T->>T: billed_provider_slot(...)
-    M->>L: shutdown
-    L->>R: close_runtime_services (artifact, ownership, object-key, budget, cache stores)
-```
-
-`RuntimeServices` holds nine components (see [runtime.md](runtime.md) for
-full detail):
-
-| Field | Purpose |
-|---|---|
-| `settings` | resolved `Settings` |
-| `artifact_store` | `FilesystemArtifactStore` — durable media |
-| `safe_downloader` | SSRF-safe HTTP downloader |
-| `ownership_store` | `SQLiteTaskOwnershipStore` — provider task ownership |
-| `object_key_ownership_store` | `SQLiteObjectKeyOwnershipStore` — uploaded-object ownership |
-| `budget_ledger` | `BudgetLedger` — per-principal UTC daily budget |
-| `provider_limiters` | `ProviderLimiters` — provider + principal concurrency |
-| `task_artifact_cache` | `SQLiteTaskArtifactCache` — provider task → artifact ref cache |
-| `task_artifact_locks` | `TaskArtifactPersistenceLocks` — process-local per-task single-flight |
-
-`close_runtime_services` closes the five resources that own I/O state:
-`artifact_store`, `ownership_store`, `object_key_ownership_store`,
-`budget_ledger`, and `task_artifact_cache`. The lock registry is process-local,
-removes entries after the last holder or waiter exits, and needs no close step.
-
-## Request flow for a billable tool
-
-The identity path is implemented by `security/http_auth.py` and
-`runtime.py::get_principal`. HTTP authentication rejects an invalid key before
-tool dispatch; generic internal bearer claims remain available for ownership
-tests, not as a configurable remote identity mechanism.
+## Request Flow
 
 ```mermaid
 flowchart TD
-    A["MCP tool invoked"] --> B{"local mode?"}
-    B -->|yes| C["PrincipalContext()\nlocal/local"]
-    B -->|no| D["Read verified shared-key context: sub and fixed tenant_id"]
-    D --> C2["PrincipalContext: shared-team/shared-team, fixed ordinary scopes"]
-    C --> E["reserve budget\n(BudgetLedger.reserve)"]
-    C2 --> E
-    E -->|"over limit"| F["BudgetExceededError\n(pre-dispatch)"]
-    E -->|"reserved"| G["acquire provider + principal\nsemaphores (billed_provider_slot)"]
-    G --> H["call_with_retry\n(provider gateway)"]
-    H --> I{"outcome"}
-    I -->|success| J["commit reservation"]
-    I -->|"ambiguous timeout"| J
-    I -->|"retryable error"| K["release reservation"]
-    J --> L["persist artifact + return ArtifactRef"]
-    K --> L
+    Client["MCP client"] --> Transport{"Transport"}
+    Transport -->|stdio| Local["Local configured keys; jobs and artifacts"]
+    Transport -->|HTTP| Limits["Admission, rate, body and Host/Origin checks"]
+    Limits --> Headers["Ephemeral raw-header validation"]
+    Headers --> Discovery{"Discovery?"}
+    Discovery -->|Yes| Static["Anonymous static catalog"]
+    Discovery -->|No| Owner["Selected provider key plus client secret"]
+    Owner --> Validate["Binding, media, ownership and budget validation"]
+    Local --> Validate
+    Validate --> Factory["Explicit-key gateway factory"]
+    Factory --> Provider["Official BytePlus provider"]
+    Provider --> Result["URL, task ID, answer or safe error"]
 ```
 
-Three layers of control compose on a single billable call: the provider
-bucket semaphore (per provider, global, default 5), the principal semaphore
-(per `(tenant, principal)`, default 3; skipped in local mode), and — for parallel
-variation tools — a per-batch local semaphore (`max_concurrent=5`). All
-shared-key members share that principal semaphore and budget. See [runtime.md](runtime.md).
+`tools/_catalog.py` is the single inventory. `server.py` controls
+transport registration and execution. `security/credentials.py` validates
+raw live headers and binds provider-specific ownership; `providers/factory.py`
+constructs explicit-key gateways. `runtime.py` owns state, budgets and
+limiters. No HTTP gateway falls back to operator provider keys.
 
-## Transports
+HTTP middleware scopes `Settings` to the receiving server for each request;
+capability lookup uses those settings instead of the process-default registry.
+Concurrent server instances therefore keep their bindings and defaults isolated.
+Anonymous `ark_list_models` lists configured bindings without environment
+provider keys. `services[].enabled` means registered, not entitled.
 
-| Transport | When | Auth |
-|---|---|---|
-| `stdio` | local default | none (single trusted principal `local`) |
-| Streamable HTTP | remote / shared | `api_key` required off loopback; one fixed `shared-team` identity with ordinary scopes |
+## Provider Domain Layer
 
-`local` is the Python default and is restricted to stdio/loopback HTTP.
-Docker, Compose and Terraform default to `api_key`. Shared HTTP excludes
-account-wide administration; the server has no asset-management tools on
-either transport. It does not isolate members of a team, and per-user BYOK
-is not implemented.
+| Provider | Fixed HTTP origin | Upstream auth |
+| --- | --- | --- |
+| ModelArk | `https://ark.ap-southeast.bytepluses.com/api/v3` | Bearer; Seedream, Seedance, image/video/audio understanding and Files API |
+| Seed Speech | `https://voice.ap-southeast-1.bytepluses.com` | `X-Api-Key`; Seed Audio |
+| Vision AI | `https://openapi.cv.bytepluses.com` | Separate Bearer key; optional OmniHuman |
 
-`truststore.inject_into_ssl()` runs at module import in both `server.py` and
-`__main__.py`, so every run path loads the macOS system Keychain for TLS.
-Transport wiring, Host/Origin protection, and body-limit middleware live in
-`__main__.py`. See [transports.md](transports.md) and [security.md](security.md).
+The client-facing headers differ from upstream auth:
+`X-ModelArk-Api-Key`, `X-Seed-Speech-Api-Key`, `X-OmniHuman-Api-Key`, plus
+required `X-MCP-Client-Secret` for provider calls. There is no OAuth,
+signup or server-issued key. Discovery makes no provider calls.
 
-## Where to read more
+The registry maps exact model IDs to capabilities. Optional endpoint headers
+select only registered Seedance/Seedream defaults; explicit tool `model` wins.
+No arbitrary opaque endpoint lineage is inferred. Native Seedance assets are
+passed through without asset administration, resolution or status preflight.
 
-| Topic | Document |
-|---|---|
-| Runtime services (limiter, budget, ownership, retry) | [runtime.md](runtime.md) |
-| Logging, metrics, tracing | [observability.md](observability.md) |
-| Consolidated security model | [security.md](security.md) |
-| Model capability registry | [models.md](models.md) |
-| Durable artifact lifecycle | [artifacts.md](artifacts.md) |
-| Tool contracts | [api-reference.md](api-reference.md) |
-| Configuration | [configuration.md](configuration.md) |
+## Execution and Delivery
+
+HTTP calls execute directly in the foreground. Seedance/OmniHuman execution
+remains asynchronous at the provider: return a provider ID and poll it with
+the corresponding tool. HTTP has no Docket queue, task snapshots, native tasks,
+storage/artifact tools or MCP resources.
+Explicit per-call `io.modelcontextprotocol/tasks` opt-in is rejected, including
+on discovery, before provider dispatch, snapshot capture/save or queue creation.
+
+Local stdio retains [ordinary jobs and native tasks](../specs/SPEC_BACKGROUND_JOBS.md).
+Required tools run through `ark_job_submit` by default; capable clients can use
+native augmentation. Job IDs and provider IDs remain distinct.
+
+Seed Audio/Seedream `persist` and OmniHuman get `persist_output` default to false
+globally. HTTP rejects true; stdio permits explicit persistence and guarded
+local outputs. HTTP clients retrieve expiring URLs themselves. Files API
+cleanup uses the same request key; remote temporary-file expiry is not local
+artifact persistence.
+
+## Ownership and State
+
+Credential tenants are HMAC-derived from the selected provider, official origin,
+exact key and identity version. Owners additionally include the client secret.
+Adding another provider key does not change existing scope. The operator HMAC
+key and version are stable configuration, not customer credentials.
+
+Fresh SQLite has ownership primary key `(provider, tenant_id, task_id)` and
+an immutable `principal_id`. Checks precede upstream access and fail closed
+on missing ownership or state errors. No compatibility migration exists.
+Keys are not written to state, snapshots, cache keys, logs or spans.
+
+HTTP starts with positive rate/body/in-flight/state limits. `/health` and
+`/ready` expose minimal state status and never probe providers; `/metrics`
+is unavailable publicly. See [security](security.md) and [runtime](runtime.md).
+
+## Failure Boundary
+
+Provider mutation failures with uncertain dispatch and malformed 2xx responses
+are nonretryable/ambiguous, including potentially billed understanding
+completions. Chat/mutation 5xx responses are ambiguous and never automatically
+retried, even if marked `retryable=true`. Eligible 429 rejections, pre-dispatch
+failures and reads can have bounded retries; understanding excludes all
+`TIMEOUT` retries. Preserve task/request IDs, including IDs retained alongside
+Seedance bookkeeping errors. See [runtime recovery](runtime.md#billable-call-composition-billed_provider_slot).
+
+SQLite and in-process limiters support one instance only. PostgreSQL,
+multi-replica coordination, durable pre-dispatch idempotency and crash recovery
+remain next phase. This foundation does not promise exactly-once inference or
+establish public-launch readiness.

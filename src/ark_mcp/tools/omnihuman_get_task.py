@@ -1,8 +1,7 @@
-"""``omnihuman_get_task`` tool — poll an OmniHuman 2.0 task and persist its video.
+"""``omnihuman_get_task`` tool — poll an OmniHuman 2.0 task for its video URL.
 
-On the first successful poll of a completed task, copies the one-hour provider
-video URL into ``ArtifactStore`` and caches the artifact by task ID so repeated
-polls do not download twice.
+Explicit stdio persistence copies the one-hour provider video URL into
+``ArtifactStore`` and caches it by task ID so repeated polls do not download twice.
 """
 
 from __future__ import annotations
@@ -17,13 +16,16 @@ from ark_mcp.artifacts.store import ArtifactPersistenceError
 from ark_mcp.domain.artifacts import ArtifactPersistenceIssue, ArtifactRef, MediaType
 from ark_mcp.domain.errors import ProviderError
 from ark_mcp.observability.logger import info as log_info
+from ark_mcp.providers.factory import vision_cv_gateway
 from ark_mcp.providers.retry import call_with_retry
 from ark_mcp.providers.vision_cv.omnihuman import OmniHumanService
 from ark_mcp.providers.vision_cv.schemas import OmniHumanTaskResult, OmniHumanTaskStatus
 from ark_mcp.runtime import get_principal, get_runtime
 from ark_mcp.security.auth_context import PrincipalContext
+from ark_mcp.security.credentials import provider_api_key
 from ark_mcp.security.media_policy import get_media_limits
 from ark_mcp.tools._errors import provider_error_result
+from ark_mcp.tools._http_policy import validate_http_options
 from ark_mcp.tools._local_export import (
     local_export,
     output_path_field,
@@ -43,10 +45,10 @@ class OmniHumanGetTaskInput(BaseModel):
 
     task_id: str = Field(min_length=1, description="Task ID returned by omnihuman_create_task.")
     persist_output: bool = Field(
-        default=True,
+        default=False,
         description=(
-            "Copy a completed video into artifact storage. true requires background execution "
-            "(ark_job_submit); use false for a foreground status check."
+            "Copy a completed video into artifact storage. Stdio background execution only "
+            "(ark_job_submit); must be false over HTTP. Defaults to URL-only polling."
         ),
     )
     output_path: str | None = output_path_field("the generated video")
@@ -199,8 +201,11 @@ async def omnihuman_get_task(
 
     Keep polling while status is queued or running. With persist_output=true the
     finished video is copied to a durable artifact on the first successful poll
-    (background execution, ark_job_submit); later polls return the cached artifact.
+    (stdio background execution, ark_job_submit); later polls return the cached artifact.
+    HTTP runs in the foreground and requires persist_output=false.
     """
+    validate_http_options(ctx, persist=input.persist_output, persist_field="persist_output")
+    provider_api_key(ctx, "vision-cv")
     task_error = persistence_requires_task(ctx, input.persist_output)
     if task_error is not None:
         return task_error
@@ -210,7 +215,7 @@ async def omnihuman_get_task(
     await context_log(ctx, "info", f"Retrieving OmniHuman task {input.task_id}")
     await ctx.report_progress(progress=20, total=100)
 
-    service = OmniHumanService()
+    service = OmniHumanService(gateway=vision_cv_gateway(ctx))
     try:
         task = await call_with_retry(lambda: service.get(input.task_id))
     except ProviderError as exc:

@@ -82,7 +82,7 @@ def profile(frame, event, arg):
         event == "call"
         and frame.f_globals.get("__name__") == "ark_mcp.tools._catalog"
         and frame.f_code.co_name in {
-            "_always", "_modelark", "_seed_audio", "_object_storage", "_omnihuman",
+            "_always", "_local", "_modelark", "_seed_audio", "_object_storage", "_omnihuman",
         }
     ):
         raise AssertionError("Exporter evaluated a registration gate")
@@ -158,6 +158,8 @@ def test_export_is_identical_with_hostile_inherited_configuration(tmp_path: Path
             "S3_ACCESS_KEY": SYNTHETIC_ENV_CANARY,
             "AWS_SHARED_CREDENTIALS_FILE": str(tmp_path / "must-not-read-credentials"),
             "MCP_AUTH_MODE": "not-an-auth-mode",
+            "MCP_IDENTITY_HMAC_KEY": SYNTHETIC_ENV_CANARY,
+            "MCP_IDENTITY_KEY_VERSION": "not-an-integer",
             "OTEL_EXPORTER_OTLP_ENDPOINT": "https://must-not-contact.invalid",
         },
     )
@@ -350,6 +352,7 @@ def test_export_matches_fastmcp_and_catalog(exported: dict[str, Any], entry: Cat
         "scope",
         "background",
         "registration_gate",
+        "transports",
     }
     assert actual["description"] == expected.description == inspect.getdoc(definition.handler)
     assert actual["module"] == entry.module
@@ -372,6 +375,7 @@ def test_all_registration_gates_name_the_exact_environment_variables(
 ) -> None:
     expected = {
         "_always": set(),
+        "_local": set(),
         "_modelark": {"BYTEPLUS_MODELARK_API_KEY"},
         "_seed_audio": {"BYTEPLUS_SEED_SPEECH_API_KEY"},
         "_object_storage": {
@@ -399,6 +403,131 @@ def test_all_registration_gates_name_the_exact_environment_variables(
             assert "OBJECT_STORAGE_BACKEND=tos" in gate
             assert "OBJECT_STORAGE_BACKEND=s3" in gate
             assert "default" in gate.lower()
+
+
+def test_transport_inventory_and_execution_match_catalog(exported: dict[str, Any]) -> None:
+    from ark_mcp.config.env import Settings
+
+    settings = Settings.model_construct(mcp_transport="http", omnihuman_enabled=False)
+    with_omnihuman = Settings.model_construct(mcp_transport="http", omnihuman_enabled=True)
+    ordinary = {entry.name for entry in CATALOG if entry.gate(settings)}
+    enabled = {entry.name for entry in CATALOG if entry.gate(with_omnihuman)}
+    assert len(ordinary) == 9
+    assert len(enabled) == 12
+    for tool in exported["tools"]:
+        transports = tool["transports"]
+        assert set(transports) == ({"stdio", "http"} if tool["name"] in enabled else {"stdio"})
+        assert transports["stdio"]["background"] == tool["background"]
+        if "http" in transports:
+            assert transports["http"]["background"] is None
+            assert transports["http"]["registration_gate"].strip()
+            assert transports["http"]["credential_header"] == (
+                None
+                if tool["name"] == "ark_list_models"
+                else "X-OmniHuman-Api-Key"
+                if tool["name"].startswith("omnihuman_")
+                else "X-Seed-Speech-Api-Key"
+                if tool["name"] == "seed_audio_generate"
+                else "X-ModelArk-Api-Key"
+            )
+            assert "BYTEPLUS_MODELARK_API_KEY" not in transports["http"]["registration_gate"]
+
+
+@pytest.mark.parametrize(
+    ("name", "field"),
+    [
+        ("seed_audio_generate", "persist"),
+        ("seedream_generate_image", "persist"),
+        ("omnihuman_get_task", "persist_output"),
+    ],
+)
+def test_persistence_defaults_are_false_for_all_transports(
+    exported: dict[str, Any], name: str, field: str
+) -> None:
+    schema = next(tool for tool in exported["tools"] if tool["name"] == name)["inputSchema"]
+    model = schema["$defs"][schema["properties"]["input"]["$ref"].split("/")[-1]]
+    assert model["properties"][field]["default"] is False
+    assert "HTTP" in model["properties"][field]["description"]
+
+
+def test_byok_spec_matches_header_names_and_settings_defaults() -> None:
+    from ark_mcp.config.env import AuthMode, Settings
+    from ark_mcp.security.credentials import (
+        ENDPOINT_HEADERS,
+        INSTALLATION_HEADER_NAME,
+        PROVIDER_HEADERS,
+    )
+
+    root = SCRIPT.parents[1]
+    spec = (root / "specs/SPEC_HOSTED_BYOK.md").read_text(encoding="utf-8")
+    headers = [*PROVIDER_HEADERS.values(), *ENDPOINT_HEADERS.values(), INSTALLATION_HEADER_NAME]
+    for header in headers:
+        assert header in spec.lower()
+    assert Settings.model_fields["mcp_auth_mode"].default == AuthMode.BYOK
+    assert "api_key" not in {mode.value for mode in AuthMode}
+    for field, default in {
+        "identity_key_version": 1,
+        "rate_limit_rpm": 60,
+        "mcp_http_max_body_bytes": 2097152,
+        "http_max_in_flight": 64,
+        "state_max_records": 100000,
+    }.items():
+        setting = Settings.model_fields[field]
+        assert setting.default == default
+        assert str(setting.validation_alias) in spec
+        assert f"`{default}`" in spec
+    assert "(provider, tenant_id, task_id)" in spec
+    assert "No OAuth, signup, server-issued key" in spec
+    assert "idempotency and crash recovery are not implemented" in spec
+
+
+@pytest.mark.parametrize("client", ["codex", "claude-code"])
+def test_http_client_examples_use_private_headers_and_no_bearer(client: str) -> None:
+    content = (SCRIPT.parents[1] / f"docs/integrations/{client}.md").read_text(encoding="utf-8")
+    section = content.split("## HTTP BYOK", 1)[1].split("</details>", 1)[0]
+    assert "X-ModelArk-Api-Key" in section
+    assert "X-MCP-Client-Secret" in section
+    assert "64 lowercase hex" in section
+    assert "32 random bytes" in section
+    assert "foreground" in section
+    assert "exact-client" in section.lower()
+    assert "MCP_IDENTITY_HMAC_KEY" not in section
+    block = re.search(r"```(?:toml|json)\n(.*?)\n```", section, re.S)
+    assert block is not None
+    if client == "codex":
+        import tomllib
+
+        config = tomllib.loads(block[1])
+        headers = config["mcp_servers"]["ark-seed"]["env_http_headers"]
+        assert headers == {
+            "X-ModelArk-Api-Key": "<MODELARK_KEY_ENV_VAR>",
+            "X-MCP-Client-Secret": "<CLIENT_SECRET_ENV_VAR>",
+        }
+    else:
+        config = json.loads(block[1])
+        headers = config["mcpServers"]["ark-seed"]["headers"]
+        assert headers == {
+            "X-ModelArk-Api-Key": "${SEED_MCP_MODELARK_KEY}",
+            "X-MCP-Client-Secret": "${SEED_MCP_CLIENT_SECRET}",
+        }
+
+
+@pytest.mark.parametrize("name", ["ark-mcp", "ark-mcp-setup"])
+def test_shipped_skills_have_valid_frontmatter_and_transport_guidance(name: str) -> None:
+    import yaml
+
+    path = SCRIPT.parents[1] / ".agents" / "skills" / name / "SKILL.md"
+    content = path.read_text(encoding="utf-8")
+    _, frontmatter, body = content.split("---", 2)
+    metadata = yaml.safe_load(frontmatter)
+    assert metadata["name"] == name == path.parent.name
+    assert re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", metadata["name"])
+    assert metadata["description"].strip()
+    assert all(marker not in metadata["description"] for marker in (": ", "<", ">", "TODO"))
+    assert body.strip()
+    assert len(content.splitlines()) < 500
+    assert "HTTP" in body and "stdio" in body and "foreground" in body
+    assert "no recovery bridge" in body
 
 
 def _schema_properties(schema: Any, path: str = "") -> Iterator[tuple[str, dict[str, Any]]]:

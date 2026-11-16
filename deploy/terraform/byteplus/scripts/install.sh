@@ -24,7 +24,7 @@ import yaml
 
 directory = Path("/opt/ark-mcp")
 helpers = yaml.safe_load((directory / "helpers.yaml").read_text())
-expected = {"check_env.py", "prepare_state.py", "receive_config.py", "update_image.py", "update_config.py", "generate_mcp_key.py"}
+expected = {"check_env.py", "prepare_state.py", "receive_config.py", "update_image.py", "update_config.py", "generate_identity_secret.py"}
 if not isinstance(helpers, dict) or set(helpers) != expected or not all(isinstance(value, str) for value in helpers.values()):
     raise ValueError("Invalid helper archive")
 for name, content in helpers.items():

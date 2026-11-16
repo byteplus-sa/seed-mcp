@@ -132,4 +132,103 @@ test("foreground tools do not advise submission through background jobs", () => 
   assert.match(page, /"arguments": \{\}/);
   assert.doesNotMatch(page, /"tool_name": "ark_job_capabilities"/);
   assert.doesNotMatch(page, /An Ark job ID is not a provider task ID/);
+  assert.match(page, /HTTP: unavailable/);
 });
+
+test("HTTP generation uses a direct envelope and request-only credentials", () => {
+  const page = toolPage({
+    name: "seedream_generate_image",
+    description: "Generate an image.",
+    background: "required",
+    registration_gate: "Requires BYTEPLUS_MODELARK_API_KEY.",
+    scope: "seedream:generate",
+    transports: {
+      http: {
+        background: null,
+        credential_header: "X-ModelArk-Api-Key",
+        registration_gate: "Always registered on HTTP.",
+      },
+    },
+    inputSchema: { properties: {} },
+    outputSchema: { properties: {} },
+  });
+  const http = page.split("### HTTP Call")[1].split("<details>")[0];
+  const call = JSON.parse(http.match(/```json\n([\s\S]*?)\n```/)[1]);
+  assert.equal(call.name, "seedream_generate_image");
+  assert.equal(call.arguments.input.dry_run, true);
+  assert.equal(call.arguments.input.persist, undefined);
+  assert.doesNotMatch(http, /ark_job_submit/);
+  assert.match(page, /X-MCP-Client-Secret/);
+  assert.match(page, /client-generated 32 random bytes/);
+  assert.match(page, /HTTP rejects true/);
+  assert.match(page, /per-call `io\.modelcontextprotocol\/tasks` opt-in/);
+  assert.match(
+    page,
+    /before provider dispatch, snapshot capture\/save or queue creation/,
+  );
+  assert.match(page, /Catalog capability labels are metadata, not auth grants/);
+});
+
+test("HTTP discovery has no credential requirement", () => {
+  const page = toolPage({
+    name: "ark_list_models",
+    description: "Discover models.",
+    background: null,
+    registration_gate: "Always registered.",
+    scope: null,
+    transports: {
+      http: {
+        background: null,
+        credential_header: null,
+        registration_gate: "Anonymous static discovery.",
+      },
+    },
+    inputSchema: { properties: {} },
+    outputSchema: { properties: {} },
+  });
+  assert.match(page, /No provider key or client secret is required/);
+  assert.doesNotMatch(page, /Supply `X-/);
+  assert.match(
+    page,
+    /configured model bindings even without environment provider keys/,
+  );
+  assert.match(
+    page,
+    /`services\[\]\.enabled` reports registration, not entitlement/,
+  );
+  assert.match(page, /per-call `io\.modelcontextprotocol\/tasks` opt-in/);
+});
+
+test("Seedance generated guidance preserves accepted IDs on errors", () => {
+  const page = toolPage({
+    name: "seedance_create_task",
+    description: "Create video tasks.",
+    background: "required",
+    registration_gate: "Requires BYTEPLUS_MODELARK_API_KEY.",
+    inputSchema: { properties: {} },
+    outputSchema: { properties: {} },
+  });
+  assert.match(page, /`task_id` and `error` can coexist/);
+  assert.match(page, /`submitted` counts known accepted IDs/);
+  assert.match(page, /`failed` counts entries with errors/);
+  assert.match(page, /single-call failure remains error `ToolResult` text/);
+  assert.match(page, /MCP polling requires recorded ownership/);
+});
+
+for (const name of ["seed_understand", "seed_audio_understand"]) {
+  test(`${name} generated guidance treats uncertain completion as billed`, () => {
+    const page = toolPage({
+      name,
+      description: "Understand media.",
+      background: "required",
+      registration_gate: "Requires BYTEPLUS_MODELARK_API_KEY.",
+      inputSchema: { properties: {} },
+      outputSchema: { properties: {} },
+    });
+    assert.match(page, /`retryable=false` and `ambiguous_completion=true`/);
+    assert.match(page, /read\/write\/protocol failures/);
+    assert.match(page, /malformed provider 2xx responses/);
+    assert.match(page, /5xx responses are ambiguous/);
+    assert.match(page, /never automatically retried/);
+  });
+}

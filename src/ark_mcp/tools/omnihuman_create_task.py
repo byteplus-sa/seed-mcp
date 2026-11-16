@@ -8,12 +8,15 @@ from fastmcp import Context
 from fastmcp.tools import ToolResult
 from pydantic import BaseModel, Field, ValidationError
 
-from ark_mcp.domain.errors import ProviderError
+from ark_mcp.domain.errors import AcceptedTaskError, ProviderError
 from ark_mcp.observability.logger import info as log_info
+from ark_mcp.providers.factory import vision_cv_gateway
 from ark_mcp.providers.vision_cv.omnihuman import OmniHumanService
 from ark_mcp.providers.vision_cv.schemas import PROMPT_MAX_LENGTH, OmniHumanSubmitRequest
-from ark_mcp.runtime import get_principal, get_runtime
+from ark_mcp.runtime import get_principal, get_runtime, record_accepted_task
+from ark_mcp.security.credentials import provider_api_key
 from ark_mcp.tools._errors import provider_error_result
+from ark_mcp.tools._http_policy import validate_http_options
 from ark_mcp.tools._omnihuman_shared import (
     MediaRefError,
     resolve_media_ref,
@@ -28,14 +31,14 @@ class OmniHumanCreateTaskInput(BaseModel):
 
     image: str = Field(
         description=(
-            "Portrait of the person to animate: public HTTPS URL or seed-media:// artifact "
-            "(else media_upload and pass the presigned URL). jpeg/png/webp/bmp/tiff/gif/heic/heif, "
+            "Portrait of the person to animate: public HTTPS URL. Stdio also accepts "
+            "seed-media:// artifacts from object storage. jpeg/png/webp/bmp/tiff/gif/heic/heif, "
             "under 30 MB, width/height 0.4-2.5, each side 300-6000 px."
         )
     )
     audio: str = Field(
         description=(
-            "Driving audio: public HTTPS URL or seed-media:// artifact. wav or mp3, under 15 MB, "
+            "Driving audio: public HTTPS URL, or seed-media:// artifact on stdio only. wav or mp3, under 15 MB, "
             "4-300 s; video length follows the audio."
         )
     )
@@ -71,16 +74,16 @@ async def omnihuman_create_task(
 ) -> OmniHumanCreateTaskOutput | ToolResult:
     """Generate a talking or performing video of a person from one image and one audio clip (OmniHuman 2.0).
 
-    Returns a task_id; poll omnihuman_get_task, which persists the finished video
-    (the provider URL expires after one hour). Submission is never retried
-    automatically. Requires background execution (ark_job_submit).
+    Returns a task_id; poll omnihuman_get_task for the temporary video URL (one-hour
+    expiry). Submission is never retried automatically. HTTP runs in the foreground.
+    Stdio uses ark_job_submit and allows explicit persistence when polling.
     """
+    validate_http_options(ctx, media_references=(input.image, input.audio))
+    provider_api_key(ctx, "vision-cv")
     runtime = get_runtime(ctx)
     settings = runtime.settings
-    if not settings.has_omnihuman:
-        raise ValueError(
-            "OmniHuman is not enabled. Set BYTEPLUS_OMNIHUMAN_ENABLED=true and BYTEPLUS_CV_API_KEY."
-        )
+    if not settings.omnihuman_enabled:
+        raise ValueError("OmniHuman is not enabled. Set BYTEPLUS_OMNIHUMAN_ENABLED=true.")
 
     owner = get_principal(ctx)
     try:
@@ -113,19 +116,27 @@ async def omnihuman_create_task(
     except ProviderError as exc:
         return provider_error_result(exc)
 
-    service = OmniHumanService()
     await context_log(ctx, "info", "Submitting OmniHuman 2.0 task")
     await ctx.report_progress(progress=20, total=100)
+    service = OmniHumanService(gateway=vision_cv_gateway(ctx))
     try:
+        await runtime.ownership_store.require_capacity()
         async with runtime.provider_limiters.acquire("vision-cv", owner):
             submission = await service.create(request)
+        await record_accepted_task(ctx, "vision-cv", submission.task_id, submission.request_id)
+    except AcceptedTaskError as exc:
+        await context_log(
+            ctx,
+            "error",
+            "OmniHuman task accepted, but ownership recording failed; do not resubmit.",
+        )
+        return provider_error_result(exc)
     except ProviderError as exc:
         await context_log(ctx, "error", f"OmniHuman submission failed: {exc.message}")
         return provider_error_result(exc)
     finally:
         await service.close()
 
-    await runtime.ownership_store.record("vision-cv", submission.task_id, owner)
     await ctx.report_progress(progress=100, total=100)
     log_info("omnihuman_create_task_accepted", task_id=submission.task_id)
     return OmniHumanCreateTaskOutput(

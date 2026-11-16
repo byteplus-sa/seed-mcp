@@ -128,7 +128,12 @@ test("retained skills document bindings services hosts and accurate persistence"
     "utf8",
   );
   assert.match(environment, /BYTEPLUS_SEED_AUDIO_BASE_URL/);
-  assert.match(environment, /raw connection\/transport failures/);
+  assert.match(environment, /malformed 2xx responses/);
+  assert.match(environment, /ambiguous\/nonretryable/);
+  assert.doesNotMatch(
+    environment,
+    /existing Seedance adapter.*not.*ambiguous/s,
+  );
   const observability = readFileSync(
     new URL("docs/observability.md", root),
     "utf8",
@@ -144,14 +149,16 @@ test("retained skills document bindings services hosts and accurate persistence"
   assert.doesNotMatch(jobs, /Runs synchronously when persistence is disabled/);
 });
 
-test("native references and current shared-team auth remain explicit", () => {
+test("native references and current BYOK ownership remain explicit", () => {
   const assets = readFileSync(new URL("docs/assets.md", root), "utf8");
   assert.match(assets, /asset:\/\//);
   assert.match(assets, /does not look up asset status/i);
   assert.match(assets, /no asset-to-URL resolution fallback/i);
   const security = readFileSync(new URL("docs/security.md", root), "utf8");
-  assert.match(security, /shared-team/);
-  assert.match(security, /MCP_API_KEY_SHA256/);
+  assert.match(security, /credential tenant/);
+  assert.match(security, /MCP_IDENTITY_HMAC_KEY/);
+  assert.match(security, /X-MCP-Client-Secret/);
+  assert.doesNotMatch(security, /MCP_API_KEY_SHA256/);
   assert.doesNotMatch(
     security,
     /catalog retains `assets:|Trusted local administration/,
@@ -163,10 +170,26 @@ test("native references and current shared-team auth remain explicit", () => {
     readFileSync(new URL("docs/architecture.md", root), "utf8"),
     /generation, transcription|calls, transcription|generation, transcription/i,
   );
-  assert.match(
-    readFileSync(new URL("README.md", root), "utf8"),
-    /Per-user BYOK is not implemented/,
-  );
+  assert.match(readFileSync(new URL("README.md", root), "utf8"), /HTTP BYOK/);
+});
+
+test("current docs and skills cannot restore shared-key HTTP instructions", () => {
+  const paths = [
+    "README.md",
+    "AGENTS.md",
+    ...markdownFiles("docs"),
+    ...markdownFiles("specs"),
+    ...markdownFiles(".agents/skills/ark-mcp"),
+    ...markdownFiles(".agents/skills/ark-mcp-setup"),
+  ].filter((path) => path !== "docs/changelog.md");
+  for (const path of paths) {
+    const content = readFileSync(new URL(path, root), "utf8");
+    assert.doesNotMatch(
+      content,
+      /MCP_API_KEY_SHA256|MCP_AUTH_MODE=api_key|make shared-http|Per-user BYOK is not implemented|shared-team/,
+      path,
+    );
+  }
 });
 
 test("breaking capability migration requires old-server export before upgrading", () => {

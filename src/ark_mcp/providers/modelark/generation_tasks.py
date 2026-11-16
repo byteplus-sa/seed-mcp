@@ -7,51 +7,35 @@ use one service across supported Seedance models.
 
 from __future__ import annotations
 
-import json
 from datetime import UTC, datetime
-from typing import Any, cast
+from typing import Any
 
 import httpx
 
-from ark_mcp.domain.errors import NormalizedProviderError, ProviderError
 from ark_mcp.domain.models import TaskUsage
 from ark_mcp.observability.logger import debug as log_debug
+from ark_mcp.providers.base import safe_provider_text
 from ark_mcp.providers.modelark.client import ModelArkGateway
 from ark_mcp.providers.modelark.schemas import GenerationTaskListResponse, GenerationTaskResponse
 
 TASKS_PATH = "/contents/generations/tasks"
 
 
-def _parse_success_body(response: httpx.Response, operation: str) -> dict[str, Any]:
-    try:
-        return cast("dict[str, Any]", response.json())
-    except (json.JSONDecodeError, ValueError) as exc:
-        raise ProviderError(
-            NormalizedProviderError(
-                provider="modelark",
-                operation=operation,
-                http_status=response.status_code,
-                code="INVALID_RESPONSE",
-                message="ModelArk returned a non-JSON success response.",
-                request_id=ModelArkGateway.extract_request_id(response),
-                retryable=False,
-                ambiguous_completion=False,
-            )
-        ) from exc
-
-
 class GenerationTaskService:
     """Retrieve, list and delete ModelArk generation tasks."""
 
-    def __init__(self, gateway: ModelArkGateway | None = None) -> None:
-        self._gateway = gateway or ModelArkGateway()
+    def __init__(self, gateway: ModelArkGateway) -> None:
+        self._gateway = gateway
 
     async def get_task(self, task_id: str) -> tuple[GenerationTaskResponse, str | None]:
         """Call ``GET /contents/generations/tasks/{id}``; returns ``(task, request_id)``."""
         log_debug("generation_get_task", task_id=task_id)
         response = await self._send("get_task", "GET", f"{TASKS_PATH}/{task_id}", side_effect=False)
         request_id = ModelArkGateway.extract_request_id(response)
-        parsed = GenerationTaskResponse.model_validate(_parse_success_body(response, "get_task"))
+        parsed = ModelArkGateway.parse_response(
+            response, "get_task", GenerationTaskResponse, side_effect=False
+        )
+        self._sanitize_task_error(parsed)
         log_debug(
             "generation_get_task_complete",
             task_id=task_id,
@@ -82,9 +66,11 @@ class GenerationTaskService:
             "list_tasks", "GET", TASKS_PATH, side_effect=False, params=params
         )
         request_id = ModelArkGateway.extract_request_id(response)
-        parsed = GenerationTaskListResponse.model_validate(
-            _parse_success_body(response, "list_tasks")
+        parsed = ModelArkGateway.parse_response(
+            response, "list_tasks", GenerationTaskListResponse, side_effect=False
         )
+        for task in parsed.data:
+            self._sanitize_task_error(task)
         log_debug(
             "generation_list_tasks_complete",
             page=page,
@@ -113,15 +99,19 @@ class GenerationTaskService:
                 response = await self._gateway.delete(path)
             else:
                 response = await self._gateway.get(path, params=params)
-        except httpx.TimeoutException:
-            raise ModelArkGateway.normalize_timeout(operation, side_effect=side_effect) from None
-        except httpx.ConnectError as exc:
-            raise ModelArkGateway.normalize_connection_error(operation, exc) from exc
         except httpx.TransportError as exc:
-            raise ModelArkGateway.normalize_transport_error(operation, exc) from exc
+            raise ModelArkGateway.normalize_transport_error(
+                operation, exc, side_effect=side_effect
+            ) from None
         if response.status_code >= 400:
             raise ModelArkGateway.normalize_error(response, operation)
         return response
+
+    @staticmethod
+    def _sanitize_task_error(task: GenerationTaskResponse) -> None:
+        if task.error is not None:
+            task.error.code = safe_provider_text(task.error.code)
+            task.error.message = safe_provider_text(task.error.message)
 
     async def close(self) -> None:
         await self._gateway.close()

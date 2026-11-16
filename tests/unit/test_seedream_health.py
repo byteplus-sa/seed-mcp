@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock
 
 import pytest
 from fastmcp import Client
+from mcp.shared.exceptions import MCPError
 
 from ark_mcp.config.env import Settings
 from ark_mcp.providers.base import BaseHttpGateway
@@ -98,13 +99,34 @@ async def test_background_export_without_roots_is_not_configured(
 
 
 @pytest.mark.parametrize("output_roots", ["", "/private/configured-export", "relative-root"])
-async def test_http_disables_background_local_export(tmp_path: Path, output_roots: str) -> None:
-    text = await _health_text(_settings(tmp_path, MCP_TRANSPORT="http", OUTPUT_ROOTS=output_roots))
+async def test_http_has_no_health_resource_or_export_diagnostics(
+    tmp_path: Path, output_roots: str, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    settings = _settings(
+        tmp_path,
+        MCP_TRANSPORT="http",
+        MCP_AUTH_MODE="byok",
+        MCP_IDENTITY_HMAC_KEY="a" * 64,
+        OUTPUT_ROOTS=output_roots,
+    )
+    probe = AsyncMock(side_effect=AssertionError("HTTP must not probe providers"))
+    monkeypatch.setattr(BaseHttpGateway, "health_check", probe)
+    async with Client(create_server(settings)) as client:
+        assert await client.list_resources() == []
+        assert await client.list_resource_templates() == []
+        with pytest.raises(
+            MCPError, match="Resource not found: 'seed-health://status'"
+        ) as exc_info:
+            await client.read_resource("seed-health://status")
 
-    assert "Transport: http\n" in text
-    assert "Background-job local export: disabled (stdio only)\n" in text
+    text = str(exc_info.value)
+    assert "Background-job local export:" not in text
+    assert "Seedream default model:" not in text
+    assert settings.modelark_api_key not in text
+    assert str(tmp_path) not in text
     if output_roots:
         assert output_roots not in text
+    probe.assert_not_called()
 
 
 @pytest.mark.parametrize(

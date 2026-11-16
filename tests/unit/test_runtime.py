@@ -1,18 +1,16 @@
-"""Tests for process-lifetime ownership, budgets, and concurrency controls."""
+"""Runtime contracts, including specs/SPEC_HOSTED_BYOK.md ownership."""
 
 from __future__ import annotations
 
 import asyncio
 import base64
-import json
 import sqlite3
-from contextlib import suppress
+from contextlib import closing, suppress
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
-from fastmcp.server.auth import AccessToken
 
 from ark_mcp.config.env import Settings
 from ark_mcp.domain.artifacts import ArtifactRef, MediaType
@@ -33,7 +31,28 @@ from ark_mcp.runtime import (
     get_principal,
 )
 from ark_mcp.security.auth_context import AuthContext
+from ark_mcp.security.credentials import (
+    provider_scope,
+    request_credentials_scope,
+    request_principal,
+)
 from tests.fixtures.fake_context import FakeContext
+
+
+def _credential_owner(key: str = "synthetic-customer-a", secret: str = "b" * 64) -> AuthContext:
+    settings = Settings(
+        _env_file=None,
+        MCP_TRANSPORT="http",
+        MCP_AUTH_MODE="byok",
+        MCP_IDENTITY_HMAC_KEY="a" * 64,
+    )
+    with (
+        request_credentials_scope(
+            [(b"x-modelark-api-key", key.encode()), (b"x-mcp-client-secret", secret.encode())]
+        ),
+        provider_scope(settings, "modelark"),
+    ):
+        return request_principal()
 
 
 def _make_ref(ref_id: str = "art-1") -> ArtifactRef:
@@ -207,102 +226,149 @@ async def test_task_ownership_and_artifacts_are_provider_scoped(tmp_path: Path) 
     await store.close()
 
 
-async def test_legacy_runtime_tables_migrate_to_modelark_provider(tmp_path: Path) -> None:
+async def test_fresh_ownership_schema_is_credential_tenant_scoped(tmp_path: Path) -> None:
+    store = SQLiteTaskOwnershipStore(tmp_path / "runtime.sqlite3")
+    try:
+        columns = store._connection.execute("PRAGMA table_info(task_ownership)").fetchall()
+        primary_key = [row[1] for row in sorted(columns, key=lambda row: row[5]) if row[5]]
+        assert primary_key == ["provider", "tenant_id", "task_id"]
+        assert {row[1] for row in columns} == {
+            "provider",
+            "tenant_id",
+            "task_id",
+            "principal_id",
+            "created_at",
+        }
+        assert await _owned_ids(store, "modelark", _credential_owner()) == []
+        await store.ping()
+    finally:
+        await store.close()
+
+
+@pytest.mark.parametrize("provider_column", [False, True])
+async def test_old_ownership_schema_is_rejected_without_migration(
+    tmp_path: Path, provider_column: bool
+) -> None:
     database = tmp_path / "runtime.sqlite3"
-    connection = sqlite3.connect(database)
-    connection.execute(
-        """
-        CREATE TABLE task_ownership (
-            task_id TEXT PRIMARY KEY,
-            principal_id TEXT NOT NULL,
-            tenant_id TEXT NOT NULL,
-            created_at TEXT NOT NULL
-        )
-        """
-    )
-    connection.execute(
-        """
-        CREATE TABLE task_artifacts (
-            task_id TEXT PRIMARY KEY,
-            artifacts_json TEXT NOT NULL,
-            created_at TEXT NOT NULL
-        )
-        """
-    )
-    created_at = datetime.now(UTC).isoformat()
-    connection.execute(
-        "INSERT INTO task_ownership VALUES (?, ?, ?, ?)",
-        ("legacy-task", "alice", "tenant-a", created_at),
-    )
-    connection.execute(
-        "INSERT INTO task_artifacts VALUES (?, ?, ?)",
-        (
-            "legacy-task",
-            json.dumps({"video": _make_ref("legacy").model_dump(mode="json"), "last_frame": None}),
-            created_at,
-        ),
-    )
-    connection.commit()
-    connection.close()
+    with closing(sqlite3.connect(database)) as connection, connection:
+        if provider_column:
+            connection.execute(
+                "CREATE TABLE task_ownership (provider TEXT NOT NULL, task_id TEXT NOT NULL, "
+                "principal_id TEXT NOT NULL, tenant_id TEXT NOT NULL, created_at TEXT NOT NULL, "
+                "PRIMARY KEY(provider, task_id))"
+            )
+            connection.execute(
+                "INSERT INTO task_ownership VALUES (?, ?, ?, ?, ?)",
+                ("modelark", "old-task", "old-owner", "old-tenant", datetime.now(UTC).isoformat()),
+            )
+        else:
+            connection.execute(
+                "CREATE TABLE task_ownership (task_id TEXT PRIMARY KEY, principal_id TEXT NOT NULL, "
+                "tenant_id TEXT NOT NULL, created_at TEXT NOT NULL)"
+            )
+            connection.execute(
+                "INSERT INTO task_ownership VALUES (?, ?, ?, ?)",
+                ("old-task", "old-owner", "old-tenant", datetime.now(UTC).isoformat()),
+            )
+        original_schema = connection.execute("PRAGMA table_info(task_ownership)").fetchall()
+        original_rows = connection.execute("SELECT * FROM task_ownership").fetchall()
 
-    store = SQLiteTaskOwnershipStore(database)
-    cache = SQLiteTaskArtifactCache(database)
-    owner = AuthContext(principal_id="alice", tenant_id="tenant-a")
-    await store.require_owner("modelark", "legacy-task", owner)
-    assert await _owned_ids(store, "modelark", owner) == ["legacy-task"]
-    migrated = await cache.get("modelark", "legacy-task")
-    assert migrated is not None and migrated["video"] is not None
-    assert migrated["video"].id == "legacy"
-    assert await cache.get("vision-cv", "legacy-task") is None
-    await cache.close()
-    await store.close()
+    with pytest.raises(ValueError, match="fresh"):
+        SQLiteTaskOwnershipStore(database)
+
+    with closing(sqlite3.connect(database)) as connection:
+        assert connection.execute("PRAGMA table_info(task_ownership)").fetchall() == original_schema
+        assert connection.execute("SELECT * FROM task_ownership").fetchall() == original_rows
 
 
-async def test_runtime_migration_recovers_stranded_legacy_tables(tmp_path: Path) -> None:
+@pytest.mark.parametrize("operation", ["record", "claim"])
+async def test_identical_task_ids_are_independent_across_credential_tenants(
+    tmp_path: Path, operation: str
+) -> None:
     database = tmp_path / "runtime.sqlite3"
-    connection = sqlite3.connect(database)
-    connection.execute(
-        """
-        CREATE TABLE task_ownership_legacy (
-            task_id TEXT PRIMARY KEY, principal_id TEXT NOT NULL,
-            tenant_id TEXT NOT NULL, created_at TEXT NOT NULL
-        )
-        """
-    )
-    connection.execute(
-        """
-        CREATE TABLE task_artifacts_legacy (
-            task_id TEXT PRIMARY KEY, artifacts_json TEXT NOT NULL, created_at TEXT NOT NULL
-        )
-        """
-    )
-    created_at = datetime.now(UTC).isoformat()
-    connection.execute(
-        "INSERT INTO task_ownership_legacy VALUES (?, ?, ?, ?)",
-        ("stranded", "alice", "tenant-a", created_at),
-    )
-    connection.execute(
-        "INSERT INTO task_artifacts_legacy VALUES (?, ?, ?)",
-        (
-            "stranded",
-            json.dumps(
-                {"video": _make_ref("stranded-ref").model_dump(mode="json"), "last_frame": None}
-            ),
-            created_at,
-        ),
-    )
-    connection.commit()
-    connection.close()
-
+    first = _credential_owner()
+    second = _credential_owner(key="synthetic-customer-b")
+    assert first.tenant_id != second.tenant_id
     store = SQLiteTaskOwnershipStore(database)
-    cache = SQLiteTaskArtifactCache(database)
-    owner = AuthContext(principal_id="alice", tenant_id="tenant-a")
-    await store.require_owner("modelark", "stranded", owner)
-    recovered = await cache.get("modelark", "stranded")
-    assert recovered is not None and recovered["video"] is not None
-    assert recovered["video"].id == "stranded-ref"
-    await cache.close()
-    await store.close()
+    try:
+        for owner in (first, second):
+            if operation == "claim":
+                assert await store.claim("modelark", "same-provider-id", owner)
+            else:
+                await store.record("modelark", "same-provider-id", owner)
+        await store.record("modelark", "first-only", first)
+    finally:
+        await store.close()
+
+    reopened = SQLiteTaskOwnershipStore(database)
+    try:
+        for owner in (first, second):
+            await reopened.require_owner("modelark", "same-provider-id", owner)
+            assert not await reopened.claim("modelark", "same-provider-id", owner)
+        assert await _owned_ids(reopened, "modelark", first) == ["first-only", "same-provider-id"]
+        assert await _owned_ids(reopened, "modelark", second) == ["same-provider-id"]
+        with pytest.raises(PermissionError):
+            await reopened.require_owner("modelark", "first-only", second)
+    finally:
+        await reopened.close()
+
+
+async def test_record_cannot_overwrite_another_owner_even_after_reopening(tmp_path: Path) -> None:
+    database = tmp_path / "runtime.sqlite3"
+    owner = _credential_owner()
+    other = _credential_owner(secret="c" * 64)
+    assert owner.tenant_id == other.tenant_id
+    assert owner.principal_id != other.principal_id
+    store = SQLiteTaskOwnershipStore(database)
+    try:
+        await store.record("modelark", "immutable-task", owner)
+        await store.record("modelark", "immutable-task", owner)
+        with pytest.raises(PermissionError):
+            await store.record("modelark", "immutable-task", other)
+    finally:
+        await store.close()
+
+    reopened = SQLiteTaskOwnershipStore(database)
+    try:
+        with pytest.raises(PermissionError):
+            await reopened.record("modelark", "immutable-task", other)
+        assert not await reopened.claim("modelark", "immutable-task", other)
+        await reopened.require_owner("modelark", "immutable-task", owner)
+        with pytest.raises(PermissionError):
+            await reopened.require_owner("modelark", "immutable-task", other)
+        assert await _owned_ids(reopened, "modelark", owner) == ["immutable-task"]
+        assert await _owned_ids(reopened, "modelark", other) == []
+    finally:
+        await reopened.close()
+
+
+async def test_concurrent_owners_cannot_claim_the_same_credential_task(tmp_path: Path) -> None:
+    database = tmp_path / "runtime.sqlite3"
+    owners = [_credential_owner(), _credential_owner(secret="c" * 64)]
+    stores = [SQLiteTaskOwnershipStore(database), SQLiteTaskOwnershipStore(database)]
+    try:
+        claims = await asyncio.gather(
+            *(
+                store.claim("modelark", "contested-task", owner)
+                for store, owner in zip(stores, owners, strict=True)
+            )
+        )
+        assert claims.count(True) == 1
+        winner, loser = owners[claims.index(True)], owners[claims.index(False)]
+    finally:
+        for store in stores:
+            await store.close()
+
+    reopened = SQLiteTaskOwnershipStore(database)
+    try:
+        await reopened.require_owner("modelark", "contested-task", winner)
+        assert not await reopened.claim("modelark", "contested-task", loser)
+        with pytest.raises(PermissionError):
+            await reopened.record("modelark", "contested-task", loser)
+        assert await _owned_ids(reopened, "modelark", winner) == ["contested-task"]
+        assert await _owned_ids(reopened, "modelark", loser) == []
+    finally:
+        await reopened.close()
 
 
 async def test_budget_reservations_block_and_release(tmp_path: Path) -> None:
@@ -396,36 +462,53 @@ async def test_remote_principal_is_still_bounded_by_principal_limit() -> None:
     assert maximum == 2
 
 
-async def test_http_principal_comes_from_verified_claims(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
+async def test_http_principal_requires_a_live_provider_credential_scope(tmp_path: Path) -> None:
     settings = Settings(
         _env_file=None,
         MCP_TRANSPORT="http",
-        MCP_AUTH_MODE="api_key",
-        MCP_API_KEY_SHA256="a" * 64,
+        MCP_AUTH_MODE="byok",
+        MCP_IDENTITY_HMAC_KEY="a" * 64,
         ARTIFACT_DIR=str(tmp_path / "artifacts"),
+        BYTEPLUS_MODELARK_API_KEY="sk-test-operator",  # pragma: allowlist secret
     )
     runtime = await create_runtime_services(settings)
-    monkeypatch.setattr(
-        "ark_mcp.runtime.get_access_token",
-        lambda: AccessToken(
-            token="redacted",
-            client_id="client-a",
-            scopes=["seedream:generate"],
-            claims={"sub": "alice", "tenant_id": "tenant-a"},
-        ),
-    )
+    context = FakeContext(lifespan_context={"runtime": runtime})
     try:
-        principal = get_principal(FakeContext(lifespan_context={"runtime": runtime}))
+        with pytest.raises(PermissionError):
+            get_principal(context)
+        with request_credentials_scope(
+            [(b"x-modelark-api-key", b"synthetic-customer-a"), (b"x-mcp-client-secret", b"b" * 64)]
+        ):
+            with pytest.raises(PermissionError):
+                get_principal(context)
+            with provider_scope(settings, "modelark"):
+                principal = get_principal(context)
+                assert principal == request_principal()
+                assert principal.transport == "http"
+                assert not principal.is_local
+                assert principal.scopes == frozenset()
+                assert principal.principal_id not in {"local", "shared-team"}
+            with pytest.raises(PermissionError):
+                get_principal(context)
+        with pytest.raises(PermissionError):
+            get_principal(context)
     finally:
         await close_runtime_services(runtime)
 
-    assert principal.principal_id == "alice"
-    assert principal.tenant_id == "tenant-a"
-    assert principal.scopes == frozenset({"seedream:generate"})
-    assert principal.transport == "http"
+
+@pytest.mark.parametrize("auth_mode", ["local", "byok"])
+async def test_stdio_principal_is_local_without_bearer_context(
+    tmp_path: Path, auth_mode: str
+) -> None:
+    runtime = await create_runtime_services(
+        Settings(_env_file=None, MCP_AUTH_MODE=auth_mode, ARTIFACT_DIR=str(tmp_path))
+    )
+    try:
+        principal = get_principal(FakeContext(lifespan_context={"runtime": runtime}))
+        assert principal == AuthContext()
+        assert principal.is_local
+    finally:
+        await close_runtime_services(runtime)
 
 
 class TestStateSweeper:

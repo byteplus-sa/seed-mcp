@@ -32,13 +32,13 @@ import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
 
 <CardGrid>
   <Card title="__TOOL_COUNT__ tools" icon="puzzle">
-    One tool per capability. Explore typed inputs, outputs and examples for every step of your media workflow.
+    The local catalog has 21 tools. HTTP exposes 9, or 12 with OmniHuman enabled.
   </Card>
   <Card title="Your workflow, connected" icon="rocket">
-    Create, poll and retrieve results without leaving your AI client. Keep generated media as durable artifacts.
+    Create and poll in your AI client. HTTP returns temporary provider URLs; local stdio can explicitly preserve artifacts.
   </Card>
-  <Card title="Server-side credentials" icon="seti:lock">
-    Provider keys stay on the server. Local installations use your configured accounts; shared-server members use the operator's accounts.
+  <Card title="Request-only HTTP BYOK" icon="seti:lock">
+    Bring the selected provider key and a client-generated isolation secret. HTTP keys are not persisted; no OAuth, signup or server-issued key.
   </Card>
 </CardGrid>
 
@@ -70,9 +70,11 @@ The BytePlus models you need, connected through one consistent interface.
 </CardGrid>
 </div>
 
-Finish your workflow with [object storage and artifacts](/ark-mcp/capabilities/#uploads-and-outputs)
+Finish local workflows with [object storage and artifacts](/ark-mcp/capabilities/#uploads-and-outputs)
 and [existing Seedance asset references](/ark-mcp/assets/).
 
-Available tools depend on your credentials, feature flags and account access.
-Start with discovery before making a paid generation. Per-user BYOK is not
-implemented; shared HTTP uses one team identity, provider configuration and budget.
+Start with anonymous static HTTP discovery before making a paid generation.
+HTTP calls run directly in the foreground, with no jobs/native tasks/storage
+or artifact resources. Local stdio retains those capabilities.
+This is a single-instance foundation, not public-launch certification;
+durable idempotency and crash recovery remain next phase.

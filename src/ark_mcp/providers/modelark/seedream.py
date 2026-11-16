@@ -24,7 +24,6 @@ from ark_mcp.providers.modelark.schemas import (
     SeedreamProviderRequest,
     SeedreamProviderResponse,
 )
-from ark_mcp.providers.modelark.seedance import _parse_success_body
 
 
 def _image_value(item: dict[str, Any]) -> str | None:
@@ -40,8 +39,8 @@ def _image_value(item: dict[str, Any]) -> str | None:
 class SeedreamService:
     """Service layer for Seedream image generation."""
 
-    def __init__(self, gateway: ModelArkGateway | None = None) -> None:
-        self._gateway = gateway or ModelArkGateway()
+    def __init__(self, gateway: ModelArkGateway) -> None:
+        self._gateway = gateway
 
     async def generate(
         self,
@@ -57,20 +56,17 @@ class SeedreamService:
             response = await self._gateway.post(
                 "/images/generations", request.model_dump(exclude_none=True)
             )
-        except httpx.TimeoutException:
-            raise ModelArkGateway.normalize_timeout("generate_image") from None
-        except httpx.ConnectError as exc:
-            raise ModelArkGateway.normalize_connection_error("generate_image", exc) from exc
         except httpx.TransportError as exc:
-            raise ModelArkGateway.normalize_transport_error("generate_image", exc) from exc
+            raise ModelArkGateway.normalize_transport_error("generate_image", exc) from None
 
         request_id = ModelArkGateway.extract_request_id(response)
 
         if response.status_code >= 400:
             raise ModelArkGateway.normalize_error(response, "generate_image")
 
-        body = _parse_success_body(response, "generate_image")
-        parsed = SeedreamProviderResponse.model_validate(body)
+        parsed = ModelArkGateway.parse_response(
+            response, "generate_image", SeedreamProviderResponse
+        )
         log_debug(
             "seedream_generate_complete",
             model=request.model,

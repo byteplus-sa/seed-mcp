@@ -165,7 +165,9 @@ async def test_seedream55_invalid_transparent_jpeg_never_calls_provider(configur
             )
     assert not router.calls
     assert result["is_error"]
-    assert "requires output_format" in str(result["content"])
+    assert result["content"] == [
+        {"type": "text", "text": "Error calling tool 'seedream_generate_image'"}
+    ]
 
 
 async def test_seedream55_provider_access_error_is_not_retried(configured: None) -> None:

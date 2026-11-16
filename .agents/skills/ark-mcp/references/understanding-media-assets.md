@@ -10,6 +10,10 @@ For parameters see the tool schema and
 
 ## Execution mode at a glance
 
+The table is **stdio-only**. HTTP understanding runs directly in the foreground
+using `X-ModelArk-Api-Key` plus `X-MCP-Client-Secret`; it has no upload/presign,
+job/native-task or artifact/resource surface. Host reference URLs externally.
+
 | Tool | Mode | Needs |
 |---|---|---|
 | `seed_understand`, `seed_audio_understand` | background required (`ark_job_submit`) | `BYTEPLUS_MODELARK_API_KEY` |
@@ -56,7 +60,9 @@ Do not pass `thinking` (ignored).
   direct URL limit. Base64 stays inline. Video uses its soundtrack plus
   frames sampled at 0.2 fps, which also consume tokens. Outputs report
   `audio_delivery` per input and `delivery_fallback_reason`. Uploads are
-  deleted best-effort after the call and otherwise expire after roughly a day.
+  deleted best-effort after the call with the same live request ModelArk key
+  and otherwise expire after roughly a day. Remote file expiry is distinct
+  from provider output URL expiry and local persistence.
   Malformed upload successes return `INVALID_RESPONSE` with
   `ambiguous_completion=true`, not a safe retry. Cleanup uses a recoverable,
   validated file ID; without one, the upload must expire.
@@ -81,10 +87,20 @@ Do not pass `thinking` (ignored).
 
 ### Timeouts and cost
 
-A chat timeout returns `TIMEOUT` (`retryable=true`) but the server **does not
-retry it**: a second full thinking run doubles the cost (429 and 5xx are
-retried). Raise `SEED_UNDERSTANDING_TIMEOUT_MS` for long video analysis and size
-the job TTL to match. Output is text only.
+A chat timeout after possible dispatch returns `TIMEOUT` with
+`retryable=false` and `ambiguous_completion=true`: completion may already be
+billed. Lost responses, read/write/protocol transport failures and malformed
+provider 2xx responses are likewise ambiguous/nonretryable. Do not blindly
+repeat the call; reconcile by request ID when available.
+
+429 rejections can receive bounded retries. Chat 5xx responses may carry
+`retryable=true` but are ambiguous and never automatically retried.
+Pre-dispatch connection failures can be retried; all understanding `TIMEOUT`
+retries, including connect/pool timeouts, are disabled. `json_retry` only
+handles JSON validation of a received answer. Raise
+`SEED_UNDERSTANDING_TIMEOUT_MS` for long analysis, size local job TTLs to match,
+and configure HTTP client/proxy deadlines for direct foreground calls.
+Output is text only.
 
 ### Audio transcription and analysis
 
@@ -125,8 +141,7 @@ presigned GET `url` and an `object_key` per item, in request order.
 ### `media_presign`
 
 Mints fresh URLs for 1-100 `object_keys` without re-uploading. Read-only,
-foreground. Authenticated HTTP requires keys owned by the calling principal;
-all shared-key members share that owner and can presign team uploads. Each
+foreground on stdio only. HTTP does not expose storage tools. Each
 key fails on its own, so check `failed` and per-key `code`:
 
 | `code` | Meaning and fix |

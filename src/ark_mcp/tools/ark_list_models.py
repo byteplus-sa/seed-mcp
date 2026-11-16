@@ -7,7 +7,7 @@ from typing import Literal
 from fastmcp import Context
 from pydantic import BaseModel, Field
 
-from ark_mcp.config.env import Settings, get_settings
+from ark_mcp.config.env import Settings, get_settings, settings_scope
 from ark_mcp.config.model_capabilities import (
     ImageCapabilities,
     UnderstandingCapabilities,
@@ -182,9 +182,10 @@ async def ark_list_models(input: ArkListModelsInput, ctx: Context) -> ArkListMod
 
 def describe_models(settings: Settings) -> list[ModelInfo]:
     """Describe every configured binding whose service is enabled."""
-    if not settings.has_modelark:
+    if settings.mcp_transport != "http" and not settings.has_modelark:
         return []
-    image_caps, video_caps, understanding_caps = get_capability_registry().configured_models()
+    with settings_scope(settings):
+        image_caps, video_caps, understanding_caps = get_capability_registry().configured_models()
     models = [_video_info(caps, settings) for caps in video_caps.values()]
     models += [_image_info(caps, settings) for caps in image_caps.values()]
     models += [_understanding_info(caps, settings) for caps in understanding_caps.values()]
@@ -269,6 +270,23 @@ def _understanding_info(caps: UnderstandingCapabilities, settings: Settings) -> 
 
 def describe_services(settings: Settings) -> list[ServiceStatus]:
     """Report each optional service and the setting that enables it."""
+    if settings.mcp_transport == "http":
+        return [
+            ServiceStatus(service="modelark", enabled=True),
+            ServiceStatus(service="seed_audio", enabled=True),
+            ServiceStatus(
+                service="omnihuman",
+                enabled=settings.omnihuman_enabled,
+                reason=None
+                if settings.omnihuman_enabled
+                else "Set BYTEPLUS_OMNIHUMAN_ENABLED=true.",
+            ),
+            ServiceStatus(
+                service="object_storage",
+                enabled=False,
+                reason="Storage tools are local stdio only; HTTP returns provider URLs.",
+            ),
+        ]
     storage_vars = (
         "S3_ACCESS_KEY, S3_SECRET_KEY and S3_BUCKET"
         if settings.object_storage_backend == "s3"

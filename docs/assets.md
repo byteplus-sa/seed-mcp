@@ -1,7 +1,7 @@
 # Native Seedance Asset References
 
 **Seedance accepts existing authorized `asset://<id>` references with the
-normal ModelArk Bearer key.** This applies over stdio and shared-key HTTP;
+normal ModelArk key.** This applies over stdio and HTTP BYOK;
 no asset-management credential or feature flag is needed.
 
 The server does not create, list, rename, delete or verify provider assets.
@@ -30,11 +30,12 @@ See [model limits](models.md) and the
 
 1. Obtain an authorized, usable ID from the provider workflow.
 2. Discover the configured Seedance model and check its limits.
-3. Submit through `ark_job_submit`, referring to inputs in the prompt by
+3. Call directly on HTTP or through `ark_job_submit` on stdio, referring to inputs by
    position, such as "Image 1" or "Video 1", not by asset ID.
-4. Keep the Ark job ID and the provider task IDs from the job result.
+4. Keep the provider task IDs and, on stdio, the Ark job ID.
 5. Poll `gen_task_get` with `persist_output=false`, then persist completed
-   output through a background job. Never resubmit generation to poll.
+   output through a local background job or download the HTTP result URL.
+   Never resubmit generation to poll.
 
 This exact MCP job envelope is a non-billable local request preview:
 
@@ -62,10 +63,11 @@ modality, account or current asset's availability.
 
 ## Uploads Are Different
 
-`media_upload` stores ordinary reference files in TOS/S3 and returns
+Stdio-only `media_upload` stores ordinary reference files in TOS/S3 and returns
 `object_key` plus a presigned HTTPS URL. It does not register a provider asset
 or return an `asset://` ID. Use `media_presign` to renew those ordinary URLs.
 
-Shared-key HTTP uses the operator's ModelArk key and one `shared-team`
-identity. It does not provide per-member provider accounts or per-user BYOK.
+HTTP uses the request's `X-ModelArk-Api-Key` and required `X-MCP-Client-Secret`,
+including dry runs. Discovery is anonymous/static; HTTP has no storage/artifacts
+or resources and keeps persistence false. It never falls back to operator keys.
 See [security](security.md) and [background execution](integration-guide.md).

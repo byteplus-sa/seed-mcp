@@ -1,266 +1,167 @@
-"""Cross-client background jobs over local-auth and shared-key HTTP servers.
-
-Regression guard for the multi-client workflow: one ``ark-mcp`` process serves
-several MCP clients that share a single Docket queue, so a job submitted by one
-client is pollable by another. Each client is an independent HTTP session; no
-real sockets are used because the suite disables them globally.
-"""
+"""HTTP has no shared jobs or snapshots: specs/SPEC_HOSTED_BYOK.md."""
 
 from __future__ import annotations
 
-import asyncio
-import hashlib
-import re
-import secrets
-import shlex
-from collections.abc import AsyncIterator
-from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Any
+from unittest.mock import AsyncMock, Mock
 
-import httpx
 import pytest
-import yaml
-from fastmcp import FastMCP
-from fastmcp.server.auth import require_scopes
+import respx
+from docket import Docket
+from fastmcp_tasks.context import TaskContextSnapshot
 
-from ark_mcp.config.env import Settings
-from ark_mcp.providers.modelark.schemas import ChatCompletionProviderResponse
-from ark_mcp.providers.modelark.understanding import SeedUnderstandingService
-from ark_mcp.server import create_server
-
-_HEADERS = {
-    "Accept": "application/json, text/event-stream",
-    "Mcp-Protocol-Version": "2026-07-28",
-}
-
-_META = {
-    "io.modelcontextprotocol/protocolVersion": "2026-07-28",
-    "io.modelcontextprotocol/clientCapabilities": {
-        "extensions": {"io.modelcontextprotocol/tasks": {}}
-    },
-}
+from tests.integration.test_byok_http import (
+    MODELARK,
+    MODELARK_KEY,
+    OTHER_SECRET,
+    assert_denied,
+    call_tool,
+    credentials,
+    http_server,
+    rpc,
+)
 
 
-def _http_settings(tmp_path: Path, token: str | None = None) -> Settings:
-    return Settings(
-        _env_file=None,
-        MCP_TRANSPORT="http",
-        MCP_HOST="127.0.0.1",
-        MCP_AUTH_MODE="api_key" if token else "local",
-        MCP_API_KEY_SHA256=hashlib.sha256(token.encode()).hexdigest() if token else "",
-        MCP_ALLOWED_HOSTS="testserver",
-        ARTIFACT_DIR=str(tmp_path / "artifacts"),
-        BYTEPLUS_MODELARK_API_KEY="test-key",  # pragma: allowlist secret
-    )
+@pytest.fixture
+def background_spies(monkeypatch: pytest.MonkeyPatch) -> dict[str, Mock]:
+    spies: dict[str, Mock] = {
+        "capture": Mock(wraps=TaskContextSnapshot.capture),
+        "save": AsyncMock(),
+        "create": AsyncMock(),
+        "bridge_create": AsyncMock(),
+        "enqueue": AsyncMock(),
+        "docket_add": Mock(),
+    }
+    monkeypatch.setattr(TaskContextSnapshot, "capture", spies["capture"])
+    monkeypatch.setattr(TaskContextSnapshot, "save", spies["save"])
+    monkeypatch.setattr("fastmcp_tasks.creation.create_task", spies["create"])
+    monkeypatch.setattr("fastmcp_tasks.extension.create_task", spies["create"])
+    monkeypatch.setattr("ark_mcp.background_jobs.create_task", spies["bridge_create"])
+    monkeypatch.setattr("fastmcp_tasks.creation.add_component_to_docket", spies["enqueue"])
+    monkeypatch.setattr(Docket, "add", spies["docket_add"])
+    return spies
 
 
-@asynccontextmanager
-async def _shared_http_server(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, *, auth_mode: str = "local"
-) -> AsyncIterator[tuple[FastMCP, httpx.AsyncClient, httpx.AsyncClient]]:
-    async def generate(
-        _self: SeedUnderstandingService, _request: object
-    ) -> tuple[ChatCompletionProviderResponse, None]:
-        await asyncio.sleep(0.2)
-        return (
-            ChatCompletionProviderResponse.model_validate(
-                {
-                    "id": "shared-http-test",
-                    "choices": [
-                        {
-                            "index": 0,
-                            "message": {"role": "assistant", "content": "shared completed"},
-                            "finish_reason": "stop",
-                        }
-                    ],
-                    "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
-                }
-            ),
-            None,
-        )
-
-    async def close(_self: SeedUnderstandingService) -> None:
-        return None
-
-    monkeypatch.setattr(SeedUnderstandingService, "generate", generate)
-    monkeypatch.setattr(SeedUnderstandingService, "close", close)
-
-    token = secrets.token_hex(32) if auth_mode == "api_key" else None
-    settings = _http_settings(tmp_path, token)
-    server = create_server(settings)
-    app = server.http_app(
-        path="/mcp",
-        stateless_http=True,
-        json_response=True,
-        host_origin_protection=True,
-        allowed_hosts=settings.allowed_hosts,
-        allowed_origins=settings.allowed_origins,
-    )
-    transport = httpx.ASGITransport(app=app)
-    async with (
-        app.router.lifespan_context(app),
-        httpx.AsyncClient(
-            transport=transport,
-            base_url="http://testserver",
-            headers={"Authorization": f"Bearer {token}"} if token else {},
-        ) as first,
-        httpx.AsyncClient(
-            transport=transport,
-            base_url="http://testserver",
-            headers={"Authorization": f"Bearer {token}"} if token else {},
-        ) as second,
-    ):
-        yield server, first, second
+def assert_no_background_activity(spies: dict[str, Mock]) -> None:
+    for spy in spies.values():
+        spy.assert_not_called()
 
 
-async def _call_tool(
-    client: httpx.AsyncClient, name: str, arguments: dict[str, Any], request_id: int
-) -> dict[str, Any]:
-    response = await client.post(
-        "/mcp",
-        headers={**_HEADERS, "Mcp-Method": "tools/call", "Mcp-Name": name},
-        json={
-            "jsonrpc": "2.0",
-            "id": request_id,
-            "method": "tools/call",
-            "params": {"name": name, "arguments": arguments, "_meta": _META},
-        },
-    )
-    assert response.status_code == 200, response.text
-    return response.json()
-
-
-@pytest.mark.asyncio
-@pytest.mark.parametrize("auth_mode", ["local", "api_key"])
-async def test_two_clients_share_one_http_server_job_queue(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, test_env: None, auth_mode: str
-) -> None:
-    async with _shared_http_server(tmp_path, monkeypatch, auth_mode=auth_mode) as (
-        _,
-        submitter,
-        poller,
-    ):
-        capabilities = await _call_tool(submitter, "ark_job_capabilities", {}, 1)
-        targets = capabilities["result"]["structuredContent"]["targets"]
-        assert any(target["tool_name"] == "seed_understand" for target in targets)
-
-        submitted = await _call_tool(
-            submitter,
+@pytest.mark.parametrize(
+    ("name", "input_data"),
+    [
+        ("ark_job_capabilities", None),
+        (
             "ark_job_submit",
-            {
-                "input": {
-                    "tool_name": "seed_understand",
-                    "arguments": {"input": {"prompt": "Test"}},
-                }
-            },
-            2,
+            {"tool_name": "seedream_generate_image", "arguments": {"input": {"prompt": "square"}}},
+        ),
+        ("ark_job_get", {"job_id": "synthetic-job-" + "x" * 32}),
+        ("ark_job_cancel", {"job_id": "synthetic-job-" + "x" * 32}),
+    ],
+)
+@respx.mock
+async def test_ordinary_jobs_unavailable_to_every_http_client_before_snapshot_or_queue(
+    tmp_path: Path, background_spies: dict[str, Mock], name: str, input_data: dict[str, Any] | None
+) -> None:
+    async with http_server(tmp_path) as (server, _, client):
+        assert server._docket is None
+        for headers in ({}, credentials(), credentials(MODELARK_KEY, OTHER_SECRET)):
+            result = await call_tool(client, name, input_data, headers=headers)
+            assert_denied(result)
+            assert "unknown tool" in str(result).lower()
+    assert_no_background_activity(background_spies)
+    assert len(respx.calls) == 0
+
+
+@pytest.mark.parametrize(
+    ("name", "input_data", "url", "response"),
+    [
+        (
+            "seedream_generate_image",
+            {"prompt": "square"},
+            f"{MODELARK}/images/generations",
+            {"data": [{"url": "https://example.com/image.png"}]},
+        ),
+        (
+            "seedance_create_task",
+            {"prompt": "scene"},
+            f"{MODELARK}/contents/generations/tasks",
+            {"id": "must-not-submit"},
+        ),
+    ],
+)
+@respx.mock
+async def test_native_task_opt_in_is_rejected_before_snapshot_queue_or_provider(
+    tmp_path: Path,
+    background_spies: dict[str, Mock],
+    name: str,
+    input_data: dict[str, Any],
+    url: str,
+    response: dict[str, Any],
+) -> None:
+    route = respx.post(url).respond(200, json=response)
+    async with http_server(tmp_path) as (server, _, client):
+        assert server._docket is None
+        result = await call_tool(client, name, input_data, headers=credentials(), task_capable=True)
+    assert_no_background_activity(background_spies)
+    assert route.call_count == 0, "Native task opt-in dispatched provider work in the foreground."
+    assert_denied(result)
+
+
+@pytest.mark.parametrize("method", ["tasks/get", "tasks/update", "tasks/cancel"])
+@respx.mock
+async def test_native_task_methods_are_not_registered(
+    tmp_path: Path, background_spies: dict[str, Mock], method: str
+) -> None:
+    params: dict[str, Any] = {"taskId": "synthetic-task"}
+    if method == "tasks/update":
+        params["inputResponses"] = {}
+    async with http_server(tmp_path) as (_, _, client):
+        result = await rpc(
+            client, method, params, headers=credentials(), task_capable=True, expected_status=404
         )
-        job_id = submitted["result"]["structuredContent"]["job_id"]
-
-        async with asyncio.timeout(10):
-            while True:
-                polled = await _call_tool(poller, "ark_job_get", {"input": {"job_id": job_id}}, 3)
-                snapshot = polled["result"]["structuredContent"]
-                if snapshot["status"] != "working":
-                    break
-                await asyncio.sleep(0.02)
-
-    assert snapshot["status"] == "completed"
-    assert snapshot["result"]["structured_content"]["choices"][0]["content"] == "shared completed"
+        assert result["error"]["code"] == -32601
+    assert_no_background_activity(background_spies)
+    assert len(respx.calls) == 0
 
 
-@pytest.mark.asyncio
-async def test_unknown_job_reports_server_instance_scope(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    async with _shared_http_server(tmp_path, monkeypatch) as (_, _submitter, poller):
-        polled = await _call_tool(poller, "ark_job_get", {"input": {"job_id": "x" * 43}}, 1)
-
-    result = polled["result"]
-    assert result["isError"] is True
-    assert "server instance" in result["content"][0]["text"]
-
-
-async def test_shared_key_http_rejects_missing_wrong_and_query_credentials(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    async with _shared_http_server(tmp_path, monkeypatch, auth_mode="api_key") as (_, client, _):
-        original = client.headers.pop("Authorization")
-        for authorization in (None, "Bearer wrong", "Basic wrong", "Bearer "):
-            headers = dict(_HEADERS)
-            if authorization is not None:
-                headers["Authorization"] = authorization
-            response = await client.post(
-                "/mcp",
-                headers=headers,
-                json={"jsonrpc": "2.0", "id": 1, "method": "ping"},
+@pytest.mark.parametrize(
+    "uri", ["seed-health://status", "seed-media://artifacts/5eacfd74-a1c4-42aa-bfc3-6247846abebe"]
+)
+@respx.mock
+async def test_hidden_resources_cannot_be_read_by_uri(tmp_path: Path, uri: str) -> None:
+    async with http_server(tmp_path) as (_, _, client):
+        for headers in ({}, credentials()):
+            result = await rpc(
+                client, "resources/read", {"uri": uri}, headers=headers, expected_status=400
             )
-            assert response.status_code == 401
-        response = await client.post(
-            "/mcp",
-            params={"api_key": original.removeprefix("Bearer ")},
-            headers=_HEADERS,
-            json={"jsonrpc": "2.0", "id": 1, "method": "ping"},
-        )
-        assert response.status_code == 401
+            assert result["error"]["code"] == -32602
+            assert "ModelArk configured" not in str(result)
+    assert len(respx.calls) == 0
 
 
-async def test_container_ci_probe_reaches_bearer_authentication(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    workflow_path = Path(__file__).resolve().parents[2] / ".github/workflows/ci.yml"
-    workflow = yaml.load(workflow_path.read_text(), Loader=yaml.BaseLoader)
-    step = next(
-        step
-        for step in workflow["jobs"]["container"]["steps"]
-        if step.get("name") == "Exercise health endpoint"
-    )
-    command = step["run"].replace("\\\n", "")
-    match = re.search(r"\bcurl\s+([^\n]*?)\s+http://127\.0\.0\.1:3000/mcp", command)
-    assert match is not None
-    arguments = shlex.split(match.group(1))
-    method = None
-    headers = {}
-    content = None
-    for index, argument in enumerate(arguments):
-        if argument in ("--request", "-X"):
-            method = arguments[index + 1]
-        elif argument in ("--header", "-H"):
-            name, value = arguments[index + 1].split(":", 1)
-            headers[name] = value.strip()
-        elif argument in ("--data", "--data-raw", "-d"):
-            content = arguments[index + 1]
-    method = method or ("POST" if content is not None else "GET")
-    async with _shared_http_server(tmp_path, monkeypatch, auth_mode="api_key") as (_, client, _):
-        client.headers.pop("Authorization")
-        response = await client.request(method, "/mcp", headers=headers, content=content)
-        assert response.status_code == 401
+@pytest.mark.parametrize(
+    "name",
+    [
+        "media_upload",
+        "media_presign",
+        "seed_media_get_artifact",
+        "seed_media_export_artifact",
+        "seed_media_persist_url",
+    ],
+)
+@respx.mock
+async def test_storage_and_artifact_tools_cannot_be_called(tmp_path: Path, name: str) -> None:
+    async with http_server(tmp_path) as (_, _, client):
+        result = await call_tool(client, name, {}, headers=credentials())
+        assert_denied(result)
+        assert "unknown tool" in str(result).lower()
+    assert len(respx.calls) == 0
 
 
-async def test_shared_key_cannot_call_account_admin_tools(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    async with _shared_http_server(tmp_path, monkeypatch, auth_mode="api_key") as (
-        server,
-        client,
-        _,
-    ):
-
-        @server.tool(auth=require_scopes("assets:write"))
-        def account_admin_probe() -> str:
-            """A denied operation must never execute."""
-            raise AssertionError("Shared key reached an account-wide admin operation")
-
-        response = await _call_tool(client, "account_admin_probe", {}, 1)
-        assert response["result"]["isError"] is True
-        assert "unknown tool" in response["result"]["content"][0]["text"].lower()
-
-
-async def test_http_server_has_no_oauth_or_jwks_routes(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    async with _shared_http_server(tmp_path, monkeypatch, auth_mode="api_key") as (_, client, _):
+async def test_http_server_has_no_oauth_or_jwks_routes(tmp_path: Path) -> None:
+    async with http_server(tmp_path) as (_, _, client):
         for path in (
             "/.well-known/oauth-protected-resource",
             "/.well-known/oauth-authorization-server",

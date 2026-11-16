@@ -13,19 +13,21 @@ from __future__ import annotations
 
 import json
 from collections.abc import Awaitable, Callable
-from typing import Any, Literal
+from typing import Any, Literal, NoReturn
 
 from fastmcp import Context
 from fastmcp.tools import ToolResult
 from jsonschema import Draft202012Validator
-from jsonschema.exceptions import SchemaError
 from pydantic import BaseModel, ConfigDict, Field, model_validator
+from referencing import Registry
+from referencing.exceptions import NoSuchResource, Unresolvable
 
 from ark_mcp.config.env import Settings
 from ark_mcp.domain.errors import ProviderError
 from ark_mcp.domain.models import SchemaViolation, UnderstandingChoice, UnderstandingUsage
 from ark_mcp.observability.logger import info as log_info
 from ark_mcp.observability.logger import warning as log_warning
+from ark_mcp.providers.factory import modelark_gateway
 from ark_mcp.providers.modelark.schemas import ChatCompletionProviderResponse
 from ark_mcp.providers.modelark.understanding import SeedUnderstandingService
 from ark_mcp.providers.retry import RetryPolicy, call_with_retry
@@ -39,12 +41,39 @@ from ark_mcp.tools._cost import log_cost_estimate
 from ark_mcp.tools._errors import provider_error_result
 from ark_mcp.tools._task_execution import context_log
 
-# Chat timeouts are safe to retry but are not auto-retried: a second full-length
-# thinking run would double latency and token cost. 429/5xx are still retried.
+# Billable completions must not replay ambiguous failures, including 5xx.
+# Eligible 429/pre-dispatch retries remain bounded; TIMEOUT retries are disabled.
 _UNDERSTANDING_RETRY_POLICY = RetryPolicy(retry_timeouts=False)
 
 _SUMMARY_CHARS = 2000
 _MAX_SCHEMA_BYTES = 64 * 1024
+
+
+def _deny_schema_retrieval(uri: str) -> NoReturn:
+    raise NoSuchResource(ref=uri)
+
+
+_SCHEMA_REGISTRY: Registry[Any] = Registry(retrieve=_deny_schema_retrieval)
+
+
+def _validate_schema_references(schema: dict[str, Any]) -> None:
+    pending: list[Any] = [schema]
+    while pending:
+        node = pending.pop()
+        if isinstance(node, dict):
+            for keyword, value in node.items():
+                if (
+                    keyword in ("$ref", "$dynamicRef", "$recursiveRef")
+                    and isinstance(value, str)
+                    and not value.startswith("#")
+                ):
+                    raise ValueError(
+                        "response_format.json_schema.schema references must be fragment-only (#...)."
+                    )
+                if isinstance(value, (dict, list)):
+                    pending.append(value)
+        elif isinstance(node, list):
+            pending.extend(node)
 
 
 class UnderstandingJsonSchema(BaseModel):
@@ -60,7 +89,11 @@ class UnderstandingJsonSchema(BaseModel):
     schema_: dict[str, Any] = Field(
         ...,
         alias="schema",
-        description="JSON Schema (draft 2020-12) the answer must satisfy; at most 64 KB serialized.",
+        description=(
+            "JSON Schema (draft 2020-12) the answer must satisfy; at most 64 KB serialized. "
+            "$ref, $dynamicRef and $recursiveRef must be fragment-only (#...); "
+            "external schemas are never retrieved."
+        ),
     )
     description: str | None = Field(
         None, max_length=2000, description="Optional description of the schema's purpose."
@@ -68,6 +101,21 @@ class UnderstandingJsonSchema(BaseModel):
     strict: bool = Field(
         True, description="Ask the provider to enforce the schema strictly during decoding."
     )
+
+    @model_validator(mode="after")
+    def _check_schema(self) -> UnderstandingJsonSchema:
+        if len(json.dumps(self.schema_)) > _MAX_SCHEMA_BYTES:
+            raise ValueError("response_format.json_schema.schema must be at most 64 KB.")
+        _validate_schema_references(self.schema_)
+        validator = Draft202012Validator(
+            Draft202012Validator.META_SCHEMA,
+            format_checker=Draft202012Validator.FORMAT_CHECKER,
+            registry=_SCHEMA_REGISTRY,
+        )
+        error = next(validator.iter_errors(self.schema_), None)
+        if error is not None:
+            raise ValueError(f"response_format.json_schema.schema is invalid: {error.message}")
+        return self
 
 
 class UnderstandingResponseFormat(BaseModel):
@@ -86,14 +134,6 @@ class UnderstandingResponseFormat(BaseModel):
         if self.type == "json_schema":
             if self.json_schema is None:
                 raise ValueError("response_format.json_schema is required when type='json_schema'.")
-            if len(json.dumps(self.json_schema.schema_)) > _MAX_SCHEMA_BYTES:
-                raise ValueError("response_format.json_schema.schema must be at most 64 KB.")
-            try:
-                Draft202012Validator.check_schema(self.json_schema.schema_)
-            except SchemaError as exc:
-                raise ValueError(
-                    f"response_format.json_schema.schema is invalid: {exc.message}"
-                ) from exc
         elif self.json_schema is not None:
             raise ValueError("response_format.json_schema is only allowed when type='json_schema'.")
         return self
@@ -229,8 +269,20 @@ def _check_json(
             finish_reason=finish_reason,
         )
     if response_format.type == "json_schema" and response_format.json_schema is not None:
-        validator = Draft202012Validator(response_format.json_schema.schema_)
-        error = next(iter(sorted(validator.iter_errors(value), key=lambda e: list(e.path))), None)
+        try:
+            _validate_schema_references(response_format.json_schema.schema_)
+            validator = Draft202012Validator(
+                response_format.json_schema.schema_, registry=_SCHEMA_REGISTRY
+            )
+            error = next(
+                iter(sorted(validator.iter_errors(value), key=lambda e: list(e.path))), None
+            )
+        except (ValueError, Unresolvable, RecursionError):
+            return None, SchemaViolation(
+                path="",
+                message="Answer could not be validated against the supplied JSON schema.",
+                finish_reason=finish_reason,
+            )
         if error is not None:
             pointer = "".join(f"/{part}" for part in error.absolute_path)
             return None, SchemaViolation(
@@ -282,7 +334,7 @@ async def run_understanding[OutputT: SeedUnderstandOutput](
         options.response_format.provider_payload() if options.response_format else None
     )
 
-    service = SeedUnderstandingService()
+    service = SeedUnderstandingService(gateway=modelark_gateway(ctx, understanding=True))
     prompt = options.prompt
     prompt_tokens = completion_tokens = total_tokens = 0
     reasoning_tokens: int | None = None

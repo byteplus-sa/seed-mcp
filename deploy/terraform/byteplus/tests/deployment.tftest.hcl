@@ -55,20 +55,20 @@ run "dedicated_network" {
     error_message = "Object storage must remain optional."
   }
   assert {
-    condition     = local.compose.services["ark-mcp"].environment.MCP_AUTH_MODE == "$${MCP_AUTH_MODE:-api_key}" && !contains(keys(local.compose.services["ark-mcp"]), "build")
-    error_message = "Use the pinned image with shared-key HTTP authentication."
+    condition     = local.compose.services["ark-mcp"].environment.MCP_AUTH_MODE == "byok" && !contains(keys(local.compose.services["ark-mcp"]), "build") && !contains(keys(local.compose.services["ark-mcp"]), "env_file")
+    error_message = "Use the pinned BYOK image without importing arbitrary host environment."
   }
   assert {
-    condition     = contains(keys(yamldecode(local.bootstrap_files["/opt/ark-mcp/helpers.yaml"].content)), "generate_mcp_key.py") && strcontains(local.environment_example, "MCP_API_KEY_SHA256=\n")
-    error_message = "Include key generation but never generate or store keys in Terraform."
+    condition     = contains(keys(yamldecode(local.bootstrap_files["/opt/ark-mcp/helpers.yaml"].content)), "generate_identity_secret.py") && strcontains(local.environment_example, "MCP_IDENTITY_HMAC_KEY=\n") && !strcontains(local.environment_example, "API_KEY")
+    error_message = "Include private identity generation but no actual secrets or provider-key settings in Terraform."
   }
   assert {
     condition     = alltrue([for name, volume in local.compose.volumes : volume.driver_opts.device == "/srv/ark-mcp/${name}"])
     error_message = "Every Compose data volume must be on the retained disk."
   }
   assert {
-    condition     = !contains(keys(local.compose.services["ark-mcp"]), "ports") && !contains(keys(local.compose.services.redis), "ports")
-    error_message = "Only Caddy may publish network ports."
+    condition     = !contains(keys(local.compose.services["ark-mcp"]), "ports") && !contains(keys(local.compose.services), "redis") && local.compose.services["ark-mcp"].deploy.replicas == 1
+    error_message = "Only Caddy may publish network ports; hosted HTTP is one instance without Redis."
   }
 }
 
@@ -88,6 +88,10 @@ run "existing_network_and_private_bucket" {
   assert {
     condition     = bytepluscc_tos_bucket.media[0].acl_grant.acl == "private"
     error_message = "Optional media storage must not be public."
+  }
+  assert {
+    condition     = !strcontains(local.environment_example, "TOS_") && !strcontains(local.environment_example, "API_KEY")
+    error_message = "Standalone storage must never inject credentials into hosted configuration."
   }
   assert {
     condition     = alltrue([for rule in bytepluscc_vpc_security_group.this.ingress_permissions : rule.port_start != 22 || rule.cidr_ip == "203.0.113.10/32"])

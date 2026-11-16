@@ -8,6 +8,15 @@ artifact recovery are in [polling-and-artifacts.md](polling-and-artifacts.md).
 
 ## Background jobs
 
+**Stdio only. HTTP calls provider tools directly in the foreground and has
+no ordinary jobs, native tasks, storage/artifact tools or resources.**
+For HTTP, read provider IDs from the direct result, poll with the same selected
+provider key/client secret, keep persistence false and download URLs yourself.
+All background/export instructions below describe local stdio.
+HTTP rejects explicit per-call `io.modelcontextprotocol/tasks` opt-in, including
+on discovery, before provider dispatch, snapshot capture/save or queue creation.
+Omit task opt-in; ordinary jobs are not an HTTP fallback.
+
 **Long-running tools run in a background worker. Use the ordinary
 `ark_job_*` tools unless native task support is confirmed.** Most clients
 cannot negotiate MCP task augmentation, and seeing the tools does not prove
@@ -56,8 +65,7 @@ terminal `ark_job_get.result` or `tasks/get` response.
   called directly: that was rejected before any provider work.
 - **Jobs are process-local on stdio.** Each stdio client starts its own
   server, so another client cannot see the job and `ark_job_get` reports it as
-  unknown. To share jobs across local clients, run one loopback HTTP server
-  (`make shared-http`). The default in-memory backend still loses jobs when
+  unknown. HTTP cannot share local jobs. The default in-memory backend loses jobs when
   the server restarts; keep the provider task ID so work can be polled
   directly afterwards.
 - Required-task execution is claimed once: an interrupted job does not
@@ -96,8 +104,20 @@ For Seedance and OmniHuman:
 ### Seedance run: submit, poll, persist
 
 1. `seedance_create_task` through `ark_job_submit`. The result lists `tasks[]`
-   with a `task_id` or an `error` each.
-2. Record the IDs, then poll **all of them in one `gen_task_get` call** in the
+   for a successful single call or variation batch. A variation can contain
+   both `task_id` and `error` when accepted-task ownership recording fails.
+   `submitted` counts known accepted IDs; `failed` counts entries with errors,
+   so the counts can overlap. Single-call failures instead return error
+   `ToolResult` text with any known accepted task/request IDs. Only accepted
+   ownership-record failures become outward `AcceptedTaskError` failures,
+   which are ambiguous/nonretryable. Budget-finalization exceptions only log
+   `budget_finalization_failed`, preserving the provider result/error without
+   adding to `failed`.
+2. Record every known ID, even alongside an error; never recreate accepted
+   work. HTTP polling requires recorded ownership. If recording failed, reconcile
+   directly with the provider using task/request IDs. Trusted stdio permits
+   unrecorded IDs, not recorded owner mismatches. Otherwise poll **all
+   IDs in one `gen_task_get` call** in the
    foreground (`persist_output` omitted) at `recommended_poll_after_ms` until
    `all_terminal`.
 3. Persist: rerun `gen_task_get` once through `ark_job_submit` with
@@ -244,32 +264,47 @@ The retry wrapper retries only errors marked `retryable` **and not ambiguous**: 
 to 3 attempts, exponential backoff from 0.25 s capped at 4 s with 20% jitter,
 honoring `Retry-After` (also capped at 4 s). After that the error reaches you.
 
-The existing Seedance adapter marks raw connection/transport failures
-retryable without marking them ambiguous, so a create request can be repeated
-despite uncertain provider acceptance. The job replay guard does not prevent
-retries inside one handler. Treat this as a runtime risk and never add blind
-client-side retries. The table below describes normalized timeouts, not every
-transport failure.
+Uncertain mutation transport failures and malformed 2xx responses are
+ambiguous/nonretryable, including billable understanding completions.
+Eligible 429 rejections, demonstrably pre-dispatch connection/pool failures and
+reads retain bounded retries. Chat/mutation 5xx responses may still carry
+`retryable=true`, but `ambiguous_completion=true` prevents automatic retry.
+Diagnostics are sanitized; never add blind client-side retries.
+Durable idempotency/crash recovery remain next phase.
 
-| Operation | Timeout result | Server retries? | You should |
+| Operation | Timeout after possible dispatch | Server retries? | You should |
 |---|---|---|---|
 | Create / generate / cancel / delete | `retryable=false`, `ambiguous_completion=true` | No | Reconcile by task or request ID; do not resubmit |
 | Task polls (Seedance, OmniHuman) | `retryable=true`, `ambiguous_completion=false` | Yes | Poll again |
-| `seed_understand`, `seed_audio_understand` | `retryable=true`, `ambiguous_completion=false` | No for timeouts (429/5xx still retried) | Safe to retry, but each attempt is billed |
+| `seed_understand`, `seed_audio_understand` | `retryable=false`, `ambiguous_completion=true` | No | Completion may already be billed; reconcile by request ID when available |
 
-- Connection and transport classification depends on the adapter; Seedance
-  create retains the caveat above.
-- Any `TIMEOUT` commits the budget reservation, since it may have been billed.
+- Understanding also disables automatic connect/pool `TIMEOUT` retries.
+  Response loss, read/write/protocol failures and malformed provider 2xx
+  responses are not safe retry signals. `json_retry` applies only to a received
+  answer's JSON validation, not a lost or malformed provider response.
+- A lost response may still hide accepted work; reconcile safe task/request IDs.
+- Any `TIMEOUT` attempts to commit the budget reservation, since it may have
+  been billed. Finalization failure leaves conservative reserved allowance,
+  without replacing the original timeout.
 - Output downloads are retried separately (`ARTIFACT_DOWNLOAD_MAX_ATTEMPTS`,
   default 3); expired, untrusted, or oversized sources are not.
 
 ### Budget rejections
 
 With `DAILY_BUDGET_USD` above 0 the server tracks per-principal daily spend
-(UTC day), shared by all `shared-team` members on hosted HTTP, and rejects
+(UTC day), scoped by credential tenant/client owner on HTTP, and rejects
 a request whose estimate would exceed it, before any
 provider call ("Daily budget of $X would be exceeded"). At `0` (default) usage
-is recorded but never blocked. Wait for the UTC rollover or raise the limit.
+is recorded without a spending-limit rejection; a successful reservation is
+still required. Wait for the UTC rollover or raise the limit after a budget rejection.
+
+Reservation failures still fail closed before provider dispatch. Later
+commit/release exceptions log `ERROR` event `budget_finalization_failed` with
+safe provider/action/reservation ID fields; they do not replace the provider
+result/error or create variation failures. Failed finalization leaves allowance
+conservatively reserved. Cancellation cleanup is shielded best effort, not a
+guarantee that no reserved rows remain. Never regenerate accepted work to
+recover from a ledger problem.
 
 ### Common issues
 
@@ -287,7 +322,7 @@ is recorded but never blocked. Wait for the UTC rollover or raise the limit.
 | `omnihuman_create_task` rejects a `seed-media://` input | Filesystem artifact backend cannot mint provider-readable URLs | `ARTIFACT_BACKEND=object_storage`, or `media_upload` and pass the presigned URL |
 | `omnihuman_get_task` fails with `InvalidParameter ... audio` | Audio is validated only after submission (4-300 s, wav/mp3, under 15 MB; 300 s WAV is 26-58 MB) | Fix the audio (MP3 or shorter) and resubmit; never unchanged |
 | OmniHuman error `50510` | Provider content pre-filter rejected the image or audio | Use different compliant inputs; never retry unchanged |
-| HTTP `401` | Missing, wrong or rotated-out shared MCP key | Configure the current key privately as a bearer header; never paste it into chat |
+| HTTP credential rejection | Missing or malformed selected provider key/client secret | Configure private BYOK headers; never use `Authorization` or paste values into chat |
 | Asset administration unavailable | Not part of this server | Use an authorized provider console or external workflow |
 
 ## Best practices beyond the schemas

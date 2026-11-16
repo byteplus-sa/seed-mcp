@@ -217,7 +217,7 @@ def main() -> int:
     parser.add_argument("--instance-id")
     parser.add_argument("--envelope", type=Path)
     parser.add_argument("--key", type=Path)
-    parser.add_argument("--kind", choices=("config", "image", "provider-update"))
+    parser.add_argument("--kind", choices=("config", "image", "identity-update"))
     parser.add_argument("--digest")
     parser.add_argument("--previous-digest")
     parser.add_argument("--operation")
@@ -258,7 +258,7 @@ def main() -> int:
         payload = decrypt_payload(json.loads(args.envelope.read_bytes()), key, args.instance_id)
         if args.kind == "config":
             install(payload, args.digest)
-        elif args.kind == "provider-update":
+        elif args.kind == "identity-update":
             import update_config
 
             update_config.update(

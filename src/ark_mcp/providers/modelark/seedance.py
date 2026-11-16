@@ -7,12 +7,10 @@ Retrieval, listing and deletion use
 
 from __future__ import annotations
 
-import json
-from typing import Any, cast
+from typing import Any
 
 import httpx
 
-from ark_mcp.domain.errors import NormalizedProviderError, ProviderError
 from ark_mcp.observability.logger import debug as log_debug
 from ark_mcp.providers.modelark.client import ModelArkGateway
 from ark_mcp.providers.modelark.schemas import (
@@ -22,30 +20,11 @@ from ark_mcp.providers.modelark.schemas import (
 )
 
 
-def _parse_success_body(response: httpx.Response, operation: str) -> dict[str, Any]:
-    """Parse a success-path JSON body, raising ``ProviderError`` on malformed JSON."""
-    try:
-        return cast("dict[str, Any]", response.json())
-    except (json.JSONDecodeError, ValueError) as exc:
-        raise ProviderError(
-            NormalizedProviderError(
-                provider="modelark",
-                operation=operation,
-                http_status=response.status_code,
-                code="INVALID_RESPONSE",
-                message="ModelArk returned a non-JSON success response.",
-                request_id=ModelArkGateway.extract_request_id(response),
-                retryable=False,
-                ambiguous_completion=False,
-            )
-        ) from exc
-
-
 class SeedanceService:
     """Service layer for Seedance video generation tasks."""
 
-    def __init__(self, gateway: ModelArkGateway | None = None) -> None:
-        self._gateway = gateway or ModelArkGateway()
+    def __init__(self, gateway: ModelArkGateway) -> None:
+        self._gateway = gateway
 
     async def create_task(self, request: SeedanceCreateProviderRequest) -> tuple[str, str | None]:
         """Call ``POST /contents/generations/tasks``.
@@ -59,20 +38,24 @@ class SeedanceService:
                 "/contents/generations/tasks",
                 request.model_dump(exclude_none=True),
             )
-        except httpx.TimeoutException:
-            raise ModelArkGateway.normalize_timeout("create_task") from None
-        except httpx.ConnectError as exc:
-            raise ModelArkGateway.normalize_connection_error("create_task", exc) from exc
         except httpx.TransportError as exc:
-            raise ModelArkGateway.normalize_transport_error("create_task", exc) from exc
+            raise ModelArkGateway.normalize_transport_error("create_task", exc) from None
 
         request_id = ModelArkGateway.extract_request_id(response)
 
         if response.status_code >= 400:
             raise ModelArkGateway.normalize_error(response, "create_task")
 
-        body = _parse_success_body(response, "create_task")
-        parsed = SeedanceCreateProviderResponse.model_validate(body)
+        parsed = ModelArkGateway.parse_response(
+            response, "create_task", SeedanceCreateProviderResponse
+        )
+        if not parsed.id.strip():
+            raise ModelArkGateway.invalid_response(
+                "create_task",
+                http_status=response.status_code,
+                request_id=request_id,
+                mutation=True,
+            )
         log_debug(
             "seedance_create_task_complete",
             task_id=parsed.id,

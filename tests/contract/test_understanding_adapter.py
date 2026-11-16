@@ -14,6 +14,7 @@ import respx
 from ark_mcp.domain.errors import ProviderError
 from ark_mcp.providers.modelark.client import ModelArkGateway
 from ark_mcp.providers.modelark.understanding import SeedUnderstandingService
+from ark_mcp.providers.retry import RetryPolicy, call_with_retry
 
 MODELARK_BASE = "https://ark.ap-southeast.bytepluses.com/api/v3"
 
@@ -382,7 +383,7 @@ class TestUnderstandingErrorPropagation:
         assert exc_info.value.ambiguous_completion is False
 
     @respx.mock
-    async def test_timeout_is_retryable_not_ambiguous(
+    async def test_timeout_is_nonretryable_and_ambiguous(
         self, service: SeedUnderstandingService
     ) -> None:
         respx.post(f"{MODELARK_BASE}/chat/completions").mock(
@@ -392,9 +393,95 @@ class TestUnderstandingErrorPropagation:
         with pytest.raises(ProviderError) as exc_info:
             await service.generate(request)
         assert exc_info.value.code == "TIMEOUT"
-        # A chat completion creates no provider state, so a timeout is safe to retry.
-        assert exc_info.value.ambiguous_completion is False
-        assert exc_info.value.retryable is True
+        assert exc_info.value.ambiguous_completion is True
+        assert exc_info.value.retryable is False
+
+    @pytest.mark.parametrize(
+        "failure",
+        [
+            httpx.ReadError,
+            httpx.WriteError,
+            httpx.RemoteProtocolError,
+            httpx.LocalProtocolError,
+            httpx.ReadTimeout,
+            httpx.WriteTimeout,
+            httpx.TimeoutException,
+        ],
+    )
+    @respx.mock
+    async def test_response_loss_never_repeats_billed_completion(
+        self, service: SeedUnderstandingService, failure: type[httpx.TransportError]
+    ) -> None:
+        route = respx.post(f"{MODELARK_BASE}/chat/completions").mock(
+            side_effect=[
+                failure("synthetic-sensitive-transport-detail"),
+                httpx.Response(200, json={"id": "must-not-be-created", "choices": []}),
+            ]
+        )
+        request = SeedUnderstandingService.build_request(model=TEST_MODEL, prompt="test")
+        try:
+            with pytest.raises(ProviderError) as exc_info:
+                await call_with_retry(
+                    lambda: service.generate(request),
+                    policy=RetryPolicy(base_delay_seconds=0, max_delay_seconds=0),
+                )
+            assert route.call_count == 1
+            assert exc_info.value.retryable is False
+            assert exc_info.value.ambiguous_completion is True
+            assert "synthetic-sensitive-transport-detail" not in str(exc_info.value)
+        finally:
+            await service.close()
+
+    @pytest.mark.parametrize(
+        "body",
+        [b"", b"not-json", b"[]", b'{"choices": "invalid"}', b'{"usage": "invalid"}'],
+    )
+    @respx.mock
+    async def test_malformed_success_is_ambiguous_without_repeating_completion(
+        self, service: SeedUnderstandingService, body: bytes
+    ) -> None:
+        route = respx.post(f"{MODELARK_BASE}/chat/completions").mock(
+            side_effect=[
+                httpx.Response(200, content=body, headers={"X-Request-Id": "req-malformed"}),
+                httpx.Response(200, json={"id": "must-not-be-created", "choices": []}),
+            ]
+        )
+        request = SeedUnderstandingService.build_request(model=TEST_MODEL, prompt="test")
+        try:
+            with pytest.raises(ProviderError) as exc_info:
+                await call_with_retry(lambda: service.generate(request))
+            assert route.call_count == 1
+            assert exc_info.value.code == "INVALID_RESPONSE"
+            assert exc_info.value.http_status == 200
+            assert exc_info.value.request_id == "req-malformed"
+            assert exc_info.value.retryable is False
+            assert exc_info.value.ambiguous_completion is True
+        finally:
+            await service.close()
+
+    @pytest.mark.parametrize(
+        "failure", [httpx.ConnectError, httpx.ConnectTimeout, httpx.PoolTimeout]
+    )
+    @respx.mock
+    async def test_predispatch_failure_retains_bounded_retry(
+        self, service: SeedUnderstandingService, failure: type[httpx.TransportError]
+    ) -> None:
+        route = respx.post(f"{MODELARK_BASE}/chat/completions").mock(
+            side_effect=[
+                failure("synthetic predispatch failure"),
+                httpx.Response(200, json={"id": "only-billed-completion", "choices": []}),
+            ]
+        )
+        request = SeedUnderstandingService.build_request(model=TEST_MODEL, prompt="test")
+        try:
+            response, _ = await call_with_retry(
+                lambda: service.generate(request),
+                policy=RetryPolicy(base_delay_seconds=0, max_delay_seconds=0),
+            )
+            assert response.id == "only-billed-completion"
+            assert route.call_count == 2
+        finally:
+            await service.close()
 
     @respx.mock
     async def test_connection_error_raises(self, service: SeedUnderstandingService) -> None:

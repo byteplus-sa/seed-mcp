@@ -20,16 +20,20 @@ from pydantic import BaseModel, Field, model_validator
 from ark_mcp.artifacts.store import ArtifactPersistenceError
 from ark_mcp.config.env import get_settings
 from ark_mcp.domain.artifacts import ArtifactRef, MediaType
-from ark_mcp.domain.errors import ProviderError
+from ark_mcp.domain.errors import NormalizedProviderError, ProviderError
 from ark_mcp.domain.media import AudioReference, ReferenceImageInput
 from ark_mcp.domain.models import Subtitle, VariationError, VariationResult, VariationSummary
 from ark_mcp.observability.logger import info as log_info
+from ark_mcp.providers.factory import seed_speech_gateway
 from ark_mcp.providers.retry import call_with_retry
 from ark_mcp.providers.seed_speech.seed_audio import SeedAudioService
 from ark_mcp.runtime import billed_provider_slot, get_principal, get_runtime
+from ark_mcp.security.credentials import provider_api_key, redact_request_secrets
+from ark_mcp.security.url_policy import validate_url_syntax
 from ark_mcp.tools._asset_shared import require_url_references
 from ark_mcp.tools._cost import DEFAULT_MAX_CONCURRENT, estimate_cost, log_cost_estimate
-from ark_mcp.tools._errors import provider_error_result
+from ark_mcp.tools._errors import format_provider_error_text, provider_error_result
+from ark_mcp.tools._http_policy import validate_http_options
 from ark_mcp.tools._local_export import (
     local_export,
     output_path_field,
@@ -133,7 +137,10 @@ class SeedAudioGenerateInput(BaseModel):
         None,
         description="One prompt per variation, overriding text_prompt. Must have exactly `variations` entries.",
     )
-    persist: bool = Field(True, description="Persist the audio as a durable MCP resource.")
+    persist: bool = Field(
+        False,
+        description="Persist audio as a durable MCP resource (stdio only). Must be false over HTTP.",
+    )
     output_path: str | None = output_path_field(
         "the generated audio", directory_needed="when variations > 1"
     )
@@ -180,7 +187,7 @@ class SeedAudioGenerateOutput(BaseModel):
     )
     artifact: ArtifactRef | None = Field(
         None,
-        description="Durable artifact reference for the generated audio; null when variations > 1.",
+        description="Temporary provider URL reference, or an explicitly persisted stdio artifact; null for variations.",
     )
     subtitle: Subtitle | None = Field(
         None, description="Timestamped subtitle data, if requested and available."
@@ -204,6 +211,30 @@ class SeedAudioGenerateOutput(BaseModel):
 
 _DURATION_RE = re.compile(r"Max\s+duration\s*:\s*(\d+(?:\.\d+)?)\s*seconds?", re.IGNORECASE)
 _MAX_MODEL_DURATION = 120.0
+
+
+def _deliverable_url(url: str | None) -> str | None:
+    if not url:
+        return None
+    try:
+        validate_url_syntax(url)
+    except ValueError:
+        return None
+    return url
+
+
+def _no_deliverable_output(request_id: str) -> VariationError:
+    return VariationError(
+        code="NO_DELIVERABLE_OUTPUT",
+        message=(
+            "Provider returned no usable URL and audio cannot be delivered without persistence. "
+            "Generation may have been billed; do not regenerate automatically."
+        ),
+        request_id=request_id,
+        retryable=False,
+        ambiguous_completion=False,
+        phase="persisting",
+    )
 
 
 def _parse_duration_hint(text_prompt: str, *, default: float = 15.0) -> float:
@@ -234,18 +265,14 @@ async def seed_audio_generate(
 ) -> SeedAudioGenerateOutput | ToolResult:
     """Generate full-scene audio with Seed Speech (text prompt, optional voice-cloning audio or image reference).
 
-    Returns a durable artifact (provider URLs expire after 2 hours). variations (up to 5)
-    run in parallel and return a summary. Run through ark_job_submit.
+    Returns temporary provider URLs (2-hour expiry) by default. variations (up to 5)
+    run in parallel and return a summary. HTTP runs in the foreground with persist=false.
+    On stdio use ark_job_submit; durable persistence requires explicit persist=true.
     """
+    validate_http_options(ctx, persist=input.persist)
+    provider_api_key(ctx, "seed-speech")
     await context_log(ctx, "info", "Starting Seed Audio generation")
     await ctx.report_progress(progress=10, total=100)
-
-    settings = get_settings()
-    if not settings.has_seed_audio:
-        raise ValueError(
-            "BYTEPLUS_SEED_SPEECH_API_KEY is not configured. "
-            "Set it in .env to enable Seed Audio tools."
-        )
 
     audio_refs_data = require_url_references(
         [ref.model_dump() for ref in input.audio_references] if input.audio_references else None,
@@ -263,7 +290,6 @@ async def seed_audio_generate(
         return SeedAudioGenerateOutput(summary=summary)
 
     text_prompt = resolve_prompts(input.text_prompt, input.variation_prompts, input.variations)[0]
-    service = SeedAudioService()
     await ctx.report_progress(progress=30, total=100)
 
     references = SeedAudioService.build_references(
@@ -294,6 +320,7 @@ async def seed_audio_generate(
     )
     client_request_id = str(uuid4())
 
+    service = SeedAudioService(gateway=seed_speech_gateway(ctx))
     try:
         async with billed_provider_slot(
             ctx,
@@ -314,36 +341,47 @@ async def seed_audio_generate(
 
     # Persist the audio output.
     artifact: ArtifactRef
-    source_url: str | None = None
+    source_url = _deliverable_url(response.url)
     provider_expiry: str | None = (
-        (datetime.now(UTC) + timedelta(hours=2)).isoformat() if response.url else None
+        (datetime.now(UTC) + timedelta(hours=2)).isoformat() if source_url else None
     )
 
     if input.persist and response.audio:
         store = get_runtime(ctx).artifact_store
         artifact = await persist_base64(
             store,
-            provider_url=response.url,
+            provider_url=source_url,
             data=response.audio,
             media_type=MediaType.AUDIO,
             mime_type="audio/wav",
             source_expires_at=provider_expiry,
             auth=get_principal(ctx),
         )
-        source_url = response.url
-    elif response.url:
+    elif source_url:
         expiry = (datetime.now(UTC) + timedelta(hours=2)).isoformat()
         artifact = ArtifactRef(
             id="provider-url",
-            uri=response.url,
+            uri=source_url,
             media_type=MediaType.AUDIO,
             mime_type="audio/wav",
             created_at=datetime.now(UTC).isoformat(),
             source_expires_at=expiry,
         )
-        source_url = response.url
     else:
-        raise ValueError("Provider returned neither Base64 audio nor URL.")
+        error = _no_deliverable_output(client_request_id)
+        normalized = NormalizedProviderError(
+            provider="seed-speech",
+            operation="generate_audio",
+            code=error.code,
+            message=error.message,
+            request_id=client_request_id,
+            retryable=False,
+            ambiguous_completion=False,
+        )
+        text = format_provider_error_text(normalized.model_dump(mode="json"))
+        if log_id:
+            text += f" [provider_log_id={log_id}]"
+        return ToolResult(content=redact_request_secrets(text), is_error=True)
 
     await ctx.report_progress(progress=100, total=100)
     log_info(
@@ -380,7 +418,7 @@ async def _generate_variations(
     watermark_dict: dict[str, Any] | None = (
         input.watermark.model_dump(exclude_none=True) if input.watermark else None
     )
-    service = SeedAudioService()
+    service = SeedAudioService(gateway=seed_speech_gateway(ctx))
 
     async def _generate_single(idx: int, progress: VariationProgress) -> VariationResult:
         try:
@@ -412,6 +450,7 @@ async def _generate_variations(
 
             artifact: ArtifactRef | None = None
             source_expiry = (datetime.now(UTC) + timedelta(hours=2)).isoformat()
+            source_url = _deliverable_url(response.url)
 
             if input.persist and response.audio:
                 progress.phase = "persisting"
@@ -422,11 +461,11 @@ async def _generate_variations(
                     mime_type="audio/wav",
                     source_expires_at=source_expiry,
                     auth=owner,
-                    provider_url=response.url,
+                    provider_url=source_url,
                 )
-            elif response.url:
+            elif source_url:
                 artifact = provider_url_ref(
-                    url=response.url,
+                    url=source_url,
                     media_type=MediaType.AUDIO,
                     mime_type="audio/wav",
                     source_expires_at=source_expiry,
@@ -437,6 +476,7 @@ async def _generate_variations(
                 artifact=artifact,
                 request_id=client_request_id,
                 provider_log_id=log_id,
+                error=_no_deliverable_output(client_request_id) if artifact is None else None,
             )
         except ProviderError as exc:
             return VariationResult(
@@ -455,7 +495,9 @@ async def _generate_variations(
         except Exception as exc:
             return VariationResult(
                 index=idx,
-                error=VariationError(code="UNEXPECTED_ERROR", message=str(exc)),
+                error=VariationError(
+                    code="UNEXPECTED_ERROR", message=redact_request_secrets(str(exc))
+                ),
             )
 
     try:
@@ -463,7 +505,7 @@ async def _generate_variations(
             count=input.variations,
             factory=_generate_single,
             batch_deadline=variation_batch_deadline(
-                input.variations, get_settings(), persists=True
+                input.variations, get_settings(), persists=input.persist
             ),
             max_concurrent=DEFAULT_MAX_CONCURRENT,
         )

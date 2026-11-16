@@ -12,6 +12,8 @@ import contextlib
 import os
 import subprocess  # nosec B404
 from datetime import UTC, datetime, timedelta
+from functools import wraps
+from inspect import signature
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
@@ -21,7 +23,9 @@ import truststore
 truststore.inject_into_ssl()
 
 from fastmcp import Context, FastMCP  # noqa: E402
+from fastmcp.exceptions import ToolError  # noqa: E402
 from fastmcp.resources import ResourceContent, ResourceResult  # noqa: E402
+from fastmcp.server.dependencies import get_context  # noqa: E402
 from fastmcp.utilities.tasks import TaskConfig  # noqa: E402
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest  # noqa: E402
 from starlette.middleware import Middleware  # noqa: E402
@@ -30,7 +34,6 @@ from starlette.responses import JSONResponse, Response  # noqa: E402
 if TYPE_CHECKING:
     from collections.abc import Awaitable, Callable
 
-    from fastmcp.server.auth import AuthProvider
     from starlette.requests import Request
 
 from ark_mcp.background_jobs import (  # noqa: E402
@@ -38,7 +41,6 @@ from ark_mcp.background_jobs import (  # noqa: E402
     required_background_tool_names,
 )
 from ark_mcp.config.env import (  # noqa: E402
-    AuthMode,
     Settings,
     get_settings,
     resolve_env_file,
@@ -58,11 +60,14 @@ from ark_mcp.runtime import (  # noqa: E402
     get_principal,
     get_runtime,
 )
-from ark_mcp.security.http_auth import (  # noqa: E402
-    build_auth_provider,
-    component_auth,
+from ark_mcp.security.credentials import (  # noqa: E402
+    endpoint_default,
+    provider_scope,
+    redact_request_secrets,
 )
 from ark_mcp.security.http_middleware import (  # noqa: E402
+    ByokHeadersMiddleware,
+    InFlightLimitMiddleware,
     RateLimitMiddleware,
     RequestBodyLimitMiddleware,
 )
@@ -89,6 +94,52 @@ SERVER_INSTRUCTIONS = (
 _REQUIRED_BACKGROUND_TASK_NAMES = required_background_tool_names()
 _BACKGROUND_TASK_POLL_INTERVAL = timedelta(seconds=2)
 
+HTTP_SERVER_INSTRUCTIONS = (
+    "Seed MCP: customer-key ModelArk, Seed Speech and OmniHuman. "
+    "Call ark_list_models first, then call provider tools directly in the foreground. "
+    "Configure provider keys and X-MCP-Client-Secret privately in client HTTP headers, "
+    "never prompts or tool arguments. No OAuth, signup or MCP bearer key is used. "
+    "Poll existing video task IDs; never resubmit a create call to poll. "
+    "HTTP output is temporary provider URLs: persist and persist_output must be false. "
+    "Background tasks, uploads and artifact resources are not available over HTTP."
+)
+
+
+def _http_handler(
+    entry: CatalogEntry, handler: Callable[..., Awaitable[Any]], settings: Settings
+) -> Callable[..., Awaitable[Any]]:
+    @wraps(handler)
+    async def guarded(*args: Any, **kwargs: Any) -> Any:
+        if get_context().client_extension_settings("io.modelcontextprotocol/tasks") is not None:
+            raise ToolError(
+                "HTTP BYOK does not support background execution. "
+                "Call the tool without the tasks extension opt-in."
+            )
+        if entry.provider is None:
+            return await handler(*args, **kwargs)
+        try:
+            with provider_scope(settings, entry.provider):
+                bound = signature(handler).bind(*args, **kwargs)
+                request = bound.arguments.get("input")
+                default = endpoint_default(entry.name)
+                if default and request is not None and getattr(request, "model", None) is None:
+                    bound.arguments["input"] = type(request).model_validate(
+                        {**request.model_dump(), "model": default}
+                    )
+                return await handler(*bound.args, **bound.kwargs)
+        except (PermissionError, ValueError) as exc:
+            raise ToolError(redact_request_secrets(str(exc))) from None
+        except ToolError as exc:
+            raise ToolError(redact_request_secrets(str(exc))) from None
+        except Exception:
+            raise ToolError(
+                "Provider operation could not complete safely. Its outcome may be unknown; "
+                "do not automatically resubmit billable work."
+            ) from None
+
+    guarded.__dict__["__signature__"] = signature(handler, eval_str=True)
+    return guarded
+
 
 def _task_config(tool_name: str) -> TaskConfig | None:
     spec = background_tool_spec(tool_name)
@@ -111,14 +162,17 @@ def register_tools(server: FastMCP, settings: Settings) -> None:
     """Register every catalog tool whose settings gate passes."""
     skipped: list[str] = []
     for entry, definition in _gated_tool_definitions(settings, skipped):
-        scopes = (entry.scope,) if entry.scope else ()
+        hosted = settings.mcp_transport == "http"
         server.tool(
             name=entry.name,
             annotations={**definition.annotations},
             output_schema=definition.output_model.model_json_schema(),
-            task=_task_config(entry.name),
-            auth=component_auth(settings, *scopes),
-        )(_task_handler(entry.name, definition.handler))
+            task=TaskConfig(mode="forbidden") if hosted else _task_config(entry.name),
+        )(
+            _http_handler(entry, definition.handler, settings)
+            if hosted
+            else _task_handler(entry.name, definition.handler)
+        )
     if skipped:
         log_info(
             "tools_skipped", tools=skipped, reason="provider not configured or feature disabled"
@@ -150,8 +204,14 @@ class HardenedFastMCP(FastMCP):
         self._app_settings = app_settings
 
     def http_app(self, *args: Any, **kwargs: Any) -> Any:
-        if self._app_settings is not None and self._app_settings.mcp_transport == "http":
+        if self._app_settings is None or self._app_settings.mcp_transport != "http":
+            raise ValueError("Create HTTP servers with MCP_TRANSPORT=http and BYOK settings.")
+        if self._app_settings.mcp_transport == "http":
             asgi_middleware = [
+                Middleware(
+                    InFlightLimitMiddleware,
+                    max_in_flight=self._app_settings.http_max_in_flight,
+                ),
                 Middleware(
                     RequestBodyLimitMiddleware,
                     max_bytes=self._app_settings.mcp_http_max_body_bytes,
@@ -168,13 +228,19 @@ class HardenedFastMCP(FastMCP):
                         trust_proxy_headers=self._app_settings.rate_limit_trust_proxy_headers,
                     )
                 )
+            asgi_middleware.append(Middleware(ByokHeadersMiddleware, settings=self._app_settings))
             asgi_middleware.extend(kwargs.get("middleware") or [])
             kwargs["middleware"] = asgi_middleware
+            kwargs["stateless_http"] = True
+            kwargs["json_response"] = True
+            kwargs["host_origin_protection"] = True
+            kwargs["allowed_hosts"] = self._app_settings.allowed_hosts
+            kwargs["allowed_origins"] = self._app_settings.allowed_origins
         return super().http_app(*args, **kwargs)
 
 
 def _disabled_http_guardrails(settings: Settings) -> list[str]:
-    if settings.mcp_transport != "http" or settings.mcp_auth_mode is AuthMode.LOCAL:
+    if settings.mcp_transport != "http":
         return []
     disabled = []
     if not settings.daily_budget_usd:
@@ -214,7 +280,6 @@ def create_server(
     settings: Settings | None = None,
     *,
     runtime_factory: RuntimeFactory = create_runtime_services,
-    auth_provider: AuthProvider | None = None,
 ) -> FastMCP:
     """Build an isolated server with a once-per-server runtime lifespan."""
     resolved_settings = settings or get_settings()
@@ -222,18 +287,20 @@ def create_server(
     runtime_state = RuntimeState()
     server: FastMCP = HardenedFastMCP(
         "Ark Seed Multimodal",
-        instructions=SERVER_INSTRUCTIONS,
-        auth=auth_provider or build_auth_provider(resolved_settings),
+        instructions=(
+            HTTP_SERVER_INSTRUCTIONS
+            if resolved_settings.mcp_transport == "http"
+            else SERVER_INSTRUCTIONS
+        ),
+        auth=None,
+        mask_error_details=True,
         lifespan=build_lifespan(resolved_settings, runtime_factory, runtime_state),
         middleware=[MetricsMiddleware()],
         app_settings=resolved_settings,
     )
-    server.add_extension(TenantTasksExtension(resolved_settings))
+    if resolved_settings.mcp_transport == "stdio":
+        server.add_extension(TenantTasksExtension(resolved_settings))
 
-    @server.resource(
-        "seed-media://artifacts/{artifact_id}",
-        auth=component_auth(resolved_settings, "artifacts:read"),
-    )
     async def get_artifact(artifact_id: str, ctx: Context) -> ResourceResult:
         """Return persisted media after canonical ID and ownership checks."""
         try:
@@ -260,7 +327,6 @@ def create_server(
             meta={"artifact_id": artifact_id, "media_type": artifact.media_type},
         )
 
-    @server.resource("seed-health://status")
     async def health_status() -> str:
         """Return credential-free configuration diagnostics, not authorization or readiness."""
         stamp = _build_stamp()
@@ -283,6 +349,10 @@ def create_server(
             f"Background-job local export: {_background_local_export_status(resolved_settings)}\n"
         )
 
+    if resolved_settings.mcp_transport == "stdio":
+        server.resource("seed-media://artifacts/{artifact_id}")(get_artifact)
+        server.resource("seed-health://status")(health_status)
+
     @server.custom_route("/health", methods=["GET"])
     async def health(_request: Request) -> JSONResponse:
         return JSONResponse({"status": "healthy"})
@@ -300,7 +370,10 @@ def create_server(
         except Exception:
             return JSONResponse({"status": "not_ready"}, status_code=503)
 
-        if not resolved_settings.readiness_check_providers:
+        if (
+            resolved_settings.mcp_transport == "http"
+            or not resolved_settings.readiness_check_providers
+        ):
             return JSONResponse({"status": "ready"})
 
         providers: dict[str, str] = {}
@@ -368,12 +441,14 @@ def create_server(
             status_code=503,
         )
 
-    @server.custom_route("/metrics", methods=["GET"])
     async def metrics(_request: Request) -> Response:
         return Response(generate_latest(), media_type=CONTENT_TYPE_LATEST)
 
+    if resolved_settings.mcp_transport == "stdio":
+        server.custom_route("/metrics", methods=["GET"])(metrics)
+
     register_tools(server, resolved_settings)
-    if not (
+    if resolved_settings.mcp_transport == "stdio" and not (
         resolved_settings.has_modelark
         or resolved_settings.has_seed_audio
         or resolved_settings.has_omnihuman

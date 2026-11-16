@@ -29,7 +29,7 @@ from .private import (
     validator,
 )
 from .registry import check_image
-from .secrets import SecretReference, fetch_provider_keys
+from .secrets import SecretReference, fetch_operator_identity
 from .workspace import Workspace, atomic_private, read_private, validate_config
 
 
@@ -336,47 +336,43 @@ python3 /opt/ark-mcp/receive_config.py {shlex.join(["--instance-id", self.instan
 
 
 def prepare_configuration(workspace: Workspace, args: argparse.Namespace) -> None:
-    env_path, key_path = workspace.path / "host.env", workspace.path / "team.key"
+    env_path = workspace.path / "host.env"
     reference_path = getattr(args, "secret_reference_file", None)
-    if env_path.exists() or key_path.exists():
-        if not (env_path.exists() and key_path.exists()):
-            raise ValueError(
-                "Partial local secret creation; recover the original files, never regenerate keys."
-            )
+    if env_path.exists() or env_path.is_symlink():
         payload = read_private(env_path)
         if workspace.journal().get("configuration_sha256") != configuration_digest(payload):
             raise ValueError("Retained local configuration changed; refusing secret replacement.")
-        token = read_private(key_path).decode().strip()
         values = validator().load_environment(env_path, expected_uid=os.getuid())
         validator().validate_environment(values)
-        if values["MCP_API_KEY_SHA256"] != configuration_digest(token.encode()):
-            raise ValueError("Shared key and retained configuration differ.")
         if values["MCP_PUBLIC_HOST"] != workspace.journal()["outputs"]["public_hostname"]:
             raise ValueError("Retained configuration hostname differs from the deployment.")
         if reference_path is not None and (
             SecretReference.load(reference_path).metadata()
-            != workspace.journal().get("provider_secret_source")
+            != workspace.journal().get("operator_secret_source")
         ):
             raise ValueError("Retained secret source differs; use an approved configuration sync.")
         return
+    if workspace.journal().get("configuration_sha256"):
+        raise ValueError(
+            "Retained configuration is missing; recover host.env, never replace its identity."
+        )
     hostname = workspace.journal()["outputs"]["public_hostname"]
     source = None
     if reference_path is not None:
         reference = SecretReference.load(reference_path)
-        payload, token = make_configuration_values(fetch_provider_keys(reference), hostname)
+        payload = make_configuration_values(fetch_operator_identity(reference), hostname)
         source = reference.metadata()
-    elif args.provider_env_file is not None:
-        payload, token = make_configuration(args.provider_env_file, hostname)
+    elif getattr(args, "operator_env_file", None) is not None:
+        payload = make_configuration(args.operator_env_file, hostname)
     else:
         raise ValueError(
-            "Provide a protected --provider-env-file or --secret-reference-file for the first deployment."
+            "Provide a protected --operator-env-file or --secret-reference-file for the first deployment."
         )
-    atomic_private(key_path, (token + "\n").encode())
     atomic_private(env_path, payload)
     journal = workspace.journal()
     journal["configuration_sha256"] = configuration_digest(payload)
     if source is not None:
-        journal["provider_secret_source"] = source
+        journal["operator_secret_source"] = source
     workspace.save_journal(journal)
 
 
@@ -474,7 +470,7 @@ async def verify_deployment(workspace: Workspace) -> None:
     pending_config = journal.get("config_update")
     if pending_config and pending_config["status"] not in {"verifying", "committing"}:
         raise ValueError(
-            "Provider configuration update is pending; apply or resume it before verification."
+            "Operator identity update is pending; apply or resume it before verification."
         )
     update = journal.get("update")
     if (
@@ -491,29 +487,28 @@ async def verify_deployment(workspace: Workspace) -> None:
         workspace.save_journal(journal)
     url = journal["outputs"]["mcp_url"]
     base = url.removesuffix("/mcp")
-    token = read_private(workspace.path / "team.key").decode().strip()
     context = ssl.create_default_context()
-    with httpx.Client(verify=context, timeout=20) as probe:
+    with httpx.Client(verify=context, timeout=20, trust_env=False) as probe:
         health = probe.get(base + "/health")
         health.raise_for_status()
         if health.json().get("status") != "healthy":
             raise ValueError("Public health is not healthy.")
-        for invalid in (None, "incorrect"):
-            headers = {"Accept": "application/json, text/event-stream"}
-            if invalid:
-                headers["Authorization"] = f"Bearer {invalid}"
-            response = probe.post(
-                url, headers=headers, json={"jsonrpc": "2.0", "id": 1, "method": "ping"}
-            )
-            if response.status_code != 401:
-                raise ValueError("Missing/wrong bearer key was not rejected.")
+        response = probe.post(
+            url,
+            headers={
+                "Accept": "application/json, text/event-stream",
+                "Authorization": "Bearer unsupported",
+            },
+            json={"jsonrpc": "2.0", "id": 1, "method": "ping"},
+        )
+        if response.status_code not in (400, 401):
+            raise ValueError("Retired Authorization authentication was not rejected.")
         for path in ("/ready", "/metrics"):
             if probe.get(base + path).status_code not in (403, 404):
                 raise ValueError("Internal endpoint is publicly accessible.")
         origin = probe.post(
             url,
             headers={
-                "Authorization": f"Bearer {token}",
                 "Origin": "https://untrusted.invalid",
                 "Accept": "application/json, text/event-stream",
             },
@@ -522,77 +517,48 @@ async def verify_deployment(workspace: Workspace) -> None:
         if origin.status_code not in (400, 403):
             raise ValueError("Untrusted Origin was not rejected.")
     async with (
-        Client(url, auth=token, verify=context) as first,
-        Client(url, auth=token, verify=context) as second,
+        Client(url, verify=context) as first,
+        Client(url, verify=context) as second,
     ):
         tools = {tool.name for tool in await first.list_tools()}
-        if tools != {tool.name for tool in await second.list_tools()} or any(
-            name.startswith("ark_asset_") or name == "ark_moderation_get" for name in tools
-        ):
-            raise ValueError("Shared discovery or administrative tool policy differs.")
+        expected = {
+            "ark_list_models",
+            "seed_audio_generate",
+            "seedream_generate_image",
+            "seedance_create_task",
+            "gen_task_get",
+            "gen_task_list",
+            "gen_task_cancel_or_delete",
+            "seed_understand",
+            "seed_audio_understand",
+        }
+        settings = validator().load_environment(
+            workspace.path / "host.env", expected_uid=os.getuid()
+        )
+        if settings.get("BYTEPLUS_OMNIHUMAN_ENABLED") == "true":
+            expected |= {"omnihuman_create_task", "omnihuman_get_task", "omnihuman_cancel_task"}
+        if tools != expected or tools != {tool.name for tool in await second.list_tools()}:
+            raise ValueError("Anonymous BYOK discovery differs from the supported HTTP catalog.")
+        if await first.list_resources() or await first.list_resource_templates():
+            raise ValueError("HTTP must not expose media or configuration resources.")
         await first.call_tool("ark_list_models", {"input": {}})
-        if "seedream_generate_image" in tools:
-            smoke = pending.get("smoke_job")
-            if smoke and not smoke.get("id"):
-                raise ValueError(
-                    "Dry-run submission acceptance is ambiguous; reconcile its job ID."
-                )
-            if smoke is None:
-                pending["smoke_job"] = {"status": "submitting"}
-                workspace.save_journal(journal)
-                result = await first.call_tool(
-                    "ark_job_submit",
-                    {
-                        "input": {
-                            "tool_name": "seedream_generate_image",
-                            "arguments": {
-                                "input": {
-                                    "prompt": "A blue ceramic cup on a white table",
-                                    "dry_run": True,
-                                }
-                            },
-                        }
-                    },
-                )
-                accepted = result.structured_content
-                if not isinstance(accepted, dict) or not isinstance(accepted.get("job_id"), str):
-                    raise ValueError("Dry-run acceptance is missing; reconcile before retrying.")
-                smoke = {"id": accepted["job_id"]}
-                pending["smoke_job"] = smoke
-                workspace.save_journal(journal)
-            deadline = time.monotonic() + 120
-            while True:
-                result = await second.call_tool("ark_job_get", {"input": {"job_id": smoke["id"]}})
-                snapshot = result.structured_content
-                if not isinstance(snapshot, dict) or "status" not in snapshot:
-                    raise ValueError("Dry-run status is malformed.")
-                if snapshot["status"] != "working":
-                    break
-                if time.monotonic() >= deadline:
-                    raise ValueError(
-                        "Dry-run still running; resume polling rather than resubmitting."
-                    )
-                await asyncio.sleep(max(snapshot.get("poll_after_ms", 1000), 500) / 1000)
-            outcome = snapshot.get("result")
-            content = outcome.get("structured_content") if isinstance(outcome, dict) else None
-            if (
-                snapshot["status"] != "completed"
-                or not isinstance(outcome, dict)
-                or outcome.get("is_error") is not False
-                or not isinstance(content, dict)
-                or content.get("dry_run") is not True
-            ):
-                raise ValueError("Shared dry-run job failed.")
+        result = await first.call_tool(
+            "seedream_generate_image",
+            {"input": {"prompt": "A blue ceramic cup on a white table", "dry_run": True}},
+            raise_on_error=False,
+        )
+        if not result.is_error:
+            raise ValueError("Credential-free provider dry run was not rejected.")
     journal.update(
         phase="ready",
         verification={
             "https": True,
-            "authentication": True,
-            "shared_clients": True,
-            "dry_run": "seedream_generate_image" in tools,
+            "anonymous_discovery": True,
+            "authorization_rejected": True,
+            "missing_credentials_rejected": True,
+            "provider_credentials_verified": False,
             "paid_generation": False,
             "sequence": pending["sequence"],
-            "job_id": pending.get("smoke_job", {}).get("id"),
         },
     )
     journal.pop("verification_pending", None)
@@ -623,7 +589,7 @@ def resume_deployment(workspace: Workspace, args: argparse.Namespace) -> None:
 def update_deployment(workspace: Workspace, args: argparse.Namespace) -> None:
     journal = workspace.journal()
     if journal.get("config_update"):
-        raise ValueError("Provider configuration update is pending; finish or reconcile it first.")
+        raise ValueError("Operator identity update is pending; finish or reconcile it first.")
     if journal.get("phase") != "ready" or not args.approve_update:
         raise ValueError("Update requires a verified deployment and explicit --approve-update.")
     if not re.fullmatch(r"ghcr\.io/[a-z0-9][a-z0-9./_-]*@sha256:[a-f0-9]{64}", args.image):
@@ -670,7 +636,7 @@ def main(argv: list[str] | None = None) -> int:
     )
     subparsers = parser.add_subparsers(dest="command", required=True)
     config_parser = subparsers.add_parser(
-        "config", help="Plan and apply pinned Secret Manager provider-key sync."
+        "config", help="Plan and apply pinned Secret Manager operator HMAC identity sync."
     )
     config_actions = config_parser.add_subparsers(dest="config_action", required=True)
     for action in ("status", "plan", "apply", "discard"):
@@ -694,7 +660,7 @@ def main(argv: list[str] | None = None) -> int:
             command.add_argument("--registry-token-file", type=Path)
         if name in ("deploy", "resume"):
             source = command.add_mutually_exclusive_group()
-            source.add_argument("--provider-env-file", type=Path)
+            source.add_argument("--operator-env-file", type=Path)
             source.add_argument("--secret-reference-file", type=Path)
         if name in ("deploy", "resume", "update"):
             command.add_argument("--retry-failed", action="store_true")
@@ -728,10 +694,10 @@ def main(argv: list[str] | None = None) -> int:
                     print(json.dumps(configuration.plan(workspace, args), indent=2))
                 elif args.config_action == "apply":
                     configuration.apply(workspace, args)
-                    print("Provider configuration synced and nonbillable verification completed.")
+                    print("Operator identity synced and nonbillable verification completed.")
                 elif args.config_action == "discard":
                     configuration.discard(workspace, args)
-                    print("Unsubmitted provider configuration plan discarded.")
+                    print("Unsubmitted operator identity plan discarded.")
             elif args.command == "verify":
                 asyncio.run(verify_deployment(workspace))
             elif args.command == "status":
@@ -743,7 +709,7 @@ def main(argv: list[str] | None = None) -> int:
                             "outputs": journal.get("outputs", {}),
                             "verification": journal.get("verification", {}),
                             "pending_update": journal.get("update"),
-                            "provider_configuration": (
+                            "operator_configuration": (
                                 {
                                     "status": journal["config_update"]["status"],
                                     "source": journal["config_update"]["source"],
@@ -768,7 +734,6 @@ def main(argv: list[str] | None = None) -> int:
                     json.dumps(
                         {
                             "mcp_url": workspace.journal()["outputs"]["mcp_url"],
-                            "key_file": str(workspace.path / "team.key"),
                             "status": workspace.journal()["phase"],
                         },
                         indent=2,

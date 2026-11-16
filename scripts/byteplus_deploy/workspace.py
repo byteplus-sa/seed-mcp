@@ -185,7 +185,6 @@ class Workspace:
                 ROOT / "deploy/compose/compose.yaml",
                 ROOT / "deploy/compose/Caddyfile",
                 ROOT / "deploy/compose/.env.example",
-                ROOT / "scripts/generate_mcp_key.py",
             ]
             module = ROOT / "deploy/terraform/byteplus"
             sources.extend(module.glob("*.tf"))
