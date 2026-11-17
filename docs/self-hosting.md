@@ -61,7 +61,7 @@ flowchart LR
     Client["Client: provider key and client secret"] -->|HTTPS| Ingress["TLS ingress"]
     Ingress --> Server["One BYOK instance; foreground calls"]
     Server -->|Request key| Provider["Official BytePlus provider"]
-    Server --> State[("SQLite ownership and budgets; no keys")]
+    Server --> State[("SQLite ownership, budgets and submission journal; no raw keys")]
 ```
 
 Deploy with [the container guide](deployment.md) or review the
@@ -73,6 +73,11 @@ Use a new state directory for this forward-only schema. Do not point it at
 an older database or delete existing state to work around a refusal.
 Back up SQLite and the matching HMAC configuration securely. Restoring state
 with another HMAC key/version changes the scope and does not restore access.
+The HTTP submission journal never auto-prunes, including under
+`STATE_PRUNE_MAX_AGE_DAYS`. `STATE_MAX_RECORDS` caps claims: new keys fail at
+capacity while existing keys and owned task reads remain available. Do not
+delete claims or reset state to free space; that can permit duplicate work.
+Plan capacity and recovery procedures before wider use.
 
 ## Client Access
 
@@ -105,8 +110,16 @@ shared key; separate provider keys/projects give stronger isolation.
 
 Drain active foreground calls during maintenance. A provider submission may
 have succeeded when the response is lost. Do not recreate it automatically.
-Durable pre-dispatch records, idempotency and crash recovery remain next-phase
-work; no exactly-once inference guarantee is made.
+HTTP Seedance/OmniHuman non-dry creates require `idempotency_key` (16-128 ASCII
+letters, digits, `_` or `-`; UUID recommended). One key covers the whole call.
+Repeat identical arguments/key only for delivery recovery, not polling.
+SQLite idempotency replays only saved success after ownership checks;
+failed/partial/cancelled attempts need reconciliation, never a new key to
+bypass uncertainty. Seedance dry runs need no key/journal; stdio rejects keys.
+See the [submission contract](../specs/SPEC_HOSTED_BYOK.md#http-submission-safety).
+Synchronous product replay and complete crash recovery remain deferred;
+no exactly-once inference guarantee is made. PostgreSQL/Redis are future
+scaling choices, not requirements for the initial single-instance design.
 
 ## Validation Status
 

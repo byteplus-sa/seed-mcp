@@ -6,8 +6,17 @@ Per-product behaviour of the create tools that the tool schemas do not spell out
 with selected provider key plus client secret headers. It has no jobs/native
 tasks/storage/artifact tools/resources. Stdio uses `ark_job_submit` (or native
 augmentation); job and persistence guidance below is local-only.
-**Never resubmit a create tool to poll or retry an ambiguous failure.**
+**Never resubmit a create tool to poll or bypass an ambiguous failure.**
 Take exact model IDs from `ark_list_models`.
+
+Non-dry HTTP Seedance/OmniHuman calls require `idempotency_key` (16-128 ASCII
+letters, digits, `_` or `-`; UUID recommended), one per intended entire call.
+Repeat identical arguments/key only for delivery recovery: saved success
+replays after ownership checks, without upstream access including Draft lookup.
+Failures/partial/cancelled attempts remain unresolved with known IDs; never
+change keys to bypass uncertainty or automatically resume missing variations.
+Seedance dry runs need no key/journal; stdio rejects supplied keys.
+See [HTTP recovery guidance](environment.md#delivery-and-retries).
 
 - [Variations and dry runs](#variations-and-dry-runs)
 - [Seedance](#seedance)
@@ -26,6 +35,8 @@ Take exact model IDs from `ark_list_models`.
 | `seed_audio_generate` | 1-5 | none (Seed Audio has no seed) | `summary` (`VariationSummary`) |
 
 - **Partial failure is normal.** Each variation is independent; 4 of 5 can succeed and the call still returns 4 results plus 1 error. Read every `error` before concluding.
+  On HTTP one key covers the whole Seedance batch; partial results are not
+  replayed as success and missing variations are never automatically resumed.
 - **No per-variation timeout.** Queue wait never counts; one batch deadline bounds the call. A deadline or storage failure sets `error.phase`: `queued` (`QUEUE_TIMEOUT`, safe to retry), `generating` (may have completed, **do not retry blindly**), `persisting` (billed output not stored; the provider URL may still be in the result).
 - **`variation_prompts`** must have exactly `variations` entries and replaces `prompt` (and satisfies "prompt required").
 - **Local export:** image and audio variations need an `output_path` directory ending in `/`. Video variations are polled together with **one** `gen_task_get` call over all non-null `task_id`s.
@@ -84,11 +95,14 @@ A cheap 480p preview, then a 1080p final render of the one you like. 4K is suppo
 
 1. `draft: true` with `resolution` omitted or `480p`. Combine with `variations` for several candidates.
 2. Poll with `gen_task_get` until a Draft succeeds (`draft: true` in the result) and review it.
-3. Call again with **only** `draft_task_id` (plus optional overrides below). It must be a succeeded Draft task **you own**, within **14 days of creation** (**7 days** if created before **2026-10-28 10:00 UTC+8**), and `variations` stays 1 with no `variation_prompts`.
+3. Call again with **only** `draft_task_id` (plus optional overrides below and a fresh `idempotency_key` on HTTP). It must be a succeeded Draft task **you own**, within **14 days of creation** (**7 days** if created before **2026-10-28 10:00 UTC+8**), and `variations` stays 1 with no `variation_prompts`.
 
 **Reused from the Draft, so omit them (rejected even when identical):** `prompt`, `images`, `videos`, `audios`, `duration`, `ratio`, `generate_audio`, `omni_reference_task_type`. The model is also reused (omit `model`; a different one is rejected), as is the Draft's seed. `resolution` must be omitted or the model's Draft final resolution (the default). Still settable on the final call: `return_last_frame`, `watermark`, `execution_expires_after`, `priority`, `safety_identifier`, `output_format`.
 
 `draft` and `draft_task_id` are mutually exclusive. On a model without Draft support (2.0 or Flash) both are rejected.
+
+These input examples are keyless for stdio. HTTP needs a different fresh key
+for creation and promotion; recover each receipt with its original arguments/key.
 
 ```json
 { "prompt": "A cinematic 20-second chase through a night market", "duration": 20, "draft": true, "variations": 3 }
@@ -110,8 +124,10 @@ A cheap 480p preview, then a 1080p final render of the one you like. 4K is suppo
   resubmit accepted work. HTTP polling requires recorded ownership; otherwise
   reconcile with the provider using task/request IDs. Trusted stdio permits
   unrecorded IDs, not recorded owner mismatches.
-- Only accepted ownership-record failures become outward `AcceptedTaskError`
+- Accepted journal/ownership-record failures become outward `AcceptedTaskError`
   failures, retaining task/request IDs with ambiguous/nonretryable status.
+  HTTP validates safe IDs before journaling them, then records ownership even
+  if the journal write fails. Unsafe or secret-echoing IDs are not persisted.
   Budget-finalization exceptions log `ERROR` event `budget_finalization_failed`
   without replacing the provider result/error or adding to `failed`; failed
   commit/release leaves conservative reserved allowance. Reservation before
@@ -230,8 +246,9 @@ Missing/unusable URL-only output is a nonretryable per-item
 Needs `BYTEPLUS_OMNIHUMAN_ENABLED=true` and `BYTEPLUS_CV_API_KEY` (a Vision AI key, separate from the ModelArk key); disabled by default. One portrait image plus one audio clip (plus an optional prompt) becomes a talking or performing avatar video.
 
 - **`omnihuman_create_task` submits one task and is never retried automatically.** It returns `status="accepted"` and `task_id`; poll with `omnihuman_get_task`. Its poller defaults to `persist_output=false` globally; HTTP rejects true. Retrieve the URL within about **one hour**; see [polling-and-artifacts.md](polling-and-artifacts.md).
-- Like Seedance, it uses shared `record_accepted_task` ownership recording.
-  An accepted ownership-record failure returns ambiguous/nonretryable
+- Like Seedance, it uses shared `record_accepted_task`: on HTTP, safe accepted
+  IDs are journaled before ownership, and a failed journal write still
+  attempts ownership. An accepted journal/ownership failure returns ambiguous/nonretryable
   `AcceptedTaskError` text retaining task/request IDs. Never resubmit; HTTP
   polling requires recorded ownership, otherwise reconcile with the provider.
 - **Sources:** `image` and `audio` are public HTTPS URLs or `seed-media://artifacts/<id>`. Image limits: common formats (jpeg, png, webp, bmp, tiff, gif, heic, heif), under 30 MB, aspect 0.4-2.5, each side 300-6000 px. Audio: wav or mp3, under 15 MB, 4-300 s. **The video length follows the audio.**

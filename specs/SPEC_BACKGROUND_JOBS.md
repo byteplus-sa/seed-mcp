@@ -112,6 +112,11 @@ is the only consumer of pinned FastMCP task internals. The dependency remains
 bounded to `fastmcp[tasks]>=4.1.8,<4.2`. There is no job-list or ordinary
 input-update tool. Keep job IDs.
 
-The HTTP foundation's durable pre-dispatch records, idempotency and crash
-recovery remain future work. Old shared HTTP jobs and state have no migration
-bridge into BYOK. Exact desktop-client task support must be verified separately.
+HTTP has a separate [asynchronous-create submission journal](SPEC_HOSTED_BYOK.md#http-submission-safety),
+not a job backend: non-dry Seedance/OmniHuman creates require `idempotency_key`
+and only saved success replays after ownership checks. Stdio rejects supplied
+keys. Unresolved HTTP attempts never automatically resume; synchronous product
+replay and complete crash recovery remain deferred. PostgreSQL/Redis are
+future scaling choices, not initial HTTP requirements. Old shared HTTP jobs
+and state have no migration bridge into BYOK. Exact desktop-client task
+support must be verified separately.

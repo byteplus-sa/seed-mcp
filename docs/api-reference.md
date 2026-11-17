@@ -694,8 +694,15 @@ The `estimated_cost_usd` value above is illustrative only.
 Mini, 2.5, and 2.5 Flash): single tasks, up to five parallel variations,
 Draft mode, and dry runs. Registered whenever `BYTEPLUS_MODELARK_API_KEY` is
 set; catalog capability label `seedance:create`. **Required background
-submission**: run it through `ark_job_submit` (or native task augmentation).
+submission on stdio**: run it through `ark_job_submit` (or native task augmentation).
 Poll the returned task IDs with [`gen_task_get`](#10-gen_task_get).
+HTTP calls directly; non-dry creates require `idempotency_key`, one per whole
+variation batch. Repeat identical arguments/key only for saved-success
+delivery recovery, not polling. Failed/partial/cancelled attempts remain
+unresolved with known IDs, never automatically resumed. Do not change keys to
+bypass uncertain acceptance. Seedance dry runs need no key or journal; stdio
+rejects supplied keys. See the
+[submission contract](../specs/SPEC_HOSTED_BYOK.md#http-submission-safety).
 
 ### Model Selection
 
@@ -727,6 +734,7 @@ for the models configured on a given server):
 
 | Field | Type | Required | Default | Constraints |
 |---|---|---|---|---|
+| `idempotency_key` | string \| null | Non-dry HTTP only | `null` | 16-128 ASCII letters, digits, `_` or `-`; fresh UUID per intended whole call. Omit on stdio and dry runs |
 | `prompt` | string | No* | — | 1-32,000 chars. Optional when media or `variation_prompts` are given |
 | `images` | list[SeedanceImageInput] | No | — | Schema max 30; per-model max checked at runtime. Roles `first_frame`, `last_frame`, `reference_image` |
 | `videos` | list[SeedanceVideoInput] | No | — | Schema max 10; per-model max checked at runtime |
@@ -864,7 +872,7 @@ or `{"url": "..."}`.
 
 Successful single requests, variation batches and dry runs return
 `SeedanceCreateTaskOutput`. A single-call provider or post-acceptance
-ownership-record failure instead returns an error `ToolResult` with text, not this
+journal/ownership-record failure instead returns an error `ToolResult` with text, not this
 structured success shape. That text retains any known accepted task ID and
 diagnostic request ID; preserve them even when `isError=true`.
 
@@ -874,8 +882,8 @@ diagnostic request ID; preserve them even when `isError=true`.
 | `family` | string | Resolved model family (e.g. `seedance_2_5`) |
 | `dry_run` | boolean | `true` when nothing was submitted; see `preview` |
 | `tasks` | list[SeedanceTaskRef] | One entry per requested variation, in order; empty for a dry run |
-| `submitted` | integer | Entries with known accepted task IDs, including ownership-record errors |
-| `failed` | integer | Entries with submission or ownership-record errors; may overlap with `submitted`. Budget-finalization log events do not add failures |
+| `submitted` | integer | Entries with known accepted task IDs, including journal/ownership-record errors |
+| `failed` | integer | Entries with submission or journal/ownership-record errors; may overlap with `submitted`. Budget-finalization log events do not add failures |
 | `recommended_poll_after_ms` | integer \| null | Suggested delay before the first `gen_task_get` poll; `null` for a dry run |
 | `preview` | SeedanceCreatePreview \| null | Set only for a dry run |
 
@@ -884,16 +892,19 @@ diagnostic request ID; preserve them even when `isError=true`.
 | Field | Type | Description |
 |---|---|---|
 | `index` | integer | 0-based variation index (`0` for a single request) |
-| `task_id` | string \| null | Known accepted provider task ID, retained alongside ownership-record errors; null when acceptance is unknown or submission failed. HTTP polling requires recorded ownership. For `draft=true`, use as `draft_task_id` once succeeded |
+| `task_id` | string \| null | Known accepted provider task ID, retained alongside journal/ownership-record errors; null when acceptance is unknown or submission failed. HTTP polling requires recorded ownership. For `draft=true`, use as `draft_task_id` once succeeded |
 | `request_id` | string \| null | Provider request ID, when returned |
-| `error` | VariationError \| null | Submission or post-acceptance ownership-record failure; can coexist with `task_id`. Budget-finalization exceptions alone leave this null |
+| `error` | VariationError \| null | Submission or post-acceptance journal/ownership-record failure; can coexist with `task_id`. Budget-finalization exceptions alone leave this null |
 
 `submitted` and `failed` are independent counts, not a partition of `tasks`.
 For example, two accepted IDs with one ownership-record error give `submitted=2`
-and `failed=1`. Accepted ownership-record failures surface as `AcceptedTaskError`
-(`OWNERSHIP_RECORD_FAILED`), are ambiguous/nonretryable and never trigger
+and `failed=1`. Accepted journal/ownership failures surface as `AcceptedTaskError`
+(`SUBMISSION_RECORD_FAILED` or `OWNERSHIP_RECORD_FAILED`), are ambiguous/nonretryable and never trigger
 resubmission. Retain every known ID; if ownership was not recorded, HTTP polling
 fails closed and requires provider-side reconciliation with the task/request IDs.
+On HTTP the shared helper validates safe IDs before journaling, then records
+ownership even if the journal write failed. Unsafe or secret-echoing IDs are
+not persisted or returned.
 Trusted stdio permits unrecorded IDs, but still rejects a recorded owner mismatch.
 
 Budget-finalization exceptions only log `ERROR` event `budget_finalization_failed`;
@@ -914,7 +925,10 @@ a guarantee that no reserved rows remain. See [Runtime](runtime.md#billable-call
 Read each `tasks[].task_id` from the background result and pass **all of them
 in one call** to [`gen_task_get`](#10-gen_task_get). **`queued` or `running` is
 not a failure: poll with `gen_task_get`; never resubmit `seedance_create_task`
-to poll**, because every submission is a new billed task.
+to poll**. Same-key HTTP receipt recovery does not refresh provider status;
+a new create can bill again. Draft creation and promotion are distinct intended
+operations with separate HTTP keys; a saved promotion receipt replays before
+Draft lookup, subject to existing ownership.
 
 ### Examples
 
@@ -1504,6 +1518,13 @@ set. Scopes: `omnihuman:create`, `omnihuman:read`, `omnihuman:cancel`.
 `seed-media://artifacts/<id>`), optional `prompt` (max 2000 characters), and
 `watermark` (default `true`). Output: `provider`, `status="accepted"`,
 `task_id`, `request_id`, `recommended_poll_after_ms`.
+HTTP creation also requires `idempotency_key` (default null in the shared
+schema): 16-128 ASCII letters, digits, `_` or `-`; fresh UUID per intended call.
+Stdio rejects supplied keys. HTTP calls directly in the foreground; repeat
+identical arguments/key only for saved-success delivery recovery, not polling.
+Failed/cancelled attempts stay unresolved, with known IDs but no automatic
+resume. Never change keys to bypass uncertain acceptance. Safe accepted IDs
+are journaled before ownership recording, as for Seedance.
 
 `omnihuman_get_task` input: `task_id`, `persist_output` (default `false`; true
 requires local background execution and is rejected on HTTP), `output_path`, `overwrite`. Output: `status`

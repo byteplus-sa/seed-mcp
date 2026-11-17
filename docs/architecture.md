@@ -16,11 +16,17 @@ flowchart TD
     Headers --> Discovery{"Discovery?"}
     Discovery -->|Yes| Static["Anonymous static catalog"]
     Discovery -->|No| Owner["Selected provider key plus client secret"]
-    Owner --> Validate["Binding, media, ownership and budget validation"]
+    Owner --> Input["Schema validation and endpoint defaults"]
+    Input --> Create{"Non-dry async create?"}
+    Create -->|No| Validate["Binding, media, ownership and budget validation"]
+    Create -->|Yes| Claim["Durable root claim before handler"]
+    Claim -->|New| Validate
+    Claim -->|Existing| Replay["Owned saved receipt or safe error; no upstream"]
     Local --> Validate
     Validate --> Factory["Explicit-key gateway factory"]
     Factory --> Provider["Official BytePlus provider"]
     Provider --> Result["URL, task ID, answer or safe error"]
+    Result --> Record["Claimed create: journal IDs, ownership, success or unresolved"]
 ```
 
 `tools/_catalog.py` is the single inventory. `server.py` controls
@@ -28,6 +34,8 @@ transport registration and execution. `security/credentials.py` validates
 raw live headers and binds provider-specific ownership; `providers/factory.py`
 constructs explicit-key gateways. `runtime.py` owns state, budgets and
 limiters. No HTTP gateway falls back to operator provider keys.
+`submissions.py` coordinates HTTP asynchronous-create claims and receipt replay;
+`submission_store.py` owns the durable SQLite journal.
 
 HTTP middleware scopes `Settings` to the receiving server for each request;
 capability lookup uses those settings instead of the process-default registry.
@@ -59,6 +67,13 @@ HTTP calls execute directly in the foreground. Seedance/OmniHuman execution
 remains asynchronous at the provider: return a provider ID and poll it with
 the corresponding tool. HTTP has no Docket queue, task snapshots, native tasks,
 storage/artifact tools or MCP resources.
+Non-dry HTTP Seedance/OmniHuman creates require `idempotency_key`, with one
+durable root claim before handler entry for the entire batch. Key and input
+fingerprints use operator HMAC. Complete saved receipts replay only after
+ownership checks, before any upstream access including Draft lookup.
+Failed/partial/cancelled attempts remain unresolved, with known IDs and no
+automatic resume. Same-key calls recover delivery, not provider status.
+Seedance dry runs need no key/journal; stdio rejects supplied keys.
 Explicit per-call `io.modelcontextprotocol/tasks` opt-in is rejected, including
 on discovery, before provider dispatch, snapshot capture/save or queue creation.
 
@@ -83,6 +98,9 @@ Fresh SQLite has ownership primary key `(provider, tenant_id, task_id)` and
 an immutable `principal_id`. Checks precede upstream access and fail closed
 on missing ownership or state errors. No compatibility migration exists.
 Keys are not written to state, snapshots, cache keys, logs or spans.
+The journal stores no raw prompts, media or errors. Claims never auto-prune;
+`STATE_MAX_RECORDS` limits new keys while existing keys remain readable.
+Retain state, HMAC key/version and the original provider/client credentials.
 
 HTTP starts with positive rate/body/in-flight/state limits. `/health` and
 `/ready` expose minimal state status and never probe providers; `/metrics`
@@ -98,7 +116,9 @@ failures and reads can have bounded retries; understanding excludes all
 `TIMEOUT` retries. Preserve task/request IDs, including IDs retained alongside
 Seedance bookkeeping errors. See [runtime recovery](runtime.md#billable-call-composition-billed_provider_slot).
 
-SQLite and in-process limiters support one instance only. PostgreSQL,
-multi-replica coordination, durable pre-dispatch idempotency and crash recovery
-remain next phase. This foundation does not promise exactly-once inference or
-establish public-launch readiness.
+SQLite and in-process limiters support one instance only. Synchronous product
+replay and complete crash recovery remain deferred, including the gap between
+provider acceptance and the first ID write. PostgreSQL/Redis are future scaling
+choices, not initial requirements. This foundation does not promise exactly-once
+inference or establish public-launch readiness. See the
+[submission contract](../specs/SPEC_HOSTED_BYOK.md#http-submission-safety).

@@ -15,6 +15,15 @@ Explicit per-call `io.modelcontextprotocol/tasks` opt-in is rejected before
 provider dispatch, snapshot capture/save or queue creation. Omit the opt-in;
 ordinary jobs are unavailable on HTTP.
 
+HTTP non-dry Seedance/OmniHuman creates require `idempotency_key` (16-128 ASCII
+letters, digits, `_` or `-`; UUID recommended), one per intended whole call.
+Repeat identical arguments/key only for saved-success delivery recovery, not
+polling. Unresolved/partial attempts need reconciliation using known IDs,
+never automatic resume or a new key to bypass uncertainty. Seedance dry runs
+need no key/journal; stdio rejects supplied keys. See the
+[submission contract](../specs/SPEC_HOSTED_BYOK.md#http-submission-safety).
+All local job examples below remain keyless.
+
 ## Prerequisites
 
 Complete guided setup or connect to an existing shared server first.

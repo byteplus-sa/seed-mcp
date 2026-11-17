@@ -32,6 +32,8 @@ from ark_mcp.providers.base import safe_provider_text
 from ark_mcp.security.auth_context import AuthContext, PrincipalContext
 from ark_mcp.security.credentials import request_principal
 from ark_mcp.security.safe_downloader import SafeDownloader
+from ark_mcp.sqlite_io import drain_task
+from ark_mcp.submission_store import SQLiteSubmissionStore
 
 if TYPE_CHECKING:
     from fastmcp import Context, FastMCP
@@ -67,9 +69,11 @@ async def _run_locked[T](lock: asyncio.Lock, func: Callable[[], T]) -> T:
     The lock serializes access to a store's ``sqlite3.Connection``, and
     ``asyncio.to_thread`` moves the synchronous database call off the event
     loop so a slow commit cannot block unrelated MCP requests.
+    Cancellation is delivered only after the worker finishes, before releasing
+    the connection lock.
     """
     async with lock:
-        return await _offload(func)
+        return await drain_task(asyncio.create_task(_offload(func)))
 
 
 class ProviderLimiters:
@@ -852,6 +856,7 @@ class RuntimeServices:
     provider_limiters: ProviderLimiters
     task_artifact_cache: TaskArtifactCache
     task_artifact_locks: TaskArtifactPersistenceLocks
+    submission_store: SQLiteSubmissionStore | None = None
 
 
 @dataclass(slots=True)
@@ -910,6 +915,11 @@ async def create_runtime_services(settings: Settings) -> RuntimeServices:
     ownership_store, object_key_ownership_store, budget_ledger, task_artifact_cache = (
         build_state_stores(settings, database_path)
     )
+    submission_store = None
+    if settings.mcp_transport == "http":
+        submission_store = await asyncio.to_thread(
+            SQLiteSubmissionStore, database_path, max_records=settings.state_max_records
+        )
     return RuntimeServices(
         settings=settings,
         artifact_store=artifact_store,
@@ -923,6 +933,7 @@ async def create_runtime_services(settings: Settings) -> RuntimeServices:
         ),
         task_artifact_cache=task_artifact_cache,
         task_artifact_locks=TaskArtifactPersistenceLocks(),
+        submission_store=submission_store,
     )
 
 
@@ -932,6 +943,8 @@ async def close_runtime_services(runtime: RuntimeServices) -> None:
     await runtime.object_key_ownership_store.close()
     await runtime.budget_ledger.close()
     await runtime.task_artifact_cache.close()
+    if runtime.submission_store is not None:
+        await runtime.submission_store.close()
 
 
 RuntimeFactory = Callable[[Settings], Awaitable[RuntimeServices]]
@@ -959,6 +972,16 @@ async def record_accepted_task(
     request_id: str | None,
 ) -> None:
     """Never report an accepted but unrecorded task as safe to resubmit."""
+    from ark_mcp.submissions import record_submission_task, validate_receipt_identifiers
+
+    validate_receipt_identifiers(ctx, provider, task_id, request_id)
+    submission_record_failed = False
+    if get_runtime(ctx).settings.mcp_transport == "http":
+        try:
+            await record_submission_task(ctx, provider, task_id, request_id)
+        except Exception:
+            log_error("submission_record_failed", provider=provider, action="record")
+            submission_record_failed = True
     try:
         await get_runtime(ctx).ownership_store.record(provider, task_id, get_principal(ctx))
     except Exception:
@@ -980,6 +1003,22 @@ async def record_accepted_task(
             ),
             task_id=task_id,
         ) from None
+    if submission_record_failed:
+        raise AcceptedTaskError(
+            NormalizedProviderError(
+                provider="modelark" if provider == "modelark" else "byteplus-vision-cv",
+                operation="create_task",
+                code="SUBMISSION_RECORD_FAILED",
+                message=(
+                    f"The provider accepted task_id={task_id}, but its submission receipt "
+                    "could not be saved. Do not resubmit; reconcile using the accepted ID."
+                ),
+                request_id=request_id,
+                retryable=False,
+                ambiguous_completion=True,
+            ),
+            task_id=task_id,
+        )
 
 
 @asynccontextmanager

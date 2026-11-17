@@ -64,7 +64,10 @@ HTTP entry path, including direct `http_app()`.
 Fresh SQLite ownership uses `(provider, tenant_id, task_id)` with immutable
 client owner. Capacity and state errors fail closed. No old-schema migration
 exists. Retention defaults to 30 days, at least 14 for regular Seedance 2.5 on
-HTTP. `DAILY_BUDGET_USD=0` records estimates only; a positive value is per owner,
+HTTP, but submission claims never auto-prune. `STATE_MAX_RECORDS` caps the
+journal: new keys fail at capacity while existing keys remain readable.
+Do not erase claims to free space; retain state and matching HMAC configuration.
+`DAILY_BUDGET_USD=0` records estimates only; a positive value is per owner,
 not a provider-account ceiling. Provider/principal concurrency defaults to 5/3.
 
 `/health` and `/ready` return minimal process/state readiness and never probe
@@ -89,6 +92,17 @@ Eligible 429 rejections, demonstrably pre-dispatch failures and reads retain
 bounded retries; understanding disables all `TIMEOUT` retries. Never blindly
 replay a potentially accepted submission or completion.
 
+Non-dry HTTP Seedance/OmniHuman creates require `idempotency_key` (16-128 ASCII
+letters, digits, `_` or `-`; UUID recommended), one per intended whole call.
+The root claim is durable before handler entry; key/input fingerprints use
+HMAC, without raw prompts, media, credentials or error messages.
+Repeat identical arguments/key only for receipt recovery, not polling.
+Only saved complete success replays, with ownership checked before upstream
+access including Draft lookup. Failed/partial/cancelled attempts remain
+unresolved with known IDs, never automatically resumed. Never change keys to
+bypass uncertain acceptance. Seedance dry runs need no key/journal; stdio
+rejects supplied keys. Keep original provider/client credentials for recovery.
+
 ## Local Setup
 
 Read the checkout's `docs/setup/install.md`. Use a reviewed locked environment,
@@ -103,7 +117,9 @@ Read [background-job-output.md](background-job-output.md).
 
 ## Deployment Limits
 
-Use one instance. PostgreSQL, multi-replica coordination, durable idempotency
-and crash recovery remain next phase; no public-launch certification or
-exactly-once inference is claimed. Preserve accepted provider IDs for polling.
+Use one instance. Synchronous product replay and complete crash recovery
+remain deferred. PostgreSQL/Redis are future scaling choices, not initial
+requirements; no multi-replica, public-launch certification or exactly-once
+inference is claimed. Preserve accepted provider IDs for polling.
+See `specs/SPEC_HOSTED_BYOK.md#http-submission-safety` in the selected checkout.
 Exact client/TLS/provider validation requires separate approval.

@@ -310,6 +310,13 @@ HTTP defaults to `MCP_AUTH_MODE=byok` and requires the operator's
 `MCP_IDENTITY_HMAC_KEY` (64 lowercase hex) and positive identity version
 `MCP_IDENTITY_KEY_VERSION` (default `1`). This is not a customer credential.
 Defaults: 60 RPM, 2 MiB body, 64 in-flight requests, `STATE_MAX_RECORDS=100000`.
+Non-dry HTTP Seedance and OmniHuman creates require `idempotency_key`:
+16-128 ASCII letters, digits, `_` or `-`; use a fresh UUID per intended
+operation, one for the whole batch. Repeat identical arguments/key only to
+recover a saved successful receipt, not to poll or resume failed/partial work.
+Keep known task IDs and never change keys to bypass uncertain acceptance.
+Seedance dry runs need no key or journal; stdio rejects supplied keys.
+See the [submission contract](specs/SPEC_HOSTED_BYOK.md#http-submission-safety).
 Endpoint headers `X-ModelArk-Seedance-Endpoint` and
 `X-ModelArk-Seedream-Endpoint` accept exact registry bindings only; explicit
 tool `model` wins. No opaque endpoint lineage inference is supported.
@@ -468,8 +475,12 @@ regression tests and coverage, formatting/lint, strict typing, security scans,
 package builds, dependency auditing, and container health. HTTP is a
 forward-only BYOK foundation with fresh SQLite, credential-tenant/client-owner
 isolation and no compatibility migration. Local stdio retains jobs and storage.
-PostgreSQL, multi-replica coordination, durable idempotency and crash recovery
-remain next phase. No exactly-once inference or public-launch readiness is claimed.
+SQLite journals HTTP asynchronous creates before dispatch and replays only
+saved success after ownership checks. Claims never auto-prune; at capacity
+new keys fail while existing keys remain readable. Preserve state and HMAC
+configuration. Synchronous product replay and complete crash recovery remain
+deferred. PostgreSQL/Redis are future scaling choices, not initial requirements.
+No multi-replica, exactly-once inference or public-launch readiness is claimed.
 Live provider and exact-client verification require separate approval.
 
 Seedream's [live smoke matrix](docs/integration-guide.md#opt-in-seedream-smoke-matrix)

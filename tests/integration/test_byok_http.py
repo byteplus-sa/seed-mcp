@@ -216,7 +216,11 @@ async def test_anonymous_catalog_and_resources_are_static(tmp_path: Path, omnihu
         ("seed_audio_generate", {"text_prompt": "tone"}, "X-Seed-Speech-Api-Key", SPEECH_KEY),
         (
             "omnihuman_create_task",
-            {"image": "https://example.com/face.png", "audio": "https://example.com/voice.wav"},
+            {
+                "image": "https://example.com/face.png",
+                "audio": "https://example.com/voice.wav",
+                "idempotency_key": "selected-avatar-key",
+            },
             "X-OmniHuman-Api-Key",
             VISION_KEY,
         ),
@@ -440,11 +444,19 @@ async def test_in_memory_http_server_cannot_reuse_restored_headers(
         ("seed_understand", {"prompt": "square", "save_to": "/tmp/private.txt"}),
         (
             "omnihuman_create_task",
-            {"image": "seed-media://artifacts/private", "audio": "https://example.com/a.wav"},
+            {
+                "image": "seed-media://artifacts/private",
+                "audio": "https://example.com/a.wav",
+                "idempotency_key": "reject-avatar-artifact",
+            },
         ),
         (
             "omnihuman_create_task",
-            {"image": "file:///tmp/private.png", "audio": "https://example.com/a.wav"},
+            {
+                "image": "file:///tmp/private.png",
+                "audio": "https://example.com/a.wav",
+                "idempotency_key": "reject-avatar-local-file",
+            },
         ),
     ],
 )

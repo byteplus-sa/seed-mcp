@@ -143,8 +143,16 @@ dry runs; discovery is anonymous. No OAuth, signup, server-issued key or
 `Authorization` is used. Protect plaintext env files as described above and
 do not source them as shell code.
 
-Keep the client secret and provider key stable to poll earlier work. Changes
+Keep the client secret and provider key stable to poll earlier work or recover
+an HTTP create receipt. The operator must retain the same state and HMAC
+key/version too. Changes
 alter ownership scope with no recovery bridge. Separate provider keys/projects
 are needed to prevent direct upstream access by others sharing a key.
 Validate configuration syntax and discovery without printing secret values;
 exact-client header handling remains unverified until tested there.
+
+`idempotency_key` is a separate per-operation tool argument, not a credential.
+Non-dry HTTP Seedance/OmniHuman creates require it; generate a fresh UUID per
+intended whole call (16-128 ASCII letters, digits, `_` or `-`). Reuse identical
+arguments/key only for delivery recovery, not polling or automatic resume.
+Seedance dry runs need no key/journal; stdio rejects supplied keys.

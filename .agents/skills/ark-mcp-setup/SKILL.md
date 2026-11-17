@@ -210,5 +210,20 @@ No OAuth, signup or server-issued key is supported. Keep persistence false.
 The operator HMAC key/version is not a customer credential and must never be
 requested from an operator for client setup. Changing provider/client/HMAC
 credentials changes ownership scope with no recovery bridge. Fresh SQLite
-has no old-schema migration; durable idempotency/crash recovery and
-multi-replica/public launch remain outside this foundation.
+has no old-schema migration.
+
+Explain that non-dry HTTP Seedance/OmniHuman creates require `idempotency_key`:
+16-128 ASCII letters, digits, `_` or `-`; a fresh UUID per intended whole call.
+This is an operation identifier, not a credential or a connection-wide header.
+Repeat identical arguments/key only for delivery recovery, not polling;
+only complete saved success replays after ownership checks. Failed, partial
+or cancelled attempts remain unresolved with known IDs, never automatically
+resumed. Never change keys to bypass uncertain acceptance. Seedance dry runs
+need no key or journal; stdio rejects supplied keys.
+Retain the same provider/client credentials and server state/HMAC configuration.
+Journal claims never auto-prune; at `STATE_MAX_RECORDS` new keys fail while
+existing keys remain readable. Do not reset state to fix capacity.
+Synchronous product replay and complete crash recovery/live validation remain
+deferred. PostgreSQL/Redis are future scaling choices, not initial requirements;
+multi-replica/public launch remain outside this foundation. Consult
+`specs/SPEC_HOSTED_BYOK.md#http-submission-safety` in the selected checkout.

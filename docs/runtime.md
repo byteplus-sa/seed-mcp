@@ -5,7 +5,7 @@ The server lifespan owns a single `RuntimeServices` object
 shutdown. Every tool retrieves it via `get_runtime(ctx)`. This document
 describes its operational services, including concurrency limiting, the daily
 budget ledger, provider-task and object-key ownership, persistence caching,
-per-task persistence single-flight, and the provider retry policy.
+per-task persistence single-flight, the HTTP submission journal, and the provider retry policy.
 
 HTTP is the forward-only [BYOK foundation](../specs/SPEC_HOSTED_BYOK.md):
 foreground direct calls with request-key gateways, minimal scoped SQLite state,
@@ -32,13 +32,17 @@ an explicit tool `model` wins.
 
 All state lives in a single SQLite database at
 `<artifact_dir>/runtime.sqlite3` (default `artifact_dir` is `~/.seed-mcp/artifacts`),
-shared by the ownership stores, budget ledger, and task-artifact cache. The
+shared by the ownership stores, budget ledger, HTTP submission journal and
+task-artifact cache. The
 ownership table also stores MCP task owners and atomic execution claims. The
 database is opened in WAL mode (`PRAGMA journal_mode=WAL`) with a
 `busy_timeout`; each store's
 synchronous `sqlite3.Connection` is guarded by a per-instance `asyncio.Lock`
 and every query is dispatched to a worker thread via `asyncio.to_thread`, so
-SQLite access never blocks the event loop. These stores are still
+SQLite access never blocks the event loop. Shared `sqlite_io.drain_task`
+drains worker completion before releasing the connection lock or propagating
+cancellation, including repeated cancellation. This serialization applies to
+the runtime stores and submission journal. These stores are still
 **single-process only** — horizontal scaling requires a distributed
 replacement.
 
@@ -55,10 +59,13 @@ replacement.
 | `provider_limiters` | `ProviderLimiters` | `ProviderLimiters(provider_limit, principal_limit)` |
 | `task_artifact_cache` | `TaskArtifactCache` | `SQLiteTaskArtifactCache(database_path, ttl_seconds, max_size)` |
 | `task_artifact_locks` | `TaskArtifactPersistenceLocks` | process-local lock registry |
+| `submission_store` | `SQLiteSubmissionStore \| None` | HTTP only: `SQLiteSubmissionStore(database_path, max_records=state_max_records)` in a worker thread; stdio defaults to `None` |
 
-`close_runtime_services` closes five subsystems in order: `artifact_store`,
+`close_runtime_services` closes these subsystems in order: `artifact_store`,
 `ownership_store`, `object_key_ownership_store`, `budget_ledger`, and
-`task_artifact_cache`. The `SafeDownloader` is closed **indirectly** —
+`task_artifact_cache`, then `submission_store` when present. Journal close
+drains admitted operations before closing its connection.
+The `SafeDownloader` is closed **indirectly** —
 `FilesystemArtifactStore.close()` calls `self._downloader.close()`. The
 provider/principal limiters and per-task lock registry have no close method.
 
@@ -115,7 +122,7 @@ come from provider latency, not from a server-wide lock. The other bounds:
 | SQLite lock wait | `busy_timeout=5000` ms | `runtime.py::_open_sqlite_connection` | A blocked writer waits up to 5 s in its worker thread, never on the event loop |
 | HTTP request body | `MCP_HTTP_MAX_BODY_BYTES=2097152` (2 MiB) | `config/env.py` | Positive streamed body cap |
 | HTTP admission | `MCP_HTTP_MAX_IN_FLIGHT=64`, `RATE_LIMIT_RPM=60` | `security/http_middleware.py` | Positive global in-flight and per-IP rate bounds, including discovery |
-| Retained state | `STATE_MAX_RECORDS=100000` | `runtime.py` | Positive capacity; fail closed rather than evict live owners |
+| Retained state | `STATE_MAX_RECORDS=100000` | `runtime.py`, `submission_store.py` | Positive capacity; never evict live owners or journal claims; existing journal keys remain readable at capacity |
 | Variation batch | `variation_batch_deadline(...)` | `tools/_parallel.py` | See [Parallel variations](#parallel-variations-tools_parallelpy) |
 
 - **A client's foreground deadline is not a server timeout.** On stdio, generation,
@@ -247,6 +254,50 @@ even in local mode.
 > `.meta.json` sidecars next to the artifact bytes
 > (`artifacts/filesystem_store.py`). See [artifacts.md](artifacts.md).
 
+## HTTP Submission Journal
+
+`submissions.execute_submission(ctx, tool_name, request, call)` wraps only
+HTTP Seedance and OmniHuman creates. Non-dry calls require `idempotency_key`
+(16-128 ASCII letters, digits, `_` or `-`; UUID recommended). Seedance dry
+runs bypass the journal without consuming a key. Stdio rejects supplied keys.
+The [durable contract](../specs/SPEC_HOSTED_BYOK.md#http-submission-safety)
+defines scoping, fingerprints and error codes.
+
+`SQLiteSubmissionStore` commits a root claim for the whole batch before handler
+entry, including before Draft lookup. Domain-separated HMAC digests cover the
+key and canonical input/defaults/effective model; no raw prompts, media,
+credentials, idempotency keys or error messages are journaled.
+`http_submissions` holds scoped claims and bounded success JSON;
+`http_submission_tasks` holds up to five safe accepted task/request-ID pairs.
+The journal uses WAL, `synchronous=FULL`, a 5000 ms busy timeout and
+cancellation-safe per-connection serialization of worker-thread operations.
+
+| Method | Behavior |
+| --- | --- |
+| `claim(...) -> (SubmissionRecord, bool)` | `BEGIN IMMEDIATE`; return an existing matching claim first, reject changed input, or commit a new `running` claim subject to capacity |
+| `get(submission_id)` | Read a consistent internal receipt snapshot |
+| `record_task(submission_id, task_id, request_id)` | Retain bounded, immutable accepted IDs before ownership recording |
+| `succeed(submission_id, response_json)` | Save at most 32 KiB of validated success JSON; only `running` can become `succeeded` |
+| `mark_unresolved(submission_id)` | Transition `running` to `unresolved`, never demote saved success |
+| `close()` | Drain pending operations and close the connection |
+
+Only complete successful receipts replay, after every task's existing ownership
+passes. Replay never enters the handler, contacts upstream, re-fetches a Draft
+or repairs ownership. Repeating identical arguments/key recovers delivery,
+not current provider status; poll task IDs normally after recovery.
+Failures, partial batches and cancellation become unresolved, with known IDs
+but no automatic resume. On startup, leftover running claims become unresolved.
+If finalization cannot save success, the first successful provider result is
+still returned, while repeated calls fail closed.
+
+Claims never expire or auto-prune. `STATE_MAX_RECORDS` caps journal claims
+independently of other state tables; at capacity existing keys and owned task
+reads still work, but new keys fail before dispatch. Ownership retention is
+separate: expired ownership blocks receipt replay. Keep the same SQLite volume,
+HMAC key/version and original client/provider credentials. Deleting claims to
+free capacity can permit duplicate submissions; capacity management remains
+an operational follow-up.
+
 ## Persistence cache
 
 `RuntimeServices.task_artifact_cache` is a `SQLiteTaskArtifactCache` backed by
@@ -318,8 +369,9 @@ and malformed 2xx responses are ambiguous/nonretryable, including understanding
 completions and Files API uploads. Demonstrably pre-dispatch connection/pool
 failures remain eligible for bounded retries subject to the timeout policy above.
 Diagnostics omit raw exceptions, credentials and credential-bearing URLs.
-Keep safe request IDs for reconciliation. This is not durable idempotency
-or exactly-once billing; do not add blind client-side retries.
+Keep safe request IDs for reconciliation. Provider retries do not supply
+idempotency or exactly-once billing. The separate HTTP submission journal
+covers only asynchronous creates; do not add blind client-side retries.
 
 ## Billable call composition (`billed_provider_slot`)
 
@@ -357,12 +409,16 @@ finalization is shielded but best effort; it does not guarantee that no
 
 Seedance proceeds to the shared `record_accepted_task` helper after budget
 finalization, even if finalization logged a failure. OmniHuman uses the same
-ownership helper. Only an accepted task's ownership-record failure becomes an
-`AcceptedTaskError` (`OWNERSHIP_RECORD_FAILED`, `retryable=false`,
+helper. On HTTP, task/request IDs must match `[A-Za-z0-9._:-]{1,256}` and
+contain no request/operator secrets before either write. Unsafe IDs produce
+`UNSAFE_TASK_RECEIPT` without echo or persistence, leaving acceptance ambiguous.
+Safe IDs are journaled before ownership; a journal-write failure still attempts
+ownership recording. Either persistence failure becomes an
+`AcceptedTaskError` (`SUBMISSION_RECORD_FAILED` or `OWNERSHIP_RECORD_FAILED`, `retryable=false`,
 `ambiguous_completion=true`), retaining the accepted task ID and available
 request ID without internal resubmission. A Seedance variation retains `task_id`
 and `request_id` alongside `error`; `submitted` counts known IDs and `failed`
-counts entries with errors, so an ownership-record error can count in both.
+counts entries with errors, so a journal/ownership error can count in both.
 A single-call failure remains an error `ToolResult` with IDs in its text rather
 than a structured success response. HTTP polling still requires recorded
 ownership; otherwise reconcile directly with the provider. Trusted stdio
@@ -373,7 +429,7 @@ permits unrecorded IDs, not recorded owner mismatches.
 | Class | Module | Raised by | Meaning |
 |---|---|---|---|
 | `ProviderError` | `domain/errors.py` | provider gateways + transport normalizers | wraps a `NormalizedProviderError`; the single retryable error type |
-| `AcceptedTaskError` | `domain/errors.py` (extends `ProviderError`) | `record_accepted_task` | accepted task ownership recording failed; retains task/request IDs, ambiguous and nonretryable |
+| `AcceptedTaskError` | `domain/errors.py` (extends `ProviderError`) | `record_accepted_task` | accepted task journal/ownership recording failed; retains safe task/request IDs, ambiguous and nonretryable |
 | `BudgetExceededError` | `runtime.py` (extends `ValueError`) | `BudgetLedger.reserve` | daily budget would be exceeded; raised before dispatch |
 | `ValueError` | builtin | `ProviderLimiters`, `RetryPolicy`, `resolve_prompts` | config/argument validation |
 | `RuntimeError` | builtin | `get_runtime`, `BudgetLedger.reserve` | missing runtime services / reservation ID |
@@ -436,7 +492,7 @@ Re-exports `DEFAULT_MAX_CONCURRENT = 5`.
   others; the batch always returns exactly `count` entries.
 
 Seedance's outward `submitted`/`failed` counters are computed independently
-from those entries: an accepted task with an ownership-record error counts in
+from those entries: an accepted task with a journal/ownership-record error counts in
 both. Budget-finalization log events do not add failures to these counters.
 
 See [api-reference.md](api-reference.md) for `VariationResult` /
@@ -473,5 +529,8 @@ dispatch, but post-acceptance record failures remain ambiguous.
 
 Keys are request-only, not persisted. Files API cleanup uses the same live
 ModelArk key; remote temporary-file expiry is distinct from output URL expiry.
-PostgreSQL, multi-replica coordination, durable pre-dispatch records, idempotency
-and crash recovery remain next phase. Public-launch readiness is not claimed.
+HTTP asynchronous-create idempotency is the first slice described above.
+Synchronous product replay and complete crash recovery remain deferred,
+including the acceptance-to-first-ID-write crash gap and unknown-task
+reconciliation. PostgreSQL/Redis are future scaling choices, not initial
+requirements. Multi-replica support and public-launch readiness are not claimed.

@@ -71,6 +71,7 @@ async def test_http_artifact_refs_fail_before_resolution(
     monkeypatch.setattr("ark_mcp.tools.omnihuman_create_task.resolve_media_ref", resolve)
     refs = {"image": "https://example.com/image.png", "audio": "https://example.com/audio.wav"}
     refs[field] = "seed-media://artifacts/stored-test"
+    refs["idempotency_key"] = f"artifact-ref-rejected-{field}"
     with pytest.raises(ValueError, match=r"artifact.*HTTP|HTTP.*artifact"):
         await omnihuman_create_task(OmniHumanCreateTaskInput(**refs), fake_ctx)
     resolve.assert_not_awaited()

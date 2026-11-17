@@ -23,6 +23,8 @@ Use `ark_job_submit`/`ark_job_get` for required long operations. Native MCP
 tasks remain available to capable clients. Local jobs are process-local with
 the default memory backend. Separate stdio processes do not share jobs.
 See [background execution](integration-guide.md#background-execution).
+Local Seedance/OmniHuman calls must omit `idempotency_key`; supplied keys are
+rejected, including on Seedance dry runs.
 
 ## Streamable HTTP
 
@@ -58,6 +60,19 @@ HTTP generation and understanding run in the foreground, so configure the
 client/proxy timeout for long calls. Keep returned provider task IDs and poll
 with `gen_task_get` or `omnihuman_get_task`. Never resubmit to poll.
 
+### Create Delivery Recovery
+
+Non-dry HTTP `seedance_create_task` and `omnihuman_create_task` require
+`idempotency_key`: 16-128 ASCII letters, digits, `_` or `-`; use a fresh UUID
+per intended operation, including one key for a whole variation batch.
+Seedance dry runs need no key and do not consume a journal claim.
+Repeat identical arguments and the original key only to recover delivery of a
+saved successful receipt, not to poll. Replay checks existing ownership before
+any upstream call, including Draft lookup. Failed, partial or cancelled
+attempts remain unresolved with known IDs; no automatic resume occurs.
+Never change keys to bypass uncertain acceptance. See the
+[submission contract](../specs/SPEC_HOSTED_BYOK.md#http-submission-safety).
+
 Explicit per-call `io.modelcontextprotocol/tasks` opt-in is rejected before
 provider dispatch, task-snapshot capture/save or queue creation, including
 discovery. Omit task opt-in; ordinary jobs are unavailable on HTTP.
@@ -82,9 +97,13 @@ offered. Output URLs expire; clients retrieve media themselves.
 
 ## Deployment Boundary
 
-Use fresh SQLite state for one application instance. There is no old-schema
-migration, PostgreSQL support, multi-replica coordination, durable idempotency,
-or complete crash recovery. This foundation is not public-launch certification.
+Use fresh SQLite state for one application instance. Preserve the same state,
+HMAC key/version and original provider/client credentials for replay.
+Journal claims never auto-prune: at `STATE_MAX_RECORDS`, new keys fail but
+existing keys remain readable. There is no old-schema migration or
+multi-replica coordination. Synchronous product replay and complete crash
+recovery remain deferred; PostgreSQL/Redis are future scaling choices, not
+initial requirements. This foundation is not public-launch certification.
 See [self-hosting](self-hosting.md), [security](security.md), and the
 [BYOK contract](../specs/SPEC_HOSTED_BYOK.md).
 

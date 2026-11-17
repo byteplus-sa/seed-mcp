@@ -315,14 +315,19 @@ The three tools are registered only when `BYTEPLUS_OMNIHUMAN_ENABLED=true` and
 `BYTEPLUS_CV_API_KEY` is set (Bearer auth to the Vision AI host). They use their
 own key, separate from the ModelArk key.
 
-**Execution:** `omnihuman_create_task` is a required background job and
+**Execution on stdio:** `omnihuman_create_task` is a required background job and
 `omnihuman_get_task` supports optional background execution for video
 persistence. `omnihuman_cancel_task` is a plain foreground tool.
+HTTP calls all three directly in the foreground; creation requires
+`idempotency_key`. Repeat identical arguments/key only to recover a saved
+successful receipt, not to poll. Unresolved attempts need reconciliation,
+never automatic resume or a new key to bypass uncertainty.
 
 ### Input (`omnihuman_create_task`)
 
 | Field | Type | Required | Description |
 |---|---|---|---|
+| `idempotency_key` | string \| null | HTTP only | 16-128 ASCII letters, digits, `_` or `-`; fresh UUID per intended call. Default null; stdio rejects supplied keys |
 | `image` | string | Yes | Public HTTPS URL or `seed-media://artifacts/<id>`. jpeg/png/webp/bmp/tiff/gif/heic/heif, under 30 MB, aspect ratio 0.4-2.5, 300-6000 px per side |
 | `audio` | string | Yes | Public HTTPS URL or `seed-media://artifacts/<id>`. wav or mp3, under 15 MB, 4-300 seconds |
 | `prompt` | string | No | Scene, movement, or camera guidance (up to 2000 characters; zh, en, ja, ko, es-MX, id) |
@@ -604,10 +609,16 @@ Drop `dry_run` (and add `output_path` ending in `/` on stdio) to generate.
 request and its cost without billing. Registered when
 `BYTEPLUS_MODELARK_API_KEY` is set and has catalog capability label `seedance:create`.
 
-**Execution:** Required background job. Submit it through `ark_job_submit` (or
+**Execution on stdio:** Required background job. Submit it through `ark_job_submit` (or
 native task augmentation); a dry run finishes on the first `ark_job_get`. Poll
 the returned task IDs with [`gen_task_get`](#gen_task_get) and **never
-resubmit the create tool to poll**: each call starts new billed tasks.
+resubmit the create tool to poll**. HTTP calls directly and requires
+`idempotency_key` for non-dry creates, one for the whole variation batch.
+Repeat identical arguments/key only for saved-success delivery recovery,
+not polling. Failed/partial/cancelled attempts remain unresolved with known
+IDs and no automatic resume. Never change keys to bypass uncertain acceptance.
+Seedance dry runs need no key/journal; stdio rejects supplied keys.
+See the [submission contract](../specs/SPEC_HOSTED_BYOK.md#http-submission-safety).
 
 **Annotations:** `readOnlyHint=False`, `destructiveHint=False`,
 `idempotentHint=False`, `openWorldHint=True`
@@ -648,6 +659,7 @@ fallback; it is not a quote derived from the provider's token prices.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
+| `idempotency_key` | string \| null | Non-dry HTTP only | 16-128 ASCII letters, digits, `_` or `-`; fresh UUID per intended whole call. Default null; omit on stdio and dry runs |
 | `prompt` | string | No | Text prompt (1-32,000 chars). Optional when media or `variation_prompts` are given |
 | `images` | list[SeedanceImageInput] | No | Up to 30 (per-model maximum at runtime); roles `first_frame`, `last_frame`, `reference_image`. Each entry may be a plain URL string, `asset://<asset_id>`, or `{"url": ...}` (coerced to `role=reference_image`) |
 | `videos` | list[SeedanceVideoInput] | No | Up to 10 reference videos (per-model maximum at runtime); URL string, `asset://<asset_id>`, or `{"url": ...}` |
@@ -721,6 +733,9 @@ that it succeeded, that it was created in Draft mode, and that it is within
 **14 days of creation** (**7 days** if created before **2026-10-28 10:00 UTC+8**).
 If `model` is omitted, the tool uses the Draft task's model; a
 different `model` is rejected.
+On HTTP each step requires its own fresh `idempotency_key`. Saved promotion
+receipts replay before Draft lookup with existing ownership checks; use the
+original arguments/key only for delivery recovery.
 
 ### Output
 
@@ -733,13 +748,15 @@ success shape.
 |---|---|
 | `model`, `family` | Resolved model ID and family |
 | `dry_run` | `true` when nothing was submitted; see `preview` |
-| `tasks` | One entry per requested variation, in order (empty for a dry run): `index`, `task_id`, `request_id`, and `error`. `task_id` and `error` can coexist after ownership-record failure; a null ID means submission failed or acceptance is unknown |
-| `submitted`, `failed` | Independent counts of known accepted IDs and entries with errors; accepted tasks with ownership-record errors count in both. Budget-finalization log events do not add failures |
+| `tasks` | One entry per requested variation, in order (empty for a dry run): `index`, `task_id`, `request_id`, and `error`. `task_id` and `error` can coexist after journal/ownership-record failure; a null ID means submission failed or acceptance is unknown |
+| `submitted`, `failed` | Independent counts of known accepted IDs and entries with errors; accepted tasks with journal/ownership-record errors count in both. Budget-finalization log events do not add failures |
 | `recommended_poll_after_ms` | Suggested delay before the first `gen_task_get` poll; `null` for a dry run |
 | `preview` | Dry run only: `requests` (provider request bodies, one per variation, with HTTPS media URLs reduced to scheme and host, inline Base64 reduced to its size, and `asset://` references kept) and `estimated_cost_usd` (a static estimate from the server's price table, not a provider quote) |
 
-Retain every accepted ID, even when ownership recording fails. These
+Retain every safe accepted ID, even when journal/ownership recording fails. These
 `AcceptedTaskError` failures are ambiguous/nonretryable: never recreate accepted work.
+On HTTP safe IDs are journaled before ownership; a failed journal write still
+attempts ownership. Unsafe or secret-echoing IDs are rejected before either write.
 Budget-finalization exceptions only log `ERROR` event `budget_finalization_failed`,
 preserving the provider result/error and conservative reserved allowance; they do
 not become accepted-task errors or add to `failed`. Reservation before dispatch

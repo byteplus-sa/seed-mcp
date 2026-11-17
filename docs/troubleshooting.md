@@ -223,6 +223,17 @@ Seedance provider submissions can take 60–150 s (longer under cold start or
 provider queue). Local stdio requires background execution for those operations.
 HTTP uses direct foreground calls: increase client/proxy timeouts, keep
 persistence false and reconcile lost responses without automatic resubmission.
+Non-dry HTTP Seedance/OmniHuman creates require `idempotency_key` (16-128 ASCII
+letters, digits, `_` or `-`; UUID recommended). Repeat identical arguments/key
+only for saved-success delivery recovery, not polling. `SUBMISSION_IN_PROGRESS`
+or `SUBMISSION_UNRESOLVED` never resumes work: retain known IDs, poll only
+where ownership remains recorded, otherwise reconcile with the provider.
+`SUBMISSION_CONFLICT` requires the original arguments for recovery.
+Never change keys to bypass uncertain acceptance. `SUBMISSION_UNAVAILABLE`
+means no dispatch from that call; ask the operator to restore journal
+availability/capacity without deleting claims. Seedance dry runs need no
+key/journal; stdio rejects supplied keys. See the
+[submission contract](../specs/SPEC_HOSTED_BYOK.md#http-submission-safety).
 The workflow below is stdio-only.
 
 - Submit `seedance_create_task`, `seedream_generate_image`, and

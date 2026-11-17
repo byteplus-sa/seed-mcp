@@ -110,5 +110,17 @@ For BytePlus infrastructure, start with
 Hosted [provider-secret sync is superseded](../secret-manager.md).
 Operators supply a stable `MCP_IDENTITY_HMAC_KEY` and version, not provider keys.
 These are operator requirements, not customer credentials.
-This is a fresh single-instance SQLite foundation; no migration, durable
-idempotency, complete crash recovery, multi-replica or public-launch claim.
+Non-dry HTTP Seedance/OmniHuman creates require `idempotency_key`: 16-128 ASCII
+letters, digits, `_` or `-`; generate a fresh UUID per intended call, including
+one key for all variations. Repeat identical arguments/key only for delivery
+recovery, not polling. Only fully successful saved receipts replay after
+ownership checks; failed/partial/cancelled attempts need reconciliation, never
+a new key to bypass uncertain acceptance. Seedance dry runs need no key or
+journal; local stdio rejects supplied keys.
+Keep the original provider key/client secret and the operator's same state and
+HMAC configuration. Claims never auto-prune; at `STATE_MAX_RECORDS` new keys
+fail while existing keys remain readable. See the
+[submission contract](../../specs/SPEC_HOSTED_BYOK.md#http-submission-safety).
+This remains single-instance SQLite; synchronous product replay and complete
+crash recovery are deferred. PostgreSQL/Redis are future scaling choices, not
+initial requirements. No migration, multi-replica or public-launch claim.

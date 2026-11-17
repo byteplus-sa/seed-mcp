@@ -182,6 +182,13 @@ tool `model` wins. Arbitrary opaque endpoint lineage is not inferred.
 HTTP discovery is anonymous/static; 9 tools, or 12 with OmniHuman enabled.
 No jobs/native tasks/storage/artifact tools/resources exist. Call provider tools
 in the foreground with persistence false and sufficient client timeouts.
+Non-dry Seedance/OmniHuman tool inputs require `idempotency_key` (16-128 ASCII
+letters, digits, `_` or `-`; fresh UUID per intended whole call). Do not put it
+in connection headers or reuse it for unrelated operations.
+Repeat identical arguments/key only for saved-success delivery recovery,
+not polling. Unresolved attempts need reconciliation, never a new key to
+bypass uncertainty. Seedance dry runs need no key/journal; local stdio rejects
+supplied keys. These templates remain discovery-first, not paid setup tests.
 
 Other clients need verified secure custom-header support. Do not assume
 Desktop uses the same remote connector shape as Claude Code. Mark unsupported

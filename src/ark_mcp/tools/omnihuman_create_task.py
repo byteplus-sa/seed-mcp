@@ -9,6 +9,7 @@ from fastmcp.tools import ToolResult
 from pydantic import BaseModel, Field, ValidationError
 
 from ark_mcp.domain.errors import AcceptedTaskError, ProviderError
+from ark_mcp.domain.submissions import IDEMPOTENCY_KEY_DESCRIPTION, IdempotencyKey
 from ark_mcp.observability.logger import info as log_info
 from ark_mcp.providers.factory import vision_cv_gateway
 from ark_mcp.providers.vision_cv.omnihuman import OmniHumanService
@@ -29,6 +30,7 @@ RECOMMENDED_POLL_AFTER_MS = 10_000
 class OmniHumanCreateTaskInput(BaseModel):
     """Input for ``omnihuman_create_task``."""
 
+    idempotency_key: IdempotencyKey | None = Field(None, description=IDEMPOTENCY_KEY_DESCRIPTION)
     image: str = Field(
         description=(
             "Portrait of the person to animate: public HTTPS URL. Stdio also accepts "
@@ -76,8 +78,12 @@ async def omnihuman_create_task(
 
     Returns a task_id; poll omnihuman_get_task for the temporary video URL (one-hour
     expiry). Submission is never retried automatically. HTTP runs in the foreground.
+    HTTP requires idempotency_key; repeat identical arguments/key only to recover a
+    successful receipt. Unresolved attempts need reconciliation, never a new key.
     Stdio uses ark_job_submit and allows explicit persistence when polling.
     """
+    if input.idempotency_key is not None and get_runtime(ctx).settings.mcp_transport == "stdio":
+        raise ValueError("idempotency_key is HTTP-only; omit it for local stdio.")
     validate_http_options(ctx, media_references=(input.image, input.audio))
     provider_api_key(ctx, "vision-cv")
     runtime = get_runtime(ctx)

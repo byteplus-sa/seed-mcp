@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  EXAMPLES,
   handbookPage,
   resolveDocLink,
   schemaTable,
@@ -91,6 +92,81 @@ test("field tables describe required fields, choices, constraints and defaults",
     "No fields. Pass `{}`.\n",
   );
 });
+
+test("nullable operation keys retain string constraints in field tables", () => {
+  const table = schemaTable({
+    properties: {
+      idempotency_key: {
+        anyOf: [
+          {
+            type: "string",
+            minLength: 16,
+            maxLength: 128,
+            pattern: "^[A-Za-z0-9_-]+$",
+          },
+          { type: "null" },
+        ],
+        default: null,
+        description: "Required for HTTP creation, except Seedance dry runs.",
+      },
+    },
+  });
+  assert.match(table, /idempotency_key.*string or null.*No.*Required for HTTP/);
+  assert.match(table, /minLength: 16/);
+  assert.match(table, /maxLength: 128/);
+  assert.ok(table.includes('pattern: "^[A-Za-z0-9_-]+$"'));
+  assert.match(table, /Default: null/);
+});
+
+for (const name of ["seedance_create_task", "omnihuman_create_task"]) {
+  test(`${name} HTTP example separates receipt recovery from polling and local jobs`, () => {
+    const original = JSON.stringify(EXAMPLES);
+    const page = toolPage({
+      name,
+      description: "Create provider tasks.",
+      background: "required",
+      registration_gate: "Local provider configuration.",
+      transports: {
+        http: {
+          background: null,
+          credential_header: name.startsWith("seedance")
+            ? "X-ModelArk-Api-Key"
+            : "X-OmniHuman-Api-Key",
+          registration_gate: "HTTP provider tool.",
+        },
+      },
+      inputSchema: { properties: {} },
+      outputSchema: { properties: {} },
+    });
+    const http = page.split("### HTTP Call")[1].split("<details>")[0];
+    const call = JSON.parse(http.match(/```json\n([\s\S]*?)\n```/)[1]);
+    assert.equal(call.name, name);
+    assert.doesNotMatch(http, /ark_job_submit/);
+    if (name === "seedance_create_task") {
+      assert.equal(call.arguments.input.dry_run, true);
+      assert.equal(call.arguments.input.idempotency_key, undefined);
+    } else {
+      assert.match(
+        call.arguments.input.idempotency_key,
+        /^[A-Za-z0-9_-]{16,128}$/,
+      );
+      assert.match(call.arguments.input.image, /^https:\/\//);
+      assert.match(call.arguments.input.audio, /^https:\/\//);
+    }
+    const local = page.split("Exact MCP call (for developers)</summary>")[1];
+    const localCall = JSON.parse(local.match(/```json\n([\s\S]*?)\n```/)[1]);
+    assert.deepEqual(localCall.arguments.input.arguments, EXAMPLES[name]);
+    assert.equal(
+      localCall.arguments.input.arguments.input.idempotency_key,
+      undefined,
+    );
+    assert.equal(JSON.stringify(EXAMPLES), original);
+    assert.match(page, /UUID/);
+    assert.match(page, /recovery, not polling/);
+    assert.match(page, /never change keys to bypass/);
+    assert.match(page, /stdio rejects/);
+  });
+}
 
 test("required background tools show the complete ordinary job wrapper", () => {
   const page = toolPage({
