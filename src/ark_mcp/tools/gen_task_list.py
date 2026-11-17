@@ -27,9 +27,9 @@ from ark_mcp.providers.modelark.schemas import GenerationTaskResponse
 from ark_mcp.providers.retry import call_with_retry
 from ark_mcp.runtime import OwnedTask, get_principal, get_runtime
 from ark_mcp.security.credentials import provider_api_key
+from ark_mcp.tools._context import context_log
 from ark_mcp.tools._errors import provider_error_result
 from ark_mcp.tools._generation_tasks_shared import TaskKind, classify_task
-from ark_mcp.tools._task_execution import context_log
 
 LIST_WINDOW = timedelta(days=7)
 OWNED_SLICE_SIZE = 100

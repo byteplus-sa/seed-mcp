@@ -12,7 +12,6 @@ from unittest.mock import AsyncMock, patch
 from urllib.parse import urlencode
 
 import pytest
-from fastmcp.tools import ToolResult
 
 from ark_mcp.artifacts.store import ArtifactPersistenceError
 from ark_mcp.domain.artifacts import ArtifactRef
@@ -447,15 +446,22 @@ class TestGenTaskGet:
         assert calls["list"][0]["task_ids"] == ["t-mine"]
         assert calls["get"] == []
 
-    async def test_persist_output_in_foreground_is_rejected(
-        self, test_env: None, fake_ctx: FakeContext, monkeypatch: pytest.MonkeyPatch
+    async def test_direct_client_allows_persistence_for_queued_tasks(
+        self, test_env: None, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        _serve(monkeypatch, [_task("t-1", "queued")])
-        fake_ctx.task_id = None
-        result = await gen_task_get(
-            GenTaskGetInput(task_ids=["t-1"], persist_output=True), fake_ctx
-        )
-        assert isinstance(result, ToolResult)
+        from fastmcp import Client
+
+        from ark_mcp.config.env import get_settings
+        from ark_mcp.server import create_server
+
+        calls = _serve(monkeypatch, [_task("t-1", "queued")])
+        async with Client(create_server(get_settings())) as client:
+            result = await client.call_tool(
+                "gen_task_get", {"input": {"task_ids": ["t-1"], "persist_output": True}}
+            )
+        output = GenTaskGetOutput.model_validate(result.structured_content)
+        assert output.tasks[0].status == "queued"
+        assert calls["list"][0]["task_ids"] == ["t-1"]
 
     async def test_output_dir_requires_persist_output(
         self, test_env: None, fake_ctx: FakeContext, tmp_path: Any

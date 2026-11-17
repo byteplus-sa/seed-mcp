@@ -23,6 +23,7 @@ from ark_mcp.providers.modelark.schemas import GenerationTaskResponse
 from ark_mcp.providers.retry import call_with_retry
 from ark_mcp.runtime import get_principal, get_runtime
 from ark_mcp.security.credentials import provider_api_key
+from ark_mcp.tools._context import context_log
 from ark_mcp.tools._errors import provider_error_result
 from ark_mcp.tools._generation_tasks_shared import (
     RECOMMENDED_POLL_AFTER_MS,
@@ -36,7 +37,6 @@ from ark_mcp.tools._generation_tasks_shared import (
 )
 from ark_mcp.tools._http_policy import validate_http_options
 from ark_mcp.tools._local_export import output_dir_field, overwrite_field
-from ark_mcp.tools._task_execution import context_log, persistence_requires_task
 
 _MAX_CONCURRENT_FETCHES = 5
 _LIST_PAGE_SIZE = 20
@@ -51,16 +51,16 @@ class GenTaskGetInput(BaseModel):
         min_length=1,
         max_length=50,
         description=(
-            "1-50 Seedance task IDs returned by seedance_create_task "
-            "(not ark_job IDs). Duplicates are ignored."
+            "1-50 Seedance provider task IDs returned by seedance_create_task. "
+            "Duplicates are ignored."
         ),
     )
     persist_output: bool = Field(
         False,
         description=(
             "Copy each succeeded task's outputs into durable artifact storage, once per task. "
-            "Stdio background execution only (ark_job_submit or native task augmentation). "
-            "Must be false over HTTP; defaults to URL-only foreground polling."
+            "Available on direct stdio calls only. "
+            "Must be false over HTTP; defaults to URL-only polling."
         ),
     )
     output_dir: str | None = output_dir_field("succeeded tasks' outputs")
@@ -99,14 +99,11 @@ async def gen_task_get(input: GenTaskGetInput, ctx: Context) -> GenTaskGetOutput
     Pass every task ID in one call. queued or running is not a failure: poll again after
     recommended_poll_after_ms, never resubmit the create tool (that bills a second task).
     Provider output URLs expire in about 24 hours; once all_terminal is true, call again
-    on stdio through ark_job_submit with persist_output=true to keep durable artifacts.
+    directly on stdio with persist_output=true to keep durable artifacts.
     HTTP requires persist_output=false. IDs the caller does not own are listed in errors.
     """
     validate_http_options(ctx, persist=input.persist_output, persist_field="persist_output")
     provider_api_key(ctx, "modelark")
-    task_error = persistence_requires_task(ctx, input.persist_output)
-    if task_error is not None:
-        return task_error
     if input.output_dir is not None and not input.persist_output:
         raise ValueError("output_dir requires persist_output=true.")
     runtime = get_runtime(ctx)

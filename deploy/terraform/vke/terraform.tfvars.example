@@ -1,0 +1,11 @@
+fresh_state_confirmed = false
+name                  = "seed-mcp"
+region                = "ap-southeast-1"
+zone_id               = ""
+kubernetes_version    = ""
+node_instance_type    = ""
+node_count            = 2
+project_name          = "default"
+vpc_cidr              = "10.80.0.0/16"
+service_cidr          = "10.81.0.0/16"
+nat_bandwidth_mbps    = 25

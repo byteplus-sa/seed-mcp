@@ -1,4 +1,4 @@
-"""HTTP submission contract from plans/PLAN_SQLITE_SUBMISSION_SAFETY.md."""
+"""HTTP submission contract from specs/SPEC_HOSTED_BYOK.md."""
 
 from __future__ import annotations
 

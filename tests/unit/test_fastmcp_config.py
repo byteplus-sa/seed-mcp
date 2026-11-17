@@ -26,7 +26,7 @@ def test_declarative_fastmcp_requirement_matches_manifest() -> None:
     supported = _fastmcp_requirement(manifest["project"]["dependencies"])
 
     assert declared == supported
-    assert declared.extras == {"tasks"}
+    assert declared.extras == set()
 
 
 @pytest.mark.parametrize(

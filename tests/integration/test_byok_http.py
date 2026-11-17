@@ -48,8 +48,6 @@ PUBLIC_TOOLS = {
     "gen_task_list",
     "gen_task_cancel_or_delete",
     "seed_audio_generate",
-    "seed_understand",
-    "seed_audio_understand",
 }
 OMNIHUMAN_TOOLS = {"omnihuman_create_task", "omnihuman_get_task", "omnihuman_cancel_task"}
 
@@ -200,7 +198,7 @@ async def test_anonymous_catalog_and_resources_are_static(tmp_path: Path, omnihu
         tools = anonymous["result"]["tools"]
         expected = PUBLIC_TOOLS | (OMNIHUMAN_TOOLS if omnihuman else set())
         assert {tool["name"] for tool in tools} == expected
-        assert len(tools) == (12 if omnihuman else 9)
+        assert len(tools) == (10 if omnihuman else 7)
         assert (await rpc(client, "resources/list"))["result"]["resources"] == []
         assert (await rpc(client, "resources/templates/list"))["result"]["resourceTemplates"] == []
         discovery = successful(await call_tool(client, "ark_list_models", {}))
@@ -278,14 +276,6 @@ async def test_only_selected_customer_key_is_sent_to_official_origin(
         ("seedream_generate_image", {"prompt": "square", "dry_run": True}),
         ("seedance_create_task", {"prompt": "scene", "dry_run": True}),
         ("seed_audio_generate", {"text_prompt": "tone"}),
-        ("seed_understand", {"prompt": "Describe a square"}),
-        (
-            "seed_audio_understand",
-            {
-                "prompt": "Transcribe",
-                "audios": [{"kind": "url", "url": "https://example.com/a.wav"}],
-            },
-        ),
         ("omnihuman_get_task", {"task_id": "unknown"}),
     ],
 )
@@ -441,7 +431,6 @@ async def test_in_memory_http_server_cannot_reuse_restored_headers(
         ("gen_task_get", {"task_ids": ["private"], "persist_output": True}),
         ("omnihuman_get_task", {"task_id": "private", "persist_output": True}),
         ("seedream_generate_image", {"prompt": "square", "output_path": "/tmp/private.png"}),
-        ("seed_understand", {"prompt": "square", "save_to": "/tmp/private.txt"}),
         (
             "omnihuman_create_task",
             {

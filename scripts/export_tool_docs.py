@@ -5,9 +5,8 @@ Run with the installed project Python in a fresh process:
 
 The build orchestrator captures stdout; this script writes no output files.
 Each tool includes its FastMCP description and exact inputSchema wrapper,
-the catalog's explicit outputSchema, scope, background mode (null means
-foreground-only on stdio), and transport-specific registration/execution metadata.
-The legacy top-level registration_gate and background fields describe stdio. Gates describe
+the catalog's explicit outputSchema, scope, and transport-specific direct execution.
+The top-level registration_gate describes stdio. Gates describe
 configuration requirements, not the current environment or provider entitlement.
 """
 
@@ -62,10 +61,7 @@ def _isolate_package() -> None:
 
 def export_tool_docs() -> dict[str, Any]:
     """Resolve all catalog schemas without evaluating gates or calling handlers."""
-    from datetime import timedelta
-
     from fastmcp.tools import FunctionTool
-    from fastmcp.utilities.tasks import TaskConfig
 
     from ark_mcp.tools._catalog import CATALOG, resolve_tool_definition
 
@@ -77,26 +73,20 @@ def export_tool_docs() -> dict[str, Any]:
         transports: dict[str, Any] = {
             "stdio": {
                 "registration_gate": _REGISTRATION_GATES[gate_name],
-                "background": entry.background,
+                "execution": "direct",
             }
         }
         if gate_name in _HTTP_REGISTRATION_GATES:
             transports["http"] = {
                 "registration_gate": _HTTP_REGISTRATION_GATES[gate_name],
-                "background": None,
+                "execution": "direct",
                 "credential_header": _PROVIDER_HEADERS[entry.provider] if entry.provider else None,
             }
         definition = resolve_tool_definition(entry)
-        task = (
-            TaskConfig(mode=entry.background, poll_interval=timedelta(seconds=2))
-            if entry.background
-            else None
-        )
         tool = FunctionTool.from_function(
             definition.handler,
             name=entry.name,
             output_schema=definition.output_model.model_json_schema(),
-            task=task,
         )
         tools.append(
             {
@@ -106,7 +96,7 @@ def export_tool_docs() -> dict[str, Any]:
                 "inputSchema": tool.parameters,
                 "outputSchema": tool.output_schema,
                 "scope": entry.scope,
-                "background": entry.background,
+                "execution": "direct",
                 "registration_gate": _REGISTRATION_GATES[gate_name],
                 "transports": transports,
             }

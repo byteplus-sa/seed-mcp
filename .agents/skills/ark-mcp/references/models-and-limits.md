@@ -1,21 +1,24 @@
 # Models and limits
 
-Model discovery with `ark_list_models`, how the server binds model IDs to families, and the per-family limits for Seedance, Seedream and understanding. **This file is the one place per-family numbers live.** For the configured server, **`ark_list_models` is authoritative**: bindings are operator-configured, so a deployment can list fewer, more, or differently named models than the tables below. Tool parameters are in the tool schemas (see [API reference](https://byteplus-sa.github.io/ark-mcp/api-reference/)).
+Model discovery with `ark_list_models`, how the server binds model IDs to families, and the per-family limits for Seedance and Seedream. **This file is the one place per-family numbers live.** For the configured server, **`ark_list_models` is authoritative**: bindings are operator-configured, so a deployment can list fewer, more, or differently named models than the tables below. Tool parameters are in the tool schemas (see [API reference](https://byteplus-sa.github.io/ark-mcp/api-reference/)).
 
 ## Discovery with `ark_list_models`
 
 - **No pricing discovery:** estimates use built-in budgeting heuristics, not
-  account-specific provider prices. Discovery returns only models and services.
+  account-specific provider prices. Discovery returns models, services and
+  `connection` (null by default).
 
-**Call it before any generation or understanding tool.** It is read-only and idempotent, needs no auth scope, and **makes no provider calls**; it reads the server's own configuration.
+**Call it before any generation tool.** It is read-only and idempotent, needs no auth scope, and **makes no provider calls**; it reads the server's own configuration.
 
-- **`kind`** (`video`, `image`, `understanding`) filters the list; omit it to get every configured kind.
-- **`models[]`** lists configured bindings on HTTP even without environment provider keys or client credentials. On stdio it is empty when ModelArk is not configured. Each entry carries `model_id`, `family`, `kind`, `is_default`, `tool`, and one limits object (`video`, `image`, or `understanding`).
-- **`model_id` is the exact value the `model` argument accepts.** Omitting `model` uses the entry with `is_default: true`.
+- **`kind`** (`video`, `image`) filters the list; omit it for both.
+- **`models[]`** lists configured bindings on HTTP even without environment provider keys or client credentials. On stdio it is empty when ModelArk is not configured. Each entry carries `model_id`, `family`, `kind`, `is_default`, `tool`, and one limits object (`video` or `image`).
+- **`model_id` is the exact value the `model` argument accepts.** `is_default`
+  marks the server default; on HTTP an endpoint header can override it when
+  create-tool `model` is omitted.
 - HTTP endpoint defaults `X-ModelArk-Seedance-Endpoint` and
   `X-ModelArk-Seedream-Endpoint` must be exact registry bindings. Explicit tool
   `model` wins; no arbitrary opaque endpoint lineage is inferred.
-- **`tool`** names the tool that serves the model. Understanding modalities and media limits describe this route, not every possible use of the underlying model. `seed_audio_understand` advertises only `audio` (up to eight clips); use `seed_understand` for images/videos. Neither handler accepts mixed audio/visual requests.
+- **`tool`** names the image/video generation tool that serves the model.
 - **`services[]`** reports `modelark`, `seed_audio`, `omnihuman`, and
   `object_storage`, with `enabled` and a safe disabled `reason` naming required
   settings. Use it to check the running server; documentation alone does not
@@ -25,21 +28,45 @@ Model discovery with `ark_list_models`, how the server binds model IDs to famili
 HTTP request-scoped settings and capability lookup keep this server's bindings
 and defaults isolated from other server instances in the process.
 
+### Optional HTTP preflight
+
+Default `check_connection=false` is static/anonymous with `connection=null`,
+without inspecting credentials in discovery. A live HTTP call with
+`{"input":{"check_connection":true}}` checks header presence and exact
+image/video defaults only. Omit `kind` for both routes; `"image"` or `"video"`
+checks one. Other kinds, stdio and missing live HTTP context are rejected.
+
+`connection` reports `modelark_key_present`, `client_secret_present`,
+`configuration_valid`, `issues` and `routes`. Missing headers yield
+`missing_modelark_key` / `missing_client_secret`. Route fields are `tool`,
+`source` (`request_header` or `server_default`), `configured`, `model_id`,
+`family`, and `issue`. Unknown/wrong-product selections yield
+`endpoint_not_configured` with null ID/family; unknown IDs are not echoed.
+Malformed headers can fail HTTP validation before diagnostics.
+
+`configuration_valid=true` requires both headers and every checked binding.
+`authentication_verified` and `provider_calls_made` are always false. This
+does not prove key validity, endpoint existence/current lineage, activation,
+permissions, balance or reachability. Explicit create-tool `model` still wins.
+See `specs/SPEC_HOSTED_BYOK.md#http-configuration-preflight` in the selected checkout.
+
 | `kind` | `tool` | Notes on `is_default` |
 |---|---|---|
 | `video` | `seedance_create_task` | One default (`SEEDANCE_DEFAULT_MODEL`) |
 | `image` | `seedream_generate_image` | One default (`SEEDREAM_DEFAULT_MODEL`) |
-| `understanding` | `seed_understand`, or `seed_audio_understand` for the `SEED_AUDIO_UNDERSTANDING_MODEL` binding | Two defaults: the non-audio default and the audio model |
 
 ### Exact IDs and typos
 
-`seedance_create_task`, `seedream_generate_image`, and `seed_understand` accept **configured IDs only**. An unknown ID is rejected before any provider call. The error lists the configured IDs and adds a did-you-mean hint when one is close (compared case-insensitively with `.` treated as `-`; no hint when nothing is close):
+`seedance_create_task` and `seedream_generate_image` accept
+**configured IDs only**. Unknown IDs fail before provider dispatch.
+Unknown image/video `ep-*` selections get safe `ENDPOINT_NOT_CONFIGURED`
+guidance without echoing the ID: ask the operator to verify and bind it.
+Other unknown model IDs list configured IDs and can receive a did-you-mean
+hint (case-insensitive with `.` treated as `-`; no hint when nothing is close):
 
 ```text
 Model '<id>' is not configured. Did you mean '<closest-id>'? Configured video models: [...]. Call ark_list_models(kind='video') for details.
 ```
-
-**`seed_audio_understand` has no `model` argument**; the server fixes the model (default `seed-2-0-lite-260428`, set by `SEED_AUDIO_UNDERSTANDING_MODEL`). It is listed under `kind='understanding'` so you can see which model answers.
 
 ### Request validation against limits
 
@@ -48,15 +75,20 @@ Create tools check the request against the resolved model's limits before spendi
 ## Capability registry and bindings
 
 The server maps each configured model ID to a **family**; the family decides the limits. The family is chosen by the operator, not inferred from the ID string (apart from the built-in IDs below).
+For custom endpoints the operator must verify model/version outside this
+server. Official GetEndpoint body and OpenAPI require Access Key V4 (AK/SK),
+not ModelArk Bearer auth. No AK/SK custody, live lineage verification or arbitrary
+BYOE self-service is implemented. Authority and source:
+`specs/SPEC_HOSTED_BYOK.md#byoe-endpoint-authority` in the selected checkout.
 
 | Setting | Effect |
 |---|---|
-| `SEEDREAM_MODEL_BINDINGS`, `SEEDANCE_MODEL_BINDINGS`, `SEED_UNDERSTANDING_MODEL_BINDINGS` | JSON list of `{"model_id": "...", "family": "..."}` for explicit model or endpoint bindings |
-| `SEEDREAM_MODEL_FAMILY`, `SEEDANCE_MODEL_FAMILY`, `SEED_UNDERSTANDING_MODEL_FAMILY` | Family for a single custom default model when no bindings are set |
-| `SEEDREAM_DEFAULT_MODEL`, `SEEDANCE_DEFAULT_MODEL`, `SEED_UNDERSTANDING_DEFAULT_MODEL` | Model used when `model` is omitted |
+| `SEEDREAM_MODEL_BINDINGS`, `SEEDANCE_MODEL_BINDINGS` | JSON list of `{"model_id": "...", "family": "..."}` for explicit model or endpoint bindings |
+| `SEEDREAM_MODEL_FAMILY`, `SEEDANCE_MODEL_FAMILY` | Family for a single custom default model when no bindings are set |
+| `SEEDREAM_DEFAULT_MODEL`, `SEEDANCE_DEFAULT_MODEL` | Model used when `model` is omitted |
 | `SEEDREAM_PROMPT_OPTIMIZATION_MODE` | `standard` (default) or `fast`; applies only to Seedream 5.0 Pro when the caller omits `prompt_optimization` |
 
-Family values: Seedream `seedream_5_5` / `pro` / `lite` / `4x`; Seedance `standard` (2.0) / `fast` / `mini` / `seedance_2_5` / `seedance_2_5_flash`; understanding `pro` / `turbo`.
+Family values: Seedream `seedream_5_5` / `pro` / `lite` / `4x`; Seedance `standard` (2.0) / `fast` / `mini` / `seedance_2_5` / `seedance_2_5_flash`.
 
 ### Built-in model IDs (no binding needed)
 
@@ -67,8 +99,6 @@ Family values: Seedream `seedream_5_5` / `pro` / `lite` / `4x`; Seedance `standa
 | Seedance | `dreamina-seedance-2-5-260628` | 2.5 |
 | Seedance Flash | `dreamina-seedance-2-5-flash-261115` | 2.5 Flash |
 | Seedance 2.0 (opt-in) | `dreamina-seedance-2-0-260128` | Standard |
-| Understanding | `dola-seed-2-1-turbo-260628` | Turbo |
-| Understanding (opt-in) | `dola-seed-evolving` | Pro |
 
 Seedream Lite, Seedream 4.x, Seedance 2.0 Fast, and Seedance 2.0 Mini have no built-in ID; bind the account's authorized ID to the family.
 
@@ -131,29 +161,18 @@ before paid 4K use. See the [contract caveat](https://byteplus-sa.github.io/ark-
 - **5.5 `seed`:** retained as an explicit compatibility field but absent from the current provider parameter docs and OpenAPI schema; omit unless provider acceptance is verified.
 - Discovery reports transparency, named/custom size limits, `background_modes`, `prompt_optimization_modes`, and `supports_safety_identifier`. Source and remaining live-alpha validation: [model capabilities](https://byteplus-sa.github.io/ark-mcp/models/#image-capabilities-imagecapabilities). Layer-decomposition/OCR inputs are rejected.
 
-## Understanding (`kind: understanding`)
-
-| Family / model | Modalities | Max media parts | Context | Reasoning efforts | `response_format` |
-|---|---|---|---|---|---|
-| Seed 2.1 Turbo (default) | image, video | 32 | 256K tokens | `low`, `medium`, `high` | `text`, `json_object`, `json_schema` |
-| Seed 2.1 Pro | image, video | 32 | 256K tokens | `low`, `medium`, `high` | `text`, `json_object`, `json_schema` |
-| Audio understanding model (`SEED_AUDIO_UNDERSTANDING_MODEL`) | audio | 8 clips | 256K tokens | `low`, `medium`, `high` | see note |
-
-- **Max media parts counts images plus videos together** in `seed_understand`; exceeding it is rejected before the call. `seed_audio_understand` accepts 1-8 audio clips.
-- **Deep thinking is always on** for Seed 2.1; `reasoning_effort` sets its depth (default `medium`). `ark_list_models` reports `supports_thinking` and `reasoning_efforts` per model.
-- **Audio model.** The default audio model does not enforce `json_object`; use `json_schema` for structured output from `seed_audio_understand`. If the audio model ID is also a bound Seed 2.1 model, it is listed once with only `audio` in its advertised modalities and `tool: seed_audio_understand`. The same bound ID remains usable through `seed_understand` for images/videos.
-- **Default routing.** With `model` omitted, `seed_understand` uses the non-audio default; `seed_audio_understand` always uses the audio model.
-
 ## Health
 
 **`seed-health://status`** is an MCP resource that needs no authentication and
 exposes no credentials or output-root paths. It prints the build stamp, configured
 products, storage backends, transport, effective Seedream default model/family
-and background-job local-export configuration. These are configuration-only
+and local-export configuration. These are configuration-only
 diagnostics, not provider authorization or filesystem readiness. A configured
-absolute `OUTPUT_ROOTS` entry still needs request preflight; client roots do not
-exist in jobs. This resource is stdio-only. Over HTTP, `/health` and `/ready`
-return minimal process/state status without provider checks; `/metrics` is
-unavailable. HTTP discovery is anonymous/static, with 9 tools or 12 when
+absolute `OUTPUT_ROOTS` entry still needs request preflight; direct calls can
+use live client roots. This resource is stdio-only. Backend `/health` and `/ready`
+return minimal process/state status without provider checks; VKE Caddy exposes
+only `/mcp` and `/health`. Public `/metrics` is unavailable; an optional
+HTTP-runtime listener is loopback-only and off by default.
+HTTP discovery is anonymous/static, with 7 tools or 10 when
 OmniHuman is enabled, independent of operator provider keys. For per-service
 enablement prefer `ark_list_models.services`. Settings: [environment.md](environment.md).

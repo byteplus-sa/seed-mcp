@@ -65,16 +65,17 @@ ready. Do not submit a new generation request. If the existing request
 cannot be recovered, explain what happened before doing anything else.
 ```
 
-Keep the same client connection open while it works. Restarting the server
-can lose in-memory jobs; a timeout does not mean generation failed.
-Repeating the generation prompt could create another charge.
+Keep the same client connection open while it works. Both transports call
+tools directly; there are no MCP jobs. A timeout does not mean generation
+failed or cancel upstream work. Keep accepted task/request IDs and never
+blindly repeat the generation prompt, which could create another charge.
 
 Download results you want to keep. Provider links expire, and inline previews
 depend on your client. If a preview is unavailable, use the returned download
 link. Local stdio can explicitly opt into [Artifacts](../artifacts.md);
 persistence defaults to false. HTTP returns temporary URLs and rejects server
-persistence. HTTP calls run directly in the foreground, with no jobs/native
-tasks/storage/artifact tools or resources.
+persistence. Neither transport supports native tasks. HTTP has no
+storage/artifact tools or resources.
 
 ## Discover Before Spending
 
@@ -82,8 +83,7 @@ This optional check lists configured capabilities without creating media:
 
 ```text
 Use ark-seed discovery only to show which media services and models are
-configured for me. Do not generate media, analyze content, transcribe,
-upload files or submit jobs.
+configured for me. Do not generate media or upload files.
 ```
 
 Discovery makes no provider calls. It does not prove that your provider key
@@ -109,5 +109,5 @@ key and client secret in private headers; discovery alone is anonymous.
 
 Developers can find exact arguments in the
 [tool reference](../api-reference.md) and job/result handling in
-[Background Execution](../integration-guide.md#background-execution).
+[Direct Execution](../integration-guide.md#direct-execution).
 For other capabilities, see [Choose a Tool](../capabilities.md).

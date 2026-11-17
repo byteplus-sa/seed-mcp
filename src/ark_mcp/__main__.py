@@ -15,9 +15,14 @@ import truststore
 
 truststore.inject_into_ssl()
 
-from ark_mcp.config.env import get_settings  # noqa: E402
+from ark_mcp.config.env import Settings, get_settings  # noqa: E402
 from ark_mcp.observability.logger import info as log_info  # noqa: E402
 from ark_mcp.server import mcp  # noqa: E402
+
+
+def graceful_shutdown_timeout_seconds(settings: Settings) -> float:
+    """Allow the longer deadline plus 30 seconds for bounded cleanup."""
+    return max(settings.tool_timeout_seconds, settings.request_timeout_ms / 1000) + 30.0
 
 
 def main() -> None:
@@ -39,7 +44,9 @@ def main() -> None:
             allowed_origins=settings.allowed_origins,
             stateless_http=True,
             uvicorn_config={
-                "timeout_graceful_shutdown": int(settings.request_timeout_ms / 1000),
+                "timeout_graceful_shutdown": graceful_shutdown_timeout_seconds(settings),
+                "proxy_headers": False,
+                "access_log": False,
             },
         )
     else:

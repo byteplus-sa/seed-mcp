@@ -58,18 +58,6 @@ CASES = [
         "modelark",
         2,
     ),
-    ("seed_understand", "SeedUnderstandInput", {"prompt": "answer"}, "modelark", 1),
-    (
-        "seed_audio_understand",
-        "SeedAudioUnderstandInput",
-        {
-            "prompt": "transcribe",
-            "audios": [{"kind": "url", "url": "https://example.com/audio.wav"}],
-            "delivery": "files_api",
-        },
-        "modelark",
-        2,
-    ),
     (
         "omnihuman_create_task",
         "OmniHumanCreateTaskInput",
@@ -96,10 +84,6 @@ def _response(request: httpx.Request, count: int) -> httpx.Response:
         body = {"code": 0, "url": "https://example.com/audio.wav"}
     elif path.endswith("/images/generations"):
         body = {"data": [{"url": "https://example.com/image.png"}]}
-    elif path.endswith("/chat/completions"):
-        body = {"choices": [{"message": {"role": "assistant", "content": "answer"}}]}
-    elif "/files" in path:
-        body = {"id": "file-test", "status": "active", "mime_type": "audio/wav"}
     elif "/contents/generations/tasks" in path:
         if request.method == "POST":
             body = {"id": f"created-{count}"}
@@ -201,9 +185,3 @@ async def test_each_tool_uses_request_factory_and_closes_its_gateways(
     expected_gateways = gateway_count if outcome == "success" else 1
     assert len(closed) == expected_gateways
     assert all(client.is_closed for client in clients)
-    if outcome == "success" and tool == "seed_audio_understand":
-        assert [request.method for request in calls if "/files" in request.url.path] == [
-            "POST",
-            "DELETE",
-        ]
-        assert len(clients) == 2

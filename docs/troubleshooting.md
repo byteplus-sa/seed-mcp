@@ -6,9 +6,10 @@ run server commands manually.
 | Symptom | First thing to try |
 | --- | --- |
 | Ark is not listed in your client | Review the client-specific MCP setup and unfinished approval steps |
-| Connected, but tools are missing | Reconnect after finishing active jobs; check requested services and private-file configuration |
-| A request is still working | Ask the client to poll the existing job/task, not submit it again |
-| An HTTP server rejects a provider call | Check private selected-provider and client-secret headers; discovery is anonymous, not proof of key validity |
+| Connected, but tools are missing | Reconnect after finishing active calls; check requested services and private-file configuration |
+| A request is still working | Await the direct call or poll its known provider task ID; never submit again to check progress |
+| An HTTP server rejects a provider call | For image/video, use the [configuration check](#http-configuration-check); default discovery is anonymous, not proof of key validity |
+| A customer endpoint is not configured | Operator must verify and bind the exact product ID; do not infer its family or supply AK/SK to this server |
 | You need help diagnosing local setup | Ask your setup agent to inspect paths and settings metadata without printing secrets |
 
 Use the [discovery-only check](integrations/index.md#verify-without-paid-calls)
@@ -33,18 +34,18 @@ find the credential in the environment. Check:
 2. The key name matches exactly (`BYTEPLUS_MODELARK_API_KEY` or
    `BYTEPLUS_SEED_SPEECH_API_KEY`)
 3. No leading/trailing whitespace in the value
-4. The client was reconnected after saving the file, without interrupting active jobs
+4. The client was reconnected after saving the file, without interrupting active calls
 
 When a credential is absent, the server skips registering that product's
 tools — it does not register a broken tool.
 
-## `ark_job_capabilities` Returns No Targets
+## Missing Provider Tools
 
-An empty `targets` list means your connection has no visible background
-targets. Locally, provider credentials or feature flags may be missing;
-on a shared server, fixed team scopes also exclude administrative tools.
+Check `ark_list_models.services` and the actual tool list. Locally, provider
+credentials or feature flags may be missing. HTTP registers seven tools or
+ten with OmniHuman, independently of operator provider keys.
 
-1. **Finish active jobs, then reconnect `ark-seed` in the client you are using.**
+1. **Finish active calls, then reconnect `ark-seed` in the client you are using.**
    Configuration is read at startup. Another editor's running server does not
    prove this client's connection is current.
 2. **Ask your setup agent to check the private-file path and permissions.**
@@ -55,7 +56,7 @@ on a shared server, fixed team scopes also exclude administrative tools.
 4. **Check inherited settings or shared-server permissions.** An environment
    value can override the private file. Inspect names/presence without printing
    values; for shared deployments, ask the operator to check enabled products
-   and the fixed team permissions.
+   and client header setup.
 
 Then repeat discovery. A startup warning about missing credentials is useful
 evidence, but absence of a warning is not proof that the right file was loaded.
@@ -109,14 +110,13 @@ Check `persistence_error.code` and `retryable`: `output_too_large` and
 Seedance instead reports `outputs[].persistence_issue` with
 `outputs[].persistence="failed"`; OmniHuman uses top-level `persistence_issue`
 and `persistence="failed"`. Keep `source_url` and retry persistence through a
-background poll or `seed_media_persist_url` before expiry. An artifact need not
+direct local poll or `seed_media_persist_url` before expiry. An artifact need not
 exist on failure.
 
 ### `output_path` rejected or `export_error` set
 
 - `... is disabled: no output roots are configured`: the client does not
-  advertise MCP roots and `OUTPUT_ROOTS` is empty (a call inside
-  `ark_job_submit` never has MCP roots). Set `OUTPUT_ROOTS` to one or more
+  advertise MCP roots and `OUTPUT_ROOTS` is empty. Set `OUTPUT_ROOTS` to one or more
   absolute directories.
 - `must be inside an allowed output root` / `must be an absolute path`: use an
   absolute path under a client root or an `OUTPUT_ROOTS` entry.
@@ -166,8 +166,8 @@ default request timeout is 10 minutes (`BYTEPLUS_REQUEST_TIMEOUT_MS=600000`).
 
 If you experience timeouts:
 
-1. Increase `BYTEPLUS_REQUEST_TIMEOUT_MS` (or `SEED_UNDERSTANDING_TIMEOUT_MS`
-   for `seed_understand` and `seed_audio_understand` only)
+1. Distinguish provider `BYTEPLUS_REQUEST_TIMEOUT_MS` from the cooperative
+   `MCP_TOOL_TIMEOUT_SECONDS` deadline before changing either
 2. Check your network connectivity to the BytePlus region
 3. Check `retryable` and `ambiguous_completion` on the `TIMEOUT` error. What a
    timeout means depends on the call:
@@ -176,16 +176,14 @@ If you experience timeouts:
 |---|---|---|---|---|
 | Create / generate / cancel / delete | `false` | `true` | No | It may have succeeded upstream. Do not retry blindly; reconcile by task ID or request ID |
 | Task polls (Seedance, OmniHuman) | `true` | `false` | Yes | Safe to poll again |
-| `seed_understand` / `seed_audio_understand` chat completion | `false` | `true` | No | Completion may already be billed. Reconcile by request ID when available; do not blindly repeat it |
 | Variation batch deadline | see `error.phase` | | No | `queued` (`QUEUE_TIMEOUT`) is safe to retry; `generating` is ambiguous |
 
 This table describes timeouts after possible dispatch. Uncertain
 read/write/protocol failures and malformed provider 2xx responses are also
-ambiguous/nonretryable for mutations and understanding completions.
-Chat/mutation 5xx responses are ambiguous and never automatically retried,
+ambiguous/nonretryable for mutations.
+Mutation 5xx responses are ambiguous and never automatically retried,
 even when marked `retryable=true`. Eligible 429 rejections and demonstrably
-pre-dispatch failures can be retried, but understanding disables all `TIMEOUT`
-retries, including connect/pool timeouts. See the
+pre-dispatch failures can receive bounded retries. See the
 [retry policy](runtime.md#retry-policy-providersretrypy); do not add blind
 client retries.
 
@@ -199,30 +197,24 @@ Trusted stdio permits unrecorded IDs, but still rejects recorded owner mismatche
 Budget reservations are committed for every `TIMEOUT`, since a timed-out
 call may still have been billed.
 
-## `seed_understand` Result Too Large or Missing Reasoning
-
-The reasoning trace is no longer returned: deep thinking is always on, but
-`choices[].reasoning_content` was removed and `thinking` is ignored. Only the
-final answer comes back; `usage.reasoning_tokens` reports thinking cost. If
-the answer itself is too large for the client context:
-
-- Set `save_to` to an absolute path (stdio, inside an output root) and
-  `return_content="none"` or `"summary"` (first 2,000 characters). The full
-  answer is written to disk; `saved_path` and `content_chars` tell you where
-  and how long.
-- With a JSON `response_format`, `choices[].parsed` is returned even when
-  `return_content` is `none`.
-- If the answer ends with `finish_reason="length"`, raise `max_tokens`
-  (it includes thinking tokens). `json_retry` does not retry truncated
-  answers.
-
 ## Client Timeouts vs Provider Latency
 
 A client-side MCP timeout is distinct from a server failure. Seedream Pro and
 Seedance provider submissions can take 60–150 s (longer under cold start or
-provider queue). Local stdio requires background execution for those operations.
-HTTP uses direct foreground calls: increase client/proxy timeouts, keep
-persistence false and reconcile lost responses without automatic resubmission.
+provider queue). Both transports execute directly. Use client timeout 660
+seconds for the default cooperative `MCP_TOOL_TIMEOUT_SECONDS=600.0`
+(finite positive, max 3600) and compatible proxy settings.
+The timer starts after MCP parsing, before credentials, journal and admission.
+SDK/SQLite cleanup may exceed it; timeout does not cancel accepted upstream
+work. Reconcile lost responses without automatic resubmission.
+
+`MCP_ADMISSION_TIMEOUT_SECONDS=2.0` (finite positive, max 30) bounds owner-first
+then provider-slot waiting, before budget reservation. `ADMISSION_TIMEOUT`
+means this attempt did not dispatch, not the whole variation batch.
+`TOOL_DEADLINE_EXCEEDED` is text-only and preserves uncertainty and known
+safe accepted IDs. External cancellation propagates. ModelArk polling and
+discovery avoid generation slots but remain subject to HTTP global overload.
+
 Non-dry HTTP Seedance/OmniHuman creates require `idempotency_key` (16-128 ASCII
 letters, digits, `_` or `-`; UUID recommended). Repeat identical arguments/key
 only for saved-success delivery recovery, not polling. `SUBMISSION_IN_PROGRESS`
@@ -234,55 +226,10 @@ means no dispatch from that call; ask the operator to restore journal
 availability/capacity without deleting claims. Seedance dry runs need no
 key/journal; stdio rejects supplied keys. See the
 [submission contract](../specs/SPEC_HOSTED_BYOK.md#http-submission-safety).
-The workflow below is stdio-only.
-
-- Submit `seedance_create_task`, `seedream_generate_image`, and
-  `seed_audio_generate` through the `ark_job_*` workflow below. Its terminal
-  result contains the typed tool output.
-- On a task-capable client, you may instead invoke those tools with MCP task
-  metadata, retain the returned MCP task ID, and poll `tasks/get` at the
-  advertised interval until terminal.
-- For video generation, the background result contains the provider
-  task ID. Poll `gen_task_get` (Seedance) or `omnihuman_get_task` (OmniHuman)
-  in the foreground with `persist_output=false` (explicitly set this for
-  OmniHuman). Then run the poller once through `ark_job_submit`
-  with `persist_output=true` to keep the outputs. Never resubmit the create
-  tool to poll.
-- If a client disconnects after task acceptance, reconcile with the returned
-  MCP task ID or provider task ID rather than resubmitting (see
-  `ambiguous_completion`).
-
-### Client rejects task-augmented execution
-
-If Codex, Cursor, or another MCP client reports that the server requires
-task-augmented execution but its transport does not support it, do not call the
-required-task provider tool directly and do not switch it to foreground mode.
-
-1. Call `ark_job_capabilities` and confirm the target is listed.
-2. Call `ark_job_submit` with the target tool name and its original arguments.
-3. Retain the returned Ark `job_id` and poll `ark_job_get` at
-   `poll_after_ms` until terminal.
-4. Read the original tool output from `result.structured_content`.
-
-This remains a real background task on the same worker. For a Seedance or OmniHuman submission, the provider task ID appears inside the completed original
-result and must be retained separately. A missing target usually means its
-local provider credential or feature flag is unavailable. This workflow is
-stdio-only; HTTP calls providers directly and has no background targets.
-
-### Background job is not available
-
-`Background job is not available in this server instance` means the local
-stdio process cannot resolve the job ID:
-
-- The job was submitted by a **different** `ark-mcp` process. Each `stdio`
-  client starts its own process; poll through the original process.
-- The server restarted: the default in-memory Docket backend discards active and
-  retained jobs. Redis retention is the durability path.
-- The job ID is wrong, or its retained result expired.
-
-HTTP has no job tools/native tasks. Do not try to share stdio jobs through an
-HTTP endpoint. Provider IDs already returned by a job are separate and can be
-used to reconcile provider outcomes under the original authorized scope.
+Poll known IDs with `gen_task_get` or `omnihuman_get_task`. On stdio, explicitly
+set `persist_output=true` in a direct poll to keep outputs; HTTP clients
+download expiring URLs. No MCP jobs/native tasks exist; omit task opt-in.
+See [Direct Execution](../specs/SPEC_DIRECT_EXECUTION.md).
 
 ## Artifacts Not Persisting
 
@@ -317,9 +264,37 @@ and does not validate provider keys. Never print secrets while troubleshooting.
 Changing provider/client/HMAC credentials changes ownership scope with no
 recovery bridge; use the original authorized scope for older tasks.
 
+## HTTP Configuration Check
+
+Call `ark_list_models` with `{"input":{"check_connection":true}}` through
+your HTTP client. Omit `kind` for both image/video routes, or choose `"image"`
+or `"video"`. Stdio, missing live HTTP context and other kinds
+are rejected. Default discovery returns `connection=null`.
+
+| Result | Action |
+| --- | --- |
+| `missing_modelark_key` | Check the selected client's environment-name mapping for `X-ModelArk-Api-Key`, without printing its value |
+| `missing_client_secret` | Configure the independent `X-MCP-Client-Secret` variable privately |
+| `endpoint_not_configured` / `ENDPOINT_NOT_CONFIGURED` | Operator must verify the endpoint's model/version and exact product binding; unknown ID/family are not echoed in preflight |
+| `configuration_valid=true` but provider later rejects the request | Presence and bindings passed, not provider authentication, entitlement, live lineage, balance or reachability |
+| Generator returns `invalid configuration arguments` | Use `--help`; check HTTPS URL, variable-name grammar, distinct selected variables and `modelark` selection for optional endpoint flags |
+
+`authentication_verified` and `provider_calls_made` always remain false.
+Malformed headers can fail at the HTTP boundary before a result is returned.
+Never paste credentials or raw client configuration into diagnostics. Official
+GetEndpoint requires AK/SK signing, not a ModelArk Bearer key; arbitrary BYOE
+self-service is not implemented. See the
+[authority contract](../specs/SPEC_HOSTED_BYOK.md#byoe-endpoint-authority).
+
+If generation uses a different model from the checked endpoint, inspect the
+create arguments: an explicit `model` wins over endpoint headers.
+`models[].is_default` describes the server default; `connection.routes`
+describes the request's header/default selection. Client snippets and setup
+actions are in [shared-server setup](setup/shared-server.md#generate-a-client-snippet).
+
 ## Unknown Tool over HTTP
 
-Check `ark_list_models.services`. HTTP has 9 tools, or 12 when OmniHuman is
+Check `ark_list_models.services`. HTTP has 7 tools, or 10 when OmniHuman is
 enabled, and no jobs/native tasks/storage/artifact tools/resources. Missing
 operator provider keys do not hide HTTP tools. Asset administration is
 unavailable on either transport. Call HTTP provider tools directly in the

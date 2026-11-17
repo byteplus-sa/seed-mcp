@@ -1,19 +1,18 @@
-# Workflows, background jobs, and error handling
+# Direct workflows and error handling
 
-How to run work end to end: background jobs, the production workflows that
+How to run work end to end: direct calls, the production workflows that
 need record-keeping, retry and error rules, and practices the tool schemas do
 not spell out. Parameters live in the tool schemas (see
 [API reference](https://byteplus-sa.github.io/ark-mcp/api-reference/)); polling and
 artifact recovery are in [polling-and-artifacts.md](polling-and-artifacts.md).
 
-## Background jobs
+## Direct execution
 
-**Stdio only. HTTP calls provider tools directly in the foreground and has
-no ordinary jobs, native tasks, storage/artifact tools or resources.**
+**Both transports call the product tool directly, without MCP jobs or native tasks.**
 For HTTP, read provider IDs from the direct result, poll with the same selected
 provider key/client secret, keep persistence false and download URLs yourself.
-All background/export instructions below describe local stdio.
-HTTP rejects explicit per-call `io.modelcontextprotocol/tasks` opt-in, including
+All persistence/export instructions below describe local stdio.
+Both transports reject explicit per-call `io.modelcontextprotocol/tasks` opt-in, including
 on discovery, before provider dispatch, snapshot capture/save or queue creation.
 Omit task opt-in; ordinary jobs are not an HTTP fallback.
 
@@ -25,67 +24,25 @@ Failed/partial/cancelled attempts are unresolved with known IDs, never
 automatically resumed; do not change keys to bypass uncertain acceptance.
 Keep the original provider/client credentials and same server state/HMAC
 configuration. Seedance dry runs need no key or journal; stdio rejects keys.
-The job examples below remain keyless.
+The local examples below remain keyless.
 
-**Long-running tools run in a background worker. Use the ordinary
-`ark_job_*` tools unless native task support is confirmed.** Most clients
-cannot negotiate MCP task augmentation, and seeing the tools does not prove
-they can.
+Call with `{"input": {...}}`, check `is_error`, then read `structured_content`.
+No MCP job IDs, worker snapshots or execution claims exist. Provider queues
+and HTTP journal/ownership records remain separate.
 
-| Mode | Tools |
-|---|---|
-| Required | `seed_audio_generate`, `media_upload`, `omnihuman_create_task`, `seedream_generate_image`, `seedance_create_task`, `seed_understand`, `seed_audio_understand` |
-| Optional | `seed_media_persist_url`, `omnihuman_get_task`, `gen_task_get` |
-| Foreground only | `ark_list_models`, `ark_job_*`, `gen_task_list`, `gen_task_cancel_or_delete`, `omnihuman_cancel_task`, `media_presign`, artifact reads and exports |
-
-### Submit and poll
-
-1. `ark_job_capabilities`: lists the enabled, authorized targets with their
-   input schemas. A tool missing here is unavailable (not configured or not
-   in the caller's scopes).
-2. `ark_job_submit` with `{"input": {"tool_name": "<tool>", "arguments": {"input": {...}}}}`.
-   `arguments` is the target tool's full argument object, normally
-   `{"input": {...}}`. Keep the returned `job_id`.
-3. `ark_job_get` no faster than `poll_after_ms` (the worker advertises about
-   two seconds) until `status` is `completed`, `failed`, or `cancelled`.
-4. Read the original tool result from `result` (use `result.structured_content`);
-   `result.is_error` marks a target-tool error. Provider task IDs (Seedance,
-   OmniHuman) are inside that result.
-5. `ark_job_cancel` stops the local worker only. A provider operation already
-   accepted by BytePlus keeps running and billing.
-
-A `dry_run` call makes no provider request but still runs in the worker.
-Respect `poll_after_ms` and poll until terminal; the first poll need not finish.
-
-**Native task alternative.** A client that negotiated
-`io.modelcontextprotocol/tasks` can call the tool directly with task metadata
-and poll `tasks/get`. Same handler, same worker, same payload; only the
-protocol surface differs. Elsewhere, "run in the background" means
-`ark_job_submit` or native augmentation, and "background result" means the
-terminal `ark_job_get.result` or `tasks/get` response.
-
-### Job safety rules
-
-- **The Ark `job_id` is not a provider task ID.** Never pass one where the
-  other is expected.
-- **Submission is non-idempotent: never blindly resubmit.** After a timeout,
-  disconnect, or lost response the job may already be queued. Check the job
-  by `job_id` (or reconcile by provider task ID) before submitting again. The
-  one safe resubmission is a required tool that a client without task support
-  called directly: that was rejected before any provider work.
-- **Jobs are process-local on stdio.** Each stdio client starts its own
-  server, so another client cannot see the job and `ark_job_get` reports it as
-  unknown. HTTP cannot share local jobs. The default in-memory backend loses jobs when
-  the server restarts; keep the provider task ID so work can be polled
-  directly afterwards.
-- Required-task execution is claimed once: an interrupted job does not
-  silently replay paid work. Reconcile an ambiguous outcome before submitting
-  again.
-- **Local-write options inside jobs** (`output_path`, `output_dir`,
-  `save_to`): a background worker has no MCP roots, so the server must have
-  `OUTPUT_ROOTS` set or the call is rejected before any provider call.
-  `persist_output=true` works. See
-  [background-job-output.md](background-job-output.md).
+- Owner-first admission waits up to `MCP_ADMISSION_TIMEOUT_SECONDS=2.0`
+  (finite positive, max 30), then reserves budget after acquiring slots.
+  `ADMISSION_TIMEOUT` means this attempt did not dispatch, not the whole batch.
+- `MCP_TOOL_TIMEOUT_SECONDS=600.0` (finite positive, max 3600) starts at wrapper
+  entry before credentials, journal and admission. Use client timeout 660
+  seconds and compatible proxy settings.
+- `TOOL_DEADLINE_EXCEEDED` retains mutation uncertainty and known safe IDs.
+  External cancellation propagates; SDK/SQLite cleanup can exceed the
+  cooperative deadline. Timeout does not cancel provider work.
+- Never blindly resubmit. Poll known provider IDs or reconcile with the
+  provider. Local calls have no submission journal or automatic replay.
+- Local writes use live MCP roots or `OUTPUT_ROOTS`; persistence itself
+  needs no output roots. See [local-output.md](local-output.md).
 
 ## Production workflows
 
@@ -95,9 +52,9 @@ For Seedance and OmniHuman:
 
 1. Check limits with `ark_list_models`; for Seedance and Seedream also run a
    `dry_run: true` call to confirm the request and `estimated_cost_usd`.
-2. Submit in the background and read every provider `task_id` from the
-   background result (check per-variation `error` and `failed`).
-3. **Record before the first poll**: provider task ID(s), the Ark job ID,
+2. Submit directly and read every provider `task_id` from the
+   direct result (check per-variation `error` and `failed`).
+3. **Record before the first poll**: provider task ID(s), request IDs,
    request parameters, a prompt hash, and the intended output path in your
    manifest. This is what makes a restart recoverable.
 4. Poll and persist as described in
@@ -113,7 +70,7 @@ For Seedance and OmniHuman:
 
 ### Seedance run: submit, poll, persist
 
-1. `seedance_create_task` through `ark_job_submit`. The result lists `tasks[]`
+1. Call `seedance_create_task` directly. The result lists `tasks[]`
    for a successful single call or variation batch. A variation can contain
    both `task_id` and `error` when accepted-task ownership recording fails.
    `submitted` counts known accepted IDs; `failed` counts entries with errors,
@@ -130,9 +87,9 @@ For Seedance and OmniHuman:
    IDs in one `gen_task_get` call** in the
    foreground (`persist_output` omitted) at `recommended_poll_after_ms` until
    `all_terminal`.
-3. Persist: rerun `gen_task_get` once through `ark_job_submit` with
+3. On stdio, persist: rerun `gen_task_get` directly with
    `persist_output=true` (add `output_dir` to also write the files locally,
-   which needs `OUTPUT_ROOTS`). Record the artifact IDs, or download the
+   which needs live MCP roots or `OUTPUT_ROOTS`). Record the artifact IDs, or download the
    `video` output's `source_url` (valid about 24 h) yourself and record bytes,
    SHA-256 and `ffprobe` properties.
 4. Draft flow (regular 2.5 only, not Flash): submit `draft=true` (480p), poll it to success,
@@ -172,20 +129,20 @@ For Seedance and OmniHuman:
 
 ### Seedream generate, review, edit
 
-- Agree an explicit paid-attempt and estimated USD budget before iterating,
-  including `seed_understand` reviews. Stop at either limit; never reroll
+- Agree an explicit paid-attempt and estimated USD budget before iterating.
+  Stop at either limit; never reroll
   automatically after byte-inspection or creative failures.
 - Keep the original prompt privately with reference hashes and a lineage
-  manifest. Record Ark job ID, `generations[].request_id`, submitted `seed`,
+  manifest. Record `generations[].request_id`, submitted `seed`,
   final `prompt_sha256` (including edit markup), `request_options`, usage,
   artifact ID and SHA-256. Omitted/random seeds are not recovered provider seeds.
 - Check delivery errors, persistence and `images[].inspection` first.
   `verified` means valid bytes and checked claims, not visual acceptance.
   Provider reports and local measurements are separate; null is unknown.
 - Review exact text and absence of forbidden text, counts, geometry,
-  visibility, anatomy and composition with an authorized human or
-  `seed_understand` via `ark_job_submit`. Use exported bytes or `media_upload`
-  for a supported review reference; never assume understanding is perfect OCR.
+  visibility, anatomy and composition with an authorized human or separately
+  configured external reviewer. Use exported bytes or a provider URL;
+  this server does not perform media review or OCR.
 - Keep `Pass`, `Partial`, `Fail` and `Not evaluated` separate. A review refusal
   or unavailable reviewer is not a generation failure; exclude it from assessed
   denominators and do not bypass it.
@@ -209,7 +166,7 @@ For Seedance and OmniHuman:
 
 This works on both transports with the normal ModelArk key. No asset
 administration or asset-to-URL fallback is exposed. Ordinary uploads are
-not provider assets. See [understanding-media-assets.md](understanding-media-assets.md).
+not provider assets. See [media-assets.md](media-assets.md).
 
 ### Variations and dry runs
 
@@ -278,9 +235,9 @@ to 3 attempts, exponential backoff from 0.25 s capped at 4 s with 20% jitter,
 honoring `Retry-After` (also capped at 4 s). After that the error reaches you.
 
 Uncertain mutation transport failures and malformed 2xx responses are
-ambiguous/nonretryable, including billable understanding completions.
+ambiguous/nonretryable.
 Eligible 429 rejections, demonstrably pre-dispatch connection/pool failures and
-reads retain bounded retries. Chat/mutation 5xx responses may still carry
+reads retain bounded retries. Mutation 5xx responses may still carry
 `retryable=true`, but `ambiguous_completion=true` prevents automatic retry.
 Diagnostics are sanitized; never add blind client-side retries.
 HTTP asynchronous-create receipt recovery is implemented; synchronous product
@@ -294,12 +251,7 @@ selected checkout.
 |---|---|---|---|
 | Create / generate / cancel / delete | `retryable=false`, `ambiguous_completion=true` | No | Reconcile by task or request ID; do not resubmit |
 | Task polls (Seedance, OmniHuman) | `retryable=true`, `ambiguous_completion=false` | Yes | Poll again |
-| `seed_understand`, `seed_audio_understand` | `retryable=false`, `ambiguous_completion=true` | No | Completion may already be billed; reconcile by request ID when available |
 
-- Understanding also disables automatic connect/pool `TIMEOUT` retries.
-  Response loss, read/write/protocol failures and malformed provider 2xx
-  responses are not safe retry signals. `json_retry` applies only to a received
-  answer's JSON validation, not a lost or malformed provider response.
 - A lost response may still hide accepted work; reconcile safe task/request IDs.
 - Any `TIMEOUT` attempts to commit the budget reservation, since it may have
   been billed. Finalization failure leaves conservative reserved allowance,
@@ -332,8 +284,7 @@ recover from a ledger problem.
 | `Request is not valid for model ...` (Seedance, Seedream) | Request breaks that model's limits; every violation is listed | Fix each item or pick another model from `ark_list_models`; re-check with `dry_run: true` |
 | Model not found | Unknown ID (exact IDs only) | Use the did-you-mean hint or `ark_list_models` |
 | Artifact has `persistence_error` | Billed output, storage failed after retries | `id="provider-url"`: `seed_media_persist_url` before `source_url_expires_at`; `id="inline-fallback"`: bytes are in `fallback_data` |
-| `output_path` / `save_to` rejected | No MCP roots and no `OUTPUT_ROOTS`, relative path, outside roots, HTTP transport, or `persist=false` | Absolute path inside a root on stdio, set `OUTPUT_ROOTS`, `overwrite=true` to replace a different file |
-| `seed_understand` result too large | Long answer inlined | `save_to` with `return_content="none"` or `"summary"`; read `parsed` for JSON |
+| `output_path` rejected | No MCP roots and no `OUTPUT_ROOTS`, relative path, outside roots, HTTP transport, or `persist=false` | Absolute path inside a root on stdio, set `OUTPUT_ROOTS`, `overwrite=true` to replace a different file |
 | `media_upload` rejected for `MEDIA_UPLOAD_BATCH_MAX_BYTES` | Total size over the cap; nothing uploaded | Split into smaller calls |
 | `media_upload` succeeds with `failed > 0` | Some items failed (validation, missing file, uninferable `mime_type`, provider) | Read `items[].error`; re-upload only those, retrying when `retryable=true` |
 | Presigned URL expired / `NOT_OWNED` | TTL elapsed (default 30 min) / key not uploaded by this caller | `media_presign` with the `object_keys`; re-upload foreign keys |
@@ -351,15 +302,9 @@ recover from a ledger problem.
   keys it needs and submit immediately. Use a long `expires_in_seconds` (for
   example 3600) for references, which are fetched asynchronously. Existing
   native `asset://` references do not need an ordinary upload or presign.
-- **Choose the understanding tool by output:** `seed_understand` for images
-  and video (schema-enforced reviews via `response_format`, `json_retry=1`,
-  `save_to` with `return_content="none"`), `seed_audio_understand` for audio
-  transcription and reasoning. Model-generated timestamps are not dedicated
-  ASR alignment; verify timing-sensitive output against the recording.
 - **Verify saved media, not task status** (see the QA sections).
 - **Persist before cleaning up.** Provider URLs expire (2 h audio, 24 h
   ModelArk image/video, 1 h OmniHuman); `gen_task_cancel_or_delete` removes retrievable outputs.
 - **Write straight to the project on stdio** with `output_path`,
-  `output_dir`, or `save_to` instead of a follow-up export, and check
-  `local_path` / `export_error`. Inside `ark_job_submit` see
-  [background-job-output.md](background-job-output.md).
+  `output_dir` instead of a follow-up export, and check
+  `local_path` / `export_error`. See [local-output.md](local-output.md).

@@ -121,7 +121,7 @@ not automatically commit machine-specific project configuration.
 Use **MCP: List Servers**, or the MCP/customizations panel available in your
 edition, and run the [discovery-only check](index.md#verify-without-paid-calls).
 Continue with [Your First Tool Call](../setup/first-run.md). Finish active
-jobs before restarting the connection.
+calls before restarting the connection.
 
 See [Integrations](index.md), [Cursor](cursor.md),
 [Getting Started](../getting-started.md), [Tools](../tools.md), and

@@ -12,8 +12,6 @@ provider-credential convention.
 
 from __future__ import annotations
 
-import asyncio
-import contextlib
 from typing import Any, cast
 
 import tos
@@ -23,6 +21,7 @@ from tos.exceptions import TosClientError, TosServerError
 from ark_mcp.config.env import get_settings
 from ark_mcp.domain.errors import NormalizedProviderError, ProviderError, ProviderName
 from ark_mcp.observability.logger import info as log_info
+from ark_mcp.providers.base import BlockingSdkCalls
 
 PROVIDER: ProviderName = "tos"
 
@@ -56,6 +55,7 @@ class TosGateway:
             region=settings.tos_region,
             security_token=settings.tos_security_token or None,
         )
+        self._calls = BlockingSdkCalls()
 
     async def upload_bytes(self, *, key: str, data: bytes, mime_type: str) -> None:
         """Upload raw bytes to TOS via ``put_object``."""
@@ -107,17 +107,15 @@ class TosGateway:
         return cast("str", await self._dispatch(_presign, operation="presign"))
 
     async def close(self) -> None:
-        client = self._client
-        self._client = None
-        close = getattr(client, "close", None)
-        if not callable(close):
-            return
-        with contextlib.suppress(Exception):
-            await asyncio.to_thread(close)
+        close = getattr(self._client, "close", None)
+        try:
+            await self._calls.close(close if callable(close) else None, provider=PROVIDER)
+        finally:
+            self._client = None
 
     async def _dispatch(self, func: Any, *, operation: str) -> Any:
         try:
-            return await asyncio.to_thread(func)
+            return await self._calls.run(func, side_effect=operation != "presign")
         except TosServerError as exc:
             raise _normalize_server_error(exc, operation) from None
         except TosClientError as exc:

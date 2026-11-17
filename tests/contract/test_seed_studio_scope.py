@@ -24,10 +24,6 @@ from ark_mcp.tools.seedream_generate_image import SeedreamGeneratePreview
 from tests.fixtures.fake_context import FakeContext
 
 SUPPORTED_TOOLS = {
-    "ark_job_capabilities",
-    "ark_job_submit",
-    "ark_job_get",
-    "ark_job_cancel",
     "ark_list_models",
     "seed_media_get_artifact",
     "seed_media_export_artifact",
@@ -43,8 +39,6 @@ SUPPORTED_TOOLS = {
     "gen_task_get",
     "gen_task_list",
     "gen_task_cancel_or_delete",
-    "seed_understand",
-    "seed_audio_understand",
 }
 
 HTTP_PROVIDER_TOOLS = {
@@ -55,14 +49,12 @@ HTTP_PROVIDER_TOOLS = {
     "gen_task_get",
     "gen_task_list",
     "gen_task_cancel_or_delete",
-    "seed_understand",
-    "seed_audio_understand",
 }
 OMNIHUMAN_TOOLS = {"omnihuman_create_task", "omnihuman_get_task", "omnihuman_cancel_task"}
 
 
 def test_catalog_exposes_only_seed_studio_services() -> None:
-    assert len(CATALOG) == 21
+    assert len(CATALOG) == 15
     assert {entry.name for entry in CATALOG} == SUPPORTED_TOOLS
 
 
@@ -97,7 +89,7 @@ async def test_http_catalog_is_static_and_provider_only(
     names = {tool.name for tool in await server.list_tools()}
     expected = HTTP_PROVIDER_TOOLS | (OMNIHUMAN_TOOLS if omnihuman_enabled else set())
     assert names == expected
-    assert len(names) == (12 if omnihuman_enabled else 9)
+    assert len(names) == (10 if omnihuman_enabled else 7)
     assert await server.list_resources() == []
     assert await server.list_resource_templates() == []
 
@@ -125,6 +117,9 @@ def test_removed_service_settings_are_not_part_of_configuration() -> None:
                 "seed_speech_asr_",
                 "modelark_asset",
                 "modelark_pricing_",
+                "seed_understanding_",
+                "seed_audio_understanding_",
+                "modelark_files_",
             )
         )
         or name
@@ -151,14 +146,15 @@ def test_discovery_does_not_offer_removed_services() -> None:
     assert names == {"modelark", "seed_audio", "omnihuman", "object_storage"}
 
 
-@pytest.mark.parametrize("kind", ["3d", "audio", "vod", "asr"])
+@pytest.mark.parametrize("kind", ["3d", "audio", "vod", "asr", "understanding"])
 def test_discovery_rejects_unsupported_kinds(kind: str) -> None:
     with pytest.raises(ValidationError):
         ArkListModelsInput.model_validate({"kind": kind})
 
 
 def test_discovery_schema_has_no_operator_pricing() -> None:
-    assert set(ArkListModelsOutput.model_fields) == {"models", "services"}
+    assert set(ArkListModelsOutput.model_fields) == {"models", "services", "connection"}
+    assert ArkListModelsOutput.model_fields["connection"].default is None
     assert "pricing" not in ModelInfo.model_fields
 
 
@@ -222,24 +218,24 @@ def test_preview_rejects_account_pricing_claims(source: str) -> None:
         )
 
 
-@pytest.mark.parametrize("kind", [None, "video", "image", "understanding"])
+@pytest.mark.parametrize("kind", [None, "video", "image"])
 async def test_discovery_is_offline_and_filters_retained_models(
     all_services_enabled: None, kind: str | None
 ) -> None:
     refresh_capability_registry()
     result = await ark_list_models(ArkListModelsInput.model_validate({"kind": kind}), FakeContext())
     assert result.models
-    expected_kinds = {kind} if kind else {"video", "image", "understanding"}
+    expected_kinds = {kind} if kind else {"video", "image"}
     assert {model.kind for model in result.models} == expected_kinds
     assert all(model.tool in SUPPORTED_TOOLS for model in result.models)
     assert all(service.enabled for service in result.services)
-    assert set(result.model_dump()) == {"models", "services"}
+    assert set(result.model_dump()) == {"models", "services", "connection"}
+    assert result.connection is None
     assert all("pricing" not in model.model_dump() for model in result.models)
 
 
-def test_configured_models_returns_three_retained_maps() -> None:
+def test_configured_models_returns_two_retained_maps() -> None:
     registry = refresh_capability_registry()
-    image, video, understanding = registry.configured_models()
+    image, video = registry.configured_models()
     assert set(image) == set(registry.list_image_models())
     assert set(video) == set(registry.list_video_models())
-    assert set(understanding) == set(registry.list_understanding_models())

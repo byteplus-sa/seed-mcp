@@ -74,34 +74,6 @@
       }
     ]
   },
-  "seed_understand": {
-    "selection": "Pass an exact configured ID as `model`, or omit it for `SEED_UNDERSTANDING_DEFAULT_MODEL`. Custom IDs require an explicit `turbo` or `pro` binding in `SEED_UNDERSTANDING_MODEL_BINDINGS`.",
-    "models": [
-      {
-        "name": "Seed 2.1 Turbo",
-        "id": "`dola-seed-2-1-turbo-260628`",
-        "availability": "Built-in default.",
-        "capabilities": "Images/video; 32 combined media parts; 256K context; deep thinking; text, JSON object or JSON Schema output."
-      },
-      {
-        "name": "Seed-series Pro",
-        "id": "`dola-seed-evolving`",
-        "availability": "Opt-in default or configured `pro` binding; account activation required.",
-        "capabilities": "Images/video; 32 combined media parts; 256K context; deep thinking; text, JSON object or JSON Schema output."
-      }
-    ]
-  },
-  "seed_audio_understand": {
-    "selection": "This tool has no per-call `model` argument. `SEED_AUDIO_UNDERSTANDING_MODEL` selects a ModelArk model supporting Chat Completions `input_audio` with deep thinking; other compatible, authorized IDs may be configured.",
-    "models": [
-      {
-        "name": "Seed 2.0 Lite (audio understanding)",
-        "id": "`seed-2-0-lite-260428`",
-        "availability": "Server-configured model; local `BYTEPLUS_MODELARK_API_KEY` or HTTP `X-ModelArk-Api-Key` plus client secret.",
-        "capabilities": "1-8 audio clips; transcription, translation, analysis and Q&A; JSON Schema for structured output; oversized URL inputs can use the Files API (up to 512 MB)."
-      }
-    ]
-  },
   "omnihuman_create_task": {
     "selection": "This tool has no per-call `model` argument. The identifier is a Vision AI service `req_key`, configurable with `BYTEPLUS_OMNIHUMAN_REQ_KEY`, not a ModelArk model ID.",
     "models": [

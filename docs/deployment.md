@@ -1,10 +1,13 @@
 # Deployment
 
 HTTP deployments implement the [BYOK foundation](../specs/SPEC_HOSTED_BYOK.md).
-Run one instance with fresh SQLite state. HTTP asynchronous-create idempotency
+The cloud path is dedicated VKE, replacing ECS/Compose: Terraform provisions
+infrastructure; Helm runs one StatefulSet pod with Caddy and retained ext4
+ReadWriteOnce EBS. No application HPA is supported. Start new installations
+with fresh SQLite state. HTTP asynchronous-create idempotency
 is implemented; synchronous product replay and complete crash recovery remain
 deferred. PostgreSQL/Redis are future scaling choices, not initial requirements.
-This is not a multi-replica or public-launch claim. Local stdio retains jobs,
+This is not a multi-replica or public-launch claim. Local stdio retains
 storage and artifacts separately.
 
 ## Build the Container
@@ -22,44 +25,70 @@ Old database schemas are not migrated. Retain old state separately.
 
 ## Run One Instance
 
-Prepare an owner-only runtime env file outside Git with `MCP_AUTH_MODE=byok`,
-`MCP_IDENTITY_HMAC_KEY` (operator-generated 32 random bytes, 64 lowercase hex)
-and `MCP_IDENTITY_KEY_VERSION=1`. This HMAC key is not a customer credential.
-Do not put provider keys, client secrets or task-backend credentials in it.
-The defaults enforce 60 RPM, a 2 MiB body limit, 64 in-flight requests and
-`STATE_MAX_RECORDS=100000`. See [configuration](configuration.md).
+Follow the [staged VKE runbook](byteplus-terraform.md#staged-vke-deployment).
+Use a separate fresh Terraform state, never old ECS state. The private control
+plane needs operator private connectivity. Both `csi-ebs` and
+`cloud-controller-manager` are VKE-admin owned outside Terraform/Helm:
+inspect existing installations, install only absent compatible maintained
+versions through VKE, and verify CSI readiness, Ready nodes and CCM Running.
+`prerequisitesConfirmed=true` acknowledges checks, not proof of their success.
 
-The private file and new volume must be prepared before this example:
+Helm references existing Secrets only: operator `MCP_IDENTITY_HMAC_KEY`
+(random 32 bytes, 64 lowercase hex) and positive `MCP_IDENTITY_KEY_VERSION`,
+plus a distinct TLS Secret. Terraform never retrieves or stores these or a
+kubeconfig. No provider keys or client secrets belong in the pod environment.
+The HMAC key is not a customer credential. Keep the same state and matching
+identity across updates.
+
+These local commands render synthetic manifests only; they do not install
+anything or prove live readiness:
 
 ```bash
-docker run --detach \
-  --name seed-mcp \
-  --publish 127.0.0.1:3000:3000 \
-  --env-file /absolute/private/operator.env \
-  --env MCP_TRANSPORT=http \
-  --env MCP_HOST=0.0.0.0 \
-  --env MCP_AUTH_MODE=byok \
-  --env MCP_ALLOWED_HOSTS=mcp.example.com,127.0.0.1 \
-  --volume seed-mcp-fresh-state:/app/.artifacts \
-  seed-mcp:reviewed
+helm lint deploy/helm/seed-mcp -f deploy/helm/seed-mcp/values.ci.yaml
+helm template seed-mcp deploy/helm/seed-mcp -f deploy/helm/seed-mcp/values.ci.yaml
 ```
 
-Put trusted TLS ingress in front of the loopback port. Preserve Host, reject
-untrusted Origins and set proxy/client timeouts for foreground work.
+The CLB forwards TCP 443 to Caddy 8443 in the same pod; only `/mcp` and
+`/health` are public. FastMCP binds `127.0.0.1:3000`, trusts
+`RATE_LIMIT_TRUSTED_PROXY_CIDRS=127.0.0.1/32`, and disables Uvicorn proxy
+rewriting. Caddy overwrites forwarding headers. The old boolean trust setting
+is removed. Default limits remain 60 RPM, 2 MiB bodies, 64 in-flight requests
+and `STATE_MAX_RECORDS=100000`. See [configuration](configuration.md).
+
+Use client timeout 660 seconds with `MCP_TOOL_TIMEOUT_SECONDS=600.0`
+(finite positive, max 3600). Provider admission defaults to 2 seconds
+(`MCP_ADMISSION_TIMEOUT_SECONDS`, finite positive, max 30), owner-first before
+budget reservation. SDK/SQLite draining may exceed the cooperative deadline.
+Do not treat an admission error for one attempt as proof that a whole batch
+was unsubmitted; preserve known accepted IDs and never blindly resubmit.
 Request headers carry only the selected provider key and
 `X-MCP-Client-Secret`; [client setup](setup/shared-server.md) explains them.
 Do not configure OAuth, signup or a server-issued connection key.
 
 ## Probes and Monitoring
 
+After deployment, an authorized operator with private API access can inspect
+the backend using the Python executable already in the app container. The
+example assumes namespace/release `seed-mcp`; select the actual pod:
+
 ```bash
-curl --fail http://127.0.0.1:3000/health
-curl --fail http://127.0.0.1:3000/ready
+kubectl -n seed-mcp exec seed-mcp-0 -c app -- \
+  /app/.venv/bin/python -c \
+  "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:3000/health', timeout=2).status)"
+kubectl -n seed-mcp exec seed-mcp-0 -c app -- \
+  /app/.venv/bin/python -c \
+  "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:3000/ready', timeout=2).status)"
 ```
 
-These return minimal process/state status; HTTP readiness never probes
-providers. `/metrics` is unavailable on HTTP. Application logs and provider
-spans use sanitized diagnostics; never enable proxy logging of BYOK headers.
+These use the chart's loopback exec probe targets and print HTTP status only.
+The routes return minimal process/state status; HTTP readiness never probes
+providers. `/ready` is blocked by Caddy; do not use it as a public probe.
+`/metrics` is absent from the main app and public proxy. Optional
+`MCP_METRICS_PORT` defaults to `0` (off) and otherwise binds only 127.0.0.1;
+the chart's `app.metricsEnabled=true` selects port 9000. Use authorized
+pod port-forward for [private metrics](observability.md#metrics-endpoint).
+Application logs and provider spans use sanitized diagnostics; never enable
+proxy logging of BYOK headers.
 Discovery is anonymous and static, so a successful discovery check does not
 prove the caller's provider key works.
 
@@ -74,15 +103,21 @@ Submission claims never auto-prune, even when ownership expires.
 `STATE_MAX_RECORDS` caps journal claims; at capacity existing keys remain
 readable but new keys fail before dispatch. Do not erase claims to admit work.
 
-HTTP is stateless, with no ordinary jobs, native tasks, storage/artifact tools
+HTTP transport sessions are stateless, but ownership/budgets/journal are durable.
+There are no ordinary jobs, native tasks, storage/artifact tools
 or media resources. Do not provision Redis snapshots for hosted requests.
 Clients download expiring provider outputs; server persistence is rejected.
-Audio Files API temporary uploads are distinct and cleaned up with the request
-key, best-effort.
 
-Drain in-flight foreground work before restart. The entrypoint allows up to
-`BYTEPLUS_REQUEST_TIMEOUT_MS` for graceful shutdown; orchestrator grace must
-cover it plus cleanup. A forced stop or lost submission response can leave
+The HTTP runtime holds an exclusive `runtime.sqlite3.lock` from before stores/
+recovery until all state users close. Contention fails startup closed; never
+unlink an active lock or share SQLite over a network filesystem. This lease
+is not distributed fencing or permission to run multiple pods.
+
+Drain in-flight foreground work before restart. The entrypoint grace is
+`max(MCP_TOOL_TIMEOUT_SECONDS, BYTEPLUS_REQUEST_TIMEOUT_MS / 1000) + 30`
+seconds; Caddy uses the same allowance and the chart adds 60 instead of 30
+for pod termination. Defaults are 630/660 seconds, not a hard cleanup bound.
+A forced stop or lost submission response can leave
 an unknown provider outcome. Reconcile using saved task/request IDs, never
 blindly recreate work. Non-dry HTTP Seedance/OmniHuman calls require
 `idempotency_key`, one per whole call. Repeat identical arguments/key only for
@@ -95,6 +130,8 @@ supplied keys. See the
 
 - Keep one application replica and a fresh private state directory.
 - Protect operator HMAC configuration and backups; never distribute it.
+- Preserve consistent SQLite/WAL state and matching HMAC; no blind restore,
+  reset, claim deletion or requeue. See [recovery](byteplus-terraform.md#backup-upgrade-and-recovery).
 - Verify fixed official provider origins and no environment-key fallback.
 - Keep positive admission/body/rate/state limits and explicit Host/Origin policy.
 - Verify anonymous discovery and denial of missing credentials on provider calls.
@@ -102,6 +139,8 @@ supplied keys. See the
 - Validate exact-client headers, TLS, load and restore behavior separately.
 
 The [BytePlus guide](byteplus-terraform.md) describes infrastructure
-prerequisites. It is not authorization to provision resources or publish an
-endpoint. Public launch remains gated on capacity/recovery procedures,
-synchronous product replay, live validation and hardening work.
+prerequisites. Source deletion is not cloud decommissioning: retain the
+reviewed old checkout, private workspaces, old state and backups for explicit
+retirement. No command here authorizes cloud provisioning or paid generation.
+Live VKE apply, source-IP, CSI, rollout and real-client/provider acceptance
+remain unverified. Mocked TLS/load checks are not capacity certification.

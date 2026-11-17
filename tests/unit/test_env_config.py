@@ -2,12 +2,180 @@
 
 from __future__ import annotations
 
+from ipaddress import ip_network
 from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
 
 from ark_mcp.config.env import Settings, get_settings, resolve_env_file, validate
+
+
+class TestHostedProxySettings:
+    def test_defaults_and_retired_switch_are_safe(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        monkeypatch.setenv("RATE_LIMIT_TRUST_PROXY_HEADERS", "true")
+        settings = Settings(_env_file=None)
+        assert settings.rate_limit_trusted_proxy_cidrs == ""
+        assert settings.trusted_proxy_networks == ()
+        assert "rate_limit_trust_proxy_headers" not in Settings.model_fields
+
+    @pytest.mark.parametrize(
+        ("value", "expected"),
+        [
+            ("", ()),
+            ("  ", ()),
+            ("127.0.0.1/32", ("127.0.0.1/32",)),
+            (" 10.0.0.0/8 , 2001:DB8::/32 ", ("10.0.0.0/8", "2001:db8::/32")),
+            ("::ffff:127.0.0.1/128", ("127.0.0.1/32",)),
+            ("::ffff:10.0.0.0/104", ("10.0.0.0/8",)),
+        ],
+    )
+    def test_environment_networks_are_validated_and_canonicalized(
+        self, monkeypatch: pytest.MonkeyPatch, value: str, expected: tuple[str, ...]
+    ) -> None:
+        monkeypatch.setenv("RATE_LIMIT_TRUSTED_PROXY_CIDRS", value)
+        settings = Settings(_env_file=None)
+        assert settings.trusted_proxy_networks == tuple(map(ip_network, expected))
+        assert settings.model_dump(mode="json")["rate_limit_trusted_proxy_cidrs"] == ",".join(
+            expected
+        )
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "*",
+            "0.0.0.0/0",
+            "::/0",
+            "::ffff:0.0.0.0/96",
+            "0.0.0.0/1,128.0.0.0/1",
+            "::/1,8000::/1",
+            "127.0.0.1",
+            "localhost/32",
+            "10.0.0.1/8",
+            "127.0.0.1/33",
+            "fe80::%lo0/64",
+            "127.0.0.1/32,",
+            ",127.0.0.1/32",
+            "127.0.0.1/32,,::1/128",
+            "127.0.0.1/255.255.255.255",
+            "127.0.0.1/32\ninvalid",
+        ],
+    )
+    def test_invalid_and_catchall_networks_fail_startup(
+        self, monkeypatch: pytest.MonkeyPatch, value: str
+    ) -> None:
+        monkeypatch.setenv("RATE_LIMIT_TRUSTED_PROXY_CIDRS", value)
+        with pytest.raises(ValidationError, match="RATE_LIMIT_TRUSTED_PROXY_CIDRS"):
+            Settings(_env_file=None)
+
+    def test_null_network_configuration_is_rejected(self) -> None:
+        with pytest.raises(ValidationError, match="RATE_LIMIT_TRUSTED_PROXY_CIDRS"):
+            Settings(_env_file=None, RATE_LIMIT_TRUSTED_PROXY_CIDRS=None)
+
+    def test_metrics_are_disabled_by_default(self) -> None:
+        assert Settings(_env_file=None).metrics_port == 0
+
+    @pytest.mark.parametrize("transport", ["stdio", "http"])
+    @pytest.mark.parametrize("port", [0, 1024, 9100, 65535])
+    def test_metrics_port_is_available_to_runtime(
+        self, monkeypatch: pytest.MonkeyPatch, transport: str, port: int
+    ) -> None:
+        monkeypatch.setenv("MCP_METRICS_PORT", str(port))
+        monkeypatch.setenv("MCP_TRANSPORT", transport)
+        monkeypatch.setenv("MCP_IDENTITY_HMAC_KEY", "a" * 64)
+        assert Settings(_env_file=None).metrics_port == port
+
+    @pytest.mark.parametrize("value", ["-1", "1", "1023", "65536", "1.5", "invalid", "null"])
+    def test_invalid_metrics_ports_fail_startup(
+        self, monkeypatch: pytest.MonkeyPatch, value: str
+    ) -> None:
+        monkeypatch.setenv("MCP_METRICS_PORT", value)
+        with pytest.raises(ValidationError, match="MCP_METRICS_PORT"):
+            Settings(_env_file=None)
+
+
+class TestDirectExecutionSettings:
+    @pytest.mark.parametrize(
+        ("field", "variable", "default", "maximum"),
+        [
+            ("admission_timeout_seconds", "MCP_ADMISSION_TIMEOUT_SECONDS", 2.0, 30.0),
+            ("tool_timeout_seconds", "MCP_TOOL_TIMEOUT_SECONDS", 600.0, 3600.0),
+        ],
+    )
+    def test_defaults_and_finite_positive_bounds(
+        self,
+        monkeypatch: pytest.MonkeyPatch,
+        field: str,
+        variable: str,
+        default: float,
+        maximum: float,
+    ) -> None:
+        assert getattr(Settings(_env_file=None), field) == default
+        for value in (0.001, default, maximum):
+            monkeypatch.setenv(variable, str(value))
+            assert getattr(Settings(_env_file=None), field) == value
+
+    @pytest.mark.parametrize(
+        "variable", ["MCP_ADMISSION_TIMEOUT_SECONDS", "MCP_TOOL_TIMEOUT_SECONDS"]
+    )
+    @pytest.mark.parametrize("value", ["0", "-1", "nan", "inf", "-inf", "1e309", "invalid"])
+    def test_invalid_environment_values_are_rejected(
+        self, monkeypatch: pytest.MonkeyPatch, variable: str, value: str
+    ) -> None:
+        monkeypatch.setenv(variable, value)
+        with pytest.raises(ValidationError, match=variable):
+            Settings(_env_file=None)
+
+    @pytest.mark.parametrize(
+        ("variable", "maximum"),
+        [
+            ("MCP_ADMISSION_TIMEOUT_SECONDS", 30.0),
+            ("MCP_TOOL_TIMEOUT_SECONDS", 3600.0),
+        ],
+    )
+    def test_values_above_maximum_are_rejected(
+        self, monkeypatch: pytest.MonkeyPatch, variable: str, maximum: float
+    ) -> None:
+        monkeypatch.setenv(variable, str(maximum + 0.001))
+        with pytest.raises(ValidationError, match=variable):
+            Settings(_env_file=None)
+
+    @pytest.mark.parametrize(
+        "variable", ["MCP_ADMISSION_TIMEOUT_SECONDS", "MCP_TOOL_TIMEOUT_SECONDS"]
+    )
+    def test_null_configuration_is_rejected(self, variable: str) -> None:
+        with pytest.raises(ValidationError, match=variable):
+            Settings(_env_file=None, **{variable: None})
+
+    def test_understanding_settings_are_absent(self) -> None:
+        settings = Settings(_env_file=None)
+        for field in (
+            "seed_understanding_default_model",
+            "seed_understanding_model_family",
+            "seed_understanding_model_bindings",
+            "seed_audio_understanding_model",
+            "seed_understanding_timeout_ms",
+            "has_understanding",
+        ):
+            assert not hasattr(settings, field)
+            assert field not in Settings.model_fields
+
+    @pytest.mark.parametrize(
+        "variable",
+        [
+            "SEED_UNDERSTANDING_DEFAULT_MODEL",
+            "SEED_UNDERSTANDING_MODEL_FAMILY",
+            "SEED_UNDERSTANDING_MODEL_BINDINGS",
+            "SEED_AUDIO_UNDERSTANDING_MODEL",
+            "SEED_UNDERSTANDING_TIMEOUT_MS",
+        ],
+    )
+    def test_retired_environment_values_no_longer_affect_configuration(
+        self, monkeypatch: pytest.MonkeyPatch, variable: str
+    ) -> None:
+        expected = Settings(_env_file=None).model_dump()
+        monkeypatch.setenv(variable, "invalid-retired-setting")
+        assert Settings(_env_file=None).model_dump() == expected
 
 
 @pytest.fixture

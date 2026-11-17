@@ -69,7 +69,12 @@ format: ## Format code with ruff
 	$(UV) run ruff format src tests scripts
 
 typecheck: ## Type-check with mypy
-	$(UV) run mypy src
+	$(UV) run mypy src \
+		scripts/configure_http_client.py scripts/export_tool_docs.py \
+		scripts/_smoke_context.py scripts/live_smoke_test.py \
+		scripts/live_smoke_test_variations.py scripts/smoke_seedream55.py \
+		scripts/generate_identity_secret.py scripts/inspect_runtime_state.py \
+		scripts/hosted_acceptance.py
 
 # --- Pre-commit ------------------------------------------------------------
 

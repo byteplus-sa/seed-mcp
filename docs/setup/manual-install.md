@@ -17,7 +17,7 @@ Select the latest published non-draft, non-prerelease
 when available. Do not substitute an upstream Ark MCP release: it can restore
 the broader, removed capability surface. No fork release is assumed here.
 The selected revision must include the dependency security refresh with
-`fastmcp[tasks]>=4.1.8,<4.2`; historical upstream `v0.2.0` is unpatched.
+`fastmcp>=4.1.8,<4.2`; historical upstream `v0.2.0` is unpatched.
 
 Verify the selected release's notes, manifest and lockfile before executing
 it, rather than assuming every feature on main is released. If no suitable
@@ -131,18 +131,18 @@ Do not copy provider credentials to another host without approval.
 ## Verify Without Spending
 
 Use the [discovery request](../integrations/index.md#verify-without-paid-calls)
-from the actual target client. Check requested services and job targets, not
+from the actual target client. Check requested services and product tools, not
 just a green connection indicator. Discovery verifies configuration loading,
 not provider-key validity or account entitlement.
 
 An agent performing a separate startup preflight should use a private
-temporary `ARTIFACT_DIR`, `ARTIFACT_BACKEND=filesystem`, and
-`FASTMCP_DOCKET_URL=memory://`. Disable optional probes for that process with
+temporary `ARTIFACT_DIR` and `ARTIFACT_BACKEND=filesystem`.
+Disable optional probes for that process with
 `READINESS_CHECK_PROVIDERS=false`. Do not save these overrides into normal
 client configuration. Suppress raw validation exceptions and stderr; report
 only failure status and invalid field names, never values.
 
-Ask before restarting a client with active jobs. If verification fails, keep
+Ask before restarting a client with active calls. If verification fails, keep
 the previous installation active and report what remains incomplete.
 
 ## Why Not a Generic Install Command?

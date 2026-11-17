@@ -1,0 +1,10 @@
+.git/
+*.tgz
+values.ci.yaml
+values.private*
+private*
+*.private.*
+.env*
+*.pem
+*.key
+*.crt

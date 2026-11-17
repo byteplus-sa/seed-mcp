@@ -1,9 +1,9 @@
 ---
 title: BytePlus Ark MCP
-description: Connect your AI client to BytePlus image, video, audio, understanding and media tools.
+description: Connect your AI client to BytePlus image, video, audio and media tools.
 template: splash
 hero:
-  tagline: Images, video, audio, avatars and understanding.<br />One MCP server, in the AI client you already use.
+  tagline: Images, video, audio and avatars.<br />One MCP server, in the AI client you already use.
   actions:
     - text: Get started
       link: /ark-mcp/setup/install/
@@ -14,7 +14,7 @@ hero:
     - text: Explore the tools
       link: /ark-mcp/capabilities/
       variant: minimal
-editUrl: https://github.com/byteplus-sa/ark-mcp/edit/main/docs/index.mdx
+editUrl: https://github.com/byteplus-sa/seed-mcp/edit/main/docs/index.mdx
 ---
 
 import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
@@ -32,7 +32,7 @@ import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
 
 <CardGrid>
   <Card title="__TOOL_COUNT__ tools" icon="puzzle">
-    The local catalog has 21 tools. HTTP exposes 9, or 12 with OmniHuman enabled.
+    The local catalog has 15 conditional tools, four always registered. HTTP exposes 7, or 10 with OmniHuman enabled.
   </Card>
   <Card title="Your workflow, connected" icon="rocket">
     Create and poll in your AI client. HTTP returns temporary provider URLs; local stdio can explicitly preserve artifacts.
@@ -65,7 +65,6 @@ The BytePlus models you need, connected through one consistent interface.
   <LinkCard title="Images" description="Generate and edit images with Seedream 5.5, create transparent PNGs and explore variations." href="/ark-mcp/tool-reference/seedream-generate-image/" />
   <LinkCard title="Video" description="Bring prompts and reference media to life with Seedance." href="/ark-mcp/tool-reference/seedance-create-task/" />
   <LinkCard title="Audio" description="Create full-scene speech, music and sound with Seed Audio." href="/ark-mcp/capabilities/#audio" />
-  <LinkCard title="Understanding" description="Analyze images, video and audio with multimodal models." href="/ark-mcp/capabilities/#understanding" />
   <LinkCard title="Avatars" description="Create talking-avatar video from an image and audio with OmniHuman." href="/ark-mcp/capabilities/#avatars" />
 </CardGrid>
 </div>
@@ -74,8 +73,8 @@ Finish local workflows with [object storage and artifacts](/ark-mcp/capabilities
 and [existing Seedance asset references](/ark-mcp/assets/).
 
 Start with anonymous static HTTP discovery before making a paid generation.
-HTTP calls run directly in the foreground, with no jobs/native tasks/storage
-or artifact resources. Local stdio retains those capabilities.
+Both transports call tools directly, without MCP jobs or native tasks.
+Storage and artifact resources remain local stdio only.
 This is a single-instance foundation, not public-launch certification;
 HTTP Seedance/OmniHuman non-dry creates require `idempotency_key` and support
 saved-success receipt recovery, not polling or automatic resume.

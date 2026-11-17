@@ -76,7 +76,7 @@ surface that discrepancy and ask before replacing it.
   for preflight. Do not delete or migrate the active database as a side effect.
   If a release has irreversible state migrations, explain and obtain approval
   for a backup/migration before activation; code rollback alone is insufficient.
-- Check active jobs before restart. Keep the old checkout until activation
+- Check active calls before restart. Keep the old checkout until activation
   and target-client verification succeed.
 - The narrowed media schema no longer serves old saved 3D artifacts. Export
   needed 3D outputs with the old server before upgrading; keeping its state

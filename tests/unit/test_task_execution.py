@@ -1,37 +1,46 @@
-"""Tests for optional background-task execution guards."""
+"""Direct protocol boundary per specs/SPEC_DIRECT_EXECUTION.md."""
 
 from __future__ import annotations
 
-from ark_mcp.tools._task_execution import persistence_requires_task
-from tests.fixtures.fake_context import FakeContext
+import pytest
+import respx
+from fastmcp import Client
+from mcp.client.extension import advertise
+
+from ark_mcp.config.env import Settings
+from ark_mcp.server import create_server
 
 
-def test_persistence_requires_task_for_foreground_context() -> None:
-    context = FakeContext(task_id=None)
-
-    result = persistence_requires_task(context, persist_output=True)
-
-    assert result is not None
-    assert result.is_error is True
-    assert "task-augmented execution" in str(result.content)
-
-
-def test_foreground_status_polling_allows_persistence_disabled() -> None:
-    context = FakeContext(task_id=None)
-
-    assert persistence_requires_task(context, persist_output=False) is None
+async def test_local_server_does_not_register_native_tasks(tmp_path):
+    server = create_server(
+        Settings(_env_file=None, MCP_TRANSPORT="stdio", ARTIFACT_DIR=str(tmp_path))
+    )
+    async with Client(server) as client:
+        assert "io.modelcontextprotocol/tasks" not in server._extensions
+        assert all(tool.execution is None for tool in await client.list_tools())
 
 
-def test_empty_task_identifier_is_not_task_augmented() -> None:
-    context = FakeContext(task_id="")
-
-    result = persistence_requires_task(context, persist_output=True)
-
-    assert result is not None
-    assert result.is_error is True
-
-
-def test_task_augmented_persistence_is_allowed() -> None:
-    context = FakeContext(task_id="task-123")
-
-    assert persistence_requires_task(context, persist_output=True) is None
+@pytest.mark.parametrize(
+    "name", ["ark_list_models", "seedream_generate_image", "seedance_create_task"]
+)
+@respx.mock
+async def test_local_native_opt_in_is_rejected_without_provider_dispatch(tmp_path, name):
+    server = create_server(
+        Settings(
+            _env_file=None,
+            MCP_TRANSPORT="stdio",
+            BYTEPLUS_MODELARK_API_KEY="synthetic-key",  # pragma: allowlist secret
+            ARTIFACT_DIR=str(tmp_path),
+        )
+    )
+    arguments = {"input": {}} if name == "ark_list_models" else {"input": {"prompt": "square"}}
+    async with Client(server, extensions=[advertise("io.modelcontextprotocol/tasks")]) as client:
+        result = await client.call_tool(
+            name,
+            arguments,
+            raise_on_error=False,
+        )
+    assert result.is_error
+    assert result.structured_content is None
+    assert "tasks extension opt-in" in result.content[0].text
+    assert len(respx.calls) == 0

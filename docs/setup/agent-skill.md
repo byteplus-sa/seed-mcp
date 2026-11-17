@@ -105,7 +105,7 @@ An installed folder and a loaded skill are separate checks. Have the agent
 confirm `SKILL.md`, `references/` and `agents/` are present, then check its
 skill list. In Codex, use `/skills`; in Claude Code, look for `/ark-mcp` in
 the command menu. Reload the skill catalog or open a new session if needed,
-after active MCP jobs finish.
+after active MCP calls finish.
 
 Then ask:
 

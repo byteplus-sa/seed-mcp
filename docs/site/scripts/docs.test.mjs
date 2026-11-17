@@ -43,9 +43,9 @@ test("documentation links retain the project base and section fragments", () => 
   assert.equal(
     resolveDocLink(
       "getting-started.md",
-      "integration-guide.md?view=1#background-execution",
+      "integration-guide.md?view=1#direct-execution",
     ),
-    "/ark-mcp/integration-guide/?view=1#background-execution",
+    "/ark-mcp/integration-guide/?view=1#direct-execution",
   );
 });
 
@@ -119,16 +119,16 @@ test("nullable operation keys retain string constraints in field tables", () => 
 });
 
 for (const name of ["seedance_create_task", "omnihuman_create_task"]) {
-  test(`${name} HTTP example separates receipt recovery from polling and local jobs`, () => {
+  test(`${name} HTTP example separates receipt recovery from polling and local calls`, () => {
     const original = JSON.stringify(EXAMPLES);
     const page = toolPage({
       name,
       description: "Create provider tasks.",
-      background: "required",
+      execution: "direct",
       registration_gate: "Local provider configuration.",
       transports: {
         http: {
-          background: null,
+          execution: "direct",
           credential_header: name.startsWith("seedance")
             ? "X-ModelArk-Api-Key"
             : "X-OmniHuman-Api-Key",
@@ -155,11 +155,9 @@ for (const name of ["seedance_create_task", "omnihuman_create_task"]) {
     }
     const local = page.split("Exact MCP call (for developers)</summary>")[1];
     const localCall = JSON.parse(local.match(/```json\n([\s\S]*?)\n```/)[1]);
-    assert.deepEqual(localCall.arguments.input.arguments, EXAMPLES[name]);
-    assert.equal(
-      localCall.arguments.input.arguments.input.idempotency_key,
-      undefined,
-    );
+    assert.equal(localCall.name, name);
+    assert.deepEqual(localCall.arguments, EXAMPLES[name]);
+    assert.equal(localCall.arguments.input.idempotency_key, undefined);
     assert.equal(JSON.stringify(EXAMPLES), original);
     assert.match(page, /UUID/);
     assert.match(page, /recovery, not polling/);
@@ -168,11 +166,11 @@ for (const name of ["seedance_create_task", "omnihuman_create_task"]) {
   });
 }
 
-test("required background tools show the complete ordinary job wrapper", () => {
+test("generation tools show a direct input wrapper without jobs", () => {
   const page = toolPage({
     name: "seedream_generate_image",
     description: "Generate an image.",
-    background: "required",
+    execution: "direct",
     registration_gate: "Requires BYTEPLUS_MODELARK_API_KEY.",
     scope: "seed:image:generate",
     inputSchema: {
@@ -181,10 +179,10 @@ test("required background tools show the complete ordinary job wrapper", () => {
     },
     outputSchema: { properties: { images: { type: "array" } } },
   });
-  assert.match(page, /ark_job_submit/);
+  assert.doesNotMatch(page, /ark_job_submit/);
   assert.match(page, /"arguments": \{\s*"input":/);
   assert.match(page, /"dry_run": true/);
-  assert.match(page, /result\.structured_content/);
+  assert.match(page, /structured_content/);
   assert.match(page, /seed:image:generate/);
   assert.match(page, /Requires BYTEPLUS_MODELARK_API_KEY/);
   assert.match(page, /Ask your connected AI client/);
@@ -194,19 +192,18 @@ test("required background tools show the complete ordinary job wrapper", () => {
   );
 });
 
-test("foreground tools do not advise submission through background jobs", () => {
+test("local artifact tools use direct calls and remain unavailable on HTTP", () => {
   const page = toolPage({
-    name: "ark_job_capabilities",
-    description: "Discover jobs.",
-    background: null,
+    name: "seed_media_get_artifact",
+    description: "Retrieve an artifact.",
+    execution: "direct",
     registration_gate: "Always registered.",
     scope: null,
     inputSchema: { properties: {} },
     outputSchema: { properties: {} },
   });
-  assert.match(page, /Foreground/);
-  assert.match(page, /"arguments": \{\}/);
-  assert.doesNotMatch(page, /"tool_name": "ark_job_capabilities"/);
+  assert.match(page, /Direct/);
+  assert.doesNotMatch(page, /ark_job_submit/);
   assert.doesNotMatch(page, /An Ark job ID is not a provider task ID/);
   assert.match(page, /HTTP: unavailable/);
 });
@@ -215,12 +212,12 @@ test("HTTP generation uses a direct envelope and request-only credentials", () =
   const page = toolPage({
     name: "seedream_generate_image",
     description: "Generate an image.",
-    background: "required",
+    execution: "direct",
     registration_gate: "Requires BYTEPLUS_MODELARK_API_KEY.",
     scope: "seedream:generate",
     transports: {
       http: {
-        background: null,
+        execution: "direct",
         credential_header: "X-ModelArk-Api-Key",
         registration_gate: "Always registered on HTTP.",
       },
@@ -238,10 +235,7 @@ test("HTTP generation uses a direct envelope and request-only credentials", () =
   assert.match(page, /client-generated 32 random bytes/);
   assert.match(page, /HTTP rejects true/);
   assert.match(page, /per-call `io\.modelcontextprotocol\/tasks` opt-in/);
-  assert.match(
-    page,
-    /before provider dispatch, snapshot capture\/save or queue creation/,
-  );
+  assert.match(page, /before provider dispatch/);
   assert.match(page, /Catalog capability labels are metadata, not auth grants/);
 });
 
@@ -249,12 +243,12 @@ test("HTTP discovery has no credential requirement", () => {
   const page = toolPage({
     name: "ark_list_models",
     description: "Discover models.",
-    background: null,
+    execution: "direct",
     registration_gate: "Always registered.",
     scope: null,
     transports: {
       http: {
-        background: null,
+        execution: "direct",
         credential_header: null,
         registration_gate: "Anonymous static discovery.",
       },
@@ -279,7 +273,7 @@ test("Seedance generated guidance preserves accepted IDs on errors", () => {
   const page = toolPage({
     name: "seedance_create_task",
     description: "Create video tasks.",
-    background: "required",
+    execution: "direct",
     registration_gate: "Requires BYTEPLUS_MODELARK_API_KEY.",
     inputSchema: { properties: {} },
     outputSchema: { properties: {} },
@@ -291,20 +285,30 @@ test("Seedance generated guidance preserves accepted IDs on errors", () => {
   assert.match(page, /MCP polling requires recorded ownership/);
 });
 
-for (const name of ["seed_understand", "seed_audio_understand"]) {
-  test(`${name} generated guidance treats uncertain completion as billed`, () => {
-    const page = toolPage({
-      name,
-      description: "Understand media.",
-      background: "required",
-      registration_gate: "Requires BYTEPLUS_MODELARK_API_KEY.",
-      inputSchema: { properties: {} },
-      outputSchema: { properties: {} },
-    });
-    assert.match(page, /`retryable=false` and `ambiguous_completion=true`/);
-    assert.match(page, /read\/write\/protocol failures/);
-    assert.match(page, /malformed provider 2xx responses/);
-    assert.match(page, /5xx responses are ambiguous/);
-    assert.match(page, /never automatically retried/);
-  });
-}
+test("renderer rejects obsolete or missing execution metadata", () => {
+  const tool = {
+    name: "ark_list_models",
+    execution: "direct",
+    inputSchema: { properties: {} },
+    outputSchema: { properties: {} },
+  };
+  for (const override of [
+    { execution: undefined },
+    { execution: "background" },
+    { background: null },
+    { transports: { http: { execution: "direct", background: null } } },
+    { transports: { stdio: {} } },
+  ]) {
+    assert.throws(
+      () => toolPage({ ...tool, ...override }),
+      /execution metadata/,
+    );
+  }
+  const page = toolPage(tool);
+  assert.match(page, /660-second client timeout/);
+  assert.match(page, /600-second cooperative tool deadline/);
+  assert.match(page, /SQLite\/SDK cleanup may exceed/);
+  assert.match(page, /ADMISSION_TIMEOUT/);
+  assert.match(page, /TOOL_DEADLINE_EXCEEDED/);
+  assert.match(page, /never blindly resubmit/);
+});

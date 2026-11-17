@@ -1,28 +1,24 @@
-name: BytePlus Terraform
+name: BytePlus VKE
 
 on:
   pull_request:
     paths:
       - "deploy/terraform/**"
-      - "deploy/compose/**"
-      - "scripts/deploy_byteplus.py"
-      - "scripts/byteplus_deploy/**"
-      - "tests/unit/test_byteplus*.py"
-      - "tests/unit/test_host_deployment.py"
-      - "tests/unit/test_provider_secret_sync.py"
-      - "tests/unit/test_terraform_bootstrap.py"
+      - "deploy/helm/**"
+      - "scripts/generate_identity_secret.py"
+      - "tests/unit/test_vke*.py"
+      - "tests/unit/test_hosted_byok_deployment.py"
+      - "tests/unit/test_generate_identity_secret.py"
       - ".github/workflows/terraform.yml"
   push:
     branches: [main]
     paths:
       - "deploy/terraform/**"
-      - "deploy/compose/**"
-      - "scripts/deploy_byteplus.py"
-      - "scripts/byteplus_deploy/**"
-      - "tests/unit/test_byteplus*.py"
-      - "tests/unit/test_host_deployment.py"
-      - "tests/unit/test_provider_secret_sync.py"
-      - "tests/unit/test_terraform_bootstrap.py"
+      - "deploy/helm/**"
+      - "scripts/generate_identity_secret.py"
+      - "tests/unit/test_vke*.py"
+      - "tests/unit/test_hosted_byok_deployment.py"
+      - "tests/unit/test_generate_identity_secret.py"
       - ".github/workflows/terraform.yml"
   workflow_dispatch:
 
@@ -37,10 +33,12 @@ env:
   TF_IN_AUTOMATION: "true"
   TF_VERSION: "1.17.1"
   TF_SHA256: "4638628058e71a55212b1c563712eac03b902128f40740f3dc8174df12135061"
+  HELM_VERSION: "4.3.2"
+  HELM_SHA256: "d1c0278d46beab79582d7e50f5b3dc206944ba8e577cde618513fd07daa53983" # pragma: allowlist secret
 
 jobs:
   validate:
-    name: Offline Terraform and bootstrap
+    name: Offline VKE plans and Helm contracts
     runs-on: ubuntu-latest
     steps:
       - name: Check out repository
@@ -64,17 +62,24 @@ jobs:
 
       - name: Check Terraform and mocked plans
         run: |
-          terraform -chdir=deploy/terraform/byteplus fmt -check -recursive
-          terraform -chdir=deploy/terraform/byteplus init -backend=false -input=false -lockfile=readonly
-          terraform -chdir=deploy/terraform/byteplus validate
-          terraform -chdir=deploy/terraform/byteplus test -no-color
+          terraform -chdir=deploy/terraform/vke fmt -check -recursive
+          terraform -chdir=deploy/terraform/vke init -backend=false -input=false -lockfile=readonly
+          terraform -chdir=deploy/terraform/vke validate
+          terraform -chdir=deploy/terraform/vke test -no-color
 
-      - name: Check host bootstrap
+      - name: Install checksum-verified Helm
+        run: |
+          curl --fail --silent --show-error --location \
+            --output "$RUNNER_TEMP/helm.tar.gz" \
+            "https://get.helm.sh/helm-v${HELM_VERSION}-linux-amd64.tar.gz"
+          printf '%s  %s\n' "$HELM_SHA256" "$RUNNER_TEMP/helm.tar.gz" | sha256sum --check
+          tar -xzf "$RUNNER_TEMP/helm.tar.gz" -C "$RUNNER_TEMP"
+          printf '%s\n' "$RUNNER_TEMP/linux-amd64" >> "$GITHUB_PATH"
+
+      - name: Check Helm and private identity contracts
         run: |
           uv sync --locked
-          uv run ruff check deploy/terraform/byteplus/scripts scripts/byteplus_deploy scripts/deploy_byteplus.py tests/unit/test_terraform_bootstrap.py tests/unit/test_byteplus*.py tests/unit/test_host_deployment.py tests/unit/test_provider_secret_sync.py
-          uv run ruff format --check deploy/terraform/byteplus/scripts scripts/byteplus_deploy scripts/deploy_byteplus.py tests/unit/test_terraform_bootstrap.py tests/unit/test_byteplus*.py tests/unit/test_host_deployment.py tests/unit/test_provider_secret_sync.py
-          uv run mypy deploy/terraform/byteplus/scripts scripts/byteplus_deploy
-          uv run pytest tests/unit/test_terraform_bootstrap.py tests/unit/test_byteplus*.py tests/unit/test_host_deployment.py tests/unit/test_provider_secret_sync.py --disable-socket --allow-unix-socket
-          bash -n deploy/terraform/byteplus/scripts/install.sh
-          bash -n deploy/terraform/byteplus/scripts/activate.sh
+          helm lint deploy/helm/seed-mcp -f deploy/helm/seed-mcp/values.ci.yaml --strict
+          helm template seed-mcp deploy/helm/seed-mcp -f deploy/helm/seed-mcp/values.ci.yaml > "$RUNNER_TEMP/seed-mcp.yaml"
+          uv run mypy scripts/generate_identity_secret.py
+          uv run pytest tests/unit/test_vke*.py tests/unit/test_hosted_byok_deployment.py tests/unit/test_generate_identity_secret.py --disable-socket --allow-unix-socket

@@ -11,9 +11,8 @@ Artifact storage/tools/resources are **stdio-only**. Seed Audio/Seedream
 `persist` and OmniHuman get `persist_output` default to false globally.
 Local callers may explicitly request true; HTTP rejects it and local paths.
 HTTP clients download temporary provider URLs themselves.
-Audio-understanding Files API uploads are separate remote temporary files:
-cleanup uses the same live request key and residual files expire remotely,
-independently of output URL expiry and local artifact TTL.
+Persistence uses direct calls on stdio, with live MCP roots or `OUTPUT_ROOTS`
+for explicit local paths. No task augmentation is needed or supported.
 
 > **Breaking capability removal:** old saved 3D artifacts are no longer served
 > by the narrowed image/audio/video schema. Export needed 3D outputs using the
@@ -178,7 +177,7 @@ For Seedance and OmniHuman, provider completion remains successful when
 requested persistence fails. Seedance reports `outputs[].persistence="failed"`
 and `outputs[].persistence_issue`; OmniHuman reports top-level
 `persistence="failed"` and `persistence_issue`. Keep the returned `source_url`;
-an `ArtifactRef` need not exist on failure. Poll again in a background job with
+an `ArtifactRef` need not exist on failure. Call the local poller directly with
 `persist_output=true`, or use `seed_media_persist_url` before expiry. Successful
 copies are cached, so later polls can retry failed outputs without duplicating
 the successful ones.

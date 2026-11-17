@@ -17,11 +17,9 @@ import respx
 from ark_mcp.domain.errors import ProviderError
 from ark_mcp.providers.base import BaseHttpGateway
 from ark_mcp.providers.modelark.client import ModelArkGateway
-from ark_mcp.providers.modelark.files import ModelArkFilesService
 from ark_mcp.providers.modelark.generation_tasks import GenerationTaskService
 from ark_mcp.providers.modelark.seedance import SeedanceService
 from ark_mcp.providers.modelark.seedream import SeedreamService
-from ark_mcp.providers.modelark.understanding import SeedUnderstandingService
 from ark_mcp.providers.retry import RetryPolicy, call_with_retry
 from ark_mcp.providers.seed_speech.client import SeedSpeechGateway
 from ark_mcp.providers.seed_speech.seed_audio import SeedAudioService
@@ -35,8 +33,6 @@ SERVICES = [
     SeedanceService,
     SeedreamService,
     GenerationTaskService,
-    ModelArkFilesService,
-    SeedUnderstandingService,
     SeedAudioService,
     OmniHumanService,
 ]
@@ -281,26 +277,6 @@ async def test_polled_task_errors_are_sanitized(
         await service.close()
 
 
-@respx.mock
-async def test_file_failure_diagnostics_are_sanitized(redact_canaries: tuple[str, ...]) -> None:
-    respx.get(f"{MODELARK_BASE}/files/file-1").respond(
-        200,
-        json={
-            "id": "file-1",
-            "status": "failed",
-            "error": {"code": redact_canaries[0], "message": " ".join(redact_canaries)},
-        },
-    )
-    service = ModelArkFilesService(ModelArkGateway(api_key=TEST_CREDENTIAL, base_url=MODELARK_BASE))
-    try:
-        file = await service.retrieve("file-1")
-        with pytest.raises(ProviderError) as info:
-            await service.wait_until_active(file)
-        assert all(canary not in info.value.error.model_dump_json() for canary in redact_canaries)
-    finally:
-        await service.close()
-
-
 @pytest.mark.parametrize("service_type", SERVICES)
 async def test_service_close_owns_only_its_injected_gateway(service_type: type[Any]) -> None:
     from unittest.mock import AsyncMock
@@ -311,7 +287,7 @@ async def test_service_close_owns_only_its_injected_gateway(service_type: type[A
     gateway.close.assert_awaited_once_with()
 
 
-@pytest.mark.parametrize("service_name", ["seedream", "seed_audio", "files", "omnihuman"])
+@pytest.mark.parametrize("service_name", ["seedream", "seed_audio", "omnihuman"])
 @pytest.mark.parametrize("failure", [httpx.ReadError, httpx.WriteError, httpx.RemoteProtocolError])
 @respx.mock
 async def test_other_mutations_do_not_retry_uncertain_dispatch(
@@ -332,12 +308,6 @@ async def test_other_mutations_do_not_retry_uncertain_dispatch(
         path = "/api/v3/tts/create"
         audio_request = SeedAudioService.build_request(text_prompt="test")
         operation = partial(service.generate, audio_request)
-    elif service_name == "files":
-        service = ModelArkFilesService(
-            ModelArkGateway(api_key=TEST_CREDENTIAL, base_url=MODELARK_BASE)
-        )
-        path = "/files"
-        operation = partial(service.upload_url, "https://example.com/input.wav")
     else:
         service = OmniHumanService(VisionCvGateway(api_key=TEST_CREDENTIAL, base_url=MODELARK_BASE))
         path = "/api/common/v3/submit_task_v2"

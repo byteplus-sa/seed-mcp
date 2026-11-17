@@ -32,6 +32,7 @@ from ark_mcp.runtime import billed_provider_slot
 from ark_mcp.security.credentials import provider_api_key
 from ark_mcp.tools._asset_shared import require_url_references
 from ark_mcp.tools._capability_checks import check_image_request, raise_on_violations
+from ark_mcp.tools._context import context_log
 from ark_mcp.tools._cost import image_cost_estimate, log_cost_estimate
 from ark_mcp.tools._errors import provider_error_result
 from ark_mcp.tools._http_policy import validate_http_options
@@ -50,7 +51,6 @@ from ark_mcp.tools._seedream_shared import (
     run_seedream_variations,
     store_response_images,
 )
-from ark_mcp.tools._task_execution import context_log
 
 MAX_VARIATIONS = 10
 
@@ -289,8 +289,8 @@ async def seedream_generate_image(
     and rich-text OCR are not supported; unknown input fields are rejected.
     Model limits: ark_list_models(kind='image'); requests outside them
     are rejected with every problem listed. dry_run=true returns request bodies and a cost
-    estimate. HTTP runs in the foreground with persist=false; on stdio use ark_job_submit
-    and opt into durable artifacts with persist=true.
+    estimate. Both transports call directly: HTTP requires persist=false;
+    stdio may opt into durable artifacts with persist=true.
     """
     validate_http_options(ctx, persist=input.persist)
     provider_api_key(ctx, "modelark")

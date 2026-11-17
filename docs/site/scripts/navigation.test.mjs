@@ -2,11 +2,9 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { toolReferenceGroups } from "./navigation.mjs";
 
-test("audio, understanding and avatars have separate tool sections", () => {
+test("audio and avatars have separate tool sections", () => {
   const names = [
     "seed_audio_generate",
-    "seed_understand",
-    "seed_audio_understand",
     "omnihuman_create_task",
     "omnihuman_get_task",
     "omnihuman_cancel_task",
@@ -16,10 +14,7 @@ test("audio, understanding and avatars have separate tool sections", () => {
     groups.map((group) => [group.label, group.items.map((item) => item.label)]),
   );
   assert.deepEqual(entries.Audio, ["seed_audio_generate"]);
-  assert.deepEqual(entries.Understanding, [
-    "seed_understand",
-    "seed_audio_understand",
-  ]);
+  assert.equal(entries.Understanding, undefined);
   assert.equal(entries["3D"], undefined);
   assert.equal(entries["VOD AI MediaKit"], undefined);
   assert.equal(entries["Asset library"], undefined);
@@ -33,11 +28,11 @@ test("audio, understanding and avatars have separate tool sections", () => {
 });
 
 test("tool routes and exact MCP names remain unchanged", () => {
-  const groups = toolReferenceGroups([{ name: "seed_audio_understand" }]);
+  const groups = toolReferenceGroups([{ name: "seed_audio_generate" }]);
   assert.deepEqual(groups[0].items, [
     {
-      label: "seed_audio_understand",
-      slug: "tool-reference/seed-audio-understand",
+      label: "seed_audio_generate",
+      slug: "tool-reference/seed-audio-generate",
     },
   ]);
 });
@@ -60,6 +55,12 @@ test("retired capability names cannot reappear in navigation", () => {
     "hitem3d_create_task",
     "vod_get_task",
     "ark_asset_create",
+    "seed_understand",
+    "seed_audio_understand",
+    "ark_job_submit",
+    "ark_job_get",
+    "ark_job_cancel",
+    "ark_job_capabilities",
   ]) {
     assert.throws(
       () => toolReferenceGroups([{ name }]),

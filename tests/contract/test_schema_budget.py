@@ -1,8 +1,7 @@
-"""Frozen schema budgets for the 21 retained Seed Studio tools.
+"""Bounded schemas for 15 tools, including the optional HTTP connection preflight.
 
-Measured with all four service gates enabled: 49,035 model-facing characters
-and 92,334 output-schema characters. The budgets leave limited room for
-description changes while preventing retired capabilities from returning.
+The preflight adds about 2,900 output-schema characters and has its own size
+guard. Removed job and understanding schemas cannot expand the inventory.
 """
 
 from __future__ import annotations
@@ -13,13 +12,21 @@ import pytest
 
 from ark_mcp.config.env import Settings
 from ark_mcp.server import create_server
+from ark_mcp.tools.ark_list_models import HttpConnectionCheck
 
-MAX_TOOLS = 21
+MAX_TOOLS = 15
 MAX_MODEL_FACING_CHARS = 52_000
-MAX_OUTPUT_SCHEMA_CHARS = 96_000
+MAX_OUTPUT_SCHEMA_CHARS = 100_000
 
 
-@pytest.mark.parametrize("transport,tool_count", [("stdio", 21), ("http", 12)])
+def test_connection_output_has_a_bounded_schema_and_no_authentication_claim() -> None:
+    schema = HttpConnectionCheck.model_json_schema()
+    assert len(json.dumps(schema)) <= 3500
+    assert schema["properties"]["authentication_verified"]["const"] is False
+    assert schema["properties"]["provider_calls_made"]["const"] is False
+
+
+@pytest.mark.parametrize("transport,tool_count", [("stdio", 15), ("http", 10)])
 async def test_tool_schemas_stay_within_budget(
     all_services_enabled: None, transport: str, tool_count: int
 ) -> None:

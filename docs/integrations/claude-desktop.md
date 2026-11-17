@@ -14,7 +14,7 @@ Desktop launches the local Ark server automatically after setup.
    to have installation access.
 2. Let it prepare your installation and Desktop configuration, and enter
    your provider keys in the private editor.
-3. Finish active jobs, fully reopen Desktop, and approve the Ark connection.
+3. Finish active calls, fully reopen Desktop, and approve the Ark connection.
 
 No setup-capable agent available? Use [manual installation](../setup/manual-install.md)
 or ask your administrator for help. For a team-hosted endpoint, follow the

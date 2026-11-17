@@ -8,13 +8,18 @@ inventory or hosted contract. No release or public endpoint is assumed.
 
 | Transport | Tools | Credentials and execution |
 | --- | --- | --- |
-| Local stdio | 21 conditional entries; eight always registered | Private startup provider keys; jobs/native tasks/storage/artifacts retained |
-| HTTP BYOK | 9, or 12 with OmniHuman enabled | Selected live provider key plus client secret; direct foreground calls only |
+| Local stdio | 15 conditional entries; four always registered | Private startup provider keys; direct calls; storage/artifacts retained |
+| HTTP BYOK | 7, or 10 with OmniHuman enabled | Selected live provider key plus client secret; direct foreground calls only |
 
 HTTP has no ordinary jobs, native tasks, storage/artifact tools, media resources
 or configuration-detail resource. Discovery is anonymous/static and makes no
 provider calls. It lists configured bindings without environment provider keys;
 `services[].enabled` reports registration, not provider authentication or entitlement.
+Default discovery returns `connection=null`. Optional live HTTP
+`check_connection=true` checks only ModelArk/client-secret presence and exact
+image/video defaults. Omit `kind` for both routes; stdio checks
+are rejected. `authentication_verified` and `provider_calls_made` remain false.
+See [preflight results](models-and-limits.md#optional-http-preflight).
 There is no OAuth, signup or server-issued key; `Authorization` is rejected.
 Explicit per-call `io.modelcontextprotocol/tasks` opt-in is rejected before
 provider dispatch, snapshot capture/save or queue creation, including discovery.
@@ -44,6 +49,10 @@ Optional `X-ModelArk-Seedance-Endpoint` and
 `X-ModelArk-Seedream-Endpoint` defaults must exactly match registered product
 bindings. Explicit tool `model` wins. Never infer arbitrary opaque endpoint
 lineage. [Model bindings](models-and-limits.md) remain authoritative.
+Unknown endpoint IDs are not echoed; the operator must verify and bind them.
+GetEndpoint metadata is AK/SK-only, not ModelArk Bearer-authenticated. This
+server does not collect AK/SK or offer arbitrary BYOE self-service.
+See `specs/SPEC_HOSTED_BYOK.md#byoe-endpoint-authority` in the selected checkout.
 Request-scoped settings and capability lookup use the receiving server's
 configuration, isolated from other server instances' defaults.
 
@@ -70,8 +79,11 @@ Do not erase claims to free space; retain state and matching HMAC configuration.
 `DAILY_BUDGET_USD=0` records estimates only; a positive value is per owner,
 not a provider-account ceiling. Provider/principal concurrency defaults to 5/3.
 
-`/health` and `/ready` return minimal process/state readiness and never probe
-providers on HTTP. Public `/metrics` is unavailable. `seed-health://status`
+Backend `/health` and `/ready` return minimal process/state readiness and never
+probe providers on HTTP. VKE Caddy exposes only `/mcp` and `/health`.
+Public `/metrics` is unavailable. `MCP_METRICS_PORT=0` disables the optional
+HTTP-runtime listener; enabled ports 1024-65535 bind only 127.0.0.1.
+`seed-health://status`
 is local-only. Hosted provider-secret sync is superseded: no provider keys
 belong in the hosted deployment.
 
@@ -80,16 +92,13 @@ belong in the hosted deployment.
 Seed Audio/Seedream `persist` and OmniHuman get `persist_output` default to
 false globally. HTTP rejects true; local explicit true remains supported.
 Local output paths and stored artifact references are rejected on HTTP.
-Clients download expiring provider outputs themselves. Files API cleanup uses
-the same live request key; remote temporary-file expiry is distinct from
-output URL expiry and local persistence.
+Clients download expiring provider outputs themselves.
 
 Uncertain mutation transport failures and malformed 2xx responses are
-ambiguous/nonretryable with safe diagnostics, including understanding
-completions that may already be billed. Chat/mutation 5xx responses are
+ambiguous/nonretryable with safe diagnostics. Mutation 5xx responses are
 ambiguous and never automatically retried, even if marked `retryable=true`.
 Eligible 429 rejections, demonstrably pre-dispatch failures and reads retain
-bounded retries; understanding disables all `TIMEOUT` retries. Never blindly
+bounded retries. Never blindly
 replay a potentially accepted submission or completion.
 
 Non-dry HTTP Seedance/OmniHuman creates require `idempotency_key` (16-128 ASCII
@@ -107,19 +116,79 @@ rejects supplied keys. Keep original provider/client credentials for recovery.
 
 Read the checkout's `docs/setup/install.md`. Use a reviewed locked environment,
 private `ARK_MCP_ENV_FILE`, and requested provider keys only. ModelArk enables
-image/video/understanding; Seed Speech enables audio; OmniHuman needs its
+image/video; Seed Speech enables audio; OmniHuman needs its
 separate Vision AI key and `BYTEPLUS_OMNIHUMAN_ENABLED=true`.
 TOS/S3 storage is optional and stdio-only.
 
-`ark_job_*` uses the local FastMCP worker; `memory://` jobs are process-local.
-Local writes inside jobs need `OUTPUT_ROOTS`; explicit persistence does not.
-Read [background-job-output.md](background-job-output.md).
+Both transports execute directly with no MCP jobs, worker, snapshots or
+execution claims. Local writes use live MCP roots or `OUTPUT_ROOTS`;
+explicit persistence into the artifact store does not need output roots.
+Read [local-output.md](local-output.md).
+
+## Execution Limits
+
+`MCP_ADMISSION_TIMEOUT_SECONDS=2.0` (finite positive, max 30) bounds total
+waiting for owner then provider slots. Active/waiting owners remain pinned;
+budget reservation happens after admission. `ADMISSION_TIMEOUT` is retryable
+and nonambiguous for this attempt only, not the whole variation batch.
+
+`MCP_TOOL_TIMEOUT_SECONDS=600.0` (finite positive, max 3600) starts at wrapper
+entry after MCP parsing, before credentials, journal and admission. Use
+client timeout 660 seconds and compatible proxy settings. SDK/SQLite draining
+may exceed the cooperative deadline. `TOOL_DEADLINE_EXCEEDED` preserves
+mutation uncertainty and known safe IDs. External cancellation propagates;
+timeout does not cancel accepted provider work. Never blindly resubmit.
+Poll known IDs or reconcile; local creates have no submission journal.
 
 ## Deployment Limits
 
-Use one instance. Synchronous product replay and complete crash recovery
+Dedicated VKE replaces ECS/Compose. Use one StatefulSet with retained RWO
+ext4 EBS and same-pod Caddy, no application HPA. The backend binds
+`127.0.0.1:3000`; CLB TCP443 reaches Caddy8443 with Local traffic policy.
+`RATE_LIMIT_TRUSTED_PROXY_CIDRS` replaces the removed boolean, defaults empty,
+and is `127.0.0.1/32` in the chart. Caddy overwrites forwarding headers;
+Uvicorn proxy rewriting is disabled. Never trust all proxies.
+
+HTTP acquires `runtime.sqlite3.lock` before stores/recovery and holds it
+until close. Never unlink an active lock or use network-filesystem SQLite.
+This is not distributed fencing. HTTP/Caddy shutdown uses max(tool, provider
+seconds) + 30; pod grace uses max + 60, default 630/660 seconds.
+The read-only aggregate inspector takes `--database`, `--capacity` and
+`--timeout-seconds`. It does not repair, reset, restore or requeue state.
+
+Terraform uses separate fresh VKE state, never old ECS state, and stores no
+HMAC/TLS Secret/kubeconfig. Helm references existing Secrets only. Private
+control-plane access requires operator private connectivity.
+Chart `models.seedream` and `models.seedance` accept `defaultModel` and
+`bindings: [{model_id, family}]` with strict families and unique IDs.
+Nonempty lists must include their default; alternate defaults need explicit
+verified bindings. Used endpoint headers still require exact registry matches;
+explicit tool `model` wins. This adds no endpoint-authority verification.
+Only explicit env mappings exist, not arbitrary env or secret maps.
+`app.dailyBudgetUsd=25` overrides the standalone application's zero default;
+`app.providerMaxConcurrency=5`, `app.principalMaxConcurrency=3` and
+`app.rateLimitBurst=0` retain their defaults. Budgets are per-owner estimates,
+not an account-wide spending ceiling.
+
+Both `csi-ebs` and `cloud-controller-manager` are VKE-admin owned outside
+Terraform/Helm. Inspect existing addons; install absent compatible maintained
+versions via VKE addon management. Require Running addon cards, CSI
+driver/controller/node readiness and Ready nodes with capacity before
+`prerequisitesConfirmed=true`. This acknowledgement is not readiness proof.
+
+Source deletion is not cloud decommissioning. Retain reviewed old checkouts,
+private workspaces, backups and matching HMAC key/version for separately
+approved retirement/recovery. No state reset, blind restore or requeue.
+Keep deployment operations out of media generation and client setup.
+See `docs/byteplus-terraform.md` and `specs/SPEC_VKE_DEPLOYMENT.md` in the
+selected checkout for the complete operator runbook.
+
+Synchronous product replay and complete crash recovery
 remain deferred. PostgreSQL/Redis are future scaling choices, not initial
 requirements; no multi-replica, public-launch certification or exactly-once
 inference is claimed. Preserve accepted provider IDs for polling.
 See `specs/SPEC_HOSTED_BYOK.md#http-submission-safety` in the selected checkout.
-Exact client/TLS/provider validation requires separate approval.
+`scripts/hosted_acceptance.py --caddy-bin PATH` performs isolated mocked
+TLS/load checks, not capacity certification. Live VKE apply, source-IP, CSI,
+rollout and real-client/provider acceptance remain unverified without separate
+approval and evidence.

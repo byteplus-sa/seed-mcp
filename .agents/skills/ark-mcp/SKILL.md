@@ -1,6 +1,6 @@
 ---
 name: ark-mcp
-description: Generate or understand media with Seed MCP. Use for Seedream, Seedance, Seed Audio and OmniHuman via HTTP BYOK or local stdio jobs; storage and artifacts are local only.
+description: Generate media with Seed MCP. Use for Seedream, Seedance, Seed Audio and OmniHuman through direct HTTP BYOK or stdio calls; storage and artifacts are local only.
 ---
 
 # Ark Seed Multimodal MCP Server
@@ -16,10 +16,10 @@ skill covers only what the schemas cannot tell you: the flow, the rules that
 span tools, and where to look things up. **Parameters live in the tool
 schemas** (upstream retained-tool detail: [API reference](https://byteplus-sa.github.io/ark-mcp/api-reference/)).
 
-Determine the transport before choosing a workflow. HTTP BYOK has 9 tools,
-or 12 with OmniHuman enabled, and runs provider tools directly in the foreground.
+Determine the transport before choosing a workflow. HTTP BYOK has 7 tools,
+or 10 with OmniHuman enabled, and runs provider tools directly in the foreground.
 It has no jobs, native tasks, storage/artifact tools or resources. Local stdio
-retains the 21-entry conditional catalog and jobs/storage/artifacts.
+retains the 15-entry conditional catalog and storage/artifacts, with direct calls.
 Asset administration is unavailable on either transport. Setup and rotation:
 [environment.md](references/environment.md#transport-and-auth).
 
@@ -35,11 +35,10 @@ or server-issued key exists; `Authorization` is rejected.
 | **Seedream** images (generate and edit) | `seedream_generate_image` | artifacts in the result | `BYTEPLUS_MODELARK_API_KEY` |
 | **Seed Audio** | `seed_audio_generate` | artifact in the result | `BYTEPLUS_SEED_SPEECH_API_KEY` |
 | **OmniHuman 2.0** avatar video | `omnihuman_create_task` | `omnihuman_get_task`, `omnihuman_cancel_task` | `BYTEPLUS_OMNIHUMAN_ENABLED=true` + `BYTEPLUS_CV_API_KEY` |
-| **Understanding** | `seed_understand`, `seed_audio_understand` | answer in the result | `BYTEPLUS_MODELARK_API_KEY` |
 | **Object storage** | `media_upload`, `media_presign` | URLs in the result | TOS or S3 credentials |
-| **Always registered** | `ark_list_models`, `ark_job_*`, `seed_media_*` | — | — |
+| **Always registered (four local tools)** | `ark_list_models`, `seed_media_*` | — | — |
 
-The enabling-settings column and always-registered job/artifact entries
+The enabling-settings column and always-registered artifact entries
 above describe **stdio only**. HTTP provider registration is credential-independent;
 only OmniHuman needs its enable flag. HTTP never falls back to operator keys.
 
@@ -51,25 +50,26 @@ on and which setting enables the rest. The health resource is stdio-only.
 
 ```mermaid
 flowchart LR
-    discover["1 Discover<br/>ark_list_models"] --> mode{"Transport"}
-    mode -->|HTTP| direct["Direct foreground provider tool"]
-    mode -->|stdio| create["2 Create<br/>via ark_job_submit"]
-    direct --> poll
-    create --> job["ark_job_get<br/>background result"]
-    job -->|"task_id: Seedance, OmniHuman"| poll["3 Poll<br/>gen_task_get,<br/>omnihuman_get_task"]
-    job -->|"Seedream, Seed Audio"| artifacts["4 Artifacts<br/>seed_media_*"]
-    job -->|"understanding"| text["answer in result"]
-    poll -->|"persist_output=true"| artifacts
+    discover["1 Discover: ark_list_models"] --> create["2 Direct product call"]
+    create -->|"Seedance, OmniHuman task IDs"| poll["3 Poll provider task"]
+    create -->|"Seedream, Seed Audio"| output["URLs or explicit local artifacts"]
+    poll -->|"Successful output"| output
+    output -->|"stdio persistence"| artifacts["4 Local seed_media_*"]
+    output -->|"HTTP"| download["Client downloads expiring URL"]
 ```
 
 1. **Discover.** `ark_list_models` returns the configured models, their
    limits, which tool takes each, and `services`. **`model` accepts exact IDs
-   only**; an unknown ID fails with a did-you-mean hint. Omit `model` for the
-   default. Discovery never calls the provider and returns no account pricing.
+   only**; unknown model IDs can receive a did-you-mean hint, while unknown
+   image/video `ep-*` values get safe `ENDPOINT_NOT_CONFIGURED` guidance without
+   echoing the ID. Omit `model` for the default. Discovery never calls the
+   provider and returns no account pricing.
    Anonymous HTTP discovery lists configured bindings without environment
    provider keys; `services[].enabled` means registered, not entitled.
-2. **Create.** HTTP calls the product tool directly. On stdio run through `ark_job_submit` (see
-   [Background jobs](#background-jobs)). Use `variations` instead of looking
+   Default `check_connection=false` returns `connection=null`. For optional
+   HTTP image/video setup diagnostics, see the preflight below.
+2. **Create.** Call the product tool directly on either transport (see
+   [Direct execution](#direct-execution)). Use `variations` instead of looking
    for variation tools, and `dry_run` (Seedance, Seedream) to check a request
    and its cost without billing.
 3. **Poll.** Seedance with `gen_task_get`; OmniHuman with
@@ -80,6 +80,30 @@ flowchart LR
    `seed_media_export_artifact`, `seed_media_persist_url`, and resources.
 
 ## Rules the schemas do not tell you
+
+### HTTP connection preflight
+
+- Call `ark_list_models` with `{"input":{"check_connection":true}}` only on
+  live HTTP. Omit `kind` for both image/video routes, or select `"image"` /
+  `"video"`; other kinds and stdio checks are rejected.
+- Inspect `modelark_key_present`, `client_secret_present`, `issues`, and
+  `routes`. `configuration_valid` means both headers present and every checked
+  route exactly bound. It is not authentication, live lineage, entitlement,
+  balance or reachability proof. `authentication_verified` and
+  `provider_calls_made` always remain false.
+- `missing_modelark_key` / `missing_client_secret` require private client
+  header setup. A route with `endpoint_not_configured` has null ID/family;
+  unknown IDs are not echoed. The operator must verify model/version and
+  bind the exact ID. Do not guess a family or accept caller claims as proof.
+- Official GetEndpoint metadata requires AK/SK signing, not ModelArk Bearer
+  auth. This server takes no AK/SK custody and does not implement arbitrary
+  BYOE self-service. See `specs/SPEC_HOSTED_BYOK.md#byoe-endpoint-authority`
+  in the selected checkout.
+- An explicit create-tool `model` wins over endpoint headers; preflight checks
+  defaults, not a future payload. `models[].is_default` stays server-wide.
+  Use `ark-mcp-setup` for stdout client snippets and private environment-name
+  mappings. Actual model-driven Codex/Claude and paid provider validation
+  remain pending; config inspection or mocked smoke does not establish them.
 
 ### HTTP create recovery
 
@@ -104,34 +128,25 @@ flowchart LR
   crash recovery. See `specs/SPEC_HOSTED_BYOK.md#http-submission-safety` in the
   selected checkout and [environment.md](references/environment.md).
 
-### Background jobs
+### Direct execution
 
-**Stdio only. Never submit HTTP work through jobs or native tasks.**
-HTTP rejects explicit per-call `io.modelcontextprotocol/tasks` opt-in, including
-discovery, before provider dispatch, snapshot capture/save or queue creation.
-
-- **Required background** (a foreground call is rejected before any provider
-  call): `seed_audio_generate`, `media_upload`, `omnihuman_create_task`,
-  `seedream_generate_image`, `seedance_create_task`, `seed_understand`,
-  and `seed_audio_understand`.
-- **Optional** (foreground works; background only to persist output or wait
-  long): `gen_task_get`, `omnihuman_get_task`, `seed_media_persist_url`.
-  Everything else is foreground.
-- **Submit** with `ark_job_submit` and `{"input": {"tool_name": "<tool>",
-  "arguments": {"input": {...tool input...}}}}`, then poll `ark_job_get` no
-  faster than `poll_after_ms` and read the tool result from `result`
-  (`structured_content`). Check terminal status and `result.is_error` before
-  treating the nested tool result as successful. A client that negotiates native MCP task
-  augmentation may call the tool directly with task metadata instead.
-- **The Ark `job_id` is not a provider task ID.** The provider ID is inside
-  the job result. Submission is non-idempotent: after a timeout or lost
-  response, do not blindly resubmit (reconcile first). Stdio jobs are
-  process-local.
-- Inside `ark_job_submit` there are no MCP roots, so local writes
-  (`output_path`, `output_dir`, `save_to`) need `OUTPUT_ROOTS` set on the
-  server; otherwise they are rejected before any provider call.
-  `persist_output=true` works. See
-  [background-job-output.md](references/background-job-output.md).
+- Call the original tool with `{"input": {...}}`; inspect `is_error` before
+  `structured_content`. Both transports reject explicit
+  `io.modelcontextprotocol/tasks` opt-in, including discovery.
+- No MCP jobs, workers, snapshots or execution claims exist. Provider video
+  queues, ownership and the HTTP create journal remain.
+- Owner-first admission uses `MCP_ADMISSION_TIMEOUT_SECONDS=2.0` (finite
+  positive, max 30). Budget reservation follows admission.
+  `ADMISSION_TIMEOUT` means this attempt did not dispatch, not the whole batch.
+- `MCP_TOOL_TIMEOUT_SECONDS=600.0` (finite positive, max 3600) starts at wrapper
+  entry before credentials, journal and admission. Use client timeout 660
+  seconds. SDK/SQLite draining may exceed the cooperative deadline.
+- `TOOL_DEADLINE_EXCEEDED` is text-only and retains mutation uncertainty and
+  safe accepted IDs. External cancellation propagates; timeout does not
+  cancel provider work. Never blindly resubmit; poll known IDs or reconcile.
+- Direct local writes use live MCP roots or `OUTPUT_ROOTS`. Persistence into
+  the artifact store itself needs no output roots. See
+  [local-output.md](references/local-output.md).
 
 ### Models, variations, dry runs
 
@@ -226,8 +241,7 @@ discovery, before provider dispatch, snapshot capture/save or queue creation.
 ### Polling and persistence
 
 - Poll Seedance with `persist_output=false`; pass every task ID in one
-  `gen_task_get` call. When successful outputs are available, run the poller
-  through `ark_job_submit` with
+  `gen_task_get` call. When successful outputs are available, call the poller directly with
   `persist_output=true` to keep the outputs on stdio only.
   Seed Audio/Seedream `persist` and OmniHuman get `persist_output` default to
   false globally. HTTP rejects explicit true; local explicit true is allowed.
@@ -237,20 +251,13 @@ discovery, before provider dispatch, snapshot capture/save or queue creation.
   Seedance, 1 hour for OmniHuman**. An artifact with id `provider-url`
   and a `persistence_error` is still usable until then; recover it with
   `seed_media_persist_url` on stdio; HTTP clients download the URL themselves.
-- `output_path`, `output_dir`, `save_to` write to local disk on **stdio only**,
+- `output_path`, `output_dir` write to local disk on **stdio only**,
   inside the client's MCP roots (or `OUTPUT_ROOTS`), and need persistence
   (`persist` / `persist_output`). A directory ending in `/` is required when
   several files are written (variations or `max_images > 1`).
 
 ### Media upload and assets
 
-- **Audio understanding:** `seed_audio_understand.delivery` defaults to `auto`,
-  which retries rejected URL audio through Files API. `files_api` uploads first;
-  `direct` disables fallback. Files API supports up to 512 MB and video inputs
-  include sampled frames as well as the soundtrack. Cleanup is best effort
-  using the same live ModelArk request key; remote file expiry is distinct
-  from output URL expiry and local persistence;
-  never blindly retry an ambiguous upload timeout.
 - **Stdio-only `media_upload` and `media_presign` items fail independently.** Always check
   `failed` and `items[].error` (`media_presign` codes: `INVALID_KEY`,
   `NOT_OWNED`, `INTERNAL`, or a provider code). Only an over-size request
@@ -268,15 +275,15 @@ Seedance on HTTP: call `seedance_create_task` directly with
 `{"input":{"prompt":"A paper boat drifts down a rainy street","dry_run":true}}`.
 Provider headers are still required for this non-billable preview.
 
-Seedance on stdio: submit, then poll in the foreground.
+Seedance on stdio: call `seedance_create_task` directly, then poll.
 
 ```json
-{"input": {"tool_name": "seedance_create_task", "arguments": {"input": {
-  "prompt": "A paper boat drifts down a rainy street", "resolution": "1080p", "duration": 8}}}}
+{"input": {
+  "prompt": "A paper boat drifts down a rainy street", "resolution": "1080p", "duration": 8}}
 ```
 
-After `ark_job_get` returns the job result, take `tasks[0].task_id` and call
-`gen_task_get` with `{"task_ids": ["<task_id>"]}`; repeat until `all_terminal`.
+From the direct result, take `tasks[0].task_id` and call
+`gen_task_get` with `{"input":{"task_ids": ["<task_id>"]}}`; repeat until `all_terminal`.
 
 Seedream: edit a region of an image (submitted the same way).
 
@@ -295,9 +302,10 @@ Asset reference: pass an already usable provider reference as
 | Symptom | Cause | Fix |
 |---|---|---|
 | Tool missing | Its gate is off (missing key or flag) | Check `ark_list_models.services` and the enabling setting in the table above |
-| Foreground stdio call to a create tool rejected | Local background is required | Submit through `ark_job_submit`; HTTP uses direct calls |
+| Explicit task opt-in rejected | No native task extension on either transport | Call the original tool directly without task metadata |
 | `Request is not valid for model ...` | The request breaks that model's limits (all listed) | Fix every item, pick another model from `ark_list_models`, or recheck with `dry_run` |
 | Unknown `model` | Not an exact configured ID | Use the suggested ID or one from `ark_list_models` |
+| `endpoint_not_configured` / `ENDPOINT_NOT_CONFIGURED` | Missing exact product binding | Operator must verify and bind it; unknown endpoint IDs are not echoed |
 | Timeout with `ambiguous_completion=true` | Create or cancel may have succeeded | Reconcile by task or request ID; do not resubmit |
 | `SUBMISSION_CONFLICT` | Same HTTP key with changed arguments | Restore identical arguments for receipt recovery |
 | `SUBMISSION_IN_PROGRESS` / `SUBMISSION_UNRESOLVED` | Existing running or unresolved HTTP attempt | Keep known IDs; reconcile, never change keys to bypass uncertainty |
@@ -312,15 +320,22 @@ Asset reference: pass an already usable provider reference as
 Missing/unusable URL-only Seed Audio output is a nonretryable per-item
 `NO_DELIVERABLE_OUTPUT`; never regenerate automatically. Uncertain mutation
 transport errors and malformed 2xx responses are ambiguous/nonretryable with
-sanitized diagnostics, including potentially billed understanding completions.
-Chat/mutation 5xx errors are ambiguous and never automatically retried, even
+sanitized diagnostics.
+Mutation 5xx errors are ambiguous and never automatically retried, even
 if marked `retryable=true`. Eligible 429 rejections, pre-dispatch failures and
-reads can retain bounded retries; understanding disables all `TIMEOUT` retries.
+reads can retain bounded retries.
 
 HTTP uses fresh SQLite, fixed official origins and positive 60 RPM / 2 MiB /
 64 in-flight defaults with `STATE_MAX_RECORDS=100000`. The operator HMAC key
 is not a customer credential. Readiness never probes providers; public metrics
-are unavailable. SQLite asynchronous-create receipt recovery is implemented;
+are unavailable. The optional HTTP `MCP_METRICS_PORT` defaults to 0 and binds
+only 127.0.0.1 when enabled. Dedicated VKE replaces ECS/Compose with one
+StatefulSet, same-pod Caddy and retained RWO ext4 SQLite; no application HPA.
+HTTP holds an exclusive state lease before stores/recovery until close.
+Do not delete live locks, reset state, blindly restore or requeue.
+Operator deployment is separate from client setup; see
+[deployment boundaries](references/environment.md#deployment-limits).
+SQLite asynchronous-create receipt recovery is implemented;
 synchronous product replay and complete crash recovery remain deferred.
 PostgreSQL/Redis are future scaling choices, not initial requirements.
 Multi-replica support and public-launch readiness are not claimed.
@@ -331,9 +346,9 @@ Read these only when you need the detail:
 
 - [tool-reference.md](references/tool-reference.md): per-product notes for Seedance, Seedream, Seed Audio and OmniHuman.
 - [polling-and-artifacts.md](references/polling-and-artifacts.md): pollers, cancel/delete, artifact tools, local paths, persistence fallbacks.
-- [understanding-media-assets.md](references/understanding-media-assets.md): understanding, object storage and native assets.
+- [media-assets.md](references/media-assets.md): object storage and native assets.
 - [models-and-limits.md](references/models-and-limits.md): per-family limits and model selection.
-- [workflows.md](references/workflows.md): background jobs in depth, production workflows, retry policy, common issues.
+- [workflows.md](references/workflows.md): direct calls, production workflows, retry policy, common issues.
 - [environment.md](references/environment.md): credentials, flags, transport, auth, architecture.
-- [background-job-output.md](references/background-job-output.md): local-write options inside `ark_job_submit`.
+- [local-output.md](references/local-output.md): local-write options in direct calls.
 - [Upstream API reference](https://byteplus-sa.github.io/ark-mcp/api-reference/): retained-tool detail only; this server's schemas are authoritative.

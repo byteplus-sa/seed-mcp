@@ -19,7 +19,6 @@ from ark_mcp.config.env import get_settings
 SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "smoke_seedream55.py"
 MODEL = "dola-seedream-5-5-261028"
 PRO_MODEL = "dola-seedream-5-0-pro-260628"
-JOB_ID = "job_" + "a" * 24
 
 
 @pytest.fixture
@@ -88,28 +87,6 @@ def generation(data, format="jpeg", metadata=None):
 
 def response(payload, error=False):
     return SimpleNamespace(structured_content=payload, is_error=error)
-
-
-def accepted():
-    return {
-        "job_id": JOB_ID,
-        "target_tool": "seedream_generate_image",
-        "status": "working",
-        "created_at": "2026-11-10T00:00:00Z",
-        "ttl_ms": 60000,
-        "poll_after_ms": 0,
-    }
-
-
-def snapshot(status="completed", output=None, is_error=False):
-    return {
-        **accepted(),
-        "status": status,
-        "updated_at": "2026-11-10T00:00:00Z",
-        "result": (
-            {"structured_content": output, "is_error": is_error} if output is not None else None
-        ),
-    }
 
 
 def test_default_and_help_are_offline_and_write_nothing(smoke, tmp_path, monkeypatch, capsys):
@@ -314,84 +291,50 @@ async def test_output_validation_rejects_invalid_persistence_and_media(
     assert not list(tmp_path.iterdir())
 
 
-async def test_job_uses_public_tool_calls_and_waits_for_terminal_result(smoke):
+async def test_generation_uses_one_direct_public_tool_call(smoke):
     server = FastMCP("seedream-smoke-offline")
     calls = []
 
     @server.tool
-    async def ark_job_submit(input: dict) -> dict:
-        calls.append(("submit", input))
-        return accepted()
+    async def seedream_generate_image(input: dict) -> dict:
+        calls.append(input)
+        return {"dry_run": True}
 
-    @server.tool
-    async def ark_job_get(input: dict) -> dict:
-        calls.append(("get", input))
-        return snapshot(output={"dry_run": True})
-
-    recorded = []
     async with Client(server) as client:
-        output = await smoke.run_job(
+        output = await smoke.run_generation(
             client,
             {"dry_run": True},
             timeout=1,
-            interval=0.001,
-            max_polls=3,
-            on_accept=recorded.append,
         )
     assert output == {"dry_run": True}
-    assert recorded == [JOB_ID]
-    assert calls == [
-        (
-            "submit",
-            {"tool_name": "seedream_generate_image", "arguments": {"input": {"dry_run": True}}},
-        ),
-        ("get", {"job_id": JOB_ID}),
-    ]
+    assert calls == [{"dry_run": True}]
 
 
 @pytest.mark.parametrize(
     "failure",
     [
-        "submit",
-        "poll",
-        "failed",
-        "cancelled",
-        "input_required",
+        "transport",
         "tool-error",
         "missing-result",
-        "timeout",
-        "poll-limit",
+        "invalid-result",
     ],
 )
-async def test_job_errors_timeouts_and_poll_limit_never_resubmit(smoke, failure):
+async def test_generation_errors_never_resubmit_or_leak_details(smoke, failure):
     async def call(name, arguments, **kwargs):
-        if name == "ark_job_submit":
-            if failure == "submit":
-                raise RuntimeError("https://private.invalid/?token=secret")
-            return response(accepted())
-        if failure == "poll":
-            raise RuntimeError("private-secret-content")
-        if failure in {"failed", "cancelled", "input_required"}:
-            return response(snapshot(failure))
+        assert name == "seedream_generate_image"
+        if failure == "transport":
+            raise RuntimeError("https://private.invalid/?token=secret")
         if failure == "tool-error":
-            return response(snapshot(output={"detail": "private-secret-content"}, is_error=True))
+            return response({"detail": "private-secret-content"}, error=True)
         if failure == "missing-result":
-            return response(snapshot())
-        return response(snapshot("working"))
+            return response(None)
+        return response(["private-secret-content"])
 
     client = SimpleNamespace(call_tool=AsyncMock(side_effect=call))
     with pytest.raises(smoke.SmokeFailure) as exc:
-        await smoke.run_job(
-            client,
-            {},
-            timeout=0.005 if failure == "timeout" else 1,
-            interval=0.001,
-            max_polls=2 if failure == "poll-limit" else 100,
-        )
+        await smoke.run_generation(client, {}, timeout=1)
     assert "secret" not in str(exc.value)
-    assert sum(call.args[0] == "ark_job_submit" for call in client.call_tool.call_args_list) == 1
-    if failure != "submit":
-        assert exc.value.job_id == JOB_ID
+    client.call_tool.assert_awaited_once()
 
 
 @pytest.mark.parametrize("estimate", [0.2, -1, float("nan"), float("inf")])
@@ -413,13 +356,8 @@ async def test_cost_gate_blocks_all_paid_work_and_sanitizes_report(
             },
         }
 
-    monkeypatch.setattr(smoke, "run_job", job)
-    assert (
-        await smoke.run_matrix(
-            None, cases, tmp_path, confirmed_cost=0.1, timeout=1, interval=0.001, max_polls=3
-        )
-        == 1
-    )
+    monkeypatch.setattr(smoke, "run_generation", job)
+    assert await smoke.run_matrix(None, cases, tmp_path, confirmed_cost=0.1, timeout=1) == 1
     assert all(arguments["dry_run"] for arguments in seen)
     text = (tmp_path / "report.json").read_text()
     assert not any(value in text for value in ["private-prompt", "https://", "secret"])
@@ -427,7 +365,7 @@ async def test_cost_gate_blocks_all_paid_work_and_sanitizes_report(
         assert "0.2000" in capsys.readouterr().out
 
 
-async def test_matrix_prices_every_case_before_billing_and_journals_handle(
+async def test_matrix_prices_every_case_before_billing_and_records_submission(
     smoke, settings, tmp_path, monkeypatch, capsys
 ):
     cases = smoke.build_cases(settings, selected=["t2i-opaque", "t2i-transparent"], max_cases=2)
@@ -438,21 +376,15 @@ async def test_matrix_prices_every_case_before_billing_and_journals_handle(
         if arguments["dry_run"]:
             return {"dry_run": True, "preview": {"estimated_cost_usd": 0.03}}
         assert "0.0600" in capsys.readouterr().out or len(seen) == 4
-        kwargs["on_accept"](JOB_ID)
-        assert JOB_ID in (tmp_path / "report.json").read_text()
+        assert "submitting" in (tmp_path / "report.json").read_text()
         return {"dry_run": False}
 
     async def verify(client, case, output, directory, **kwargs):
         return {"file": f"{case.name}.png", "observed": {"width": 1024}}
 
-    monkeypatch.setattr(smoke, "run_job", job)
+    monkeypatch.setattr(smoke, "run_generation", job)
     monkeypatch.setattr(smoke, "verify_output", verify)
-    assert (
-        await smoke.run_matrix(
-            None, cases, tmp_path, confirmed_cost=0.06, timeout=1, interval=0.001, max_polls=3
-        )
-        == 0
-    )
+    assert await smoke.run_matrix(None, cases, tmp_path, confirmed_cost=0.06, timeout=1) == 0
     assert seen == [True, True, False, False]
     report = json.loads((tmp_path / "report.json").read_text())
     assert [case["status"] for case in report["cases"]] == ["passed", "passed"]
@@ -466,36 +398,45 @@ async def test_matrix_stops_after_ambiguous_paid_failure(smoke, settings, tmp_pa
         seen.append(arguments["dry_run"])
         if arguments["dry_run"]:
             return {"dry_run": True, "preview": {"estimated_cost_usd": 0.03}}
-        kwargs["on_accept"](JOB_ID)
-        raise smoke.SmokeFailure("poll_timeout", job_id=JOB_ID)
+        raise smoke.SmokeFailure("submission_unknown")
 
-    monkeypatch.setattr(smoke, "run_job", job)
-    assert (
-        await smoke.run_matrix(
-            None, cases, tmp_path, confirmed_cost=0.1, timeout=1, interval=0.001, max_polls=3
-        )
-        == 1
-    )
+    monkeypatch.setattr(smoke, "run_generation", job)
+    assert await smoke.run_matrix(None, cases, tmp_path, confirmed_cost=0.1, timeout=1) == 1
     assert seen == [True, True, False]
     report = json.loads((tmp_path / "report.json").read_text())
-    assert report["cases"][0]["job_id"] == JOB_ID
+    assert report["cases"][0]["error"] == "submission_unknown"
     assert report["cases"][1]["status"] == "not_run"
 
 
-@pytest.mark.parametrize("stage", ["submit", "poll"])
-async def test_job_deadline_bounds_a_hung_tool_call(smoke, stage):
+async def test_generation_deadline_bounds_a_hung_tool_call(smoke):
     import asyncio
 
     async def call(name, arguments, **kwargs):
-        if name == "ark_job_submit" and stage == "poll":
-            return response(accepted())
         await asyncio.Event().wait()
 
     client = SimpleNamespace(call_tool=AsyncMock(side_effect=call))
     with pytest.raises(smoke.SmokeFailure) as exc:
-        await smoke.run_job(client, {}, timeout=0.02, interval=0.001, max_polls=10)
-    assert exc.value.code == ("submission_unknown" if stage == "submit" else "poll_timeout")
-    assert sum(call.args[0] == "ark_job_submit" for call in client.call_tool.call_args_list) == 1
+        await smoke.run_generation(client, {}, timeout=0.02)
+    assert exc.value.code == "submission_unknown"
+    client.call_tool.assert_awaited_once()
+
+
+async def test_generation_propagates_external_cancellation_without_resubmitting(smoke):
+    import asyncio
+
+    started = asyncio.Event()
+
+    async def stalled(*args, **kwargs):
+        started.set()
+        await asyncio.Event().wait()
+
+    client = SimpleNamespace(call_tool=AsyncMock(side_effect=stalled))
+    call = asyncio.create_task(smoke.run_generation(client, {}, timeout=5))
+    await asyncio.wait_for(started.wait(), timeout=1)
+    call.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await call
+    client.call_tool.assert_awaited_once()
 
 
 async def test_metadata_echo_stays_distinct_from_local_observations(smoke, settings, tmp_path):
@@ -518,7 +459,7 @@ async def test_metadata_echo_stays_distinct_from_local_observations(smoke, setti
 
 
 @pytest.mark.parametrize("include_pro", [False, True])
-async def test_execute_runs_full_matrix_in_real_worker_without_network(
+async def test_execute_runs_full_matrix_with_direct_calls_without_network(
     smoke, settings, tmp_path, monkeypatch, include_pro, capsys
 ):
     from fastmcp.server.dependencies import get_context
@@ -531,7 +472,7 @@ async def test_execute_runs_full_matrix_in_real_worker_without_network(
     requests = []
 
     async def generate(service, request):
-        assert get_context().task_id is not None
+        assert get_context().task_id is None
         if not requests:
             assert "Aggregate estimated price:" in capsys.readouterr().out
         requests.append(request)
@@ -553,8 +494,6 @@ async def test_execute_runs_full_matrix_in_real_worker_without_network(
         str(tmp_path),
         "--timeout",
         "15",
-        "--max-polls",
-        "10",
     ]
     if include_pro:
         arguments.extend(["--pro-model", PRO_MODEL, "--max-cases", "6"])

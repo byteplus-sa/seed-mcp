@@ -1,0 +1,51 @@
+prerequisitesConfirmed: false
+image: ""
+imagePullSecrets: []
+publicHost: ""
+identitySecret:
+  name: ""
+  hmacKey: MCP_IDENTITY_HMAC_KEY
+  versionKey: MCP_IDENTITY_KEY_VERSION
+tlsSecretName: ""
+service:
+  subnetId: ""
+  bandwidthMbps: 25
+  sourceRanges: []
+storage:
+  zone: ""
+  project: default
+  sizeGiB: 40
+  encrypted: false
+  kmsPrerequisitesConfirmed: false
+app:
+  toolTimeoutSeconds: 600
+  providerTimeoutSeconds: 600
+  admissionTimeoutSeconds: 2
+  maxBodyBytes: 2097152
+  maxInFlight: 64
+  rateLimitRpm: 60
+  rateLimitBurst: 0
+  dailyBudgetUsd: 25
+  providerMaxConcurrency: 5
+  principalMaxConcurrency: 3
+  stateMaxRecords: 100000
+  metricsEnabled: false
+  omnihumanEnabled: false
+models:
+  seedream:
+    defaultModel: dola-seedream-5-5-261028
+    bindings: []
+  seedance:
+    defaultModel: dreamina-seedance-2-5-260628
+    bindings: []
+resources:
+  app:
+    cpuRequestMillis: 500
+    cpuLimitMillis: 2000
+    memoryRequestMiB: 512
+    memoryLimitMiB: 2048
+  proxy:
+    cpuRequestMillis: 100
+    cpuLimitMillis: 500
+    memoryRequestMiB: 64
+    memoryLimitMiB: 256

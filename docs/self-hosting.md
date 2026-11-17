@@ -6,14 +6,20 @@ multi-replica deployment claim. No public endpoint or image publication is
 assumed. Build a reviewed Seed MCP revision; upstream Ark MCP images do not
 establish this contract.
 
+The cloud source is dedicated VKE, replacing ECS/Compose, with one StatefulSet
+pod, a Caddy sidecar and retained ext4 ReadWriteOnce EBS. No application HPA,
+PostgreSQL or Redis is needed. Start with the
+[staged operator runbook](byteplus-terraform.md), not a cloud apply as a side
+effect of client setup.
+
 ## Choosing Hosted or Local
 
 | | Local stdio | HTTP BYOK |
 | --- | --- | --- |
 | Provider credentials | Private local environment file | Client request headers; never persisted by the server |
 | Identity | Trusted local principal | Credential tenant plus client-generated secret owner |
-| Tools | 21 conditional catalog entries | 9, or 12 with OmniHuman |
-| Long operations | Ordinary jobs or native tasks | Foreground direct calls |
+| Tools | 15 conditional catalog entries, four always registered | 7, or 10 with OmniHuman |
+| Long operations | Direct calls | Direct calls |
 | Storage/artifacts | Optional local persistence and resources | Unavailable; retrieve provider URLs on the client |
 | State | Single-instance SQLite | Fresh single-instance SQLite; no compatibility migration |
 
@@ -33,6 +39,11 @@ Do not configure hosted provider keys, storage credentials or a Redis task
 backend. HTTP ignores startup generation keys and has no fallback to them.
 Hosted [provider-secret sync is superseded](secret-manager.md).
 
+For VKE, Helm references existing identity and TLS Secrets by name/key only;
+Terraform does not fetch kubeconfig or store HMAC/TLS values. The retained
+`scripts/generate_identity_secret.py` utility supports private operator
+generation, not agent-visible secret output or identity resets.
+
 | Setting | Application default |
 | --- | --- |
 | `RATE_LIMIT_RPM` | `60`, positive on HTTP |
@@ -43,28 +54,56 @@ Hosted [provider-secret sync is superseded](secret-manager.md).
 | `STATE_PRUNE_MAX_AGE_DAYS` | `30`; at least 14 with regular Seedance 2.5 |
 | `PROVIDER_MAX_CONCURRENCY` | `5` |
 | `PRINCIPAL_MAX_CONCURRENCY` | `3`, per derived owner |
+| `MCP_ADMISSION_TIMEOUT_SECONDS` | `2.0`, finite positive, max 30; owner-first then provider wait |
+| `MCP_TOOL_TIMEOUT_SECONDS` | `600.0`, finite positive, max 3600; cooperative whole-tool deadline |
+| `MCP_METRICS_PORT` | `0`, disabled; optional HTTP listener only on 127.0.0.1, ports 1024-65535 |
+| `RATE_LIMIT_TRUSTED_PROXY_CIDRS` | empty; VKE explicitly trusts only `127.0.0.1/32` |
 | `DAILY_BUDGET_USD` | `0`, records estimates without blocking |
 
 A positive daily budget is useful but is an estimate-based owner limit, not a
 provider-account spending guarantee. A client can create another isolation
 secret; use provider-console spending controls as well.
 
+The table describes standalone application defaults. VKE Helm sets
+`app.dailyBudgetUsd=25`, while provider/owner concurrency remains 5/3 and
+burst 0 inherits RPM. `models.seedream` and `models.seedance` provide explicit
+`defaultModel` and verified `{model_id, family}` binding lists; nonempty lists
+must include the default, and alternate defaults require bindings. No
+arbitrary env or credential map is accepted. See
+[chart values](byteplus-terraform.md#model-and-runtime-values); endpoint
+header authority and exact-match precedence remain unchanged.
+
 ## Network and State
 
-Expose only trusted HTTPS ingress. Keep application and database access
-private, preserve the Host header, and configure timeouts for foreground
-generation/understanding. Do not trust forwarded IP headers unless your proxy
-overwrites them. HTTP provider origins are fixed official endpoints.
+Expose only trusted HTTPS ingress. VKE's CLB sends TCP 443 to Caddy 8443,
+with `externalTrafficPolicy: Local`; the app binds `127.0.0.1:3000` in the
+same pod. Caddy overwrites forwarded headers; the application trusts only
+`127.0.0.1/32`. The removed boolean proxy setting has no compatibility alias.
+Uvicorn proxy rewriting is disabled. HTTP provider origins remain fixed.
+
+The VKE private control plane requires operator private connectivity.
+Both `csi-ebs` and `cloud-controller-manager` are VKE-admin owned outside
+Terraform and Helm. Inspect existing installations, install absent compatible
+maintained versions through VKE, and confirm CSI ready, nodes Ready and CCM
+Running before `prerequisitesConfirmed=true`. The acknowledgement is not
+programmatic proof; see [the full gate](byteplus-terraform.md#addon-and-node-gate).
+
+Use client timeout 660 seconds for the default tool deadline. SDK/SQLite
+draining can exceed it, so align ingress and shutdown allowances with actual
+cleanup needs. HTTP/Caddy shutdown uses max(tool, provider seconds) plus 30;
+chart pod grace uses the maximum plus 60, default 630/660 seconds.
+Timeout is not provider cancellation; retain safe accepted
+IDs and never blindly resubmit. See [Direct Execution](../specs/SPEC_DIRECT_EXECUTION.md).
 
 ```mermaid
 flowchart LR
-    Client["Client: provider key and client secret"] -->|HTTPS| Ingress["TLS ingress"]
-    Ingress --> Server["One BYOK instance; foreground calls"]
+    Client["Client: provider key and client secret"] -->|TCP 443| Ingress["CLB to same-pod Caddy TLS"]
+    Ingress -->|Loopback HTTP| Server["One BYOK instance; foreground calls"]
     Server -->|Request key| Provider["Official BytePlus provider"]
     Server --> State[("SQLite ownership, budgets and submission journal; no raw keys")]
 ```
 
-Deploy with [the container guide](deployment.md) or review the
+Build with [the container guide](deployment.md) and follow the
 [BytePlus infrastructure guide](byteplus-terraform.md#requirements). Check the
 selected deployment templates against this contract before activation.
 No provisioning or live deployment is part of this documentation update.
@@ -78,6 +117,14 @@ The HTTP submission journal never auto-prunes, including under
 capacity while existing keys and owned task reads remain available. Do not
 delete claims or reset state to free space; that can permit duplicate work.
 Plan capacity and recovery procedures before wider use.
+
+HTTP holds an exclusive `runtime.sqlite3.lock` before stores/recovery until
+close. Do not delete a live lock, run overlapping writers or use network
+filesystems. Source deletion is not cloud decommissioning: retain reviewed
+old checkouts, private workspaces, Terraform state and backups for approved
+retirement. Backups must be SQLite/WAL-consistent. No state reset, blind
+restore or requeue is supported; an old backup can lose accepted claims.
+Use [aggregate inspection](runtime.md#read-only-state-inspection) for triage.
 
 ## Client Access
 
@@ -123,9 +170,11 @@ scaling choices, not requirements for the initial single-instance design.
 
 ## Validation Status
 
-Verify anonymous `ark_list_models`, exact 9/12 HTTP tool inventory, no resources,
+Verify anonymous `ark_list_models`, exact 7/10 HTTP tool inventory, no resources,
 rejected jobs/native tasks, selected-key enforcement, owner isolation, limits,
-and minimal `/health`/`/ready`. HTTP `/metrics` is unavailable and readiness
-never probes providers. Dry runs do not validate provider authentication.
-Named client header handling, TLS, load/abuse behavior, provider acceptance and
-restore drills need separate approved validation before inviting users.
+and minimal backend `/health`/`/ready`. Caddy exposes only `/mcp` and `/health`;
+`/ready` and `/metrics` are private. Optional metrics use authorized pod
+port-forward, never a public Service. Readiness never probes providers.
+Dry runs do not validate provider authentication. Live VKE apply, source-IP,
+CSI, rollout, real-client/provider acceptance and restore drills remain
+unverified. Isolated mocked TLS/load acceptance is not capacity certification.

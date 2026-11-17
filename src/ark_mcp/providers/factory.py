@@ -14,17 +14,14 @@ if TYPE_CHECKING:
     from fastmcp import Context
 
 
-def modelark_gateway(ctx: Context, *, understanding: bool = False) -> ModelArkGateway:
+def modelark_gateway(ctx: Context) -> ModelArkGateway:
     """Create an invocation-owned gateway using only the selected live credential."""
     api_key = provider_api_key(ctx, "modelark")
     settings = get_runtime(ctx).settings
-    timeout_ms = settings.request_timeout_ms
-    if understanding and settings.seed_understanding_timeout_ms is not None:
-        timeout_ms = settings.seed_understanding_timeout_ms
     return ModelArkGateway(
         api_key=api_key,
         base_url=settings.modelark_base_url,
-        timeout=timeout_ms / 1000,
+        timeout=settings.request_timeout_ms / 1000,
         connect_timeout=settings.connect_timeout_ms / 1000,
     )
 

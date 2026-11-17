@@ -366,19 +366,35 @@ class TestGet:
         assert result.persistence == "not_requested"
         assert str(result.source_url) == VIDEO_URL
 
-    async def test_persist_output_requires_task_execution(
-        self, fake_ctx: FakeContext, monkeypatch: pytest.MonkeyPatch
+    async def test_direct_client_persists_output_without_task_execution(
+        self, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        await record_owner(fake_ctx)
+        import base64
+        from unittest.mock import AsyncMock
+
+        from fastmcp import Client
+
+        from ark_mcp.config.env import get_settings
+        from ark_mcp.security.safe_downloader import DownloadedMedia, SafeDownloader
+        from ark_mcp.server import create_server
+
         stub_get(monkeypatch, succeeded_result())
-        fake_ctx.task_id = None
-
-        result = await omnihuman_get_task(
-            OmniHumanGetTaskInput(task_id="oh-1", persist_output=True), fake_ctx
+        download = AsyncMock(
+            return_value=DownloadedMedia(
+                body=b"avatar-video", content_type="video/mp4", final_url=VIDEO_URL
+            )
         )
-
-        assert isinstance(result, ToolResult)
-        assert result.is_error
+        monkeypatch.setattr(SafeDownloader, "download", download)
+        async with Client(create_server(get_settings())) as client:
+            result = await client.call_tool(
+                "omnihuman_get_task", {"input": {"task_id": "oh-1", "persist_output": True}}
+            )
+            output = OmniHumanTaskOutput.model_validate(result.structured_content)
+            assert output.persistence == "persisted"
+            assert output.video is not None
+            resource = await client.read_resource(output.video.uri)
+            assert base64.b64decode(resource[0].blob) == b"avatar-video"
+        download.assert_awaited_once()
 
     async def test_failed_task_reports_provider_failure(
         self, fake_ctx: FakeContext, monkeypatch: pytest.MonkeyPatch

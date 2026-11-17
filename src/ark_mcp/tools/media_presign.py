@@ -25,7 +25,7 @@ from ark_mcp.observability.logger import info as log_info
 from ark_mcp.providers.object_storage import make_object_storage_gateway
 from ark_mcp.providers.retry import call_with_retry
 from ark_mcp.runtime import billed_provider_slot, get_principal, get_runtime
-from ark_mcp.tools._task_execution import context_log
+from ark_mcp.tools._context import context_log
 
 _OBJECT_KEY_PATTERN = re.compile(r"^[a-zA-Z0-9][a-zA-Z0-9\-_/]*$")
 

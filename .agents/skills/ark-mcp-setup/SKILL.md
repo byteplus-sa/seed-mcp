@@ -13,7 +13,7 @@ or release is assumed.
 
 Install the server into the user's preferred MCP client, not the client
 application itself. Use this skill for onboarding, updates, registration,
-and credential-file setup. Use `ark-mcp` for generating or understanding media.
+and credential-file setup. Use `ark-mcp` for generating media.
 Do not install an editor or CLI, change the agent's model provider, or deploy
 public HTTP as a side effect.
 
@@ -52,7 +52,39 @@ If the user supplies an existing trusted HTTP endpoint, skip local installation,
 release staging and local server credential files. Follow the HTTP BYOK branch
 in [clients.md](references/clients.md#http-byok) and
 [credentials.md](references/credentials.md#http-client-credentials).
+The optional `scripts/configure_http_client.py` helper in a reviewed checkout
+prints stdout-only Codex/Claude snippets with environment-name references.
+It reads no files or environment secret values, writes no configuration,
+makes no network calls and invokes no client. It is not an installer;
+registration still needs the user's chosen scope and permission.
 Do not deploy a server as a side effect. Ask which transport if unresolved.
+
+Hosted operators use the selected checkout's `docs/byteplus-terraform.md`
+and `specs/SPEC_VKE_DEPLOYMENT.md`: dedicated VKE replaces ECS/Compose.
+Do not offer retired deployment helpers. One StatefulSet, retained RWO ext4
+state and same-pod Caddy are required; no application HPA or PostgreSQL/Redis.
+Terraform uses separate fresh state, never old ECS state, and stores no HMAC/
+TLS Secret/kubeconfig. Helm references existing Secrets only. Private API
+access requires operator private connectivity.
+
+Helm provides `models.seedream`/`models.seedance` `defaultModel` and verified
+`{model_id, family}` binding lists, with strict families and default inclusion.
+Alternate defaults require bindings. This does not verify lineage or permit
+arbitrary endpoint headers: explicit tool `model` wins and exact registry
+matching remains required. No arbitrary env or provider-secret map is accepted.
+Chart `app.dailyBudgetUsd=25` differs from the standalone application's zero;
+provider/owner concurrency is 5/3 and burst 0 inherits RPM. Do not describe
+these per-owner estimates as account spending protection.
+
+Both `csi-ebs` and `cloud-controller-manager` are VKE-admin owned outside
+Terraform/Helm. Inspect existing installations; install absent compatible
+maintained versions via VKE addon management. Running addon cards, ready CSI
+driver/controller/node workloads and Ready nodes with capacity must precede
+`prerequisitesConfirmed=true`; acknowledgement is not readiness proof.
+This is operator deployment work, not part of customer connection setup.
+Preserve old reviewed checkouts, private workspaces, state/backups and matching
+HMAC identity. Source deletion is not cloud decommissioning. Never reset
+state, blindly restore, delete an active lease or requeue uncertain submissions.
 
 ## 2. Resolve an Installation
 
@@ -177,15 +209,15 @@ The launch contract requires the successful locked sync above.
    `{"input": {}}` (verify the selected release's schema). Do not run paid
    generation or uploads for setup verification. For this standalone
    preflight process only, set `ARTIFACT_DIR` to a private temporary
-   directory, `ARTIFACT_BACKEND=filesystem`, `FASTMCP_DOCKET_URL=memory://`, and
+   directory, `ARTIFACT_BACKEND=filesystem`, and
    `READINESS_CHECK_PROVIDERS=false`. Keep active local/remote state and
    optional provider probes out of preflight; do not persist these
    overrides into the user's MCP entry.
 3. Ensure the requested product tools register; zero provider credentials
    can produce a healthy server with no generation tools. Tool registration
    proves configuration loading, not provider authentication or entitlement.
-4. Ask before stopping active jobs or restarting the user's client. Stdio
-   jobs belong to the old process and may be lost. Reload/restart MCP and
+4. Ask before interrupting active calls or restarting the user's client.
+   Provider work can continue after disconnect; retain task/request IDs. Reload/restart MCP and
    verify discovery from the actual target agent when that interface is
    available. Otherwise report that target-client verification is pending.
 5. On failure, leave the old installation active. If registration already
@@ -199,11 +231,40 @@ The launch contract requires the successful locked sync above.
 For repeat runs, keep an already-current installation unchanged unless repair
 is needed. Preserve credentials and user-selected flags during updates.
 
-For HTTP, verify anonymous/static `ark_list_models` and 9 tools (12 with
-OmniHuman enabled), no resources, no job tools/native tasks and direct foreground
-execution. Discovery does not validate keys or entitlement. Dry runs still
+Both transports execute directly and reject explicit native task opt-in.
+Local stdio has 15 conditional tools, four always registered, with storage
+and artifacts retained. Configure client timeout 660 seconds for the default
+600-second cooperative tool deadline. Admission defaults to 2 seconds,
+owner-first then provider; operator maxima are 30 seconds for admission and
+3600 for the whole tool. SDK/SQLite draining may exceed the deadline.
+Timeout does not cancel provider work: retain safe accepted IDs and never
+blindly resubmit. Local outputs use live MCP roots or `OUTPUT_ROOTS`.
+
+For HTTP, verify default anonymous/static `ark_list_models` with
+`{"input":{}}` and `connection=null`, and 7 tools (10 with OmniHuman enabled),
+no resources, no job tools/native tasks and direct foreground execution.
+Then optionally call `{"input":{"check_connection":true}}` on live HTTP:
+only ModelArk image/video header presence and exact endpoint defaults are
+checked. Omit `kind` for both routes or select `"image"` / `"video"`;
+Other kinds and stdio checks are rejected.
+Missing headers return `missing_modelark_key` / `missing_client_secret`.
+`configuration_valid=true` requires both headers and every checked route;
+`authentication_verified` and `provider_calls_made` always stay false.
+This does not prove authentication, endpoint existence/current lineage,
+activation, entitlement, balance or reachability. Unknown IDs are not echoed;
+`endpoint_not_configured` means the operator must verify and bind the exact
+product ID. Explicit create-tool `model` wins over endpoint headers.
+Official GetEndpoint body and OpenAPI require AK/SK signing, not ModelArk
+Bearer auth; never ask for AK/SK or imply arbitrary BYOE self-service is done.
+See `specs/SPEC_HOSTED_BYOK.md#byoe-endpoint-authority` in the selected checkout.
+Dry runs still
 require the selected provider header plus client secret and are optional;
 never use a billable call for setup without explicit approval.
+
+Actual model-driven Codex/Claude tool execution and paid provider validation
+remain pending. Isolated config inspection and mocked-network smoke do not
+prove those paths. Do not treat an unapproved Claude project configuration
+as a successful connection or change trust settings to claim validation.
 
 HTTP keys are not persisted by the server; there is no provider-key fallback.
 No OAuth, signup or server-issued key is supported. Keep persistence false.
@@ -227,3 +288,13 @@ Synchronous product replay and complete crash recovery/live validation remain
 deferred. PostgreSQL/Redis are future scaling choices, not initial requirements;
 multi-replica/public launch remain outside this foundation. Consult
 `specs/SPEC_HOSTED_BYOK.md#http-submission-safety` in the selected checkout.
+
+HTTP holds `runtime.sqlite3.lock` before stores/recovery until close.
+`RATE_LIMIT_TRUSTED_PROXY_CIDRS` defaults empty; same-pod Caddy uses
+`127.0.0.1/32` with app bind `127.0.0.1:3000`. CLB TCP443 terminates TLS
+at Caddy8443, not the application. `/ready` and `/metrics` are not public.
+`MCP_METRICS_PORT=0` is off by default; enabled HTTP metrics bind only loopback.
+HTTP/Caddy shutdown uses max(tool, provider seconds) + 30; pod grace uses +60.
+Local mocked TLS/load acceptance is not capacity certification; live VKE
+apply/source-IP/CSI/rollout and real-client/provider acceptance remain
+unverified without separate evidence.

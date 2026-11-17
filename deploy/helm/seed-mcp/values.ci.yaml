@@ -1,0 +1,12 @@
+prerequisitesConfirmed: true
+image: example.invalid/seed-mcp@sha256:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa
+publicHost: mcp.example.invalid
+identitySecret:
+  name: synthetic-identity
+tlsSecretName: synthetic-tls # pragma: allowlist secret
+service:
+  subnetId: subnet-synthetic
+  sourceRanges:
+    - 192.0.2.0/24
+storage:
+  zone: ap-southeast-1a

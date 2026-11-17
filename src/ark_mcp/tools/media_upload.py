@@ -36,7 +36,7 @@ from ark_mcp.security.media_policy import (
     validate_image_mime,
     validate_video_mime,
 )
-from ark_mcp.tools._task_execution import context_log
+from ark_mcp.tools._context import context_log
 
 
 class UploadRequest(BaseModel):
@@ -289,8 +289,8 @@ async def media_upload(input: MediaUploadInput, ctx: Context) -> MediaUploadOutp
     """Upload 1-50 files (Base64 or local file_path, stdio only) to object storage and return presigned URLs.
 
     Use the URLs wherever a tool needs a media URL (e.g. Seedance video references, which are
-    URL-only). Items fail independently: check failed and items[].error. Requires background
-    execution (ark_job_submit).
+    URL-only). Items fail independently: check failed and items[].error. Runs directly
+    on stdio; object-storage tools are not available on HTTP.
     """
     await context_log(ctx, "info", f"Starting upload of {len(input.items)} items")
     settings = get_settings()

@@ -113,6 +113,26 @@ class TestCapabilityRegistry:
         models = registry.list_video_models()
         assert len(models) >= 1
 
+    def test_configured_models_has_only_read_only_image_and_video_maps(self) -> None:
+        registry = get_capability_registry()
+        image, video = registry.configured_models()
+        assert set(image) == set(registry.list_image_models())
+        assert set(video) == set(registry.list_video_models())
+        with pytest.raises(TypeError):
+            image["unbound"] = registry.get_image_capabilities()
+        with pytest.raises(TypeError):
+            video["unbound"] = registry.get_video_capabilities()
+
+    def test_understanding_registry_is_removed(self) -> None:
+        registry = get_capability_registry()
+        for name in (
+            "get_understanding_capabilities",
+            "list_understanding_models",
+            "resolve_understanding_model",
+        ):
+            assert not hasattr(registry, name)
+        assert not any(family.value.startswith("seed_") for family in ModelFamily)
+
 
 class TestPromptOptimizationDefaults:
     """Tests for Seedream prompt optimization default resolution."""
@@ -326,6 +346,14 @@ class TestExactModelResolution:
             get_capability_registry().resolve_video_model("xyz")
         assert "Did you mean" not in str(excinfo.value)
 
+    @pytest.mark.parametrize("kind", ["image", "video"])
+    def test_unknown_endpoint_is_rejected_without_echoing_it(self, kind: str) -> None:
+        resolver = getattr(get_capability_registry(), f"resolve_{kind}_model")
+        with pytest.raises(ValueError, match="ENDPOINT_NOT_CONFIGURED") as excinfo:
+            resolver("ep-unverified-private-selection")
+        assert "ep-unverified-private-selection" not in str(excinfo.value)
+        assert "Access Key" in str(excinfo.value)
+
     def test_seedance_2_has_no_2_5_only_capabilities(self, two_seedance_bindings: None) -> None:
         caps = get_capability_registry().resolve_video_model("dreamina-seedance-2-0-260128")
         assert caps.supports_draft is False
@@ -339,44 +367,7 @@ class TestExactModelResolution:
         assert caps.supports_transparent_background is True
         assert caps.supports_transparent_generation is True
 
-    def test_understanding_routes_audio_to_audio_model(self) -> None:
-        from ark_mcp.config.env import get_settings
-
-        settings = get_settings()
-        registry = get_capability_registry()
-        with_audio = registry.resolve_understanding_model(None, has_audio=True)
-        without_audio = registry.resolve_understanding_model(None, has_audio=False)
-        assert with_audio.model_id == settings.seed_audio_understanding_model
-        assert with_audio.supports_audio is True
-        assert with_audio.supports_image is True
-        assert without_audio.model_id == settings.seed_understanding_default_model
-        assert without_audio.supports_audio is False
-
-    def test_explicit_understanding_model_wins_over_routing(self) -> None:
-        from ark_mcp.config.env import get_settings
-
-        default = get_settings().seed_understanding_default_model
-        caps = get_capability_registry().resolve_understanding_model(default, has_audio=True)
-        assert caps.model_id == default
-
     def test_task_model_lookup_covers_video_and_unknown(self, two_seedance_bindings: None) -> None:
         registry = get_capability_registry()
         assert registry.resolve_task_model("dreamina-seedance-2-5-260628") is not None
         assert registry.resolve_task_model("not-a-model") is None
-
-
-def test_audio_model_already_bound_as_seed_2_1_gains_audio(monkeypatch: pytest.MonkeyPatch) -> None:
-    from ark_mcp.config.env import get_settings
-    from ark_mcp.config.model_capabilities import refresh_capability_registry
-
-    monkeypatch.setenv("SEED_AUDIO_UNDERSTANDING_MODEL", "dola-seed-2-1-turbo-260628")
-    get_settings.cache_clear()
-    try:
-        registry = refresh_capability_registry()
-        caps = registry.get_understanding_capabilities("dola-seed-2-1-turbo-260628")
-        assert caps.family is ModelFamily.SEED_2_1_TURBO
-        assert caps.supports_audio is True
-        assert registry.list_understanding_models().count("dola-seed-2-1-turbo-260628") == 1
-    finally:
-        get_settings.cache_clear()
-        refresh_capability_registry()

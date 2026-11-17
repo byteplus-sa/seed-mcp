@@ -12,7 +12,11 @@ separate tools. The flow is discovery → create → poll:
   and the tool that serves each one, from the static tool catalog
   (`tools/_catalog.py`) and the capability registry. Discovery makes no
   provider calls and returns no account pricing. Cost previews use built-in
-  estimates, not account-specific quotes.
+  estimates, not account-specific quotes. Default discovery is static/anonymous
+  with `connection=null`. Opt-in `check_connection=true` requires live HTTP
+  and checks ModelArk/client-secret header presence plus exact image/video
+  bindings only; omit `kind` for both. Stdio checks are rejected.
+  It never proves authentication, live lineage, entitlement or reachability.
 - **Seed Audio** — full-scene audio generation through Seed Speech
   (`seed_audio_generate`, including parallel variations).
 - **Seedream** — image generation and editing through ModelArk with one
@@ -40,39 +44,30 @@ separate tools. The flow is discovery → create → poll:
   Vision AI (`omnihuman_create_task`, `omnihuman_get_task`,
   `omnihuman_cancel_task`). Bearer `BYTEPLUS_CV_API_KEY`; gated by
   `BYTEPLUS_OMNIHUMAN_ENABLED`; disabled by default.
-- **Seed 2.1 Understanding** — multimodal video/image understanding and
-  reasoning through ModelArk Chat Completions; supports deep-thinking mode.
-- **Seed Audio Understanding** — audio understanding and reasoning
-  (transcription, translation, analysis, Q&A) through ModelArk Chat Completions
-  `input_audio`; model ID set by `SEED_AUDIO_UNDERSTANDING_MODEL`. URL inputs
-  can use the Files API for oversized audio and video soundtracks (up to
-  512 MB); uploaded files are deleted best-effort after processing.
 - **Local object storage upload** — stdio-only `media_upload` / `media_presign` take lists and
   return presigned URLs for URL-only media workflows (TOS or S3 backend).
 - **Native asset references** — Seedance accepts existing authorized
   `asset://<id>` references natively with the ModelArk Bearer key. The server
   does not create, verify, administer, resolve or preflight provider assets.
-- **Local background jobs** — ordinary `ark_job_*` tools are the stdio-only default route for
-  long-running work through the FastMCP worker, since most clients cannot
-  negotiate MCP task augmentation; native tasks remain supported for clients
-  that can.
+- **Direct execution** — both transports await ordinary tool calls. No MCP
+  jobs, native tasks, snapshots or execution claims exist. Provider video
+  queues remain asynchronous; retain their task IDs and poll.
 - **Local durable artifacts** — stdio-only MCP resources for generated media whose provider URLs
   expire (2h for Seed Audio, 24h for ModelArk image/video, about 1h for OmniHuman).
-- **Transports** — local stdio retains jobs/native tasks/storage/artifacts.
-  HTTP is forward-only BYOK: 9 provider/discovery tools, or 12 with OmniHuman,
+- **Transports** — local stdio retains storage/artifacts.
+  HTTP is forward-only BYOK: 7 provider/discovery tools, or 10 with OmniHuman,
   direct foreground calls, no jobs/native tasks/storage/artifact tools/resources.
   `MCP_AUTH_MODE=byok` is the default; explicit `local` is stdio-only and
   `api_key` is removed. No OAuth/signup/server-issued key. HTTP requires
   operator `MCP_IDENTITY_HMAC_KEY` (64 lowercase hex) and positive
   `MCP_IDENTITY_KEY_VERSION` (default 1), not customer credentials.
 
-Seedance, Seedream, Seed 2.1 Understanding, and Seed Audio Understanding
-share the ModelArk data-plane host and Bearer authentication. Seed Audio
+Seedance and Seedream share the ModelArk data-plane host and Bearer authentication. Seed Audio
 uses Seed Speech and `X-Api-Key`; OmniHuman uses Vision AI and its own
 Bearer key. These three provider gateways sit behind one normalized domain
 layer. See `docs/architecture.md` for current behavior.
 
-The local catalog contains **21 tools**, with eight always registered on stdio. Enabled
+The local catalog contains **15 tools**, with four always registered on stdio. Enabled
 tools depend on the four service gates: `modelark`, `seed_audio`, `omnihuman`,
 and `object_storage`. VOD processing, 3D generation, dedicated ASR, asset
 administration and operator-account live pricing are not part of this server.
@@ -89,11 +84,24 @@ official origins, positive 60 RPM / 2 MiB body / 64 in-flight defaults and
 `STATE_MAX_RECORDS=100000`. Readiness is minimal state-only, with no provider
 probes; public metrics are unavailable.
 
+Unknown endpoint IDs are not echoed by preflight or endpoint lookup errors;
+the operator must verify and bind them. Official GetEndpoint documentation
+body and OpenAPI require Access Key V4 (AK/SK), not ModelArk Bearer auth.
+No AK/SK custody or arbitrary BYOE self-service is implemented. Keep the
+durable contract in `specs/SPEC_HOSTED_BYOK.md#byoe-endpoint-authority`.
+`scripts/configure_http_client.py` emits stdout-only Codex/Claude snippets
+with distinct environment-name references; no file/env-secret reads, writes,
+client commands or network calls. HTTPS is required except explicit isolated
+loopback HTTP. Endpoint env-name options require `modelark`.
+Codex uses `env_http_headers`/`tool_timeout_sec`; Claude uses `${VAR}` headers
+and `timeout` in milliseconds. Actual model-driven client and paid provider
+validation remain pending; isolated config inspection and mocked-network
+smoke cannot establish that acceptance.
+
 Fresh SQLite ownership is keyed by `(provider, tenant_id, task_id)` with an
 immutable client owner; no compatibility migration. Global persistence defaults
 are false for Seed Audio, Seedream and OmniHuman get; HTTP rejects true while
-local explicit true remains supported. Files API cleanup uses the live request
-key; remote file expiry is separate from output URL expiry.
+local explicit true remains supported.
 Uncertain mutation transport failures and malformed 2xx responses are
 ambiguous/nonretryable with safe diagnostics.
 HTTP non-dry Seedance and OmniHuman creates require `idempotency_key`:
@@ -112,6 +120,64 @@ Preserve the same state and HMAC key/version. Synchronous product replay and
 complete crash recovery/live validation remain deferred. PostgreSQL/Redis are
 future scaling choices, not initial requirements; no multi-replica or public
 launch claim. See `specs/SPEC_HOSTED_BYOK.md#http-submission-safety`.
+
+Direct-call settings: `MCP_ADMISSION_TIMEOUT_SECONDS=2.0` (finite, positive,
+max 30) bounds owner-first then provider-slot waiting;
+`MCP_TOOL_TIMEOUT_SECONDS=600.0` (finite, positive, max 3600) starts at wrapper
+entry after MCP parsing and before credentials, journal and admission.
+Reserve budget after admission. Active/waiting owner limiters remain pinned.
+`ADMISSION_TIMEOUT` means this attempt did not dispatch, not the whole batch.
+`TOOL_DEADLINE_EXCEEDED` is text-only and preserves mutation uncertainty and
+known safe accepted IDs. External cancellation propagates. SDK/SQLite draining
+may exceed the cooperative deadline; timeout is not provider cancellation.
+Use client timeout 660 seconds and compatible proxy settings. Never blindly
+resubmit. Local writes use live MCP roots or `OUTPUT_ROOTS`.
+The static exporter uses top-level and per-transport `execution: "direct"`,
+with no `background` key. See `specs/SPEC_DIRECT_EXECUTION.md` for the current
+contract.
+
+Hosted deployment follows `specs/SPEC_VKE_DEPLOYMENT.md`:
+dedicated VKE replaces ECS/Compose.
+Terraform root `deploy/terraform/vke` requires separate fresh state, never old
+ECS state. Source deletion is not cloud decommissioning; preserve reviewed old
+checkouts, private workspaces, backups and matching HMAC key/version.
+No state reset, blind restore or requeue is a supported recovery procedure.
+
+One StatefulSet pod runs app `127.0.0.1:3000` and Caddy TLS `8443`; CLB uses
+TCP443 and Local traffic policy. `RATE_LIMIT_TRUSTED_PROXY_CIDRS` replaces the
+boolean setting, defaults empty and is `127.0.0.1/32` in the chart. Caddy
+overwrites forwarded headers; Uvicorn proxy rewriting is disabled.
+Only `/mcp` and `/health` are public; `/ready` is an internal exec probe.
+HTTP holds `runtime.sqlite3.lock` before stores/recovery until close. The lock
+is not distributed fencing; never unlink it while active. Retained RWO ext4
+EBS, one app replica, no HPA or network-filesystem SQLite; no PostgreSQL/Redis.
+HTTP/Caddy shutdown uses max(tool, provider seconds) + 30; pod grace uses +60.
+
+`MCP_METRICS_PORT=0` disables private metrics; HTTP-only nonzero 1024-65535
+ports bind 127.0.0.1. Helm enables 9000 only via `app.metricsEnabled`; no public
+metrics Service. `scripts/inspect_runtime_state.py` is standalone read-only
+aggregate inspection (`--database`, `--capacity`, `--timeout-seconds`), never
+repair/recovery. `scripts/generate_identity_secret.py` remains standalone.
+Terraform stores no HMAC/TLS Secret/kubeconfig; Helm references existing
+Secrets only. Private API access requires operator private connectivity.
+
+Helm `models.seedream`/`models.seedance` expose `defaultModel` and
+`bindings: [{model_id, family}]`, with strict product families, unique IDs
+and selected-default inclusion. Alternate defaults require explicit verified
+bindings; used request headers still need exact registry matches and explicit
+tool `model` wins. No endpoint authority change or arbitrary env map.
+Chart runtime defaults are `app.dailyBudgetUsd=25` (application default is 0),
+`providerMaxConcurrency=5`, `principalMaxConcurrency=3`, `rateLimitBurst=0`.
+These are explicit env mappings; per-owner estimates are not account spend caps.
+
+Both `csi-ebs` and `cloud-controller-manager` are explicitly VKE-admin owned
+outside Terraform/Helm. Inspect existing installations; install absent
+compatible maintained versions through VKE addon management. Verify both
+cards Running, CSI driver/controller/node ready and nodes Ready with capacity
+before `prerequisitesConfirmed=true`. The acknowledgement is not proof.
+`scripts/hosted_acceptance.py --caddy-bin PATH` runs isolated mocked TLS/load,
+not capacity certification. Live VKE apply/source-IP/CSI/rollout and real
+client/provider acceptance remain unverified without separate evidence.
 
 ## Repository Layout
 

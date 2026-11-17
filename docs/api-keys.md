@@ -19,7 +19,7 @@ HTTP registration is credential-independent (OmniHuman still needs its flag).
 
 | Service | Env var | Auth header | Tools it enables |
 |---|---|---|---|
-| ModelArk | `BYTEPLUS_MODELARK_API_KEY` | `Authorization: Bearer <key>` | Seedream, Seedance, image/video/audio understanding and Files API delivery |
+| ModelArk | `BYTEPLUS_MODELARK_API_KEY` | `Authorization: Bearer <key>` | Seedream and Seedance |
 | Seed Speech | `BYTEPLUS_SEED_SPEECH_API_KEY` | `X-Api-Key: <key>` | Seed Audio generation |
 | Vision AI (OmniHuman) | `BYTEPLUS_CV_API_KEY` | `Authorization: Bearer <key>` | `omnihuman_*` tools (also needs `BYTEPLUS_OMNIHUMAN_ENABLED=true`) |
 | TOS | `TOS_ACCESS_KEY` + `TOS_SECRET_KEY` + `TOS_BUCKET` | AK/SK signing | `media_upload`, `media_presign` |
@@ -39,8 +39,7 @@ only when preparing the file yourself.
 
 ## ModelArk
 
-ModelArk provides **Seedream**, **Seedance**, multimodal understanding and
-Files API delivery. The key is sent as a Bearer token.
+ModelArk provides **Seedream** and **Seedance**. The key is sent as a Bearer token.
 
 **Env vars:**
 
@@ -70,8 +69,7 @@ base; HTTP fixes official origins and never accepts arbitrary endpoint hosts.
 ## Seed Speech
 
 Seed Speech provides **Seed Audio** (full-scene audio generation / TTS).
-It is separate from ModelArk and uses `X-Api-Key`, not Bearer. Audio
-transcription and translation use `seed_audio_understand` with the ModelArk key.
+It is separate from ModelArk and uses `X-Api-Key`, not Bearer.
 
 **Env vars:**
 
@@ -190,7 +188,7 @@ S3-compatible storage (MinIO, R2, TOS-via-boto3).
 ## Verifying your setup
 
 After saving the private file, reconnect Ark through your client's MCP
-settings, taking care to finish active jobs first. The client starts the
+settings, taking care to finish active calls first. The client starts the
 server automatically. Use the [discovery-only connection check](integrations/index.md#verify-without-paid-calls);
 do not start development mode just to test keys.
 
@@ -201,13 +199,13 @@ feature flag. Ask your setup agent to check names and the configured
 `ARK_MCP_ENV_FILE` path without reading or printing key values.
 
 On stdio, a missing provider key omits its tools. HTTP always exposes the
-9 supported provider/discovery tools, or 12 with OmniHuman enabled.
+7 supported provider/discovery tools, or 10 with OmniHuman enabled.
 Discovery confirms configuration, not provider-key validity or account access.
 
 ## Quick reference
 
 ```dotenv
-# ModelArk — image + video + understanding
+# ModelArk — image + video
 BYTEPLUS_MODELARK_API_KEY=
 BYTEPLUS_MODELARK_BASE_URL=https://ark.ap-southeast.bytepluses.com/api/v3
 

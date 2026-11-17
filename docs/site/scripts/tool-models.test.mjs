@@ -5,7 +5,7 @@ import { toolPage } from "./docs.mjs";
 const tool = (name) => ({
   name,
   description: "Operate on media.",
-  background: "required",
+  execution: "direct",
   registration_gate: "Requires provider configuration.",
   scope: null,
   inputSchema: { properties: {} },
@@ -17,8 +17,6 @@ test("model-backed tool pages each show one supported-model table", () => {
     "seedream_generate_image",
     "seedance_create_task",
     "seed_audio_generate",
-    "seed_understand",
-    "seed_audio_understand",
     "omnihuman_create_task",
   ]) {
     const page = toolPage(tool(name));
@@ -80,18 +78,10 @@ test("image and video tables distinguish defaults, custom IDs and gated models",
 });
 
 test("fixed-service tools do not advertise a per-call model selector", () => {
-  for (const name of [
-    "seed_audio_generate",
-    "seed_audio_understand",
-    "omnihuman_create_task",
-  ]) {
+  for (const name of ["seed_audio_generate", "omnihuman_create_task"]) {
     assert.match(toolPage(tool(name)), /no per-call `model` argument/i);
   }
   assert.match(toolPage(tool("seed_audio_generate")), /seed-audio-1\.0/);
-  assert.match(
-    toolPage(tool("seed_audio_understand")),
-    /SEED_AUDIO_UNDERSTANDING_MODEL/,
-  );
   assert.match(
     toolPage(tool("omnihuman_create_task")),
     /realman_avatar_picture_omni20_cv/,

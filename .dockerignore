@@ -9,6 +9,12 @@ dist
 .agents
 .claude
 .env
+.env.*
+*.key
+*.pem
+*.kubeconfig
+kubeconfig
+values.private.yaml
 plans
 specs
 docs

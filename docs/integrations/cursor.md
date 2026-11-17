@@ -72,7 +72,7 @@ actual execution host.
 Run the [discovery-only check](index.md#verify-without-paid-calls), then
 [Your First Tool Call](../setup/first-run.md). UI labels vary by edition;
 actual tool results matter more than the connection indicator. Finish active
-jobs before reconnecting or restarting Cursor.
+calls before reconnecting or restarting Cursor.
 
 See [Integrations](index.md), [VS Code](vscode.md),
 [Getting Started](../getting-started.md), [Tools](../tools.md), and

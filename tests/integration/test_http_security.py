@@ -252,24 +252,24 @@ async def test_rate_limit_covers_anonymous_discovery_and_ignores_spoofed_proxy(
 
 
 class TestRateLimitMiddlewareBucketing:
-    """The proxy-aware client key groups by forwarded-for or client IP."""
+    """Only trusted proxy hops affect canonical client buckets."""
 
     @staticmethod
-    def _scope(client_ip: str, forwarded_for: str | None = None) -> dict[str, object]:
+    def _scope(client_ip: str, forwarded_for: str | None = None) -> Scope:
         headers = [] if forwarded_for is None else [(b"x-forwarded-for", forwarded_for.encode())]
         return {"type": "http", "client": (client_ip, 1234), "headers": headers}
 
-    def test_trust_proxy_headers_uses_first_forwarded_for(self) -> None:
-        middleware = RateLimitMiddleware(None, rpm=10, trust_proxy_headers=True)  # type: ignore[arg-type]
-        assert middleware._client_key(self._scope("10.0.0.5", "1.2.3.4, 5.6.7.8")) == "1.2.3.4"
+    def test_trusted_proxy_uses_first_untrusted_hop_from_right(self) -> None:
+        middleware = RateLimitMiddleware(AsyncMock(), rpm=10, trusted_proxy_cidrs=("10.0.0.0/8",))
+        assert middleware._client_key(self._scope("10.0.0.5", "1.2.3.4, 5.6.7.8")) == "5.6.7.8"
 
-    def test_trust_proxy_headers_groups_same_forwarded_for(self) -> None:
-        middleware = RateLimitMiddleware(None, rpm=10, trust_proxy_headers=True)  # type: ignore[arg-type]
-        first = middleware._client_key(self._scope("10.0.0.5", "1.2.3.4, 9.9.9.9"))
+    def test_trusted_proxy_hops_group_same_client(self) -> None:
+        middleware = RateLimitMiddleware(AsyncMock(), rpm=10, trusted_proxy_cidrs=("10.0.0.0/8",))
+        first = middleware._client_key(self._scope("10.0.0.5", "1.2.3.4, 10.0.0.7"))
         second = middleware._client_key(self._scope("10.0.0.6", "1.2.3.4"))
         assert first == second == "1.2.3.4"
 
-    def test_trust_proxy_headers_off_uses_client_ip(self) -> None:
+    def test_empty_proxy_trust_uses_client_ip(self) -> None:
         middleware = RateLimitMiddleware(None, rpm=10)  # type: ignore[arg-type]
         assert middleware._client_key(self._scope("10.0.0.5", "1.2.3.4")) == "10.0.0.5"
 
@@ -295,7 +295,7 @@ class TestRateLimitMiddlewareBucketing:
 
 
 async def test_create_server_applies_body_and_rate_limit_middleware(tmp_path: Path) -> None:
-    settings = http_settings(tmp_path, RATE_LIMIT_TRUST_PROXY_HEADERS=True)
+    settings = http_settings(tmp_path, RATE_LIMIT_TRUSTED_PROXY_CIDRS="127.0.0.1/32")
     server = create_server(settings)
     app = server.http_app(path="/mcp", json_response=True)
 
@@ -311,7 +311,48 @@ async def test_create_server_applies_body_and_rate_limit_middleware(tmp_path: Pa
     assert names.index("RateLimitMiddleware") < names.index("ByokHeadersMiddleware")
     rate_limit_node = next(node for name, node in stack if name == "RateLimitMiddleware")
     assert isinstance(rate_limit_node, RateLimitMiddleware)
-    assert rate_limit_node.trust_proxy_headers is True
+    assert rate_limit_node.trusted_proxy_networks == settings.trusted_proxy_networks
+
+
+async def test_probe_traffic_does_not_throttle_discovery(tmp_path: Path) -> None:
+    settings = http_settings(tmp_path, RATE_LIMIT_RPM=1, RATE_LIMIT_BURST=1)
+    async with http_server(tmp_path, settings=settings) as (_, _, client):
+        for _ in range(3):
+            assert (await client.get("/health")).status_code == 200
+            assert (await client.get("/ready")).status_code == 200
+        assert (await rpc(client, "tools/list"))["result"]["tools"]
+        assert (await client.post("/mcp", json={})).status_code == 429
+        assert (await client.get("/health")).status_code == 200
+        assert (await client.get("/ready")).status_code == 200
+
+
+@respx.mock
+async def test_trusted_proxy_spoofed_prefix_cannot_reset_discovery_bucket(tmp_path: Path) -> None:
+    settings = http_settings(
+        tmp_path,
+        RATE_LIMIT_RPM=1,
+        RATE_LIMIT_BURST=1,
+        RATE_LIMIT_TRUSTED_PROXY_CIDRS="127.0.0.1/32,10.0.0.0/8",
+    )
+    async with http_server(tmp_path, settings=settings) as (_, _, client):
+        result = await rpc(
+            client, "tools/list", headers={"X-Forwarded-For": "198.51.100.1,192.0.2.1,10.0.0.1"}
+        )
+        assert result["result"]["tools"]
+        blocked = await client.post(
+            "/mcp",
+            headers={"X-Forwarded-For": "198.51.100.2,192.0.2.1,10.0.0.2"},
+            json={},
+        )
+        assert blocked.status_code == 429
+        independent = await rpc(client, "tools/list", headers={"X-Forwarded-For": "192.0.2.2"})
+        assert independent["result"]["tools"]
+        malformed = await client.post(
+            "/mcp", headers={"X-Forwarded-For": "private-invalid-forwarding"}, json={}
+        )
+        assert malformed.status_code == 400
+        assert malformed.text == "Invalid forwarding headers."
+    assert len(respx.calls) == 0
 
 
 @respx.mock

@@ -31,6 +31,7 @@ from ark_mcp.runtime import billed_provider_slot, get_principal, get_runtime
 from ark_mcp.security.credentials import provider_api_key, redact_request_secrets
 from ark_mcp.security.url_policy import validate_url_syntax
 from ark_mcp.tools._asset_shared import require_url_references
+from ark_mcp.tools._context import context_log
 from ark_mcp.tools._cost import DEFAULT_MAX_CONCURRENT, estimate_cost, log_cost_estimate
 from ark_mcp.tools._errors import format_provider_error_text, provider_error_result
 from ark_mcp.tools._http_policy import validate_http_options
@@ -49,7 +50,6 @@ from ark_mcp.tools._parallel import (
     variation_batch_deadline,
 )
 from ark_mcp.tools._persistence import persist_base64, persistence_variation_error, provider_url_ref
-from ark_mcp.tools._task_execution import context_log
 
 # ---------------------------------------------------------------------------
 # Input / Output models
@@ -267,7 +267,7 @@ async def seed_audio_generate(
 
     Returns temporary provider URLs (2-hour expiry) by default. variations (up to 5)
     run in parallel and return a summary. HTTP runs in the foreground with persist=false.
-    On stdio use ark_job_submit; durable persistence requires explicit persist=true.
+    Both transports call directly; stdio persistence requires explicit persist=true.
     """
     validate_http_options(ctx, persist=input.persist)
     provider_api_key(ctx, "seed-speech")

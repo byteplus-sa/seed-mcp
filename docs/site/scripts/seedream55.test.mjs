@@ -10,7 +10,7 @@ const route = "/ark-mcp/tool-reference/seedream-generate-image/";
 const tool = (name) => ({
   name,
   description: "Create media.",
-  background: "required",
+  execution: "direct",
   registration_gate: "Requires BYTEPLUS_MODELARK_API_KEY.",
   scope: null,
   inputSchema: { properties: {} },
@@ -22,13 +22,14 @@ test("Seedream tool reference includes model guidance and a safe image preview",
   const examples = [...page.matchAll(/```json\n([\s\S]*?)\n```/g)].map(
     (match) => JSON.parse(match[1]),
   );
-  const job = examples.find((example) => example.name === "ark_job_submit")
-    .arguments.input;
-  assert.equal(job.tool_name, "seedream_generate_image");
-  assert.equal(job.arguments.input.model, model);
-  assert.equal(job.arguments.input.background, "transparent");
-  assert.equal(job.arguments.input.output_format, "png");
-  assert.equal(job.arguments.input.dry_run, true);
+  const call = examples.find(
+    (example) => example.name === "seedream_generate_image",
+  );
+  assert.equal(call.arguments.input.model, model);
+  assert.equal(call.arguments.input.background, "transparent");
+  assert.equal(call.arguments.input.output_format, "png");
+  assert.equal(call.arguments.input.dry_run, true);
+  assert.doesNotMatch(page, /ark_job_submit/);
   assert.match(page, /id="seedream-5-5"/);
   assert.match(page, /## Supported Models/);
   assert.doesNotMatch(page, /^## Seedream 5\.5$/m);

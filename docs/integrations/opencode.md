@@ -114,7 +114,7 @@ that file, so check presence/names without printing values.
 ## Verify
 
 Run the [discovery-only check](index.md#verify-without-paid-calls), then
-[Your First Tool Call](../setup/first-run.md). Finish active jobs before
+[Your First Tool Call](../setup/first-run.md). Finish active calls before
 reloading the connection. If you need troubleshooting commands, ask the
 agent to use the help for your installed OpenCode version.
 

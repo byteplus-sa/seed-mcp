@@ -8,7 +8,6 @@ from typing import Any
 
 import pytest
 from fastmcp import Client
-from jsonschema import Draft202012Validator
 
 from ark_mcp.config.env import get_settings
 from ark_mcp.config.model_capabilities import refresh_capability_registry
@@ -42,7 +41,7 @@ def _by_id(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
 
 async def test_lists_every_configured_kind(configured: None) -> None:
     models = _by_id(await _list_models({}))
-    assert {model["kind"] for model in models.values()} == {"video", "image", "understanding"}
+    assert {model["kind"] for model in models.values()} == {"video", "image"}
     seedance_2_5 = models["dreamina-seedance-2-5-260628"]
     assert seedance_2_5["tool"] == "seedance_create_task"
     assert seedance_2_5["video"]["duration_seconds"] == [4, 30]
@@ -59,49 +58,6 @@ async def test_kind_filter_limits_results(configured: None) -> None:
     payload = await _list_models({"kind": "image"})
     assert [model["kind"] for model in payload["models"]] == ["image"]
     assert payload["models"][0]["image"]["supports_transparent_background"] is True
-
-
-async def test_understanding_models_report_modalities_and_defaults(configured: None) -> None:
-    models = _by_id(await _list_models({"kind": "understanding"}))
-    audio_model = models["seed-2-0-lite-260428"]
-    assert audio_model["understanding"]["modalities"] == ["audio"]
-    assert audio_model["is_default"] is True
-    turbo = models["dola-seed-2-1-turbo-260628"]
-    assert "audio" not in turbo["understanding"]["modalities"]
-    assert turbo["tool"] == "seed_understand"
-
-
-@pytest.mark.parametrize("audio_model_id", ["seed-2-0-lite-260428", "dola-seed-2-1-turbo-260628"])
-async def test_understanding_discovery_matches_named_tool_schema(
-    configured: None, monkeypatch: pytest.MonkeyPatch, audio_model_id: str
-) -> None:
-    monkeypatch.setenv("SEED_AUDIO_UNDERSTANDING_MODEL", audio_model_id)
-    get_settings.cache_clear()
-    refresh_capability_registry()
-    payload = await _list_models({"kind": "understanding"})
-    tools = {tool.name: tool for tool in await create_server(get_settings()).list_tools()}
-    fields_by_modality = {"image": "images", "video": "videos", "audio": "audios"}
-
-    for model in payload["models"]:
-        schema = tools[model["tool"]].parameters
-        input_properties = schema["properties"]["input"]["properties"]
-        limits = model["understanding"]
-        for modality in limits["modalities"]:
-            field = fields_by_modality[modality]
-            assert field in input_properties, (model["tool"], modality)
-            arguments = {
-                "prompt": "Describe the supplied media.",
-                field: [
-                    {"kind": "url", "url": "https://cdn.example.com/reference"}
-                    for _ in range(limits["max_media_parts"])
-                ],
-            }
-            Draft202012Validator(schema).validate({"input": arguments})
-
-    audio_model = _by_id(payload)[audio_model_id]
-    assert audio_model["tool"] == "seed_audio_understand"
-    assert audio_model["understanding"]["modalities"] == ["audio"]
-    assert audio_model["understanding"]["max_media_parts"] == 8
 
 
 async def test_disabled_services_explain_how_to_enable_them(configured: None) -> None:
@@ -136,9 +92,10 @@ async def test_no_models_without_modelark_key(
         refresh_capability_registry()
 
 
-async def test_invalid_kind_is_rejected(configured: None) -> None:
+@pytest.mark.parametrize("kind", ["audio", "understanding"])
+async def test_invalid_kind_is_rejected(configured: None, kind: str) -> None:
     async with Client(create_server(get_settings())) as client:
         result = await client.call_tool(
-            "ark_list_models", {"input": {"kind": "audio"}}, raise_on_error=False
+            "ark_list_models", {"input": {"kind": kind}}, raise_on_error=False
         )
     assert result.is_error

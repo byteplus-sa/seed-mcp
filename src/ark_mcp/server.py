@@ -1,7 +1,7 @@
 """FastMCP server factory and module-level deployment entrypoint.
 
 Tools are registered from the static catalog in ``tools/_catalog.py``; the
-background-job contract is ``specs/SPEC_BACKGROUND_JOBS.md``. Runtime resources
+direct-call contract is ``specs/SPEC_DIRECT_EXECUTION.md``. Runtime resources
 are created once by the FastMCP lifespan; importing this module only assembles
 the declarative server surface.
 """
@@ -11,7 +11,7 @@ from __future__ import annotations
 import contextlib
 import os
 import subprocess  # nosec B404
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, datetime
 from functools import wraps
 from inspect import signature
 from pathlib import Path
@@ -26,7 +26,6 @@ from fastmcp import Context, FastMCP  # noqa: E402
 from fastmcp.exceptions import ToolError  # noqa: E402
 from fastmcp.resources import ResourceContent, ResourceResult  # noqa: E402
 from fastmcp.server.dependencies import get_context  # noqa: E402
-from fastmcp.utilities.tasks import TaskConfig  # noqa: E402
 from prometheus_client import CONTENT_TYPE_LATEST, generate_latest  # noqa: E402
 from starlette.middleware import Middleware  # noqa: E402
 from starlette.responses import JSONResponse, Response  # noqa: E402
@@ -36,21 +35,18 @@ if TYPE_CHECKING:
 
     from starlette.requests import Request
 
-from ark_mcp.background_jobs import (  # noqa: E402
-    background_tool_spec,
-    required_background_tool_names,
-)
 from ark_mcp.config.env import (  # noqa: E402
     Settings,
     get_settings,
     resolve_env_file,
+    settings_scope,
 )
+from ark_mcp.execution import run_direct_call  # noqa: E402
 from ark_mcp.observability.logger import info as log_info  # noqa: E402
 from ark_mcp.observability.logger import set_level  # noqa: E402
 from ark_mcp.observability.logger import warning as log_warning  # noqa: E402
 from ark_mcp.observability.metrics import (  # noqa: E402
     MetricsMiddleware,
-    instrument_tool_execution,
 )
 from ark_mcp.runtime import (  # noqa: E402
     RuntimeFactory,
@@ -71,7 +67,6 @@ from ark_mcp.security.http_middleware import (  # noqa: E402
     RateLimitMiddleware,
     RequestBodyLimitMiddleware,
 )
-from ark_mcp.security.tasks import TenantTasksExtension, guard_task_execution  # noqa: E402
 from ark_mcp.submissions import execute_submission  # noqa: E402
 from ark_mcp.tools._catalog import (  # noqa: E402
     CATALOG,
@@ -82,18 +77,17 @@ from ark_mcp.tools._catalog import (  # noqa: E402
 
 SERVER_INSTRUCTIONS = (
     "BytePlus multimodal generation server: Seedance video, Seedream images, Seed Audio, "
-    "OmniHuman avatar video, and Seed multimodal and audio understanding. "
+    "and OmniHuman avatar video. "
     "Call ark_list_models first: `model` accepts only the exact "
     "configured IDs it returns, and it lists per-model limits and which optional services "
-    "are enabled. Run long-running tools through ark_job_submit and ark_job_get; this is the "
-    "default path because most clients do not support MCP tasks, and native task "
-    "augmentation also works. Poll Seedance tasks with gen_task_get and OmniHuman tasks with "
+    "are enabled. Call tools directly; MCP background jobs and native tasks are unavailable. "
+    "Calls have bounded admission and execution deadlines; timeouts do not cancel provider work. "
+    "Poll Seedance tasks with gen_task_get and OmniHuman tasks with "
     "omnihuman_get_task; never resubmit a create tool to poll. "
-    "Generated media is persisted as seed-media:// resources; reference private assets as "
+    "Local persistence is explicit; persisted media uses seed-media:// resources. "
+    "Reference private assets as "
     "asset://<asset_id> in Seedance."
 )
-_REQUIRED_BACKGROUND_TASK_NAMES = required_background_tool_names()
-_BACKGROUND_TASK_POLL_INTERVAL = timedelta(seconds=2)
 
 HTTP_SERVER_INSTRUCTIONS = (
     "Seed MCP: customer-key ModelArk, Seed Speech and OmniHuman. "
@@ -109,32 +103,44 @@ HTTP_SERVER_INSTRUCTIONS = (
 )
 
 
-def _http_handler(
-    entry: CatalogEntry, handler: Callable[..., Awaitable[Any]], settings: Settings
+def _direct_handler(
+    entry: CatalogEntry,
+    handler: Callable[..., Awaitable[Any]],
+    settings: Settings,
+    *,
+    read_only: bool,
 ) -> Callable[..., Awaitable[Any]]:
+    async def invoke(*args: Any, **kwargs: Any) -> Any:
+        if settings.mcp_transport != "http" or entry.provider is None:
+            return await handler(*args, **kwargs)
+        with provider_scope(settings, entry.provider):
+            bound = signature(handler).bind(*args, **kwargs)
+            request = bound.arguments.get("input")
+            default = endpoint_default(entry.name)
+            if default and request is not None and getattr(request, "model", None) is None:
+                bound.arguments["input"] = type(request).model_validate(
+                    {**request.model_dump(), "model": default}
+                )
+            return await execute_submission(
+                bound.arguments["ctx"],
+                entry.name,
+                bound.arguments["input"],
+                lambda: handler(*bound.args, **bound.kwargs),
+            )
+
     @wraps(handler)
     async def guarded(*args: Any, **kwargs: Any) -> Any:
         if get_context().client_extension_settings("io.modelcontextprotocol/tasks") is not None:
             raise ToolError(
-                "HTTP BYOK does not support background execution. "
+                "Seed MCP does not support background execution. "
                 "Call the tool without the tasks extension opt-in."
             )
-        if entry.provider is None:
-            return await handler(*args, **kwargs)
         try:
-            with provider_scope(settings, entry.provider):
-                bound = signature(handler).bind(*args, **kwargs)
-                request = bound.arguments.get("input")
-                default = endpoint_default(entry.name)
-                if default and request is not None and getattr(request, "model", None) is None:
-                    bound.arguments["input"] = type(request).model_validate(
-                        {**request.model_dump(), "model": default}
-                    )
-                return await execute_submission(
-                    bound.arguments["ctx"],
-                    entry.name,
-                    bound.arguments["input"],
-                    lambda: handler(*bound.args, **bound.kwargs),
+            with settings_scope(settings):
+                return await run_direct_call(
+                    lambda: invoke(*args, **kwargs),
+                    timeout_seconds=settings.tool_timeout_seconds,
+                    read_only=read_only,
                 )
         except (PermissionError, ValueError) as exc:
             raise ToolError(redact_request_secrets(str(exc))) from None
@@ -150,37 +156,21 @@ def _http_handler(
     return guarded
 
 
-def _task_config(tool_name: str) -> TaskConfig | None:
-    spec = background_tool_spec(tool_name)
-    if spec is None:
-        return None
-    return TaskConfig(mode=spec.mode, poll_interval=_BACKGROUND_TASK_POLL_INTERVAL)
-
-
-def _task_handler[**P, R](
-    name: str, handler: Callable[P, Awaitable[R]]
-) -> Callable[P, Awaitable[R]]:
-    if name in _REQUIRED_BACKGROUND_TASK_NAMES:
-        handler = guard_task_execution(handler)
-    if _task_config(name) is not None:
-        handler = instrument_tool_execution(handler, tool_name=name)
-    return handler
-
-
 def register_tools(server: FastMCP, settings: Settings) -> None:
     """Register every catalog tool whose settings gate passes."""
     skipped: list[str] = []
     for entry, definition in _gated_tool_definitions(settings, skipped):
-        hosted = settings.mcp_transport == "http"
         server.tool(
             name=entry.name,
             annotations={**definition.annotations},
             output_schema=definition.output_model.model_json_schema(),
-            task=TaskConfig(mode="forbidden") if hosted else _task_config(entry.name),
         )(
-            _http_handler(entry, definition.handler, settings)
-            if hosted
-            else _task_handler(entry.name, definition.handler)
+            _direct_handler(
+                entry,
+                definition.handler,
+                settings,
+                read_only=bool(definition.annotations.get("readOnlyHint", False)),
+            )
         )
     if skipped:
         log_info(
@@ -234,7 +224,7 @@ class HardenedFastMCP(FastMCP):
                         burst=(
                             self._app_settings.rate_limit_burst or self._app_settings.rate_limit_rpm
                         ),
-                        trust_proxy_headers=self._app_settings.rate_limit_trust_proxy_headers,
+                        trusted_proxy_cidrs=self._app_settings.trusted_proxy_networks,
                     )
                 )
             asgi_middleware.append(Middleware(ByokHeadersMiddleware, settings=self._app_settings))
@@ -259,12 +249,12 @@ def _disabled_http_guardrails(settings: Settings) -> list[str]:
     return disabled
 
 
-def _background_local_export_status(settings: Settings) -> str:
+def _local_export_status(settings: Settings) -> str:
     if settings.mcp_transport != "stdio":
         return "disabled (stdio only)"
     roots = settings.output_root_paths
     if not roots:
-        return "not configured (set OUTPUT_ROOTS; background jobs cannot use client MCP roots)"
+        return "request-dependent (use client MCP roots or configure OUTPUT_ROOTS)"
     for root in roots:
         if "\0" in root:
             continue
@@ -307,8 +297,6 @@ def create_server(
         middleware=[MetricsMiddleware()],
         app_settings=resolved_settings,
     )
-    if resolved_settings.mcp_transport == "stdio":
-        server.add_extension(TenantTasksExtension(resolved_settings))
 
     async def get_artifact(artifact_id: str, ctx: Context) -> ResourceResult:
         """Return persisted media after canonical ID and ownership checks."""
@@ -355,7 +343,7 @@ def create_server(
             f"Object storage backend: {resolved_settings.object_storage_backend}\n"
             f"Artifact backend: {resolved_settings.artifact_backend}\n"
             f"Transport: {resolved_settings.mcp_transport}\n"
-            f"Background-job local export: {_background_local_export_status(resolved_settings)}\n"
+            f"Local export: {_local_export_status(resolved_settings)}\n"
         )
 
     if resolved_settings.mcp_transport == "stdio":

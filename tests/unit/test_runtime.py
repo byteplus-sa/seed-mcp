@@ -14,6 +14,7 @@ import pytest
 
 from ark_mcp.config.env import Settings
 from ark_mcp.domain.artifacts import ArtifactRef, MediaType
+from ark_mcp.domain.errors import ProviderError
 from ark_mcp.runtime import (
     BudgetExceededError,
     BudgetLedger,
@@ -24,6 +25,7 @@ from ark_mcp.runtime import (
     SQLiteTaskArtifactCache,
     SQLiteTaskOwnershipStore,
     TaskArtifactPersistenceLocks,
+    TaskOwnershipStore,
     _state_sweeper,
     build_lifespan,
     close_runtime_services,
@@ -281,9 +283,8 @@ async def test_old_ownership_schema_is_rejected_without_migration(
         assert connection.execute("SELECT * FROM task_ownership").fetchall() == original_rows
 
 
-@pytest.mark.parametrize("operation", ["record", "claim"])
 async def test_identical_task_ids_are_independent_across_credential_tenants(
-    tmp_path: Path, operation: str
+    tmp_path: Path,
 ) -> None:
     database = tmp_path / "runtime.sqlite3"
     first = _credential_owner()
@@ -292,10 +293,7 @@ async def test_identical_task_ids_are_independent_across_credential_tenants(
     store = SQLiteTaskOwnershipStore(database)
     try:
         for owner in (first, second):
-            if operation == "claim":
-                assert await store.claim("modelark", "same-provider-id", owner)
-            else:
-                await store.record("modelark", "same-provider-id", owner)
+            await store.record("modelark", "same-provider-id", owner)
         await store.record("modelark", "first-only", first)
     finally:
         await store.close()
@@ -304,7 +302,7 @@ async def test_identical_task_ids_are_independent_across_credential_tenants(
     try:
         for owner in (first, second):
             await reopened.require_owner("modelark", "same-provider-id", owner)
-            assert not await reopened.claim("modelark", "same-provider-id", owner)
+            await reopened.record("modelark", "same-provider-id", owner)
         assert await _owned_ids(reopened, "modelark", first) == ["first-only", "same-provider-id"]
         assert await _owned_ids(reopened, "modelark", second) == ["same-provider-id"]
         with pytest.raises(PermissionError):
@@ -332,7 +330,6 @@ async def test_record_cannot_overwrite_another_owner_even_after_reopening(tmp_pa
     try:
         with pytest.raises(PermissionError):
             await reopened.record("modelark", "immutable-task", other)
-        assert not await reopened.claim("modelark", "immutable-task", other)
         await reopened.require_owner("modelark", "immutable-task", owner)
         with pytest.raises(PermissionError):
             await reopened.require_owner("modelark", "immutable-task", other)
@@ -342,19 +339,22 @@ async def test_record_cannot_overwrite_another_owner_even_after_reopening(tmp_pa
         await reopened.close()
 
 
-async def test_concurrent_owners_cannot_claim_the_same_credential_task(tmp_path: Path) -> None:
+async def test_concurrent_owners_cannot_record_the_same_credential_task(tmp_path: Path) -> None:
     database = tmp_path / "runtime.sqlite3"
     owners = [_credential_owner(), _credential_owner(secret="c" * 64)]
     stores = [SQLiteTaskOwnershipStore(database), SQLiteTaskOwnershipStore(database)]
     try:
-        claims = await asyncio.gather(
+        results = await asyncio.gather(
             *(
-                store.claim("modelark", "contested-task", owner)
+                store.record("modelark", "contested-task", owner)
                 for store, owner in zip(stores, owners, strict=True)
-            )
+            ),
+            return_exceptions=True,
         )
-        assert claims.count(True) == 1
-        winner, loser = owners[claims.index(True)], owners[claims.index(False)]
+        assert results.count(None) == 1
+        winner_index = results.index(None)
+        assert isinstance(results[1 - winner_index], PermissionError)
+        winner, loser = owners[winner_index], owners[1 - winner_index]
     finally:
         for store in stores:
             await store.close()
@@ -362,7 +362,6 @@ async def test_concurrent_owners_cannot_claim_the_same_credential_task(tmp_path:
     reopened = SQLiteTaskOwnershipStore(database)
     try:
         await reopened.require_owner("modelark", "contested-task", winner)
-        assert not await reopened.claim("modelark", "contested-task", loser)
         with pytest.raises(PermissionError):
             await reopened.record("modelark", "contested-task", loser)
         assert await _owned_ids(reopened, "modelark", winner) == ["contested-task"]
@@ -460,6 +459,112 @@ async def test_remote_principal_is_still_bounded_by_principal_limit() -> None:
 
     await asyncio.gather(worker(), worker(), worker())
     assert maximum == 2
+
+
+async def test_owner_backlog_does_not_hold_provider_slots_needed_by_other_owners() -> None:
+    limiters = ProviderLimiters(provider_limit=2, principal_limit=1)
+    alice = AuthContext(principal_id="alice", tenant_id="tenant")
+    bob = AuthContext(principal_id="bob", tenant_id="tenant")
+    waiting = asyncio.Event()
+
+    async def alice_again() -> None:
+        waiting.set()
+        async with limiters.acquire("modelark", alice):
+            pass
+
+    async with limiters.acquire("modelark", alice):
+        backlog = asyncio.create_task(alice_again())
+        try:
+            await waiting.wait()
+            async with asyncio.timeout(0.1), limiters.acquire("modelark", bob):
+                assert not backlog.done()
+        finally:
+            backlog.cancel()
+            await asyncio.gather(backlog, return_exceptions=True)
+
+
+@pytest.mark.parametrize("local", [False, True])
+async def test_admission_timeout_releases_partial_owner_slot(local: bool) -> None:
+    limiters = ProviderLimiters(provider_limit=1, principal_limit=1, admission_timeout_seconds=0.01)
+    owner = AuthContext() if local else AuthContext(principal_id="alice", tenant_id="tenant")
+    provider = limiters.provider("modelark")
+    await provider.acquire()
+    try:
+        with pytest.raises(ProviderError) as raised:
+            async with limiters.acquire("modelark", owner):
+                pytest.fail("No provider slot was available")
+        error = raised.value
+        assert error.code == "ADMISSION_TIMEOUT"
+        assert error.operation == "admission"
+        assert error.retryable and error.ambiguous_completion is False
+        assert "this attempt did not dispatch" in error.message.lower()
+        async with limiters.acquire("seed-speech", owner):
+            pass
+    finally:
+        provider.release()
+    async with limiters.acquire("modelark", owner):
+        pass
+    assert len(limiters._principals) == 0
+
+
+async def test_active_owner_map_is_bounded_and_never_evicts_held_or_waiting_entries() -> None:
+    limiters = ProviderLimiters(
+        provider_limit=2,
+        principal_limit=1,
+        principal_cache_size=1,
+        admission_timeout_seconds=0.01,
+    )
+    alice = AuthContext(principal_id="alice", tenant_id="tenant")
+    bob = AuthContext(principal_id="bob", tenant_id="tenant")
+    async with limiters.acquire("modelark", alice):
+        with pytest.raises(ProviderError) as raised:
+            async with limiters.acquire("modelark", bob):
+                pytest.fail("Active owner must remain pinned")
+        assert raised.value.operation == "admission"
+        assert raised.value.retryable and not raised.value.ambiguous_completion
+        with pytest.raises(ProviderError):
+            async with limiters.acquire("seed-speech", alice):
+                pytest.fail("An active owner must not receive a replacement semaphore")
+        assert len(limiters._principals) == 1
+    assert len(limiters._principals) == 0
+    async with limiters.acquire("modelark", bob):
+        assert len(limiters._principals) == 1
+    assert len(limiters._principals) == 0
+
+
+async def test_admission_waiting_owner_is_pinned_and_cancellation_releases_it() -> None:
+    limiters = ProviderLimiters(provider_limit=1, principal_cache_size=1)
+    owner = AuthContext(principal_id="alice", tenant_id="tenant")
+    await limiters.provider("modelark").acquire()
+    waiting = asyncio.Event()
+
+    async def blocked() -> None:
+        waiting.set()
+        async with limiters.acquire("modelark", owner):
+            pytest.fail("Cancelled admission must not enter")
+
+    pending = asyncio.create_task(blocked())
+    await waiting.wait()
+    try:
+        assert len(limiters._principals) == 1
+        with pytest.raises(ProviderError):
+            async with limiters.acquire(
+                "seed-speech", AuthContext(principal_id="bob", tenant_id="tenant")
+            ):
+                pytest.fail("Waiting owner must remain pinned")
+    finally:
+        pending.cancel()
+        await asyncio.gather(pending, return_exceptions=True)
+        limiters.provider("modelark").release()
+    assert len(limiters._principals) == 0
+    async with limiters.acquire("modelark", owner):
+        pass
+
+
+async def test_admission_timeout_does_not_limit_operation_after_acquisition() -> None:
+    limiters = ProviderLimiters(admission_timeout_seconds=0.001)
+    async with limiters.acquire("modelark", AuthContext()):
+        await asyncio.sleep(0.01)
 
 
 async def test_http_principal_requires_a_live_provider_credential_scope(tmp_path: Path) -> None:
@@ -595,7 +700,7 @@ class TestStateSweeper:
         services = RuntimeServices(
             settings=Settings(_env_file=None),
             artifact_store=_FakeArtifactStore(),  # type: ignore[arg-type]
-            safe_downloader=SimpleNamespace(),  # type: ignore[arg-type]
+            safe_downloader=_FakeArtifactStore(),  # type: ignore[arg-type]
             ownership_store=_FakeOwnershipStore(),  # type: ignore[arg-type]
             object_key_ownership_store=_FakeObjectKeyOwnershipStore(),  # type: ignore[arg-type]
             budget_ledger=_FakeBudgetLedger(),  # type: ignore[arg-type]
@@ -938,22 +1043,26 @@ class TestObjectStorageArtifactStore:
         assert await store.delete_expired(datetime.now(UTC)) == 0  # type: ignore[attr-defined]
 
 
-async def test_task_claim_is_atomic_and_survives_reopening(tmp_path: Path) -> None:
+def test_task_ownership_no_longer_exposes_execution_claim_api() -> None:
+    assert not hasattr(TaskOwnershipStore, "claim")
+    assert not hasattr(SQLiteTaskOwnershipStore, "claim")
+
+
+async def test_task_record_is_idempotent_and_survives_reopening(tmp_path: Path) -> None:
     database = tmp_path / "runtime.sqlite3"
     owner = AuthContext(principal_id="alice", tenant_id="tenant-a")
     store = SQLiteTaskOwnershipStore(database)
     try:
-        claims = await asyncio.gather(
-            *(store.claim("mcp-execution", "task-one", owner) for _ in range(8))
-        )
-        assert claims.count(True) == 1
-        assert await store.claim("mcp-execution", "task-two", owner)
+        await asyncio.gather(*(store.record("modelark", "task-one", owner) for _ in range(8)))
+        await store.record("modelark", "task-two", owner)
+        assert await _owned_ids(store, "modelark", owner) == ["task-two", "task-one"]
     finally:
         await store.close()
     reopened = SQLiteTaskOwnershipStore(database)
     try:
-        assert not await reopened.claim("mcp-execution", "task-one", owner)
-        await reopened.require_owner("mcp-execution", "task-one", owner)
+        await reopened.record("modelark", "task-one", owner)
+        await reopened.require_owner("modelark", "task-one", owner)
+        assert await _owned_ids(reopened, "modelark", owner) == ["task-two", "task-one"]
     finally:
         await reopened.close()
 

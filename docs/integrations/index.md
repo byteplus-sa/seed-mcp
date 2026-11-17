@@ -25,7 +25,7 @@ opening manual configuration snippets. It requires terminal and file-editing
 access; ordinary chat alone cannot install software. For a team-provided
 endpoint, [connect over HTTPS](../setup/shared-server.md) instead.
 
-Local launch/job instructions below are stdio-only. HTTP has 9 tools (12 with
+Local launch instructions below are stdio-only. HTTP has 7 tools (10 with
 OmniHuman), anonymous static discovery and direct foreground calls, with no
 jobs/native tasks/storage/artifact tools/resources. See the private-header
 examples for [Codex](codex.md#http-byok) and [Claude Code](claude-code.md#http-byok).
@@ -56,24 +56,25 @@ populated configuration, raw logs or validation errors into chat.
 ## Verify Without Paid Calls
 
 After saving the entry, review the client's server trust prompt and enable
-`ark-seed`. Check active jobs before reloading or restarting a client.
+`ark-seed`. Check active calls before reloading or restarting a client.
 
 Use this request in the client:
 
-On HTTP omit `ark_job_capabilities` and report only static models/tools; it is
-not an HTTP tool and discovery does not validate request credentials.
+Report only static models/tools; discovery does not validate request credentials.
+Default discovery returns `connection=null`. For optional HTTP image/video
+header-presence and exact-binding diagnostics, use the separate
+[`check_connection` request](../setup/shared-server.md#optional-imagevideo-configuration-check).
+It does not authenticate or establish live endpoint lineage or entitlement.
 
 ```text
 Use only the ark-seed server. List its tools, call ark_list_models with
-{"input": {}}, and call ark_job_capabilities with {}. Report enabled
-services, exact model IDs, model limits, and available job targets.
-Do not generate, understand, transcribe, upload, or submit any jobs.
+{"input": {}}. Report enabled services, exact model IDs and model limits.
+Do not generate or upload.
 ```
 
-`ark_list_models` and `ark_job_capabilities` are read-only and make no provider
-calls. The former describes configured models and services; the latter returns
-enabled job targets and their actual input schemas. A connected server with
-empty models/targets may simply have no provider credentials loaded.
+`ark_list_models` is read-only and makes no provider calls.
+It describes configured models and services. A connected local server with
+empty models may simply have no provider credentials loaded.
 Discovery proves configuration and tool availability, not API-key validity,
 account entitlement, or model whitelist access.
 
@@ -83,15 +84,16 @@ There is no need for users to run a separate validation script.
 
 ## Long-Running Work
 
-Ask your client to use Ark's ordinary background-job tools and report the
-result when ready. It handles submission and polling; you do not need to
-copy job JSON manually. For an optional no-charge check, use the
+Ask your client to call product tools directly and report the result.
+It handles provider polling; there are no MCP jobs or native tasks.
+For an optional no-charge check, use the
 [request preview](../setup/first-run.md#preview-an-image-request).
 
-Keep the connection open while work runs. Restarting loses default in-memory
-jobs, and another local client cannot poll them. Never repeat a generation
-just to check progress. Technical result handling is in
-[Background Execution](../integration-guide.md#background-execution).
+Keep the connection open while work runs. Use client timeout 660 seconds for
+the default 600-second cooperative deadline; SDK/SQLite cleanup may exceed it.
+Retain accepted task/request IDs: never repeat generation just to check progress
+or blindly resubmit after a lost response. Technical result handling is in
+[Direct Execution](../integration-guide.md#direct-execution).
 
 ## Troubleshooting
 
@@ -100,8 +102,8 @@ just to check progress. Technical result handling is in
 - **Connected but expected tools are missing:** check private env-file
   metadata, enabled services, feature flags, and inherited-variable shadowing.
   Never request the populated env file or raw validation exceptions in chat.
-- **A job ID is unavailable:** ensure you are polling the same process and
-  that it has not restarted or expired the result.
+- **A provider task ID is unavailable:** use the original credentials and
+  ownership scope; reconcile acceptance instead of recreating it.
 - **Edition rejects the configuration:** use that client's guide and official
   source. Do not swap envelope keys blindly or inline keys as a workaround.
 

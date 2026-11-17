@@ -90,10 +90,16 @@ credential files or automatically commit this configuration.
 
 ## HTTP BYOK
 
-For an existing trusted endpoint, use a remote entry instead of the local
-launcher. This example contains environment placeholders only; inject those
-variables privately into the actual Claude Code launch environment. Verify
-environment expansion and custom-header support in the installed client.
+For an existing trusted endpoint, use a remote entry in the intended scope,
+preserving other entries. Inject the named variables privately into the actual
+Claude Code launch environment. From a reviewed checkout, this optional
+generator prints the following JSON without reading files or environment
+secret values, writing configuration, contacting servers or invoking a client:
+
+```bash
+python scripts/configure_http_client.py --client claude-code \
+  --url https://mcp.example.com/mcp --name ark-seed
+```
 
 ```json
 {
@@ -101,6 +107,7 @@ environment expansion and custom-header support in the installed client.
     "ark-seed": {
       "type": "http",
       "url": "https://mcp.example.com/mcp",
+      "timeout": 660000,
       "headers": {
         "X-ModelArk-Api-Key": "${SEED_MCP_MODELARK_KEY}",
         "X-MCP-Client-Secret": "${SEED_MCP_CLIENT_SECRET}"
@@ -111,17 +118,39 @@ environment expansion and custom-header support in the installed client.
 ```
 
 Only the selected key is needed: use `X-Seed-Speech-Api-Key` for Seed Audio or
-`X-OmniHuman-Api-Key` for enabled OmniHuman. The client secret is privately
+`X-OmniHuman-Api-Key` for enabled OmniHuman. Select them with repeatable
+`--provider seed-speech` or `--provider vision-cv`; omitted means `modelark`.
+The generator's `--help` lists variable-name overrides, never credential-value
+flags. Selected headers must use independent variable names.
+The client secret is privately
 generated once from 32 random bytes, encoded as 64 lowercase hex.
 There is no OAuth, signup, server-issued key or `Authorization` header.
 Do not put real keys in CLI flags, chat or committed JSON.
 
-HTTP exposes 9 tools (12 with OmniHuman), anonymous static discovery and direct
+HTTP exposes 7 tools (10 with OmniHuman), default anonymous static discovery
+with `connection=null`, and direct
 foreground calls. Jobs/native tasks/storage/artifact tools/resources are absent.
-Set client timeouts for long calls, keep persistence false and retrieve
-expiring URLs yourself. Endpoint headers are exact registry defaults; explicit
-tool `model` wins. Follow [private setup](../setup/shared-server.md).
-Exact-client verification remains pending until checked in the selected release.
+`timeout` is milliseconds: `--tool-timeout-seconds` accepts 1-3600 seconds
+and defaults to 660 (660000 ms). It does not extend proxy/provider timeouts.
+Keep persistence false and retrieve expiring URLs yourself.
+
+Optional `--seedance-endpoint-env SEED_MCP_SEEDANCE_ENDPOINT` and/or
+`--seedream-endpoint-env SEED_MCP_SEEDREAM_ENDPOINT` add `${VAR}` references
+and require selected provider `modelark`. They take names, not endpoint values.
+Endpoint headers select operator-verified exact registry defaults; explicit
+create-tool `model` wins. Unknown IDs are not echoed; the operator must verify
+and bind them, not supply AK/SK to this server.
+
+Follow [private setup and generator options](../setup/shared-server.md#generate-a-client-snippet),
+then the HTTP-only [configuration check](../setup/shared-server.md#optional-imagevideo-configuration-check)
+with `{"input":{"check_connection":true}}`. It checks image/video header
+presence and bindings, not provider authentication, live lineage or entitlement.
+Validated on 2026-11-17 with **Claude Code 2.1.292**: `claude mcp get`
+recognized the generated project `.mcp.json` with isolated `CLAUDE_CONFIG_DIR`,
+`HOME` and working directory. It remained **Pending approval**, with no network
+access. This verifies configuration parsing only, not a working connection.
+Actual exact-client, model-driven Claude tool execution remains unverified;
+provider credentials and paid provider validation remain pending.
 
 </details>
 
@@ -129,7 +158,7 @@ Exact-client verification remains pending until checked in the selected release.
 
 Use the [discovery-only check](index.md#verify-without-paid-calls), then try
 [Your First Tool Call](../setup/first-run.md). Confirm actual tool results,
-not just an entry in `/mcp`. Finish active jobs before restarting the connection.
+not just an entry in `/mcp`. Finish active calls before restarting the connection.
 
 See [Integrations](index.md), [Getting Started](../getting-started.md),
 [Tools](../tools.md), and [Configuration](../configuration.md).

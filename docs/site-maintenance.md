@@ -70,7 +70,7 @@ duplicating commands or credential-bearing client examples.
 copyable generation prompts, without tool names or job orchestration in those
 prompts. No-charge discovery and request previews are optional, clearly
 separate from billable generation. Exact JSON stays in the generated tool
-reference; job/result contracts stay in the technical integration guide.
+reference; direct-call/result contracts stay in the technical integration guide.
 Changing prose does not constitute end-to-end installation testing in every
 client edition or a live provider generation test.
 
@@ -88,7 +88,7 @@ so standalone copies do not depend on an Ark source checkout.
 resolvable local references, as well as the guide's paths and setup boundary.
 Documentation CI also runs for changes to this skill.
 
-Audio, Understanding and Avatars have separate navigation groups and
+Audio and Avatars have separate navigation groups and
 capability sections. Navigation tests ensure category membership and stable
 tool routes; uncategorized or duplicate catalog entries fail the build.
 The BytePlus logo uses the original light/dark SVGs from the reference site
@@ -105,14 +105,16 @@ process. The exporter bypasses the package's eager server entrypoint, clears
 inherited provider configuration, exports every catalog entry, and never
 evaluates registration gates or calls handlers/providers. It writes JSON to
 stdout, not credential files. Tests guard network, settings construction and
-credential reads. Exported `transports` metadata distinguishes stdio registration
-and background mode from HTTP registration, foreground execution and selected
-credential header. Top-level `registration_gate` and `background` describe
-stdio for existing consumers. The catalog contains 21 local tools; HTTP has
-9 or 12 with OmniHuman. The renderer shows both execution paths and direct HTTP
-examples, never an HTTP job wrapper. `scope.test.mjs`
+credential reads. Each exported tool has top-level `execution: "direct"`;
+every available entry in `transports` also has `execution: "direct"`.
+There is **no `background` key**, top-level or transport-level. Registration
+gates and selected credential headers remain transport-specific; top-level
+`registration_gate` describes stdio. The catalog contains 15 conditional
+local tools, four always registered; HTTP has 7 or 10 with OmniHuman.
+The renderer rejects obsolete execution metadata and shows direct call
+envelopes on both transports, never job wrappers. `scope.test.mjs`
 guards retired capability settings and tool names in current documentation,
-while dated changelog and 0.2 migration history remain intact. Coordinate
+while dated changelog, 0.2 migration history and deprecated specs remain intact. Coordinate
 exporter changes with the owner of `scripts/export_tool_docs.py`; do not filter
 obsolete entries only in the renderer to hide a stale runtime catalog.
 
@@ -125,6 +127,16 @@ retired shared-key HTTP setup; historical changelog text may remain.
 Relative Markdown handbook links become project-base-prefixed site routes.
 References outside `docs/` point to GitHub source; reference definitions are
 handled too. Build-time link validation catches missing pages and fragments.
+
+`deployment.test.mjs` guards the dedicated VKE runbook against actual Helm,
+Terraform/runtime settings and diagnostic command sources. Keep the stable
+`byteplus-terraform.md` route and its setup anchors; it no longer describes an
+ECS/Compose deployment. Tests cover addon ownership/readiness acknowledgements,
+existing Secrets, separate state, retention, private routes and live acceptance
+limits. Synthetic chart renders and mocked TLS/load are not cloud readiness
+or capacity certification. Document current flags only after reading sources.
+The root `make typecheck` is the shared CI command for source and maintained
+scripts, including client setup, smoke, identity, inspector and hosted acceptance.
 
 Mermaid fences render locally in the browser through `astro-mermaid` and the
 bundled `mermaid` library. Keep the Mermaid integration before Starlight; it

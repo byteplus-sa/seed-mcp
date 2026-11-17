@@ -14,8 +14,8 @@ from ark_mcp.providers.factory import vision_cv_gateway
 from ark_mcp.providers.vision_cv.omnihuman import OmniHumanService
 from ark_mcp.runtime import get_principal, get_runtime
 from ark_mcp.security.credentials import provider_api_key
+from ark_mcp.tools._context import context_log
 from ark_mcp.tools._errors import provider_error_result
-from ark_mcp.tools._task_execution import context_log
 
 
 class OmniHumanCancelTaskInput(BaseModel):
