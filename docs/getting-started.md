@@ -1,6 +1,6 @@
 # Getting Started
 
-Connect Ark MCP to your AI client, then ask it to create or understand media.
+Connect Ark MCP to your AI client, then ask it to create media.
 Your client handles tool calls and starts the local server automatically.
 You do not need to keep a terminal open.
 
@@ -32,9 +32,8 @@ and account entitlement are not established by those local checks.
 
 For local setup, enter the [provider keys](api-keys.md) you need in the
 private file prepared for you. Never paste keys into chat or shared client
-configuration. Images, video and understanding use ModelArk; audio generation
+configuration. Images and video use ModelArk; audio generation
 uses Seed Speech; talking avatars use Vision AI with OmniHuman enabled.
-Audio transcription is available through understanding, not dedicated ASR.
 You do not need every service.
 
 ## Running the Server
@@ -48,9 +47,8 @@ additional user step. For a shared server, your administrator handles startup.
 Ask your connected client:
 
 ```text
-Check my Ark connection with ark_list_models and ark_job_capabilities.
-List the services and tools available to me. Do not generate, understand,
-transcribe, upload, or submit jobs.
+Check my Ark connection with ark_list_models.
+List the services and tools available to me. Do not generate or upload.
 ```
 
 Confirm that the tools you need appear in actual results. Discovery makes
@@ -72,7 +70,7 @@ the MCP server.
 
 Installing without an agent? Use [Manual Installation](setup/manual-install.md).
 Developing or deploying the server? Use [Transports](transports.md),
-[Background Execution](integration-guide.md#background-execution), and
+[Direct Execution](integration-guide.md#direct-execution), and
 [Configuration](configuration.md). These are not prerequisites for ordinary use.
 
 <span id="prerequisites"></span>
@@ -84,6 +82,6 @@ Developing or deploying the server? Use [Transports](transports.md),
 
 ## Next Steps
 
-- [Choose a Tool](capabilities.md) for images, video, audio, understanding and avatars.
+- [Choose a Tool](capabilities.md) for images, video, audio and avatars.
 - [Update and Roll Back](setup/updating.md) for an existing installation.
 - [Migrating to 0.2.0](migration-0.2.md) when upgrading old 0.1.x prompts or clients.

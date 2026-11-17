@@ -43,7 +43,7 @@ Open a private blank credential file in a local non-AI text editor;
 I will enter my keys there. Do not read back the populated file
 or ask me to paste keys into chat.
 Verify with discovery only, without generating, uploading, or spending.
-Ask before restarting a client with active jobs. Report any unfinished steps.
+Ask before restarting a client with active calls. Report any unfinished steps.
 ```
 
 This is **agent-assisted setup, not a one-click installer**. The agent performs
@@ -70,7 +70,7 @@ done. Never paste keys into chat or client configuration.
 
 | What you want | Key to obtain |
 | --- | --- |
-| Images, video, image/video/audio understanding | ModelArk |
+| Images and video | ModelArk |
 | Audio generation | Seed Speech |
 | Talking avatars | Vision AI, plus OmniHuman access |
 
@@ -91,9 +91,8 @@ settings screen or approve server access.
 Then ask your client:
 
 ```text
-Check the ark-seed connection using only ark_list_models and
-ark_job_capabilities. Tell me which services and tools are available.
-Do not generate media, run understanding, transcribe, upload, or submit jobs.
+Check the ark-seed connection using only ark_list_models.
+Tell me which services and tools are available. Do not generate or upload.
 ```
 
 Success means the expected tools return discovery results. A green connection

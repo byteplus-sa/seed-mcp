@@ -25,21 +25,19 @@ at startup by `OBJECT_STORAGE_BACKEND`.
 
 ```mermaid
 flowchart LR
-    Client["MCP Client"] --> Route{"Task augmentation?"}
-    Route -->|"Not negotiated (default)"| Job["Ark job"]
-    Route -->|"Negotiated"| Task["MCP task"]
-    Job --> Worker["Docket worker"]
-    Task --> Worker
-    Worker --> Tool["media_upload tool"]
+    Client["Local stdio client"] --> Tool["Direct media_upload call"]
     Tool --> Factory["make_object_storage_gateway()"]
     Factory -->|"backend=s3"| S3GW["S3Gateway (boto3)"]
     Factory -->|"backend=tos"| TOSGW["TosGateway (tos SDK)"]
-    S3GW --> S3["Private S3 bucket"]
-    TOSGW --> TOS["Private TOS bucket"]
-    S3GW -.->|"presigned URL"| BytePlus["BytePlus APIs"]
-    Tool -->|"typed result"| Worker
-    Worker -->|"tasks/get or ark_job_get"| Client
-    Client -->|"passes URL to background Seedance etc."| BytePlus
+    S3GW --> Admission["Bounded admission then budget"]
+    TOSGW --> Admission
+    Admission --> Upload["Cancellation-drained SDK upload"]
+    Upload -->|"s3"| S3["Private S3 bucket"]
+    Upload -->|"tos"| TOS["Private TOS bucket"]
+    Tool -->|"typed result"| Client
+    Client -->|"passes URL to direct Seedance create"| BytePlus["BytePlus APIs"]
+    BytePlus -->|"fetch presigned URL"| S3
+    BytePlus -->|"fetch presigned URL"| TOS
 ```
 
 The `S3Gateway` (`providers/s3/client.py`) wraps a synchronous `boto3`
@@ -47,30 +45,26 @@ client behind async-friendly methods using `asyncio.to_thread`, mirroring
 `TosGateway`. All SDK exceptions (`botocore.exceptions.ClientError`) are
 normalized into `ProviderError` so the retry policy and error-result
 helpers work uniformly across both backends.
+SDK threads drain before slots or clients are released, including repeated
+cancellation. The 600-second whole-tool deadline is cooperative; cleanup may
+exceed it. Use client timeout 660 seconds. Admission defaults to 2 seconds;
+never blindly repeat an upload after uncertain acceptance.
 
 ### Upload and presign sequence
 
 ```mermaid
 sequenceDiagram
     participant C as MCP Client
-    participant B as Background API
     participant T as media_upload handler
     participant F as make_object_storage_gateway()
     participant G as S3Gateway
     participant S3 as S3 bucket
 
-    alt Ordinary MCP tools (default)
-        C->>B: ark_job_submit(media_upload, arguments)
-        B-->>C: Ark job ID
-    else Native MCP task support
-        C->>B: media_upload(..., task metadata)
-        B-->>C: MCP task ID
-    end
-    B->>T: execute original handler
+    C->>T: media_upload(input)
     T->>T: Validate MIME + size (before upload)
     T->>F: get configured backend
     F-->>T: S3Gateway instance
-    T->>T: billed_provider_slot(provider="s3")
+    T->>T: bounded admission, then reserve budget
     T->>G: upload_bytes(key, data, mime_type)
     G->>G: asyncio.to_thread(boto3 put_object)
     G->>S3: PUT object (SigV4 signed)
@@ -79,14 +73,7 @@ sequenceDiagram
     G->>G: asyncio.to_thread(boto3 generate_presigned_url)
     G-->>T: presigned HTTPS GET URL
     T->>G: close()
-    T-->>B: typed result
-    alt Ordinary MCP tools (default)
-        C->>B: ark_job_get
-        B-->>C: result.structured_content { url, expires_at, object_key, bytes }
-    else Native MCP task support
-        C->>B: tasks/get
-        B-->>C: terminal result { url, expires_at, object_key, bytes }
-    end
+    T-->>C: direct result with URL, expiry, object key and bytes
 ```
 
 ### Object key generation
@@ -136,31 +123,16 @@ renewed in a single call; failures are reported per key.
 ```mermaid
 sequenceDiagram
     participant C as MCP Client
-    participant B as Background API
     participant U as media_upload handler
     participant P as media_presign
     participant G as Gateway
     participant S3 as Bucket
 
-    alt Ordinary MCP tools (default)
-        C->>B: ark_job_submit(media_upload, arguments)
-        B-->>C: Ark job ID
-    else Native MCP task support
-        C->>B: media_upload(..., task metadata)
-        B-->>C: MCP task ID
-    end
-    B->>U: execute original handler
+    C->>U: media_upload(input)
     U->>S3: put_object (key=references/video/uuid)
     U->>G: presign_get(key)
     G-->>U: presigned URL (T=0, valid 30min)
-    U-->>B: typed result
-    alt Ordinary MCP tools (default)
-        C->>B: ark_job_get
-        B-->>C: result.structured_content { url, object_key, ... }
-    else Native MCP task support
-        C->>B: tasks/get
-        B-->>C: terminal result { url, object_key, ... }
-    end
+    U-->>C: direct result with URL and object key
 
     Note over C,S3: ...later, URL expires or is about to...
 
@@ -297,9 +269,7 @@ also prevents remote reads:
 ```python
 if input.file_path is not None:
     if settings.mcp_transport != "stdio":
-        raise ValueError(
-            "file_path input is only supported in stdio transport mode for security."
-        )
+        raise ValueError("file_path input is only supported in stdio transport mode for security.")
 ```
 
 ### Local Access

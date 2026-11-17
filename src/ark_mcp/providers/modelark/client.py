@@ -57,25 +57,15 @@ class ModelArkGateway(BaseHttpGateway):
 
     async def post(self, path: str, json_body: dict[str, Any]) -> httpx.Response:
         """POST to ModelArk and return the raw response."""
-        return await self._request("POST", path, json=json_body)
-
-    async def post_multipart(self, path: str, fields: dict[str, str]) -> httpx.Response:
-        """POST ``multipart/form-data`` text fields (the Files API rejects other encodings)."""
-        headers = {key: value for key, value in self._headers().items() if key != "Content-Type"}
-        return await self._request(
-            "POST",
-            path,
-            headers=headers,
-            files={name: (None, value) for name, value in fields.items()},
-        )
+        return await self._request("POST", path, side_effect=True, json=json_body)
 
     async def get(self, path: str, params: dict[str, Any] | None = None) -> httpx.Response:
         """GET from ModelArk and return the raw response."""
-        return await self._request("GET", path, params=params)
+        return await self._request("GET", path, side_effect=False, params=params)
 
     async def delete(self, path: str) -> httpx.Response:
         """DELETE on ModelArk and return the raw response."""
-        return await self._request("DELETE", path)
+        return await self._request("DELETE", path, side_effect=True)
 
     @staticmethod
     def extract_request_id(response: httpx.Response) -> str | None:
@@ -107,8 +97,6 @@ class ModelArkGateway(BaseHttpGateway):
             "generate_image",
             "create_task",
             "delete_task",
-            "chat_completion",
-            "upload_file",
         }
 
         normalized = NormalizedProviderError(

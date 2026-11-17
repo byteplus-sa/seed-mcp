@@ -26,6 +26,7 @@ truststore.inject_into_ssl()
 from _smoke_context import SmokeClient, require_tool_success, smoke_session  # noqa: E402
 
 from ark_mcp.config.env import get_settings  # noqa: E402
+from ark_mcp.domain.media import MediaSourceKind  # noqa: E402
 from ark_mcp.tools.gen_task_get import (  # noqa: E402
     GenTaskGetInput,
     GenTaskGetOutput,
@@ -69,13 +70,15 @@ async def test_image_variations(
     result = require_tool_success(
         await ctx.call(
             "seedream_generate_image",
-            SeedreamGenerateInput(
-                prompt="A beautiful mountain landscape, digital art",
-                variations=3,
-                seed=42,
-                size="1024x1024",
-                response_format="url",
-                persist=True,
+            SeedreamGenerateInput.model_validate(
+                {
+                    "prompt": "A beautiful mountain landscape, digital art",
+                    "variations": 3,
+                    "seed": 42,
+                    "size": "1024x1024",
+                    "response_format": "url",
+                    "persist": True,
+                }
             ),
             SeedreamGenerateOutput,
         )
@@ -108,9 +111,12 @@ async def test_audio_variations(ctx: SmokeClient, store: ArtifactStore) -> bool:
     result = require_tool_success(
         await ctx.call(
             "seed_audio_generate",
-            SeedAudioGenerateInput(
-                text_prompt="Hello, this is a parallel variation test of the Seed Audio MCP tool.",
-                variations=3,
+            SeedAudioGenerateInput.model_validate(
+                {
+                    "text_prompt": "Hello, this is a parallel variation test of the Seed Audio MCP tool.",
+                    "variations": 3,
+                    "persist": True,
+                }
             ),
             SeedAudioGenerateOutput,
         )
@@ -148,22 +154,24 @@ async def test_seedance_variations(
     result = require_tool_success(
         await ctx.call(
             "seedance_create_task",
-            SeedanceCreateTaskInput(
-                variation_prompts=[
-                    "A cat walks forward slowly through a garden",
-                    "A cat looks around curiously, then jumps playfully",
-                ],
-                variations=2,
-                images=[
-                    SeedanceImageInput(
-                        kind="base64",
-                        data=reference_b64,
-                        mime_type=reference_data.mime_type,
-                        role="reference_image",
-                    )
-                ],
-                resolution="480p",
-                duration=5,
+            SeedanceCreateTaskInput.model_validate(
+                {
+                    "variation_prompts": [
+                        "A cat walks forward slowly through a garden",
+                        "A cat looks around curiously, then jumps playfully",
+                    ],
+                    "variations": 2,
+                    "images": [
+                        SeedanceImageInput(
+                            kind=MediaSourceKind.base64,
+                            data=reference_b64,
+                            mime_type=reference_data.mime_type,
+                            role="reference_image",
+                        )
+                    ],
+                    "resolution": "480p",
+                    "duration": 5,
+                }
             ),
             SeedanceCreateTaskOutput,
         )
@@ -189,9 +197,8 @@ async def test_seedance_variations(
     listed = require_tool_success(
         await ctx.call(
             "gen_task_list",
-            GenTaskListInput(task_ids=task_ids),
+            GenTaskListInput.model_validate({"task_ids": task_ids}),
             GenTaskPage,
-            background=False,
         )
     )
     listed_ids = {task.task_id for task in listed.tasks}
@@ -207,9 +214,8 @@ async def test_seedance_variations(
             task = require_tool_success(
                 await ctx.call(
                     "gen_task_get",
-                    GenTaskGetInput(task_ids=[task_id]),
+                    GenTaskGetInput(task_ids=[task_id], persist_output=False),
                     GenTaskGetOutput,
-                    background=False,
                 )
             ).tasks[0]
             print(f"  Task {task_id}: {task.status}")

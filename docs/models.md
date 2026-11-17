@@ -21,15 +21,12 @@ with an actionable `ValueError`.
 | `SEEDANCE_2_MINI` | `seedance_2_mini` |
 | `SEEDANCE_2_5` | `seedance_2_5` |
 | `SEEDANCE_2_5_FLASH` | `seedance_2_5_flash` |
-| `SEED_2_1_PRO` | `seed_2_1_pro` |
-| `SEED_2_1_TURBO` | `seed_2_1_turbo` |
 
 The binding enums (`config/env.py`):
 
 - `SeedreamFamily`: `SEEDREAM_5_5 = "seedream_5_5"`, `PRO = "pro"`, `LITE = "lite"`, `V4X = "4x"`.
 - `SeedanceFamily`: `STANDARD = "standard"`, `FAST = "fast"`, `MINI = "mini"`,
   `SEEDANCE_2_5 = "seedance_2_5"`, `SEEDANCE_2_5_FLASH = "seedance_2_5_flash"`.
-- `SeedUnderstandingFamily`: `PRO = "pro"`, `TURBO = "turbo"`.
 
 ## Image capabilities (`ImageCapabilities`)
 
@@ -177,28 +174,11 @@ request against the selected model's `VideoCapabilities` (including
 |---|---|---|---|
 | `seedream_default_model` | `SEEDREAM_DEFAULT_MODEL` | `dola-seedream-5-5-261028` | `SEEDREAM_5_5` |
 | `seedance_default_model` | `SEEDANCE_DEFAULT_MODEL` | `dreamina-seedance-2-5-260628` | `SEEDANCE_2_5` |
-| `seed_understanding_default_model` | `SEED_UNDERSTANDING_DEFAULT_MODEL` | `dola-seed-2-1-turbo-260628` | `TURBO` |
-| `seed_audio_understanding_model` | `SEED_AUDIO_UNDERSTANDING_MODEL` | `seed-2-0-lite-260428` | — (single model, no family registry) |
 
 The "implied family" defaults are hard-coded in `Settings.validate_model_bindings`
 and apply only when the default model ID equals one of the recognized built-in
 IDs. `dola-seedream-5-0-pro-260628` remains recognized as `PRO` when explicitly
 configured. See the [default upgrade note](configuration.md#seedream-default-model-upgrade-note).
-`dola-seed-evolving` is also a recognized built-in ID that auto-resolves to
-family `PRO` when explicitly set as the default (no need to set
-`SEED_UNDERSTANDING_MODEL_FAMILY` for it).
-
-`SEED_AUDIO_UNDERSTANDING_MODEL` is a plain model ID for `seed_audio_understand`
-with no family binding. It must accept Chat Completions `input_audio` parts
-with deep thinking; `seed-2-0-lite-260428` is an interim choice and is expected
-to be replaced by a newer audio-capable model.
-
-The default model limits direct URL audio to 25 MiB. `seed_audio_understand`
-can upload URL audio/video through the Files API (up to 512 MB per file);
-video frames sampled at 0.2 fps also consume input tokens. `delivery` selects
-automatic fallback, direct-only input, or explicit Files API upload.
-See [audio understanding](tools.md#seed_audio_understand).
-
 `ark_list_models` returns configured models, limits and service availability,
 not account-specific pricing. Cost previews use built-in estimates for
 budgeting; they are not provider quotes.
@@ -209,10 +189,8 @@ budgeting; they are not provider quotes.
 |---|---|---|
 | `SEEDREAM_MODEL_BINDINGS` | JSON array of `{"model_id": str, "family": "seedream_5_5"\|"pro"\|"lite"\|"4x"}` | `[]` |
 | `SEEDANCE_MODEL_BINDINGS` | JSON array of `{"model_id": str, "family": "standard"\|"fast"\|"mini"\|"seedance_2_5"\|"seedance_2_5_flash"}` | `[]` |
-| `SEED_UNDERSTANDING_MODEL_BINDINGS` | JSON array of `{"model_id": str, "family": "pro"\|"turbo"}` | `[]` |
 | `SEEDREAM_MODEL_FAMILY` | single family string | `""` |
 | `SEEDANCE_MODEL_FAMILY` | single family string | `""` |
-| `SEED_UNDERSTANDING_MODEL_FAMILY` | single family string | `""` |
 
 Examples (from `.env.example`):
 
@@ -220,6 +198,10 @@ Examples (from `.env.example`):
 SEEDREAM_MODEL_BINDINGS=[{"model_id":"my-image-endpoint","family":"pro"}]
 SEEDANCE_MODEL_BINDINGS=[{"model_id":"my-video-endpoint","family":"standard"}]
 ```
+
+These entries illustrate syntax, not verified endpoint lineage. Explicit
+binding lists must include the configured default or set the corresponding
+`*_DEFAULT_MODEL` to one of their IDs.
 
 ## How a `model_id` resolves to a family
 
@@ -234,9 +216,7 @@ from the model ID string):
    from the default model ID + that family.
 3. If both are empty and the default model ID equals a recognized built-in
    ID, its known family is used (Seedream `SEEDREAM_5_5` or legacy `PRO`,
-   Seedance `STANDARD`, `SEEDANCE_2_5`, or `SEEDANCE_2_5_FLASH`,
-   Seed understanding `TURBO` for the default `dola-seed-2-1-turbo-260628`,
-   and `PRO` for `dola-seed-evolving` when explicitly opted in).
+   Seedance `STANDARD`, `SEEDANCE_2_5`, or `SEEDANCE_2_5_FLASH`).
 4. Otherwise (custom default model, no family, no bindings) → startup fails
    with `ValueError`.
 
@@ -254,7 +234,7 @@ the default. Explicit non-empty binding lists are never augmented. Regular
 
 | Check | Rejected when |
 |---|---|
-| Unknown `model_id` | not in the configured registry (`ValueError` lists allowed IDs) |
+| Unknown `model_id` | Not in the registry; unknown image/video `ep-*` values use safe `ENDPOINT_NOT_CONFIGURED` guidance without echoing the ID. Other unknown IDs can receive configured-ID suggestions |
 | Image `output_format` | not in `supported_output_formats` (e.g. `png` on a `4X` model, which only supports `jpeg`) |
 | Image `size` | Not a supported named tier or valid custom dimensions. 5.5 enforces pixel-count and aspect-ratio bounds; older families leave sizes to the provider |
 | Video `resolution` | not in `supported_resolutions` (e.g. `1080p`/`4k` on `MINI`/`FAST`) |
@@ -272,6 +252,36 @@ HTTP `X-ModelArk-Seedance-Endpoint` and `X-ModelArk-Seedream-Endpoint`
 defaults must exactly match registered product bindings. Explicit tool `model`
 wins. The server never infers an arbitrary opaque `ep-*` endpoint's lineage.
 Anonymous static discovery reports bindings, not customer entitlement.
+
+## BYOE Configuration Checks
+
+An operator must verify a customer endpoint's model/version outside this
+server before binding its exact ID to a supported family. The official
+[GetEndpoint authentication section](https://ai.byteplus.com/ark/region:ap-southeast-1/docs/get-endpoint-api#authentication)
+and OpenAPI schema require Access Key V4 (AK/SK), not a ModelArk Bearer key.
+No AK/SK custody, live metadata lookup or arbitrary-endpoint self-service
+is implemented. See the [durable authority contract](../specs/SPEC_HOSTED_BYOK.md#byoe-endpoint-authority).
+Configured endpoint IDs appear in anonymous discovery; do not use bindings
+as private credential storage.
+
+Default `ark_list_models` is static/anonymous and returns `connection=null`.
+For live HTTP only, `{"input":{"check_connection":true}}` checks ModelArk key
+and client-secret presence plus exact image/video defaults. Omit `kind` for
+both routes or select `"image"` / `"video"`; other kinds
+and stdio checks are rejected.
+
+Unknown or wrong-product defaults yield `configured=false`,
+`issue="endpoint_not_configured"` and null `model_id`/`family`, without echoing
+the unknown ID. The operator must verify and bind it. A configured route
+returns its ID and operator-selected family, not live provider lineage.
+`configuration_valid=true` requires both headers and all checked bindings;
+`authentication_verified` and `provider_calls_made` always remain false.
+This does not prove activation, permissions, balance, existence or reachability.
+
+The check describes header/server defaults, not an explicit create request.
+Explicit create-tool `model` wins; `models[].is_default` continues to describe
+the server default. For missing-header remediation and generator examples,
+see [shared-server setup](setup/shared-server.md#optional-imagevideo-configuration-check).
 
 ## Module-level singleton
 
@@ -294,9 +304,7 @@ Anonymous static discovery reports bindings, not customer entitlement.
 
 The server validates requests against the static registry in
 `config/model_capabilities.py`. `ark_list_models` reports those limits to
-clients, restricting understanding modalities and media counts to the named
-tool's input contract (audio-only, up to eight clips for
-`seed_audio_understand`). To compare the registry with BytePlus's ArkModels catalog:
+clients for image/video generation. To compare the registry with BytePlus's ArkModels catalog:
 
 ```bash
 make audit-capabilities CATALOG=path/to/arkmodels.json

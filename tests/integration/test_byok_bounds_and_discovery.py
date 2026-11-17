@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 from unittest.mock import AsyncMock
 
+import httpx
 import pytest
 import respx
 
@@ -138,3 +140,155 @@ async def test_budget_row_limit_cannot_be_bypassed_by_changing_keys(tmp_path: Pa
                 )
             )
     assert generated.call_count == 1
+
+
+@respx.mock
+async def test_saturated_generation_rejects_waiter_but_provider_polling_stays_direct(
+    tmp_path: Path,
+) -> None:
+    started = asyncio.Event()
+    release = asyncio.Event()
+
+    async def generate(request: httpx.Request) -> httpx.Response:
+        started.set()
+        await release.wait()
+        return httpx.Response(200, json={"data": [{"url": "https://example.com/image.png"}]})
+
+    created = respx.post(f"{MODELARK}/contents/generations/tasks").respond(
+        200, json={"id": "owned-poll-task"}
+    )
+    generated = respx.post(f"{MODELARK}/images/generations").mock(side_effect=generate)
+    polled = respx.get(f"{MODELARK}/contents/generations/tasks").respond(
+        200,
+        json={
+            "data": [
+                {
+                    "id": "owned-poll-task",
+                    "model": "dreamina-seedance-2-5-260628",
+                    "status": "queued",
+                }
+            ]
+        },
+    )
+    settings = http_settings(
+        tmp_path,
+        PROVIDER_MAX_CONCURRENCY=1,
+        PRINCIPAL_MAX_CONCURRENCY=1,
+        MCP_ADMISSION_TIMEOUT_SECONDS=0.05,
+        MCP_TOOL_TIMEOUT_SECONDS=5,
+    )
+    async with http_server(tmp_path, settings=settings) as (_, _, client):
+        successful(
+            await call_tool(
+                client,
+                "seedance_create_task",
+                {"prompt": "scene", "idempotency_key": "direct-poll-owned-task"},
+                headers=credentials(),
+            )
+        )
+        active = asyncio.create_task(
+            call_tool(
+                client, "seedream_generate_image", {"prompt": "square"}, headers=credentials()
+            )
+        )
+        try:
+            await asyncio.wait_for(started.wait(), timeout=5)
+            rejected = await call_tool(
+                client, "seedream_generate_image", {"prompt": "circle"}, headers=credentials()
+            )
+            assert_denied(rejected)
+            assert "ADMISSION_TIMEOUT" in str(rejected)
+            assert "retryable=True" in str(rejected)
+            assert "ambiguous_completion=False" in str(rejected)
+            assert "structuredContent" not in rejected["result"]
+            polled_result = successful(
+                await call_tool(
+                    client, "gen_task_get", {"task_ids": ["owned-poll-task"]}, headers=credentials()
+                )
+            )
+            assert polled_result["tasks"][0]["status"] == "queued"
+            assert not active.done()
+        finally:
+            release.set()
+            successful(await asyncio.wait_for(active, timeout=5))
+    assert created.call_count == generated.call_count == polled.call_count == 1
+
+
+@pytest.mark.parametrize("mutation", [False, True])
+@respx.mock
+async def test_direct_http_deadline_distinguishes_reads_from_possible_billing(
+    tmp_path: Path, mutation: bool
+) -> None:
+    started = asyncio.Event()
+    cancelled = asyncio.Event()
+    requests: list[httpx.Request] = []
+
+    async def stalled(request: httpx.Request) -> httpx.Response:
+        requests.append(request)
+        started.set()
+        try:
+            await asyncio.Event().wait()
+        finally:
+            cancelled.set()
+        raise AssertionError("Stalled provider unexpectedly resumed")
+
+    settings = http_settings(tmp_path, MCP_TOOL_TIMEOUT_SECONDS=0.2)
+    async with http_server(tmp_path, settings=settings) as (_, _, client):
+        if mutation:
+            respx.post(f"{MODELARK}/images/generations").mock(side_effect=stalled)
+            name, arguments = "seedream_generate_image", {"prompt": "square"}
+        else:
+            respx.post(f"{MODELARK}/contents/generations/tasks").respond(
+                200, json={"id": "owned-deadline-task"}
+            )
+            successful(
+                await call_tool(
+                    client,
+                    "seedance_create_task",
+                    {"prompt": "scene", "idempotency_key": "direct-deadline-owned-task"},
+                    headers=credentials(),
+                )
+            )
+            respx.get(f"{MODELARK}/contents/generations/tasks").mock(side_effect=stalled)
+            name, arguments = "gen_task_get", {"task_ids": ["owned-deadline-task"]}
+        result = await asyncio.wait_for(
+            call_tool(client, name, arguments, headers=credentials()), timeout=5
+        )
+        assert_denied(result)
+        assert "TOOL_DEADLINE_EXCEEDED" in str(result)
+        assert f"ambiguous_completion={mutation}" in str(result)
+        assert "structuredContent" not in result["result"]
+        if mutation:
+            assert "does not cancel accepted upstream work" in str(result)
+        else:
+            assert "Only read-only provider requests started" in str(result)
+    assert started.is_set()
+    assert cancelled.is_set()
+    assert len(requests) == 1
+
+
+@respx.mock
+async def test_deadline_after_acceptance_keeps_safe_ids_and_blocks_same_key_redispatch(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    created = respx.post(f"{MODELARK}/contents/generations/tasks").respond(
+        200, json={"id": "accepted-before-deadline"}, headers={"X-Request-Id": "safe-deadline-id"}
+    )
+    settings = http_settings(tmp_path, MCP_TOOL_TIMEOUT_SECONDS=0.2)
+    arguments = {"prompt": "scene", "idempotency_key": "direct-accepted-deadline"}
+
+    async def blocked_record(*args, **kwargs):
+        await asyncio.Event().wait()
+
+    async with http_server(tmp_path, settings=settings) as (_, runtime, client):
+        monkeypatch.setattr(runtime.ownership_store, "record", blocked_record)
+        first = await call_tool(client, "seedance_create_task", arguments, headers=credentials())
+        assert_denied(first)
+        assert "TOOL_DEADLINE_EXCEEDED" in str(first)
+        assert "accepted-before-deadline" in str(first)
+        assert "safe-deadline-id" in str(first)
+        replay = await call_tool(client, "seedance_create_task", arguments, headers=credentials())
+        assert_denied(replay)
+        assert "SUBMISSION_UNRESOLVED" in str(replay)
+        assert "accepted-before-deadline" in str(replay)
+    assert created.call_count == 1

@@ -39,7 +39,7 @@ class TestSettings:
         assert settings.mcp_http_max_body_bytes == 2 * 1024 * 1024
         assert settings.http_max_in_flight == 64
         assert settings.state_max_records == 100_000
-        assert settings.rate_limit_trust_proxy_headers is False
+        assert settings.trusted_proxy_networks == ()
 
     def test_has_modelark_false_when_empty(self) -> None:
         settings = Settings(_env_file=None)

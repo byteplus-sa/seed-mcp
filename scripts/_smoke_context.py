@@ -59,24 +59,13 @@ def require_tool_success[T](result: T | ToolResult) -> T:
 
 @dataclass
 class SmokeClient:
-    """Run smoke workflows through the public MCP task protocol."""
+    """Run direct workflows per specs/SPEC_DIRECT_EXECUTION.md."""
 
-    client: Client
-    foreground_client: Client | None = None
+    client: Client[Any]
 
-    async def call[T: BaseModel](
-        self, name: str, params: BaseModel, output_type: type[T], *, background: bool = True
-    ) -> T:
-        from fastmcp_tasks import call_tool_task
-
+    async def call[T: BaseModel](self, name: str, params: BaseModel, output_type: type[T]) -> T:
         arguments = {"input": params.model_dump(mode="json")}
-        if background:
-            task = await call_tool_task(self.client, name, arguments)
-            print(f"  MCP task ID: {task.task_id}")
-            result = await task.result()
-        else:
-            client = self.foreground_client or self.client
-            result = await client.call_tool(name, arguments)
+        result = await self.client.call_tool(name, arguments)
         return output_type.model_validate(result.structured_content)
 
     def save_provider_ids(self, directory: Path, task_ids: list[str]) -> None:
@@ -115,6 +104,7 @@ async def smoke_session(settings: Settings) -> AsyncIterator[tuple[SmokeClient, 
         return runtime
 
     server = create_server(settings, runtime_factory=runtime_factory)
-    async with Client(server) as client, Client(server, mode="legacy") as foreground_client:
+    timeout_seconds = max(settings.tool_timeout_seconds, settings.request_timeout_ms / 1000) + 60
+    async with Client(server, timeout=timeout_seconds) as client:
         assert runtime is not None
-        yield SmokeClient(client, foreground_client), runtime
+        yield SmokeClient(client), runtime

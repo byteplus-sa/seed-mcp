@@ -8,7 +8,6 @@ from pathlib import Path
 import pytest
 from pydantic import BaseModel
 
-from ark_mcp.background_jobs import BACKGROUND_TOOL_SPECS
 from ark_mcp.config.env import Settings, get_settings
 from ark_mcp.server import create_server
 from ark_mcp.tools._catalog import CATALOG, catalog_entry, resolve_tool_definition
@@ -59,11 +58,11 @@ def test_every_scope_is_documented() -> None:
     assert {scope for scope in scopes if f"`{scope}`" not in security_doc} == set()
 
 
-def test_background_specs_are_derived_from_the_catalog() -> None:
-    expected = {entry.name: entry.background for entry in CATALOG if entry.background}
-    assert {name: spec.mode for name, spec in BACKGROUND_TOOL_SPECS.items()} == expected
-    for name, spec in BACKGROUND_TOOL_SPECS.items():
-        assert spec.required_scope == catalog_entry(name).scope  # type: ignore[union-attr]
+def test_catalog_excludes_jobs_and_understanding() -> None:
+    names = {entry.name for entry in CATALOG}
+    assert len(names) == 15
+    assert not any(name.startswith("ark_job_") for name in names)
+    assert not {"seed_understand", "seed_audio_understand"} & names
 
 
 def test_unknown_tool_has_no_catalog_entry() -> None:
@@ -76,8 +75,7 @@ async def test_all_catalog_tools_register_with_every_service(all_services_enable
     tools = {tool.name: tool for tool in await server.list_tools()}
     assert set(tools) == {entry.name for entry in CATALOG}
     for entry in CATALOG:
-        mode = tools[entry.name].task_config.mode
-        assert mode == (entry.background or "forbidden"), entry.name
+        assert tools[entry.name].task_config.mode == "forbidden", entry.name
 
 
 async def test_http_catalog_disables_native_tasks_without_operator_keys() -> None:
@@ -91,7 +89,7 @@ async def test_http_catalog_disables_native_tasks_without_operator_keys() -> Non
         )
     )
     tools = await server.list_tools()
-    assert len(tools) == 12
+    assert len(tools) == 10
     for tool in tools:
         assert tool.task_config.mode == "forbidden", tool.name
 

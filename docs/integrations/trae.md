@@ -85,7 +85,7 @@ Preserve existing servers and any same-name entry at a different scope.
 Choose a tool-enabled chat mode and run the
 [discovery-only check](index.md#verify-without-paid-calls). A pending UI
 step is not a completed installation. Once your tools appear, try
-[Your First Tool Call](../setup/first-run.md). Finish active jobs before
+[Your First Tool Call](../setup/first-run.md). Finish active calls before
 reloading the connection.
 
 See [Integrations](index.md), [Codex](codex.md) for an embedded Codex agent,

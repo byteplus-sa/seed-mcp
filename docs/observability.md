@@ -1,8 +1,10 @@
 # Observability
 
 The server ships structured JSON logging and internal Prometheus metrics.
-The `/metrics` endpoint is unavailable on HTTP; it is not a public monitoring
-surface. HTTP `/health` and `/ready` expose minimal state without provider probes.
+The main HTTP app has no `/metrics` route. Optional `MCP_METRICS_PORT` defaults
+to `0` (off); when enabled, a separate HTTP-runtime listener binds only
+127.0.0.1. It is not a public monitoring surface. Backend `/health` and `/ready`
+expose minimal state without provider probes; VKE Caddy exposes only `/health`.
 Provider HTTP calls also emit OpenTelemetry spans, but the server does not
 configure an OTel exporter — spans are no-ops unless you wire up an SDK.
 
@@ -103,37 +105,29 @@ or `mark_unresolved`), never raw errors or input. A receipt-write failure
 preserves the first provider result but leaves repeat calls fail-closed.
 See [HTTP submission recovery](runtime.md#http-submission-journal).
 
-Understanding JSON Schema validation is offline: `$ref`, `$dynamicRef` and
-`$recursiveRef` must be fragment-only (`#...`), and external schemas are never
-retrieved. Nonlocal references are rejected before dispatch; unresolved
-references during answer validation become `schema_violation` diagnostics
-without discarding the billed completion. `understanding_schema_violation`
-and `understanding_schema_violation_retry` describe answer validation, not a
-provider transport failure or permission to blindly replay a request.
-
 ## Prometheus metrics (`observability/metrics.py`)
 
-Nine metrics total — 6 Counters + 3 Histograms. **There are no Gauges.**
+Nine application metrics: 7 Counters and 2 Histograms. **There are no application
+Gauges.** The default Prometheus registry can also expose library/process metrics.
 Label cardinality is intentionally bounded (no tenant, model, URL, or request
 labels). All Histograms use the `prometheus_client` default buckets
 `(0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, +Inf)` seconds.
 
 | Metric | Type | Labels | What it measures | Label values |
 |---|---|---|---|---|
-| `ark_mcp_tool_requests_total` | Counter | `tool`, `status` | Foreground outcomes, background acceptance, and worker outcomes | `accepted`, `success`, `error`, `exception`, `cancelled` |
-| `ark_mcp_tool_duration_seconds` | Histogram | `tool` | Foreground execution or background worker execution duration, including failure and cancellation | — |
-| `ark_mcp_tool_admission_duration_seconds` | Histogram | `tool` | Background task admission duration, including rejected submissions and excluding worker execution | — |
-| `ark_mcp_background_job_submissions_total` | Counter | `target`, `status`, `path` | Allowlisted background-job admission by target and native or compatibility entry path | `status` = `accepted` / `rejected`; `path` = `native` / `compatibility` |
+| `ark_mcp_tool_requests_total` | Counter | `tool`, `status` | Direct tool outcomes | `success`, `error`, `exception`, `cancelled` |
+| `ark_mcp_tool_duration_seconds` | Histogram | `tool` | Direct call duration, including admission, execution and cancellation cleanup | — |
 | `ark_mcp_provider_requests_total` | Counter | `provider`, `operation`, `status` | outbound provider HTTP requests | `operation` = HTTP method lowercased; `status` = `success` (HTTP < 400) / `error` (HTTP ≥ 400) / `exception` |
 | `ark_mcp_provider_duration_seconds` | Histogram | `provider`, `operation` | provider HTTP request duration (observed in `finally`) | `operation` = HTTP method lowercased |
 | `ark_mcp_artifact_operations_total` | Counter | `operation`, `status`, `media_type` | artifact store put/get | `operation` = `put` / `get`; only `status="success"` is emitted in current call sites |
 | `ark_mcp_budget_rejections_total` | Counter | `product` | requests rejected for exceeding daily budget | one inc per rejection |
 | `ark_mcp_retry_attempts_total` | Counter | `provider`, `operation` | retried provider attempts (excluding the initial attempt) | one inc per retry |
+| `ark_mcp_admission_rejections_total` | Counter | `provider`, `reason` | Rejected owner/provider admission before dispatch of this attempt | `reason` = `capacity` or `timeout` |
+| `ark_mcp_tool_deadlines_total` | Counter | `dispatch` | Cooperative deadline expiries, not provider cancellation | `mutation`, `read`, `none` |
 
 > **Upgrading dashboards to 0.2.0.** The `tool` label on
-> `ark_mcp_tool_requests_total`, `ark_mcp_tool_duration_seconds`, and
-> `ark_mcp_tool_admission_duration_seconds` (and the `target` label on
-> `ark_mcp_background_job_submissions_total`) carries the 0.2.0 tool names.
+> `ark_mcp_tool_requests_total` and `ark_mcp_tool_duration_seconds`
+> carries the retained tool names. Removed job-admission metrics no longer emit.
 > Panels and alerts keyed on removed 0.1.x names (for example the per-family
 > Seedance create tools or the per-product task pollers) stop receiving data;
 > switch them to the replacements listed in
@@ -150,47 +144,51 @@ task polling can retry provider-marked retryable failures such as HTTP 429.
 
 ### `MetricsMiddleware`
 
-**Admission and execution are measured separately.** `MetricsMiddleware`
-intercepts `on_call_tool`; it does not intercept task polling, resource reads,
-list-tools, or HTTP routes. Foreground calls retain their existing outcome
-counter and execution histogram. Native background submissions observe
-`TOOL_ADMISSION_DURATION`; accepted submissions increment
-`TOOL_REQUESTS{status="accepted"}`, while failed admission increments the
-submission counter with `status="rejected"`.
+`MetricsMiddleware` intercepts ordinary `on_call_tool` calls on both transports,
+including provider polling tools. It does not count resource reads, list-tools
+or HTTP routes. Each direct call records one terminal outcome and duration
+in `finally`; there is no separate MCP job-admission or worker metric.
 
-Registered handlers use `instrument_tool_execution` to measure execution in
-real task workers. Each handler execution records its terminal outcome and
-`TOOL_DURATION`, including elapsed time when an exception or cancellation
-interrupts the handler. Foreground execution bypasses this wrapper's metrics
-so middleware counts it exactly once. Repeated `tasks/get` polling does not
-add execution measurements.
-
-`ark_mcp_background_job_submissions_total` separates native task admission from
-ordinary `ark_job_submit` admission without labeling job IDs, principals,
-prompts, or URLs. Its `target` values come only from the immutable background
-tool registry. Unknown target strings are deliberately not emitted as labels.
-
-The `tool` labels on request, execution-duration and admission-duration metrics
-are catalog names or the fixed value `unknown`. Arbitrary unknown tool names
-collapse to `unknown` in both middleware and worker instrumentation; they never
-create one retained series per caller-supplied name. This differs from unknown
-background `target` values, which are skipped entirely.
+The `tool` labels are catalog names or the fixed value `unknown`. Arbitrary
+unknown tool names never create one retained series per caller-supplied name.
 
 `success` means a returned value without an MCP error, `error` means a returned
 `ToolResult` with `is_error=True`, `exception` means a raised Python exception,
 and `cancelled` means an executing handler was interrupted by cancellation.
-These are MCP/handler outcomes, not provider HTTP statuses. A background task
-normally produces both an `accepted` sample and one terminal sample; exclude
-`accepted` when calculating execution error rates. A task cancelled before its
-handler starts has no execution sample. Abrupt worker termination cannot emit
-terminal metrics; a replayed worker attempt emits its own execution sample.
+These are MCP/handler outcomes, not provider HTTP statuses.
+`TOOL_DEADLINE_EXCEEDED` returns an error result; external cancellation is
+`cancelled`. SDK/SQLite draining may extend duration beyond the cooperative
+deadline. A forced process termination cannot emit a terminal measurement.
+Accepted provider IDs do not create a separate MCP `accepted` outcome.
 
 ### `/metrics` endpoint
 
-HTTP does not register this route. Internal counters remain useful to tests
-and approved operator instrumentation but are not publicly exposed.
-Background admission/execution metrics above apply only to local stdio,
-where jobs/native tasks remain supported.
+The main HTTP app does not register this route. `MCP_METRICS_PORT=0` disables
+the separate listener; otherwise it accepts ports 1024-65535 and binds only
+127.0.0.1 for the HTTP runtime. Stdio never starts it. Its owned thread drains
+on shutdown; unknown paths return 404 and access logging is disabled.
+Direct-call metrics apply on both transports; neither has MCP jobs/native tasks.
+
+VKE `app.metricsEnabled=true` selects private port 9000; the default is false.
+No public or metrics Service exposes it, and Caddy rejects `/metrics`.
+After separately authorized deployment, with private API connectivity and
+pod port-forward RBAC, an operator can forward only onto workstation loopback:
+
+```bash
+kubectl -n seed-mcp port-forward --address 127.0.0.1 pod/seed-mcp-seed-mcp-0 19000:9000
+```
+
+Use the actual namespace and pod name; the example assumes release `seed-mcp`.
+In a second terminal, inspect `http://127.0.0.1:19000/metrics`, then stop the
+forward when finished. Never use `--address 0.0.0.0`, a public ingress, or
+customer credentials for monitoring.
+
+For state pressure and unresolved ages, use the
+[read-only aggregate inspector](runtime.md#read-only-state-inspection).
+Neither counters nor inspection are a repair/requeue mechanism. Admission/
+deadline labels contain no tenant/owner IDs, prompts, URLs or keys. HTTP
+rate/body-limit events use bounded route labels, never arbitrary paths or
+raw forwarding headers.
 
 ## OpenTelemetry / tracing
 
@@ -226,13 +224,14 @@ with get_tracer().start_as_current_span(
 
 ## Gaps worth knowing
 
-- No Gauges anywhere — in-flight requests, current daily spend, stored
+- No application Gauges: in-flight requests, current daily spend, stored
   artifact count, and concurrency depth are not metricated (spend is only
   observable via the SQLite ledger; in-flight only via the process metrics).
 - `ARTIFACT_OPERATIONS` has a `status` label, but call sites only ever emit
   `success` (failures raise before the counter is touched).
-- HTTP `/metrics` is unavailable. Anonymous `/health` and `/ready` return
-  minimal process/state status, not credentials or provider readiness.
+- Public `/metrics` is unavailable. Private listener access requires explicit
+  enablement and operator access. Backend `/health` and `/ready` return minimal
+  process/state status, not credentials or provider readiness.
 
 See [configuration.md](configuration.md) for the related env vars and
 [deployment.md](deployment.md) for probe/monitoring guidance.

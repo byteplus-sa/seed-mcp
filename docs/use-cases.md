@@ -3,23 +3,21 @@
 The Ark Seed MCP server exposes a conditional multimodal tool surface.
 Here are common scenarios and how to achieve them.
 
-**The job/persistence examples below are local stdio workflows.** HTTP BYOK
+**The persistence examples below are local stdio workflows.** HTTP BYOK
 calls provider tools directly with `{"input": {...}}`, uses persistence false
 and has no jobs/native tasks/storage/artifact tools/resources. Provider keys
 and the client secret go in private request headers, never tool arguments.
 Retrieve expiring output URLs on the client. See [HTTP setup](setup/shared-server.md).
 
-The JSON blocks below show tool input payloads. Wrap the payload for
-generation, variation, upload, understanding (including audio transcription), and
-provider-submission tools in `ark_job_submit`, or invoke those tools with MCP
-task augmentation on a client that negotiates it. For Seedance and OmniHuman
-retrieval, poll in foreground with `persist_output=false`, then use the
-`ark_job_*` path (or optional task augmentation) with `persist_output=true`
-when downloading a completed output.
-
-In the workflows below, **background result** means the original tool result
-under terminal `ark_job_get.result`, or the terminal `tasks/get` response on
-the native path.
+The JSON blocks below show inner tool payloads. Call the named tool directly
+with `{"input": <payload>}` on either transport. No MCP jobs or native tasks
+exist. For provider retrieval, poll with `persist_output=false`, then on stdio
+call directly with `persist_output=true` to store completed output.
+Use client timeout 660 seconds with the default 600-second cooperative
+deadline; SDK/SQLite cleanup may exceed it. Never blindly resubmit after a
+timeout. HTTP non-dry Seedance/OmniHuman creates additionally require one
+fresh `idempotency_key` per intended call, including the whole variation batch.
+Identical key/input recovers saved success only, not polling or partial resume.
 
 ## 1. Text-to-Image Generation
 
@@ -198,8 +196,8 @@ Omitting `model` uses the configured default (Seedance 2.5); pass an exact ID
 from `ark_list_models(kind='video')` to pick another model. Add
 `"dry_run": true` to preview the request and estimated cost without billing.
 
-The background submission returns a local MCP task or Ark job ID. Read the
-provider task ID (`tasks[0].task_id`) from its terminal result, then pass that
+The direct create result contains a
+provider task ID (`tasks[0].task_id`); pass that
 provider ID to `gen_task_get`.
 
 ## 10. Polling for Video Completion
@@ -217,7 +215,7 @@ Check the status of one or more Seedance video generation tasks.
 `persist_output` defaults to `false`, so this is a foreground status poll.
 Wait `recommended_poll_after_ms` between polls and stop when `all_terminal` is
 `true`; **never resubmit the create tool to poll**. To persist the completed
-outputs, run the call as a background job with `persist_output=true` after the
+outputs, call directly on stdio with `persist_output=true` after the
 task reaches a terminal state; subsequent polls return the cached artifact
 without re-downloading.
 
@@ -274,9 +272,9 @@ Create multiple video tasks with different prompts in one call
 }
 ```
 
-The background submission returns a local MCP task or Ark job ID. Read the
-per-variation provider task IDs from `tasks` in its terminal result (a failed
-submission has `error` instead of `task_id`), then pass all of them to one
+Read per-variation provider task IDs from `tasks` in the direct result.
+An accepted task can have both `task_id` and `error` after bookkeeping failure;
+retain every known ID, then pass owned IDs to one
 `gen_task_get` call.
 
 ## 13. List Recent Video Tasks
@@ -324,7 +322,7 @@ Delete (terminal):
 
 Generate a reference image, then use it as input for video generation.
 
-1. Generate an image in the background, then read its background result:
+1. Generate an image directly, then read its result:
 
 ```
 seedream_generate_image({
@@ -335,8 +333,8 @@ seedream_generate_image({
 })
 ```
 
-2. Use the generated image (as base64) to create a video task in the
-   background. Read its provider task ID from the background result:
+2. Use the generated image (as base64) to create a video task directly.
+   Read its provider task ID from the result:
 
 ```
 seedance_create_task({
@@ -355,7 +353,7 @@ seedance_create_task({
 3. Poll for video completion in the foreground:
 
 ```
-gen_task_get({"task_ids": ["<provider task ID from background result>"]})
+gen_task_get({"task_ids": ["<provider task ID from direct result>"]})
 ```
 
 ## 16. Batch Storyboard with Seedream
@@ -374,8 +372,9 @@ mode (not parallel variations — these share visual continuity).
 }
 ```
 
-This uses `sequential_image_generation: "auto"` — the provider generates a
-coherent storyboard, not independent variations.
+This requires an explicitly selected bound Lite/4.x model; the 5.5 default
+and Pro reject `max_images > 1`. It uses `sequential_image_generation: "auto"`
+for related outputs; visual coherence still needs review.
 
 ## 17. Reference Video Upload via Object Storage
 

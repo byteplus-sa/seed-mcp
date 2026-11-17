@@ -1,0 +1,12 @@
+prerequisitesConfirmed: false
+image: ""
+publicHost: ""
+identitySecret:
+  name: ""
+tlsSecretName: ""
+service:
+  subnetId: ""
+  sourceRanges: []
+storage:
+  zone: ""
+  project: default

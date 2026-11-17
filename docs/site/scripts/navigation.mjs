@@ -1,8 +1,5 @@
 const categories = [
-  [
-    "Discovery and jobs",
-    (name) => name.startsWith("ark_job_") || name === "ark_list_models",
-  ],
+  ["Discovery", (name) => name === "ark_list_models"],
   [
     "Images and video",
     (name) =>
@@ -11,10 +8,6 @@ const categories = [
       name.startsWith("gen_task_"),
   ],
   ["Audio", (name) => name === "seed_audio_generate"],
-  [
-    "Understanding",
-    (name) => ["seed_understand", "seed_audio_understand"].includes(name),
-  ],
   ["Avatars", (name) => name.startsWith("omnihuman_")],
   [
     "Uploads and artifacts",

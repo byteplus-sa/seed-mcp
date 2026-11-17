@@ -1,17 +1,19 @@
 # Configuration
 
 Configuration is loaded from environment variables or `.env` by Pydantic
-Settings. Copy `.env.example` to `.env`. Empty values are ignored.
+Settings. For local stdio, copy `.env.example` to a private env file.
+Empty values are ignored. Hosted VKE uses [Helm inputs](byteplus-terraform.md#chart-inputs-and-network)
+and existing Secret references, not this local provider-key template.
 
 Provider-key environment variables below apply to **local stdio only**.
-HTTP uses live request BYOK headers and registers its 9 provider/discovery
-tools (12 with OmniHuman) without operator generation keys. No HTTP fallback
+HTTP uses live request BYOK headers and registers its 7 provider/discovery
+tools (10 with OmniHuman) without operator generation keys. No HTTP fallback
 to environment provider keys exists. Keep private configuration outside Git.
 
 `.env` is resolved **relative to the server's working directory**. Most MCP
 clients set that correctly from their server configuration, so this is rarely
 the problem. When a client cannot, it finds no `.env`, and the server starts
-with no provider credentials and registers only the always-on job and artifact
+with no provider credentials and registers only the always-on discovery and artifact
 tools — set `ARK_MCP_ENV_FILE` to an absolute path for that case, or launch the
 server with its working directory at the repository root (for example
 `uv --directory /path/to/ark-mcp run python -m ark_mcp`). The server logs a
@@ -27,7 +29,7 @@ client is missing tools and that warning is absent, look at
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `BYTEPLUS_MODELARK_API_KEY` | empty | Enables Seedream, Seedance, and Seed 2.1 understanding; sent as Bearer auth |
+| `BYTEPLUS_MODELARK_API_KEY` | empty | Enables Seedream and Seedance; sent as Bearer auth |
 | `BYTEPLUS_SEED_SPEECH_API_KEY` | empty | Enables Seed Audio generation; sent as `X-Api-Key` |
 | `BYTEPLUS_CV_API_KEY` | empty | BytePlus Vision AI Bearer key for OmniHuman; tools also need `BYTEPLUS_OMNIHUMAN_ENABLED=true` |
 | `BYTEPLUS_MODELARK_BASE_URL` | AP Southeast ModelArk URL | HTTPS data-plane base URL |
@@ -35,14 +37,10 @@ client is missing tools and that warning is absent, look at
 | `SEEDREAM_DEFAULT_MODEL` | `dola-seedream-5-5-261028` | Default image model/endpoint ID (Seedream 5.5; account authorization required) |
 | `SEEDREAM_PROMPT_OPTIMIZATION_MODE` | `standard` | Mode 5.0 Pro sends when a caller omits `prompt_optimization`: `standard` (prompt-following quality) or `fast` (lower latency). Both are provider-accepted; an explicit per-call value wins |
 | `SEEDANCE_DEFAULT_MODEL` | `dreamina-seedance-2-5-260628` | Default video model/endpoint ID used by `seedance_create_task` when `model` is omitted (Seedance 2.5; was 2.0 before the tool consolidation, see the [upgrade note](#seedance-default-model-upgrade-note)) |
-| `SEED_UNDERSTANDING_DEFAULT_MODEL` | `dola-seed-2-1-turbo-260628` | Default understanding model/endpoint ID. Set to `dola-seed-evolving` to use the latest Pro-tier model (auto-resolves to family `pro`, no `SEED_UNDERSTANDING_MODEL_FAMILY` needed) |
 | `SEEDREAM_MODEL_FAMILY` | empty | Family for a custom default: `seedream_5_5`, `pro`, `lite`, or `4x` |
 | `SEEDANCE_MODEL_FAMILY` | empty | Family for a custom default: `standard`, `fast`, `mini`, `seedance_2_5` (through 4K), or `seedance_2_5_flash` (480p/720p, no Draft) |
-| `SEED_UNDERSTANDING_MODEL_FAMILY` | empty | Family for a custom default: `pro` or `turbo` |
 | `SEEDREAM_MODEL_BINDINGS` | empty | JSON list of `{model_id, family}` bindings |
 | `SEEDANCE_MODEL_BINDINGS` | empty | JSON list of `{model_id, family}` bindings |
-| `SEED_UNDERSTANDING_MODEL_BINDINGS` | empty | JSON list of `{model_id, family}` bindings |
-| `SEED_AUDIO_UNDERSTANDING_MODEL` | `seed-2-0-lite-260428` | Model/endpoint ID used by `seed_audio_understand`. Any ModelArk model that accepts Chat Completions `input_audio` parts with deep thinking works; change it when a newer audio-capable model ships |
 | `BYTEPLUS_OMNIHUMAN_ENABLED` | `false` | Feature flag for OmniHuman 2.0 (`omnihuman_*` tools); requires `BYTEPLUS_CV_API_KEY` |
 | `BYTEPLUS_CV_BASE_URL` | `https://openapi.cv.bytepluses.com` | HTTPS Vision AI base URL |
 | `BYTEPLUS_OMNIHUMAN_REQ_KEY` | `realman_avatar_picture_omni20_cv` | Service identifier sent as `req_key`; change only if BytePlus issues a new one |
@@ -85,11 +83,11 @@ uses the provider's standard default. Background defaults to `auto` on 5.5.
 See [image model limits](models.md#image-capabilities-imagecapabilities).
 
 Read `seed-health://status` to confirm the effective Seedream default model and
-binding family. The resource also reports whether background-job local exports
+binding family. The resource also reports whether local exports
 have an absolute `OUTPUT_ROOTS` entry (comma-separated paths). It never reveals
 root paths or credentials. These are configuration diagnostics only: they do not
 probe provider authorization, check filesystem readiness, or replace the
-request's destination preflight. Client MCP roots are unavailable inside jobs.
+request's destination preflight. Direct stdio calls can use live client MCP roots.
 Seedream dry-run `preview.price_source` is `builtin`: a budgeting estimate,
 not an account-specific rate or actual billing.
 
@@ -170,6 +168,19 @@ Optional HTTP `X-ModelArk-Seedance-Endpoint` and
 `X-ModelArk-Seedream-Endpoint` defaults must exactly match a registered binding
 for the product. An explicit tool `model` wins. No arbitrary opaque `ep-*`
 lineage inference or caller-selected base URL is supported.
+The operator must verify an endpoint's model/version before binding it; unknown
+endpoint IDs are not echoed by diagnostics. GetEndpoint metadata requires
+AK/SK signing, which this server does not accept or hold. See the
+[BYOE authority contract](../specs/SPEC_HOSTED_BYOK.md#byoe-endpoint-authority).
+
+Default discovery remains static/anonymous with `connection=null`. Opt-in
+`ark_list_models` input `check_connection=true` is live HTTP only and checks
+ModelArk/client-secret header presence plus exact image/video defaults, not
+authentication, lineage or entitlement. See the
+[preflight check table](setup/shared-server.md#optional-imagevideo-configuration-check)
+and [stdout client generator](setup/shared-server.md#generate-a-client-snippet).
+The generator's `*-env` options are client variable names, not server settings
+or credential values.
 
 ## Transport and authentication
 
@@ -178,6 +189,7 @@ lineage inference or caller-selected base URL is supported.
 | `MCP_TRANSPORT` | `stdio` | `stdio` or Streamable `http` |
 | `MCP_HOST` | `127.0.0.1` | HTTP bind address |
 | `MCP_PORT` | `3000` | HTTP listen port |
+| `MCP_METRICS_PORT` | `0` | HTTP-runtime-only private metrics listener; 0 disables, otherwise 1024-65535; always binds 127.0.0.1 |
 | `MCP_ALLOWED_HOSTS` | loopback hosts | Comma-separated accepted Host headers |
 | `MCP_ALLOWED_ORIGINS` | empty | Comma-separated accepted browser Origins |
 | `MCP_HTTP_MAX_BODY_BYTES` | `2097152` (2 MiB) | Positive maximum streamed HTTP request body |
@@ -186,13 +198,36 @@ lineage inference or caller-selected base URL is supported.
 | `READINESS_PROVIDER_TIMEOUT_SECONDS` | `2.0` | Per-provider timeout for readiness checks |
 | `RATE_LIMIT_RPM` | `60` | Max HTTP requests per minute per client IP; positive required on HTTP |
 | `RATE_LIMIT_BURST` | `0` | Token bucket burst size; 0 defaults to `RATE_LIMIT_RPM` |
-| `RATE_LIMIT_TRUST_PROXY_HEADERS` | `false` | Trust the first `X-Forwarded-For` entry for rate-limit keys; enable only behind a trusted proxy |
+| `RATE_LIMIT_TRUSTED_PROXY_CIDRS` | empty | Comma-separated canonical IPv4/IPv6 networks; trust forwarded addresses only from an immediate peer in these networks; catch-all networks rejected |
 | `MCP_AUTH_MODE` | `byok` | HTTP requires `byok`; explicit `local` is stdio-only; `api_key` removed |
 | `MCP_IDENTITY_HMAC_KEY` | empty | Required for HTTP: operator random 32-byte secret encoded as 64 lowercase hex; not a customer credential |
 | `MCP_IDENTITY_KEY_VERSION` | `1` | Positive HMAC identity version; changes ownership namespace when changed |
 
 `FASTMCP_TRANSPORT`, `FASTMCP_HOST`, and `FASTMCP_PORT` are accepted as
 aliases for the corresponding `MCP_*` transport settings.
+
+`RATE_LIMIT_TRUST_PROXY_HEADERS` is removed without a compatibility alias.
+Forwarded chains are size/hop bounded and validated, then traversed
+right-to-left through trusted hops to the first untrusted address. Untrusted
+peers cannot supply a rate-limit identity. Malformed/duplicate trusted chains
+fail with fixed text, without header echo. The entrypoint disables Uvicorn
+proxy rewriting so middleware receives the actual socket peer.
+
+VKE uses `MCP_HOST=127.0.0.1`, `MCP_PORT=3000` and
+`RATE_LIMIT_TRUSTED_PROXY_CIDRS=127.0.0.1/32`, with Caddy in the same pod.
+Only the CLB TCP 443 route to Caddy 8443 is public. `app.metricsEnabled=true`
+in Helm selects private port 9000; default false leaves it disabled.
+Never expose metrics through a Service or trust all networks.
+
+Helm exposes `models.seedream` and `models.seedance` with `defaultModel` and
+`bindings` (`{model_id, family}` entries), not an arbitrary environment map.
+Nonempty lists must include the default; alternate defaults require explicit
+verified bindings. Header overrides still require exact registry matches.
+See [model and runtime chart values](byteplus-terraform.md#model-and-runtime-values).
+Helm `app.dailyBudgetUsd` defaults to 25 USD rather than the standalone
+application's zero; `app.providerMaxConcurrency=5`,
+`app.principalMaxConcurrency=3` and `app.rateLimitBurst=0` map directly to the
+corresponding settings below. Per-owner budgets are not an account spending cap.
 
 Clients send `X-MCP-Client-Secret` (client-generated 32 random bytes as
 64 lowercase hex) plus only the selected provider header:
@@ -285,19 +320,21 @@ A local billed output retains fallback delivery when storage fails; see
 The filesystem backend enforces principal and tenant ownership. It is suitable
 for one process. Multiple replicas require shared artifact, task-ownership,
 budget, cache, and limiter implementations before horizontal scaling is safe.
+HTTP acquires an exclusive `runtime.sqlite3.lock` before any stores or recovery,
+holding it until close. It is a local filesystem lease, not distributed fencing;
+do not delete active locks or share SQLite on a network filesystem. See
+[runtime ownership](runtime.md#http-state-lease).
 
 ## Local output paths
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `OUTPUT_ROOTS` | empty | Comma-separated absolute directories where stdio tools may write files (`output_path`, `output_dir`, `save_to`, `destination_path`) |
+| `OUTPUT_ROOTS` | empty | Comma-separated absolute directories where stdio tools may write files (`output_path`, `output_dir`, `destination_path`) |
 
 The client's MCP roots (`roots/list`) take precedence when the client provides
 them; `OUTPUT_ROOTS` is the fallback. With neither, local path writing is
-disabled and those fields are rejected. **Background jobs
-(`ark_job_submit`) run in a worker with no MCP session and therefore no MCP
-roots, so local writes from a job always use `OUTPUT_ROOTS`; set it whenever
-jobs should write files.** Path writing is stdio-only. See
+disabled and those fields are rejected. Direct stdio calls retain live MCP
+context; no task augmentation is required. Path writing is stdio-only. See
 [Security](security.md#local-output-paths).
 
 ## Timeouts and logging
@@ -306,33 +343,39 @@ jobs should write files.** Path writing is stdio-only. See
 |---|---|---|
 | `BYTEPLUS_CONNECT_TIMEOUT_MS` | `10000` | Provider connection timeout |
 | `BYTEPLUS_REQUEST_TIMEOUT_MS` | `600000` | Full provider request timeout |
-| `SEED_UNDERSTANDING_TIMEOUT_MS` | unset (uses `BYTEPLUS_REQUEST_TIMEOUT_MS`) | Request timeout for `seed_understand` and `seed_audio_understand` chat completions. Deep thinking is always on, so long analyses may need more than the general request timeout |
-| `FASTMCP_DOCKET_URL` | `memory://` | FastMCP background-task backend used by generation, upload, provider submission, understanding (including audio transcription), and optional media-persistence calls; Redis can retain task state across restarts of the same single-replica deployment; it does not make SQLite state horizontally scalable |
-| `FASTMCP_TASKS_ENCRYPTION_KEY` | unset | Local task snapshot protection only; HTTP has no task backend or snapshots |
-| `FASTMCP_DOCKET_CONCURRENCY` | `10` | Maximum active background tasks per worker; provider/principal limits still apply |
+| `MCP_ADMISSION_TIMEOUT_SECONDS` | `2.0` | Finite positive seconds, at most 30; combined wait for owner then provider slots |
+| `MCP_TOOL_TIMEOUT_SECONDS` | `600.0` | Finite positive seconds, at most 3600; cooperative whole-tool deadline from wrapper entry |
 | `ARK_LOG_LEVEL` | `INFO` | `DEBUG`, `INFO`, `WARNING`, or `ERROR` |
 
 Logs are structured JSON on stderr. Provider credentials and sensitive media
-fields are redacted. The default in-memory task backend is process-local; a
-server restart discards active and retained task state.
+fields are redacted.
 
+Both transports call tools directly. The deadline starts after MCP input
+parsing and before credential/binding checks, journal, admission and execution.
+Budget is reserved after owner-first provider admission. `ADMISSION_TIMEOUT`
+means this attempt did not dispatch; other variations may already be accepted.
+`TOOL_DEADLINE_EXCEEDED` retains uncertainty and known safe task/request IDs.
+External cancellation propagates. Neither timeout nor disconnect guarantees
+provider cancellation.
 
-### Background task ownership and recovery
+Use a **660-second client timeout** with the default tool deadline: Codex
+`tool_timeout_sec=660`, Claude Code `timeout=660000` milliseconds, Python
+`Client(..., timeout=660)`. Configure compatible proxy timeouts too.
+SQLite/SDK cancellation cleanup may exceed the nominal deadline, so these
+allowances are not hard wall-clock guarantees. See
+[Direct Execution](../specs/SPEC_DIRECT_EXECUTION.md).
 
-**Local stdio only.** Keep the runtime database with any retained local queue.
-HTTP exposes no `ark_job_*`, native task augmentation or task snapshots.
-Do not use HTTP as a shared local-job server. See [transports.md](transports.md).
+HTTP entrypoint shutdown grace is
+`max(MCP_TOOL_TIMEOUT_SECONDS, BYTEPLUS_REQUEST_TIMEOUT_MS / 1000) + 30`
+seconds. VKE Caddy uses the same allowance; pod termination grace is the
+maximum plus 60 seconds. Defaults are 630/660 seconds. Align any custom host
+supervisor with these values; no application HPA or multiple workers are safe.
 
-Before a required-task handler starts, it atomically records an execution claim
-in the same database. If that MCP task is delivered again, the handler returns
-an error without repeating provider work. This favors avoiding duplicate charges
-over automatic recovery: after an interrupted submission, reconcile its provider
-outcome before creating a new operation. Optional output-retrieval tasks can be
-retried because they do not submit paid generation work.
+### Provider task ownership and recovery
 
-The default local in-memory queue loses task results at process exit. Local
-Redis retention does not distribute SQLite or make replicas safe. Restrict
-access to retained arguments/results and protect configured snapshot keys.
+There are no MCP jobs, native tasks, snapshots or execution claims on either
+transport. Keep provider task IDs and poll rather than recreating accepted work.
+Local stdio calls have no submission replay guarantee. Never blindly resubmit.
 HTTP retains only minimal scoped state, never customer credentials.
 HTTP non-dry Seedance/OmniHuman creates use a durable SQLite submission journal
 and require `idempotency_key`; Seedance dry runs need no key/journal and stdio

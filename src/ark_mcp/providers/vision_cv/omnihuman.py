@@ -157,7 +157,7 @@ class OmniHumanService:
         task_failure_ok: bool = False,
     ) -> tuple[httpx.Response, CvEnvelope]:
         try:
-            response = await self._gateway.post(path, body)
+            response = await self._gateway.post(path, body, side_effect=mutation)
         except httpx.TransportError as exc:
             raise VisionCvGateway.normalize_transport_error(
                 operation, exc, side_effect=mutation

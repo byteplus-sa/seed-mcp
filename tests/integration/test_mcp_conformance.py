@@ -10,12 +10,10 @@ These tests exercise the FastMCP layer directly — no provider calls.
 from __future__ import annotations
 
 import json
-from datetime import timedelta
 from types import SimpleNamespace
 
 import pytest
 
-from ark_mcp.background_jobs import BACKGROUND_TOOL_SPECS
 from ark_mcp.config.env import Settings, get_settings
 from ark_mcp.server import create_server
 
@@ -86,15 +84,31 @@ def s3_only_server(
 class TestToolDiscovery:
     """Verify configured tools are discoverable when credentials are set."""
 
+    async def test_all_retained_tools_are_direct(
+        self, configured_server: None, omnihuman_server: None
+    ) -> None:
+        tools = [
+            *await configured_server.mcp.list_tools(),
+            *await omnihuman_server.mcp.list_tools(),
+        ]
+        assert len({tool.name for tool in tools}) == 15
+        for tool in tools:
+            assert tool.task_config.mode == "forbidden"
+            assert tool.to_mcp_tool().execution is None
+
+    async def test_only_four_tools_are_always_registered(self, no_creds_server: None) -> None:
+        assert {tool.name for tool in await no_creds_server.mcp.list_tools()} == {
+            "ark_list_models",
+            "seed_media_export_artifact",
+            "seed_media_get_artifact",
+            "seed_media_persist_url",
+        }
+
     async def test_all_tools_registered(self, configured_server: None) -> None:
         server = configured_server
         tools = await server.mcp.list_tools()
         tool_names = {t.name for t in tools}
         assert tool_names == {
-            "ark_job_cancel",
-            "ark_job_capabilities",
-            "ark_job_get",
-            "ark_job_submit",
             "ark_list_models",
             "seed_audio_generate",
             "seed_media_export_artifact",
@@ -105,78 +119,9 @@ class TestToolDiscovery:
             "gen_task_get",
             "gen_task_list",
             "gen_task_cancel_or_delete",
-            "seed_understand",
-            "seed_audio_understand",
             "media_upload",
             "media_presign",
         }
-
-    async def test_long_running_tools_require_background_execution(
-        self, configured_server: None
-    ) -> None:
-        server = configured_server
-        tools = await server.mcp.list_tools()
-        tools_by_name = {tool.name: tool for tool in tools}
-        required_task_names = {
-            "media_upload",
-            "seed_audio_generate",
-            "seed_understand",
-            "seed_audio_understand",
-            "seedream_generate_image",
-            "seedance_create_task",
-        }
-        assert required_task_names <= tools_by_name.keys()
-
-        for name in required_task_names:
-            tool = tools_by_name[name]
-            assert tool.task_config.mode == "required"
-            assert tool.task_config.poll_interval == timedelta(seconds=2)
-            mcp_tool = tool.to_mcp_tool()
-            assert mcp_tool.execution is not None
-            assert mcp_tool.execution.task_support == "required"
-
-    async def test_completed_media_retrieval_tools_support_optional_background_execution(
-        self, configured_server: None
-    ) -> None:
-        server = configured_server
-        tools = await server.mcp.list_tools()
-        tools_by_name = {tool.name: tool for tool in tools}
-        optional_task_names = {"gen_task_get", "seed_media_persist_url"}
-        assert optional_task_names <= tools_by_name.keys()
-
-        for name in optional_task_names:
-            tool = tools_by_name[name]
-            assert tool.task_config.mode == "optional"
-            assert tool.task_config.poll_interval == timedelta(seconds=2)
-            mcp_tool = tool.to_mcp_tool()
-            assert mcp_tool.execution is not None
-            assert mcp_tool.execution.task_support == "optional"
-
-    async def test_short_control_plane_tools_remain_foreground(
-        self, configured_server: None
-    ) -> None:
-        server = configured_server
-        tools = await server.mcp.list_tools()
-        tools_by_name = {tool.name: tool for tool in tools}
-        foreground_names = {
-            "ark_job_cancel",
-            "ark_job_capabilities",
-            "ark_job_get",
-            "ark_job_submit",
-            "ark_list_models",
-            "seed_media_export_artifact",
-            "seed_media_get_artifact",
-            "media_presign",
-            "gen_task_list",
-            "gen_task_cancel_or_delete",
-        }
-        assert foreground_names <= tools_by_name.keys()
-
-        for name in foreground_names:
-            tool = tools_by_name[name]
-            assert tool.task_config.mode == "forbidden"
-            mcp_tool = tool.to_mcp_tool()
-            assert mcp_tool.execution is None
 
     async def test_seedance_4k_is_a_resolution_not_a_tool(
         self,
@@ -185,35 +130,15 @@ class TestToolDiscovery:
         tools = await configured_server.mcp.list_tools()
         assert not {tool.name for tool in tools if "premium" in tool.name or "4k" in tool.name}
         tool = next(t for t in tools if t.name == "seedance_create_task")
-        assert tool.task_config.mode == "required"
+        assert tool.task_config.mode == "forbidden"
         assert '"4k"' in json.dumps(tool.parameters)
 
-    async def test_compatibility_registry_covers_all_task_enabled_tools(
-        self,
-        configured_server: None,
-        omnihuman_server: None,
-    ) -> None:
-        configured_tools = await configured_server.mcp.list_tools()
-        omnihuman_tools = await omnihuman_server.mcp.list_tools()
-        task_enabled_names = {
-            tool.name
-            for tool in [*configured_tools, *omnihuman_tools]
-            if tool.task_config.mode in {"required", "optional"}
-        }
-
-        assert task_enabled_names == BACKGROUND_TOOL_SPECS.keys()
-
-    async def test_background_job_tool_schemas_describe_public_fields(
+    async def test_direct_tool_schemas_describe_public_fields(
         self,
         configured_server: None,
     ) -> None:
         tools = {tool.name: tool.to_mcp_tool() for tool in await configured_server.mcp.list_tools()}
-        for tool_name in {
-            "ark_job_capabilities",
-            "ark_job_submit",
-            "ark_job_get",
-            "ark_job_cancel",
-        }:
+        for tool_name in tools:
             tool = tools[tool_name]
             assert tool.description
             assert tool.output_schema is not None
@@ -222,7 +147,7 @@ class TestToolDiscovery:
                 for property_schema in tool.output_schema["properties"].values()
             )
 
-        for tool_name in {"ark_job_submit", "ark_job_get", "ark_job_cancel"}:
+        for tool_name in tools:
             input_schema = tools[tool_name].input_schema
             input_property = input_schema["properties"]["input"]
             if reference := input_property.get("$ref"):
@@ -477,8 +402,8 @@ class TestOmniHumanDiscovery:
     async def test_task_modes(self, omnihuman_server: SimpleNamespace) -> None:
         tools = {tool.name: tool for tool in await omnihuman_server.mcp.list_tools()}
 
-        assert tools["omnihuman_create_task"].task_config.mode == "required"
-        assert tools["omnihuman_get_task"].task_config.mode == "optional"
+        assert tools["omnihuman_create_task"].task_config.mode == "forbidden"
+        assert tools["omnihuman_get_task"].task_config.mode == "forbidden"
         assert tools["omnihuman_cancel_task"].task_config.mode == "forbidden"
 
     async def test_tools_registered_when_enabled_with_key(

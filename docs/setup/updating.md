@@ -1,6 +1,6 @@
 ---
 title: Update and Roll Back
-description: Stage a reviewed Ark MCP release without overwriting credentials, active jobs or development work.
+description: Stage a reviewed Ark MCP release without overwriting credentials, active calls or development work.
 ---
 
 Updating the repository does not automatically update a client connection.
@@ -21,7 +21,7 @@ Export needed old 3D outputs with the old server before upgrading.
 Preserve my keys, client settings, projects, artifacts and runtime state.
 Stage and verify the update separately using discovery only.
 Do not read back credentials or run paid tests.
-Ask before switching the connection or restarting active jobs.
+Ask before switching the connection or restarting active calls.
 Keep the previous patched installation available for rollback.
 ```
 
@@ -34,7 +34,9 @@ No separate server-start command is needed.
 
 ## Before Updating
 
-- Check active worker jobs and provider tasks. Save provider task IDs.
+- Finish active direct calls and save provider task/request IDs. When upgrading
+  from the retired worker design, recover needed results using that old server
+  before switching; the new server has no MCP job interface.
 - Read [release notes](../releases.md) and applicable migration guidance.
 - The narrowed schema no longer serves saved 3D artifacts. Export needed 3D
   outputs with the old server before upgrading; backups alone do not promise
@@ -47,7 +49,7 @@ No separate server-start command is needed.
 ## Stage a Patched Revision
 
 Choose a reviewed revision containing the dependency security refresh and
-the supported `fastmcp[tasks]>=4.1.8,<4.2` runtime. Resolve it from the
+the supported `fastmcp>=4.1.8,<4.2` runtime. Resolve it from the
 Seed MCP fork. Do not substitute upstream Ark MCP's broader `v0.3.0`;
 historical upstream `v0.2.0` is also unpatched.
 Follow [release selection](manual-install.md#choose-an-installation); ask
@@ -63,7 +65,7 @@ Create a separate checkout of the selected patched revision and run
 state for preflight so validation does not mutate your active installation's
 database.
 
-Verify startup, tool discovery and job capabilities without paid generation.
+Verify startup and tool discovery without paid generation.
 These checks do not prove key validity or provider entitlement. New env
 variables and model gates should be reviewed before switching.
 
@@ -74,8 +76,10 @@ servers and the existing private `ARK_MCP_ENV_FILE` path. Check that no one
 edited the config concurrently.
 
 After active work is finished, reconnect the client and repeat discovery.
-Keep the old installation until verification succeeds. Default in-memory
-worker jobs do not survive restarting the server.
+Keep the old installation until verification succeeds. Direct calls have no
+MCP job recovery; provider tasks and the HTTP journal retain their own state.
+Preserve SQLite and HTTP HMAC configuration. Never blindly resubmit work after
+an interrupted response; recover saved receipts or poll known provider IDs.
 
 ## Roll Back
 

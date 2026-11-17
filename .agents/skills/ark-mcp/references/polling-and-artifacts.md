@@ -9,7 +9,7 @@ How to poll asynchronous provider tasks, what the persistence layer does with fi
 | `seedance_create_task` | `gen_task_get`, `gen_task_list` | `gen_task_cancel_or_delete` |
 | `omnihuman_create_task` | `omnihuman_get_task` | `omnihuman_cancel_task` |
 
-**A provider task ID is not an Ark `job_id`.** The create tool's background result carries the provider ID; `ark_job_get` only reports on the job that submitted it.
+The create tool's direct result carries the provider task ID. There are no MCP job IDs.
 
 ## Two-phase polling
 
@@ -19,26 +19,26 @@ persistence false. Download expiring provider URLs on the client instead.
 
 ```mermaid
 flowchart LR
-    A[create tool<br/>in background] --> B[foreground poll<br/>persist_output=false]
+    A["Direct create tool"] --> B["Direct poll: persist_output=false"]
     B -->|queued / running / processing| B
-    B -->|terminal| C[one persist run<br/>via ark_job_submit<br/>persist_output=true]
+    B -->|succeeded| C["Local direct poll: persist_output=true"]
     C --> D[seed-media:// artifacts<br/>+ optional local copy]
 ```
 
 - **Foreground poll, then one persist run.** Use `persist_output=false`
   (Seedance's default) for quick status checks. When successful outputs are
-  available, submit the same poller through `ark_job_submit` with
-  `persist_output=true` to download and store them in the worker.
-- **`persist_output=true` needs background execution** (`ark_job_submit` or native task augmentation). In a foreground call it returns an error result telling you to use `persist_output=false`.
+  available, call the same poller directly with
+  `persist_output=true` to download and store them on stdio.
+- **No task augmentation is required or supported.** Persistence uses the
+  direct call's live MCP context.
 - **`omnihuman_get_task` defaults to `persist_output=false`**, as do Seed Audio/Seedream persistence inputs globally. Local true is explicit; HTTP rejects true.
 - **Never resubmit a create tool to poll.** `queued`, `running` and `processing` are not failures, and a second create call starts a second billed task. After a local timeout, disconnect or client restart, poll the same task ID again.
 - **Persistence is cached per task and output.** Concurrent and repeated polls reuse each cached durable copy. Missing or failed generation outputs can be persisted later without copying successful siblings again.
-- Local files written by a persist run (`output_dir`, `output_path`) need `OUTPUT_ROOTS` on the server; see [background-job-output.md](background-job-output.md).
+- Local files written by a persist run (`output_dir`, `output_path`) need live MCP roots or `OUTPUT_ROOTS`; see [local-output.md](local-output.md).
 
 ```json
-{"input": {"tool_name": "gen_task_get",
-  "arguments": {"input": {"task_ids": ["<task_id>"], "persist_output": true,
-                          "output_dir": "/abs/project/renders/"}}}}
+{"input": {"task_ids": ["<task_id>"], "persist_output": true,
+           "output_dir": "/abs/project/renders/"}}
 ```
 
 ## Generation tasks: `gen_task_get`, `gen_task_list`, `gen_task_cancel_or_delete`
@@ -83,7 +83,7 @@ A mode that does not fit `expected_status` (cancel with `succeeded`, delete with
 
 - **Statuses:** `queued`, `running`, `succeeded`, `failed`, `canceled` (single l), `expired` (the provider dropped the task; resubmit), `not_found` (unknown, or older than 12 h; the provider keeps tasks 12 h).
 - **Poll about every 10 s** until `succeeded`, then use `video.uri` (a `seed-media://` artifact).
-- **The provider's `source_url` is valid for only about one hour** (`source_expires_at` is an estimate: first poll plus one hour). Download promptly on HTTP. On stdio explicitly request `persist_output=true` in a job to retain it; later local polls reuse cached artifacts. `persistence` is `not_applicable` for any non-succeeded status.
+- **The provider's `source_url` is valid for only about one hour** (`source_expires_at` is an estimate: first poll plus one hour). Download promptly on HTTP. On stdio explicitly request `persist_output=true` in a direct call to retain it; later local polls reuse cached artifacts. `persistence` is `not_applicable` for any non-succeeded status.
 - **`omnihuman_cancel_task` only cancels a `queued` task.** A started or finished task returns `canceled=false` with a `message`, not an error. Right after creation the provider may reject the ID as invalid: wait a few seconds and retry.
 
 ## Artifacts
@@ -101,7 +101,7 @@ Stdio persisted outputs are `ArtifactRef`s with a stable
 
 ### Local output paths
 
-`output_path`, `output_dir` and `save_to` write results straight to disk so the bytes never enter context. The same rules apply to all of them, plus `destination_path` on the export tool:
+`output_path`, `output_dir` write results straight to disk so the bytes never enter context. The same rules apply to all of them, plus `destination_path` on the export tool:
 
 - **stdio only.** Over HTTP they are rejected.
 - **Absolute path inside an allowed output root:** the client's MCP roots, else `OUTPUT_ROOTS`. With neither, path writing is disabled.
@@ -110,9 +110,9 @@ Stdio persisted outputs are `ArtifactRef`s with a stable
 - **`output_path` ending in `/` is a directory**, with files named
   `<artifact_id>.<ext>`. A directory is required for Seedream
   `variations > 1` or `max_images > 1`, and Seed Audio `variations > 1`.
-- **`output_dir`** is the `gen_task_get` equivalent; **`save_to`** (with `overwrite`) writes the answer of `seed_understand` and `seed_audio_understand`.
+- **`output_dir`** is the `gen_task_get` equivalent.
 - **A failed local write never fails the call.** The durable artifact is kept and the `ArtifactRef` reports `local_path` on success or `export_error` on failure. Always read these fields.
-- Inside `ark_job_submit` there are no MCP roots, so these options need `OUTPUT_ROOTS` on the server and are otherwise rejected before any provider call; see [background-job-output.md](background-job-output.md).
+- Direct calls use client MCP roots first, then `OUTPUT_ROOTS`; see [local-output.md](local-output.md).
 
 ### Persistence fallbacks: never lose a billed output
 

@@ -1,6 +1,6 @@
 # Tools Reference
 
-The local stdio server exposes a conditional set of 21 typed tools. `seed_media_get_artifact`,
+The local stdio server exposes a conditional set of 15 typed tools. `ark_list_models`, `seed_media_get_artifact`,
 `seed_media_export_artifact`, and `seed_media_persist_url` are always
 available, provider tools are registered only when their credentials
 are configured, and `media_upload` and `media_presign` are registered when
@@ -9,14 +9,14 @@ tool accepts a Pydantic input model and returns a Pydantic output model as
 structured content. All tools accept a `ctx: Context` parameter for progress
 reporting and logging.
 
-HTTP exposes 9 discovery/provider tools, or 12 with OmniHuman enabled, without
+HTTP exposes 7 discovery/provider tools, or 10 with OmniHuman enabled, without
 operator provider keys. Discovery is anonymous/static. Provider calls use the
 selected BYOK header plus `X-MCP-Client-Secret` and run directly in the foreground.
 HTTP has no jobs/native tasks/storage/artifact tools/resources. No OAuth,
 signup, server-issued key or environment-key fallback exists.
 See [HTTP setup](setup/shared-server.md) and [Security](security.md).
 
-Background/startup-key/artifact guidance below is **stdio-only**. Catalog
+Startup-key/artifact guidance below is **stdio-only**. Catalog
 scope labels are metadata, not customer-selected roles. Seed Audio/Seedream
 `persist` and OmniHuman get `persist_output` default to false globally.
 HTTP rejects true, local paths and stored artifact references. Local true is
@@ -49,46 +49,24 @@ contract is enforced for all tools:
 
 ### Long-running tool execution
 
-On stdio, long-running tools run through the ordinary `ark_job_*` tools described below
-by default, because most clients cannot negotiate MCP task augmentation; a
-client that can negotiate it may call the tools with native task metadata
-instead. In this reference, **background result** means the original tool
-result under terminal `ark_job_get.result`, or the terminal `tasks/get`
-response on the native path.
+Both transports use ordinary direct calls, with no MCP jobs, native tasks,
+snapshots or worker execution claims. Explicit task opt-in is rejected.
+The direct result is the original tool's `ToolResult`: check `is_error`
+before reading `structured_content`.
 
-The following tools require background execution. Their direct contracts
-advertise `execution.taskSupport="required"` with a two-second recommended poll
-interval:
+Use a 660-second client timeout with the default 600-second cooperative tool
+deadline. Admission waits up to 2 seconds for owner then provider slots;
+budget reservation follows admission. Settings and ranges are in
+[Direct Execution](../specs/SPEC_DIRECT_EXECUTION.md).
+SDK/SQLite cleanup may exceed the deadline. `ADMISSION_TIMEOUT` means this
+attempt did not dispatch, not the entire batch. `TOOL_DEADLINE_EXCEEDED`
+retains mutation uncertainty and known safe IDs. Never blindly resubmit.
 
-- `media_upload` (1-50 files per call)
-- `seed_audio_generate` (single clip or variations)
-- `seedream_generate_image` (generation, editing, variations, and dry runs)
-- `seedance_create_task` (every Seedance model, including variations and dry runs)
-- `omnihuman_create_task` (when `BYTEPLUS_OMNIHUMAN_ENABLED=true`)
-- `seed_understand`
-- `seed_audio_understand`
-
-A client submits these through `ark_job_submit`, receives an Ark job ID without
-holding a tool call open, and polls `ark_job_get` until it reaches a terminal
-status. A task-capable client can instead call the tool with task metadata and
-poll `tasks/get`. Either way the terminal response contains the final tool
-output, and a foreground direct call to a required target is rejected before
-any provider request is made. For Seedance and OmniHuman
-create/submit tools, the background job covers the provider submission; its
-result contains the provider task ID. **Poll Seedance tasks with
-`gen_task_get` and OmniHuman tasks with `omnihuman_get_task`; never resubmit a create
-tool to poll**, because that starts a second billed task.
-
-The following retrieval tools advertise `execution.taskSupport="optional"`:
-
-- `gen_task_get`
-- `seed_media_persist_url`
-- `omnihuman_get_task`
-
-Use foreground execution for quick status checks with persistence disabled.
-Use background execution when `persist_output=true` and a completed media file
-may need to be downloaded and copied into durable storage. Artifact reads,
-presigning, list operations, and cancel/delete operations remain foreground.
+Seedance/OmniHuman return provider task IDs from create. Poll with
+`gen_task_get`/`omnihuman_get_task`, never create again to poll.
+Provider queues remain asynchronous. Poll with `persist_output=false`, then
+call directly with `persist_output=true` on stdio to store successful outputs.
+HTTP clients download their temporary URLs.
 
 ### Writing outputs to local paths
 
@@ -101,7 +79,6 @@ straight to a local file, so a client does not need a separate
 | `seedream_generate_image` | `output_path` | Must be a directory (ending with `/`) when `variations > 1` or `max_images > 1`; extra images written to a file path get `-2`, `-3` suffixes |
 | `seed_audio_generate` | `output_path` | Must be a directory (ending with `/`) when `variations > 1` |
 | `gen_task_get` | `output_dir` | One file per artifact: every output of each succeeded task |
-| `seed_understand`, `seed_audio_understand` | `save_to` | Writes the final answer, not media |
 
 `output_path` names a file, or a directory when it ends with `/`; files written
 into a directory are named `<artifact_id>.<ext>`. Every tool that has one of
@@ -112,9 +89,8 @@ everywhere:
 - **Absolute paths inside an allowed output root.** The roots are the client's
   MCP roots (`roots/list`) when the client provides them, otherwise
   `OUTPUT_ROOTS` (comma-separated absolute directories). With neither, path
-  writing is disabled and the field is rejected. A background job
-  (`ark_job_submit`) has no MCP roots, so it always needs `OUTPUT_ROOTS`;
-  `persist_output=true` itself works without it.
+  writing is disabled and the field is rejected.
+  `persist_output=true` itself works without output roots.
 - **Validated before the provider call**, so a bad path never produces paid
   output that cannot be written.
 - **Needs a persisted artifact.** `output_path`/`output_dir` require
@@ -139,7 +115,8 @@ needs no scope.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `kind` | `"video"` \| `"image"` \| `"understanding"` | No | Filter to one kind; omit for all |
+| `kind` | `"video"` \| `"image"` | No | Filter to one kind; omit for both |
+| `check_connection` | boolean | No | Default `false`. Opt-in live HTTP header-presence and exact image/video binding check; omitted `kind` checks both |
 
 ### Output
 
@@ -151,76 +128,34 @@ needs no scope.
     resolution, audio-only input, `task_types`, `output_formats`.
   - `image`: reference maximum, output formats, batch support, sizes,
     transparent-background support.
-  - `understanding`: modalities accepted by the named `tool`, media-part maximum, thinking,
-    reasoning efforts, response formats. Both the default model for requests
-    with audio and the default for requests without audio are marked
-    `is_default`.
 - **`services`**: `modelark`, `seed_audio`, `omnihuman`, `object_storage`,
   each with `enabled` and, when disabled,
   a `reason` naming the setting to change (never a secret value).
+- **`connection`**: null by default. With `check_connection=true`, reports
+  `configuration_valid`, `modelark_key_present`, `client_secret_present`,
+  `issues` and checked `routes`. `authentication_verified` and
+  `provider_calls_made` are always false. Full
+  [connection and route fields](api-reference.md#http-connection-fields).
 - Discovery returns no account pricing. Cost previews use built-in estimates,
   not account-specific quotes.
 
 Models are listed only when their service is enabled. Regular Seedance 2.5
 and Flash share the ModelArk service; discovery does not verify account entitlement.
 
-The audio-model entry names `seed_audio_understand`, advertises only `audio`
-with an eight-clip limit, and uses the server-configured model without a
-`model` argument. This remains true when audio and visual defaults share an
-ID. Image/video requests use `seed_understand`; discovery does not imply
-that the two handlers can accept mixed audio/visual inputs.
+Default discovery stays anonymous/static and does not inspect credentials.
+For an optional HTTP configuration check, use this MCP arguments object:
 
-## Background-job tools
+```json
+{"input": {"check_connection": true}}
+```
 
-`ark_job_capabilities`, `ark_job_submit`, `ark_job_get`, and `ark_job_cancel`
-are ordinary MCP tools and the default way to run long operations, since
-task-augmented tool calls are not yet widely supported by clients.
-They do not make long operations synchronous: `ark_job_submit` validates the
-selected target, durably enqueues it on the same Docket worker used by native
-MCP tasks, and returns an Ark job ID. All four tools are always registered on
-stdio only; capabilities include local provider tools enabled by configuration.
-
-### ark_job_capabilities
-
-Takes no input. Returns a list of `targets`; each target contains `tool_name`,
-`task_mode`, `required_scope`, `description`, and the original tool's
-`input_schema`. This operation is read-only and idempotent.
-
-### ark_job_submit
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `tool_name` | string | Yes | A target returned by `ark_job_capabilities` |
-| `arguments` | object | Yes | Exact arguments object accepted by the original tool, normally `{"input": {...}}` |
-
-Returns `job_id`, `target_tool`, `status="working"`, `created_at`, `ttl_ms`, and
-`poll_after_ms`. Submission is non-idempotent. If the response is lost, do not
-blindly resubmit because the worker or provider may already have accepted the
-operation.
-
-### ark_job_get
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `job_id` | string | Yes | Ark job ID returned by `ark_job_submit` |
-
-Returns job status and timestamps. A terminal response includes the original
-MCP tool result under `result`, preserving its `content`, `structured_content`,
-`is_error`, and `meta` fields. The Ark job ID is distinct from a provider task
-ID contained inside the original result.
-
-### ark_job_cancel
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `job_id` | string | Yes | Ark job ID owned by the current principal |
-
-Returns `status="cancelled"` after cooperative local cancellation. It does not
-guarantee that provider-side work already accepted upstream was cancelled.
-Unknown and cross-principal IDs use the same unavailable response boundary. In
-local auth mode jobs are process-local: a job created by a different `ark-mcp`
-process is also unavailable, so submit and poll through the same stdio process.
-HTTP cannot serve local jobs.
+Missing headers are reported as `missing_modelark_key` / `missing_client_secret`.
+Unbound defaults have `routes[].issue="endpoint_not_configured"` and null
+ID/family; unknown IDs are not echoed. Ask the operator to verify and bind them.
+Preflight does not authenticate, check live lineage, entitlement, balance or
+reachability, and is rejected on stdio or without live HTTP context. An explicit
+create-tool `model` wins over endpoint headers; `models[].is_default` describes
+only the server default. See the [setup workflow](setup/shared-server.md#verify).
 
 ## seed_media_get_artifact
 
@@ -286,8 +221,7 @@ Only trusted BytePlus provider hosts are accepted. The URL goes through the
 same SSRF-resistant downloader, host allowlist, redirect re-validation, and
 size limits as generation-time persistence; any other URL is rejected.
 
-**Execution:** Optional background job. Large videos are safer in the
-background.
+**Execution:** Direct call where registered. Explicit persistence is stdio-only; use a 660-second client timeout. Provider video generation is polled separately.
 
 **Annotations:** `readOnlyHint=False`, `destructiveHint=False`,
 `idempotentHint=False`, `openWorldHint=True`
@@ -315,13 +249,7 @@ The three tools are registered only when `BYTEPLUS_OMNIHUMAN_ENABLED=true` and
 `BYTEPLUS_CV_API_KEY` is set (Bearer auth to the Vision AI host). They use their
 own key, separate from the ModelArk key.
 
-**Execution on stdio:** `omnihuman_create_task` is a required background job and
-`omnihuman_get_task` supports optional background execution for video
-persistence. `omnihuman_cancel_task` is a plain foreground tool.
-HTTP calls all three directly in the foreground; creation requires
-`idempotency_key`. Repeat identical arguments/key only to recover a saved
-successful receipt, not to poll. Unresolved attempts need reconciliation,
-never automatic resume or a new key to bypass uncertainty.
+**Execution:** Direct call where registered. Explicit persistence is stdio-only; use a 660-second client timeout. Provider video generation is polled separately.
 
 ### Input (`omnihuman_create_task`)
 
@@ -376,9 +304,7 @@ Tasks are retained by the provider for 12 hours. Auth scopes:
 Generate full-scene audio through Seed Speech: one clip, or up to 5
 independent variations in parallel.
 
-**Execution:** Required background job. Submit it through `ark_job_submit`
-(or native task augmentation) and read the completed generation from the
-background result.
+**Execution:** Direct call where registered. Explicit persistence is stdio-only; use a 660-second client timeout. Provider video generation is polled separately.
 
 **Annotations:** `readOnlyHint=False`, `destructiveHint=False`,
 `idempotentHint=False`, `openWorldHint=True`
@@ -444,8 +370,7 @@ edits (5.0 Pro), provider batches
 (`max_images`), and parallel variations. Registered when
 `BYTEPLUS_MODELARK_API_KEY` is set and has catalog capability label `seedream:generate`.
 
-**Execution:** Required background job. Submit it through `ark_job_submit` (or
-native task augmentation).
+**Execution:** Direct call where registered. Explicit persistence is stdio-only; use a 660-second client timeout. Provider video generation is polled separately.
 
 **Annotations:** `readOnlyHint=False`, `destructiveHint=False`,
 `idempotentHint=False`, `openWorldHint=True`
@@ -587,7 +512,7 @@ Four variations with a deterministic base seed, previewed first:
 
 ```json
 {
-  "tool_name": "seedream_generate_image",
+  "name": "seedream_generate_image",
   "arguments": {
     "input": {
       "prompt": "Minimal poster of a fox, flat colors",
@@ -609,16 +534,7 @@ Drop `dry_run` (and add `output_path` ending in `/` on stdio) to generate.
 request and its cost without billing. Registered when
 `BYTEPLUS_MODELARK_API_KEY` is set and has catalog capability label `seedance:create`.
 
-**Execution on stdio:** Required background job. Submit it through `ark_job_submit` (or
-native task augmentation); a dry run finishes on the first `ark_job_get`. Poll
-the returned task IDs with [`gen_task_get`](#gen_task_get) and **never
-resubmit the create tool to poll**. HTTP calls directly and requires
-`idempotency_key` for non-dry creates, one for the whole variation batch.
-Repeat identical arguments/key only for saved-success delivery recovery,
-not polling. Failed/partial/cancelled attempts remain unresolved with known
-IDs and no automatic resume. Never change keys to bypass uncertain acceptance.
-Seedance dry runs need no key/journal; stdio rejects supplied keys.
-See the [submission contract](../specs/SPEC_HOSTED_BYOK.md#http-submission-safety).
+**Execution:** Direct call where registered. Explicit persistence is stdio-only; use a 660-second client timeout. Provider video generation is polled separately.
 
 **Annotations:** `readOnlyHint=False`, `destructiveHint=False`,
 `idempotentHint=False`, `openWorldHint=True`
@@ -779,8 +695,8 @@ Single Seedance 2.5 task (default model):
 }
 ```
 
-Flash multimodal reference generation (the `arguments.input` of
-`ark_job_submit`, with `tool_name="seedance_create_task"`):
+Flash multimodal reference generation (the `input` payload of a direct
+`seedance_create_task` call):
 
 ```json
 {
@@ -805,11 +721,11 @@ Plain image URLs use `reference_image`, so the explicit 16:9 ratio is valid.
 Remove `dry_run` only when ready to submit a billed task. Discovery does not
 verify account activation.
 
-Three variations on an explicit model, submitted as a background job:
+Three variations on an explicit model, as a direct MCP call:
 
 ```json
 {
-  "tool_name": "seedance_create_task",
+  "name": "seedance_create_task",
   "arguments": {
     "input": {
       "model": "dreamina-seedance-2-0-260128",
@@ -819,7 +735,9 @@ Three variations on an explicit model, submitted as a background job:
         "The cat looks around curiously",
         "The cat jumps onto a stone wall"
       ],
-      "images": ["https://cdn.example.com/cat.png"],
+      "images": [
+        "https://cdn.example.com/cat.png"
+      ],
       "resolution": "720p",
       "duration": 5
     }
@@ -854,8 +772,7 @@ Persistence uses a per-task single-flight cache. Later polls fill missing or
 failed outputs without downloading cached successful outputs again. MOV
 outputs retain `video/quicktime` and `.mov` filenames on directory export.
 
-**Execution:** Optional background job; background execution is required when
-`persist_output=true`.
+**Execution:** Direct call where registered. Explicit persistence is stdio-only; use a 660-second client timeout. Provider video generation is polled separately.
 
 **Annotations:** `readOnlyHint=False`, `destructiveHint=False`,
 `idempotentHint=True`, `openWorldHint=False`
@@ -929,14 +846,17 @@ Foreground status poll of three tasks:
 ```
 
 Once `all_terminal` is `true`, keep the outputs durably (and optionally write
-them locally) through a background job:
+them locally) through a direct stdio call:
 
 ```json
 {
-  "tool_name": "gen_task_get",
+  "name": "gen_task_get",
   "arguments": {
     "input": {
-      "task_ids": ["cgt-20261017-aaaa", "cgt-20261017-bbbb"],
+      "task_ids": [
+        "cgt-20261017-aaaa",
+        "cgt-20261017-bbbb"
+      ],
       "persist_output": true,
       "output_dir": "/Users/me/Videos/seedance/"
     }
@@ -946,14 +866,13 @@ them locally) through a background job:
 
 ### Polling workflow
 
-1. Submit `seedance_create_task` through `ark_job_submit`, poll
-   `ark_job_get`, and read the provider `task_id` (or every variation's task
-   ID) from the job result.
+1. Call `seedance_create_task` directly and read the provider `task_id`
+   (or every variation's task ID) from the direct result.
 2. Call `gen_task_get` in the foreground with all the task IDs and the default
    `persist_output=false`. `queued` or `running` is not a failure; wait
    `recommended_poll_after_ms` and poll again.
-3. When `all_terminal` is `true`, call `gen_task_get` once more through
-   `ark_job_submit` with `persist_output=true` before the ~24-hour source URLs
+3. When `all_terminal` is `true`, call `gen_task_get` directly on stdio
+   with `persist_output=true` before the ~24-hour source URLs
    expire.
 
 **Never resubmit the create tool to poll**: that creates a second billed task.
@@ -1062,220 +981,9 @@ in `/`.
 
 Seedance variations are part of [`seedance_create_task`](#seedance_create_task):
 set `variations` (1-5) and optionally `variation_prompts`. Each variation is a
-separate billed provider task. The background result lists every variation in
+separate billed provider task. The direct result lists every variation in
 `tasks` (with `task_id` and/or `error`); retain all known IDs and poll them
 in one `gen_task_get` call, subject to the ownership rules above.
-
-## seed_understand
-
-Understand images and videos, or reason about a task, through the Seed 2.1
-multimodal model. Deep thinking is always on; `reasoning_effort` (default
-`medium`) sets its depth. The tool returns only the model's final answer: the
-reasoning trace is discarded and never returned, logged, or saved. The default
-model is `dola-seed-2-1-turbo-260628` (Seed 2.1 Turbo); `dola-seed-evolving` (the
-latest Seed-series Pro-tier model) is also supported as a recognized built-in
-ID — set `SEED_UNDERSTANDING_DEFAULT_MODEL=dola-seed-evolving` to opt in; its
-family auto-resolves to `pro` so no explicit `SEED_UNDERSTANDING_MODEL_FAMILY`
-is required. Other custom model IDs can be registered via
-`SEED_UNDERSTANDING_MODEL_BINDINGS`.
-
-**Execution:** Required background job. Submit through `ark_job_submit`, or
-call the tool with native task metadata on a task-capable client; its direct
-contract declares `execution.taskSupport="required"`. Both return a local job
-ID before ModelArk finishes and use
-the server-recommended two-second polling interval. Foreground direct calls are
-rejected immediately. Choose a task TTL that covers the expected analysis
-duration. The chat request timeout is `SEED_UNDERSTANDING_TIMEOUT_MS` (defaults
-to `BYTEPLUS_REQUEST_TIMEOUT_MS`).
-
-**Annotations:** `readOnlyHint=False` (because `save_to` writes local files),
-`destructiveHint=False`, `idempotentHint=False`, `openWorldHint=True`
-
-### Input
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `prompt` | string | Yes | The question or task for the model to reason about (1-32,000 chars) |
-| `images` | list[UnderstandingImageInput] | No | Images to understand (URL or Base64, max 32) |
-| `videos` | list[UnderstandingVideoInput] | No | Videos to understand (URL only, max 32) |
-| `system` | string | No | Optional system instruction (max 32,000 chars) |
-| `model` | string | No | Override the configured Seed 2.1 model ID |
-| `reasoning_effort` | "low" \| "medium" \| "high" | No | Depth of deep thinking (default: `medium`); always sent |
-| `response_format` | UnderstandingResponseFormat | No | Constrain the answer to JSON or a JSON Schema, enforced by the provider during generation |
-| `json_retry` | integer | No | Extra attempts (0-2, default 0) when a JSON answer fails to parse or validate; each is a new billed completion |
-| `save_to` | string | No | Absolute file path (stdio only, inside an output root) where the answer is written; validated before the model is called |
-| `overwrite` | boolean | No | Allow `save_to` to replace an existing file with different content (default: false) |
-| `return_content` | "full" \| "summary" \| "none" | No | How much of the answer to inline (default: `full`; `summary` is the first 2,000 characters) |
-| `temperature` | float | No | Sampling temperature (0.0-2.0) |
-| `max_tokens` | integer | No | Maximum output tokens (1-32,768), including deep-thinking tokens |
-| `top_p` | float | No | Nucleus sampling probability (0.0-1.0) |
-| `repetition_penalty` | float | No | Repetition penalty (0.0-2.0). Ark-only parameter. |
-| `thinking` | boolean | No | **Deprecated, ignored.** `thinking=false` only logs a warning; it will be removed |
-
-**UnderstandingImageInput** and **UnderstandingVideoInput** are `MediaSource`
-subclasses with the appropriate MIME validation and size limits. Video Base64
-is not supported by the chat endpoint — upload local videos via `media_upload`
-first to get an HTTPS URL.
-
-**UnderstandingResponseFormat:**
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `type` | "text" \| "json_object" \| "json_schema" | Yes | `json_object` requires any valid JSON object; `json_schema` requires JSON that satisfies `json_schema` |
-| `json_schema.name` | string | With `json_schema` | Schema name (1-64 chars: letters, digits, `_`, `-`) |
-| `json_schema.schema` | object | With `json_schema` | JSON Schema (draft 2020-12), at most 64 KB serialized; checked offline before the call. `$ref`, `$dynamicRef` and `$recursiveRef` must be fragment-only (`#...`); external schemas are never retrieved |
-| `json_schema.description` | string | No | Optional description (max 2,000 chars) |
-| `json_schema.strict` | boolean | No | Ask the provider to enforce the schema strictly (default: true) |
-
-The server also parses the answer and, for `json_schema`, validates it locally.
-When that fails and `json_retry > 0`, the prompt is re-sent with the violation
-appended. A retry is never attempted when the answer was cut off by
-`max_tokens` (`finish_reason="length"`); raise `max_tokens` instead.
-
-`save_to` writes pretty-printed JSON when the answer parsed as JSON, otherwise
-UTF-8 text. It follows the [local output path](#writing-outputs-to-local-paths)
-rules. If the write fails after the completion was billed, the call still
-succeeds, `saved_path` stays null, and the full answer is returned inline even
-when `return_content` was `summary` or `none`.
-
-### Output
-
-Returns `SeedUnderstandOutput`:
-
-| Field | Description |
-|---|---|
-| `model`, `completion_id`, `request_id` | Model used and provider IDs for tracing |
-| `choices` | Completion choices; see below |
-| `usage` | `prompt_tokens`, `completion_tokens` (including reasoning), `total_tokens`, and `reasoning_tokens` when the provider reports it — summed over all attempts |
-| `attempts` | Completions requested: 1 plus any `json_retry` attempts used |
-| `saved_path`, `saved_bytes` | Where `save_to` wrote the answer and its size, when set |
-
-Each choice has `content` (the final answer, truncated for `summary`, empty for
-`none`), `content_chars` (full answer length), `content_truncated`, `parsed`
-(the answer as JSON when a JSON `response_format` parsed and validated —
-returned even with `summary` or `none`), `schema_violation` (`path`, `message`,
-`finish_reason`, when the JSON did not parse or validate), and
-`finish_reason`. There is no `reasoning_content` field.
-
-Chat timeouts after possible dispatch are `TIMEOUT` with `retryable=false`
-and `ambiguous_completion=true`: completion may already be billed. Lost
-responses, read/write/protocol failures and malformed provider 2xx responses
-are likewise ambiguous/nonretryable. Reconcile by request ID when available;
-never blindly repeat the completion.
-
-Eligible 429 rejections and pre-dispatch connection failures can be retried.
-Chat/mutation 5xx responses are ambiguous, so they are never automatically
-retried even when marked `retryable=true`. Understanding disables all
-`TIMEOUT` retries, including connect/pool timeouts. Explicit `json_retry`
-handles a received answer's JSON validation, not a malformed provider response.
-
-### Example
-
-```json
-{
-  "prompt": "Describe what happens in this video and identify the objects in this image.",
-  "videos": [{"kind": "url", "url": "https://.../sample.mp4", "mime_type": "video/mp4"}],
-  "images": [{"kind": "url", "url": "https://.../frame.png", "mime_type": "image/png"}],
-  "reasoning_effort": "medium",
-  "max_tokens": 4096
-}
-```
-
-Structured review written straight to disk:
-
-```json
-{
-  "prompt": "Review this ad against the template and return the beats.",
-  "videos": [{"kind": "url", "url": "https://.../ad.mp4", "mime_type": "video/mp4"}],
-  "response_format": {
-    "type": "json_schema",
-    "json_schema": {
-      "name": "ad_review",
-      "schema": {
-        "type": "object",
-        "properties": {"beats": {"type": "array", "items": {"type": "string"}}},
-        "required": ["beats"]
-      }
-    }
-  },
-  "json_retry": 1,
-  "save_to": "/Users/me/project/reviews/ad.json",
-  "return_content": "none"
-}
-```
-
-## seed_audio_understand
-
-Understand, transcribe, translate, or reason about audio clips (speech, music,
-or sound) through a ModelArk chat model that accepts audio input. Typical uses:
-transcription, speech translation, speaker or emotion analysis, summaries,
-meeting minutes, and questions about what is heard. This is model-generated
-transcription, not dedicated alignment; verify timing-sensitive output.
-
-The model is configured by `SEED_AUDIO_UNDERSTANDING_MODEL` (default
-`seed-2-0-lite-260428`); it is not a per-call argument. Any ModelArk model that
-accepts Chat Completions `input_audio` parts with deep thinking can be swapped in
-without a code change. Deep thinking is always on and only the final answer is
-returned, exactly as with `seed_understand`.
-
-**Execution:** Required background job, same as `seed_understand`: submit through
-`ark_job_submit` (or native task metadata) and poll. Scope `understanding:read`;
-timeout `SEED_UNDERSTANDING_TIMEOUT_MS`.
-
-**Annotations:** `readOnlyHint=False` (because `save_to` writes local files),
-`destructiveHint=False`, `idempotentHint=False`, `openWorldHint=True`
-
-### Input
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `prompt` | string | Yes | The question or task about the audio (1-32,000 chars) |
-| `audios` | list[UnderstandingAudioInput] | Yes | Audio clips (1-8), sent to the model in order |
-| `delivery` | `"auto"` \| `"direct"` \| `"files_api"` | No | Default `auto`: retry rejected URL audio through Files API; `direct`: return rejections; `files_api`: upload URLs first |
-| `system`, `reasoning_effort`, `response_format`, `json_retry`, `save_to`, `overwrite`, `return_content`, `temperature`, `max_tokens`, `top_p`, `repetition_penalty` | — | No | Same as [`seed_understand`](#seed_understand) |
-
-**UnderstandingAudioInput** is a `MediaSource` (`kind`, `url`, `data`,
-`mime_type`):
-
-- `kind="url"` — an HTTPS URL; the provider fetches and decodes it. For local
-  files, upload with `media_upload` first.
-- `kind="base64"` — raw Base64 (no `data:` prefix), at most 10 MB decoded.
-  `mime_type` is required: `audio/wav`, `audio/mpeg`, `audio/flac`,
-  `audio/aac`, or `audio/mp4` (m4a), plus their `x-` aliases. The provider
-  rejects Base64 Ogg/Opus and raw PCM; pass those as URLs.
-
-The default model's direct URL limit is 25 MiB. Files API uploads support up to
-512 MB per file, including video containers whose soundtrack is analyzed along
-with sparsely sampled frames (0.2 fps). Those frames also consume input tokens.
-In `auto` mode, a 400 rejection mentioning audio triggers at most one Files API
-retry; unrelated errors are returned. Base64 stays inline in every mode.
-Uploads are processed sequentially, awaited until active, and deleted after
-success, failure, or cancellation. Best-effort deletion can fail; uploads then
-expire after roughly one day. An ambiguous upload timeout is not retried.
-Malformed upload success responses also return non-retryable
-`INVALID_RESPONSE` with `ambiguous_completion=true`. A recoverable, safe file ID
-is deleted best-effort; without one, expiry is the only cleanup fallback.
-
-With `seed-2-0-lite-260428`, `json_schema` is enforced by the provider but
-`json_object` is not, so use `json_schema` (or `json_retry`) when you need JSON.
-
-### Output
-
-Returns `SeedAudioUnderstandOutput`: the `SeedUnderstandOutput` fields plus
-`audio_delivery` (one route per input: `url`, `base64`, `files_api_audio`, or
-`files_api_video`) and `delivery_fallback_reason` (the rejection that triggered
-fallback, otherwise null). `model` is the configured audio model.
-
-### Example
-
-```json
-{
-  "prompt": "Summarize this call and list action items with owners.",
-  "audios": [{"kind": "url", "url": "https://.../call.m4a"}],
-  "reasoning_effort": "medium",
-  "save_to": "/Users/me/project/notes/call-summary.md"
-}
-```
 
 ## media_upload
 
@@ -1283,8 +991,7 @@ Upload 1-50 image, audio, or video files to object storage (TOS or S3) and
 receive a presigned HTTPS URL for each. Registered with object storage and
 has catalog capability label `media:upload`.
 
-**Execution:** Required background job (use `ark_job_submit`), because one
-item can hold up to 200 MiB of video.
+**Execution:** Direct call where registered. Explicit persistence is stdio-only; use a 660-second client timeout. Provider video generation is polled separately.
 
 **Annotations:** `readOnlyHint=False`, `destructiveHint=False`,
 `idempotentHint=False`, `openWorldHint=True`
@@ -1332,12 +1039,19 @@ without failing the call, so always check `failed` and `items[].error`.
 
 ```json
 {
-  "tool_name": "media_upload",
+  "name": "media_upload",
   "arguments": {
     "input": {
       "items": [
-        {"media_type": "video", "file_path": "/Users/me/clips/reference.mp4"},
-        {"media_type": "image", "mime_type": "image/png", "data": "<base64>"}
+        {
+          "media_type": "video",
+          "file_path": "/Users/me/clips/reference.mp4"
+        },
+        {
+          "media_type": "image",
+          "mime_type": "image/png",
+          "data": "<base64>"
+        }
       ],
       "expires_in_seconds": 3600
     }

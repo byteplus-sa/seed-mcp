@@ -24,6 +24,7 @@ from ark_mcp.runtime import get_principal, get_runtime
 from ark_mcp.security.auth_context import PrincipalContext
 from ark_mcp.security.credentials import provider_api_key
 from ark_mcp.security.media_policy import get_media_limits
+from ark_mcp.tools._context import context_log
 from ark_mcp.tools._errors import provider_error_result
 from ark_mcp.tools._http_policy import validate_http_options
 from ark_mcp.tools._local_export import (
@@ -35,7 +36,6 @@ from ark_mcp.tools._local_export import (
     needs_persist_output as _needs_persist_output,
 )
 from ark_mcp.tools._omnihuman_shared import OUTPUT_HOST_SUFFIXES
-from ark_mcp.tools._task_execution import context_log, persistence_requires_task
 
 Persistence = Literal["not_applicable", "not_requested", "persisted", "failed"]
 
@@ -47,8 +47,8 @@ class OmniHumanGetTaskInput(BaseModel):
     persist_output: bool = Field(
         default=False,
         description=(
-            "Copy a completed video into artifact storage. Stdio background execution only "
-            "(ark_job_submit); must be false over HTTP. Defaults to URL-only polling."
+            "Copy a completed video into artifact storage on a direct stdio call. "
+            "Must be false over HTTP. Defaults to URL-only polling."
         ),
     )
     output_path: str | None = output_path_field("the generated video")
@@ -201,14 +201,11 @@ async def omnihuman_get_task(
 
     Keep polling while status is queued or running. With persist_output=true the
     finished video is copied to a durable artifact on the first successful poll
-    (stdio background execution, ark_job_submit); later polls return the cached artifact.
+    (direct stdio call); later polls return the cached artifact.
     HTTP runs in the foreground and requires persist_output=false.
     """
     validate_http_options(ctx, persist=input.persist_output, persist_field="persist_output")
     provider_api_key(ctx, "vision-cv")
-    task_error = persistence_requires_task(ctx, input.persist_output)
-    if task_error is not None:
-        return task_error
     runtime = get_runtime(ctx)
     owner = get_principal(ctx)
     await runtime.ownership_store.require_owner("vision-cv", input.task_id, owner)

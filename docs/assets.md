@@ -14,7 +14,7 @@ Never invent an asset ID or assume an ID proves consent or ownership.
 | Tool | Asset reference behavior |
 |---|---|
 | `seedance_create_task` | Passes native references in `images`, `videos` and `audios` to ModelArk |
-| Seedream, Seed Audio, understanding and OmniHuman | Native provider asset references are not supported; use their documented HTTPS/Base64/artifact input forms |
+| Seedream, Seed Audio and OmniHuman | Native provider asset references are not supported; use their documented HTTPS/Base64/artifact input forms |
 
 The server validates the reference syntax and the selected model's request
 limits. **It does not look up asset status, authorization, project membership
@@ -30,11 +30,11 @@ See [model limits](models.md) and the
 
 1. Obtain an authorized, usable ID from the provider workflow.
 2. Discover the configured Seedance model and check its limits.
-3. Call directly on HTTP or through `ark_job_submit` on stdio, referring to inputs by
+3. Call directly on either transport, referring to inputs by
    position, such as "Image 1" or "Video 1", not by asset ID.
 4. Keep the provider task IDs and, on stdio, the Ark job ID.
 5. Poll `gen_task_get` with `persist_output=false`, then persist completed
-   output through a local background job or download the HTTP result URL.
+   output through a direct local poll or download the HTTP result URL.
    Never resubmit generation to poll.
 
 This exact MCP job envelope is a non-billable local request preview:
@@ -70,4 +70,4 @@ or return an `asset://` ID. Use `media_presign` to renew those ordinary URLs.
 HTTP uses the request's `X-ModelArk-Api-Key` and required `X-MCP-Client-Secret`,
 including dry runs. Discovery is anonymous/static; HTTP has no storage/artifacts
 or resources and keeps persistence false. It never falls back to operator keys.
-See [security](security.md) and [background execution](integration-guide.md).
+See [security](security.md) and [direct execution](integration-guide.md).

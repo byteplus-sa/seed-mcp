@@ -185,7 +185,7 @@ async def test_cancellation_after_dispatch_commits_reservation(ledger_ctx: Any) 
     assert ledger.events == ["reserve", "commit"]
 
 
-async def test_cancellation_while_waiting_for_slot_releases_reservation(
+async def test_cancellation_while_waiting_for_slot_does_not_reserve_budget(
     ledger_ctx: Any,
 ) -> None:
     ctx, ledger = ledger_ctx
@@ -201,12 +201,13 @@ async def test_cancellation_while_waiting_for_slot_releases_reservation(
 
     task = asyncio.create_task(call())
     await asyncio.sleep(0.05)
+    assert ledger.events == []
     task.cancel()
     with pytest.raises(asyncio.CancelledError):
         await task
     for _ in held:
         semaphore.release()
-    assert ledger.events == ["reserve", "release"]
+    assert ledger.events == []
 
 
 # --- 1.2 variation batch -------------------------------------------------------

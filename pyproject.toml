@@ -11,10 +11,9 @@ requires-python = ">=3.12"
 dependencies = [
     "boto3>=1.43,<2.0",
     "cachetools>=7.1.4,<8",
-    "cryptography>=50.0.2",
-    "fastmcp[tasks]>=4.1.8,<4.2",
+    "fastmcp>=4.1.8,<4.2",
+    "filelock>=4.2.10,<5",
     "httpx>=0.28.1,<1.0",
-    "jsonschema>=4.26.0",
     "pillow>=13.0.0,<14",
     "prometheus-client>=0.25.0,<1.0",
     "pydantic>=2.13.4,<3.0",
@@ -31,7 +30,9 @@ build-backend = "uv_build"
 [dependency-groups]
 dev = [
     "bandit>=1.9.4",
+    "cryptography>=50.0.2",
     "detect-secrets>=1.5.0",
+    "jsonschema>=4.26.0",
     "mypy>=2.3.0",
     "pip-audit>=2.10.0",
     "pre-commit>=4.4.0",

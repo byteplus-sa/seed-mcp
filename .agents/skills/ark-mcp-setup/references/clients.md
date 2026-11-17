@@ -66,6 +66,7 @@ For project scope, merge this entry into the trusted project's
 [mcp_servers.ark-seed]
 command = "/absolute/path/to/uv"
 args = ["--directory", "/absolute/path/to/checkout", "run", "--locked", "--no-sync", "python", "-m", "ark_mcp"]
+tool_timeout_sec = 660
 
 [mcp_servers.ark-seed.env]
 ARK_MCP_ENV_FILE = "/absolute/path/to/private/.env"
@@ -138,21 +139,35 @@ launcher. No checkout or operator HMAC key is needed on the client.
 Read `credentials.md` for private generation/entry; never insert real values
 in commands, chat or shared configuration.
 
-Codex uses environment-backed headers. Replace the angle-bracket placeholders
-with private environment variable names, never secret values:
+An optional helper in a reviewed checkout prints the templates below:
+
+```bash
+python scripts/configure_http_client.py --client codex --url https://mcp.example.com/mcp --name ark-seed
+python scripts/configure_http_client.py --client claude-code --url https://mcp.example.com/mcp --name ark-seed
+```
+
+The generator is pure stdout: no file reads/writes, environment secret-value
+reads, network requests or client commands. It does not register the server.
+Use `--help` for options; only variable names belong in `*-env` flags.
+Without `--name`, the default is `seed-mcp`; these templates preserve
+`ark-seed` to match local setup. Require a trusted HTTPS URL, with no userinfo,
+query, fragment, whitespace, controls or backslashes.
+`--allow-loopback-http` permits HTTP only on literal localhost/127.0.0.1/::1
+for isolated tests, not remote plaintext or disabled TLS verification.
+
+Codex uses `env_http_headers`, not `bearer_token_env_var`:
 
 ```toml
-[mcp_servers.ark-seed]
+[mcp_servers."ark-seed"]
 url = "https://mcp.example.com/mcp"
 tool_timeout_sec = 660
 
-[mcp_servers.ark-seed.env_http_headers]
-X-ModelArk-Api-Key = "<MODELARK_KEY_ENV_VAR>"
-X-MCP-Client-Secret = "<CLIENT_SECRET_ENV_VAR>"
+[mcp_servers."ark-seed".env_http_headers]
+"X-ModelArk-Api-Key" = "SEED_MCP_MODELARK_KEY"
+"X-MCP-Client-Secret" = "SEED_MCP_CLIENT_SECRET" # pragma: allowlist secret
 ```
 
-Claude Code supports a remote header entry; verify private environment
-expansion in the installed release:
+Claude Code uses `${VAR}` references and a timeout in milliseconds:
 
 ```json
 {
@@ -160,6 +175,7 @@ expansion in the installed release:
     "ark-seed": {
       "type": "http",
       "url": "https://mcp.example.com/mcp",
+      "timeout": 660000,
       "headers": {
         "X-ModelArk-Api-Key": "${SEED_MCP_MODELARK_KEY}",
         "X-MCP-Client-Secret": "${SEED_MCP_CLIENT_SECRET}"
@@ -172,14 +188,37 @@ expansion in the installed release:
 These are placeholder-only templates, not live client certification. Only the
 selected provider key is required. Use `X-Seed-Speech-Api-Key` or
 `X-OmniHuman-Api-Key` with separate private variables as needed.
+Repeated `--provider` selects `modelark`, `seed-speech` or `vision-cv`; default
+is `modelark`. Defaults are `SEED_MCP_MODELARK_KEY`,
+`SEED_MCP_SEED_SPEECH_KEY`, `SEED_MCP_OMNIHUMAN_KEY` and
+`SEED_MCP_CLIENT_SECRET`. `--modelark-key-env`, `--seed-speech-key-env`,
+`--omnihuman-key-env` and `--client-secret-env` override names only.
+Names must match `[A-Za-z_][A-Za-z0-9_]{0,127}` and be distinct across selected
+headers. Supply independent values privately in the actual client process
+environment; the generator never reads or validates them.
+`--tool-timeout-seconds` accepts 1-3600, default 660: Codex `tool_timeout_sec`
+is seconds, Claude `timeout` is milliseconds. Proxy/provider timeouts are separate.
 `X-MCP-Client-Secret` is required for provider calls including dry runs:
 client-generated 32 random bytes as 64 lowercase hex.
 Do not configure `Authorization`, OAuth, signup or server-issued keys.
 
 Endpoint headers `X-ModelArk-Seedance-Endpoint` and
 `X-ModelArk-Seedream-Endpoint` accept only exact registered defaults; explicit
-tool `model` wins. Arbitrary opaque endpoint lineage is not inferred.
-HTTP discovery is anonymous/static; 9 tools, or 12 with OmniHuman enabled.
+create-tool `model` wins. Add `--seedance-endpoint-env SEED_MCP_SEEDANCE_ENDPOINT`
+and/or `--seedream-endpoint-env SEED_MCP_SEEDREAM_ENDPOINT` only when needed;
+both require selected provider `modelark` and take variable names, not IDs.
+Unknown endpoints are not echoed; the operator must verify model/version
+and bind them. GetEndpoint is AK/SK-only, not Bearer-authenticated; this server
+takes no AK/SK custody or arbitrary BYOE self-service.
+
+Default HTTP discovery is anonymous/static with `connection=null`;
+7 tools, or 10 with OmniHuman enabled. Optional
+`{"input":{"check_connection":true}}` checks only image/video header presence
+and exact defaults, not authentication, live lineage or entitlement.
+Omit `kind` for both or select `"image"` / `"video"`; stdio
+checks are rejected. Inspect missing-header issues and per-route
+`endpoint_not_configured`; `authentication_verified` and `provider_calls_made`
+are always false. `models[].is_default` still describes the server default.
 No jobs/native tasks/storage/artifact tools/resources exist. Call provider tools
 in the foreground with persistence false and sufficient client timeouts.
 Non-dry Seedance/OmniHuman tool inputs require `idempotency_key` (16-128 ASCII
@@ -189,6 +228,13 @@ Repeat identical arguments/key only for saved-success delivery recovery,
 not polling. Unresolved attempts need reconciliation, never a new key to
 bypass uncertainty. Seedance dry runs need no key/journal; local stdio rejects
 supplied keys. These templates remain discovery-first, not paid setup tests.
+
+Actual model-driven Codex/Claude calls and paid provider validation remain
+pending. Isolated `codex mcp get --json` / `claude mcp get` inspections establish
+parsing only, and mocked-network smoke is not upstream access evidence.
+Do not approve a Claude project entry or edit real user settings just to
+validate templates. Durable contract:
+`specs/SPEC_HOSTED_BYOK.md#client-snippet-generator` in the selected checkout.
 
 Other clients need verified secure custom-header support. Do not assume
 Desktop uses the same remote connector shape as Claude Code. Mark unsupported

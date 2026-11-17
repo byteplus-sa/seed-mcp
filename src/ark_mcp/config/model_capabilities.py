@@ -13,7 +13,7 @@ each logical family via environment variables.
 from __future__ import annotations
 
 import re
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 from difflib import get_close_matches
 from enum import StrEnum
 from types import MappingProxyType
@@ -25,7 +25,6 @@ if TYPE_CHECKING:
 from ark_mcp.config.env import (
     SeedanceFamily,
     SeedreamFamily,
-    SeedUnderstandingFamily,
     get_settings,
     has_request_settings,
 )
@@ -43,9 +42,6 @@ class ModelFamily(StrEnum):
     SEEDANCE_2_MINI = "seedance_2_mini"
     SEEDANCE_2_5 = "seedance_2_5"
     SEEDANCE_2_5_FLASH = "seedance_2_5_flash"
-    SEED_2_1_PRO = "seed_2_1_pro"
-    SEED_2_1_TURBO = "seed_2_1_turbo"
-    SEED_AUDIO_UNDERSTANDING = "seed_audio_understanding"
 
 
 SEEDANCE_RATIOS: tuple[str, ...] = ("16:9", "4:3", "1:1", "3:4", "9:16", "21:9", "adaptive")
@@ -148,24 +144,6 @@ class VideoCapabilities:
     supported_task_types: tuple[str, ...] = ()
     supported_output_formats: tuple[str, ...] = ()
     supported_ratios: tuple[str, ...] = SEEDANCE_RATIOS
-
-
-@dataclass(frozen=True)
-class UnderstandingCapabilities:
-    """Capabilities for multimodal understanding models (Seed 2.1)."""
-
-    family: ModelFamily
-    model_id: str
-    context_window_tokens: int = 256_000
-    supports_image: bool = True
-    supports_video: bool = True
-    supports_audio: bool = False
-    supports_thinking: bool = True
-    max_media_parts: int = 32
-    reasoning_efforts: tuple[str, ...] = ("low", "medium", "high")
-    # Confirmed 2026-09-22: every Seed 2.1 binding enforces json_schema while
-    # deep thinking is enabled, so schemas are always enforced provider-side.
-    response_formats: tuple[str, ...] = ("text", "json_object", "json_schema")
 
 
 def _seedream_capabilities() -> dict[str, ImageCapabilities]:
@@ -289,42 +267,12 @@ def _seedance_capabilities() -> dict[str, VideoCapabilities]:
     return capabilities
 
 
-def _seed_understanding_capabilities() -> dict[str, UnderstandingCapabilities]:
-    """Build the Seed 2.1 understanding capability registry from configured model IDs."""
-    settings = get_settings()
-    capabilities: dict[str, UnderstandingCapabilities] = {}
-    for binding in settings.seed_understanding_model_bindings:
-        if binding.family is SeedUnderstandingFamily.PRO:
-            family = ModelFamily.SEED_2_1_PRO
-        else:
-            family = ModelFamily.SEED_2_1_TURBO
-        capabilities[binding.model_id] = UnderstandingCapabilities(
-            family=family,
-            model_id=binding.model_id,
-        )
-    audio_model = settings.seed_audio_understanding_model
-    existing = capabilities.get(audio_model)
-    if existing is not None:
-        capabilities[audio_model] = replace(existing, supports_audio=True)
-    else:
-        capabilities[audio_model] = UnderstandingCapabilities(
-            family=ModelFamily.SEED_AUDIO_UNDERSTANDING,
-            model_id=audio_model,
-            supports_audio=True,
-            max_media_parts=8,
-        )
-    return capabilities
-
-
 class CapabilityRegistry:
     """Registry of model capabilities, keyed by configured model ID."""
 
     def __init__(self) -> None:
         self._image_caps: dict[str, ImageCapabilities] = _seedream_capabilities()
         self._video_caps: dict[str, VideoCapabilities] = _seedance_capabilities()
-        self._understanding_caps: dict[str, UnderstandingCapabilities] = (
-            _seed_understanding_capabilities()
-        )
 
     def get_image_capabilities(self, model_id: str | None = None) -> ImageCapabilities:
         """Return image capabilities for the given model or the default."""
@@ -356,23 +304,6 @@ class CapabilityRegistry:
         """Return all configured video model IDs."""
         return list(self._video_caps.keys())
 
-    def get_understanding_capabilities(
-        self, model_id: str | None = None
-    ) -> UnderstandingCapabilities:
-        """Return understanding capabilities for the given model or the default."""
-        if model_id is None:
-            return self._understanding_caps[get_settings().seed_understanding_default_model]
-        if model_id not in self._understanding_caps:
-            raise ValueError(
-                f"Model '{model_id}' is not in the configured understanding capability "
-                f"registry. Allowed: {list(self._understanding_caps.keys())}"
-            )
-        return self._understanding_caps[model_id]
-
-    def list_understanding_models(self) -> list[str]:
-        """Return all configured understanding model IDs."""
-        return list(self._understanding_caps.keys())
-
     def resolve_video_model(self, requested: str | None) -> VideoCapabilities:
         """Return capabilities for an exact configured video model ID, or the default."""
         default = get_settings().seedance_default_model
@@ -383,22 +314,6 @@ class CapabilityRegistry:
         default = get_settings().seedream_default_model
         return _resolve_exact(self._image_caps, requested, default, kind="image")
 
-    def resolve_understanding_model(
-        self, requested: str | None, *, has_audio: bool
-    ) -> UnderstandingCapabilities:
-        """Return understanding capabilities, routing an omitted model by input modality.
-
-        Requests with audio default to the audio-understanding binding; all
-        other requests default to the Seed 2.1 default model.
-        """
-        settings = get_settings()
-        default = (
-            settings.seed_audio_understanding_model
-            if has_audio
-            else settings.seed_understanding_default_model
-        )
-        return _resolve_exact(self._understanding_caps, requested, default, kind="understanding")
-
     def resolve_task_model(self, model_id: str) -> VideoCapabilities | None:
         """Return the binding for a model that runs ModelArk async tasks, if configured."""
         return self._video_caps.get(model_id)
@@ -408,13 +323,11 @@ class CapabilityRegistry:
     ) -> tuple[
         Mapping[str, ImageCapabilities],
         Mapping[str, VideoCapabilities],
-        Mapping[str, UnderstandingCapabilities],
     ]:
         """Return read-only views of every configured binding, by kind."""
         return (
             MappingProxyType(self._image_caps),
             MappingProxyType(self._video_caps),
-            MappingProxyType(self._understanding_caps),
         )
 
     def validate_image_size(self, model_id: str | None, size: str | None) -> str | None:
@@ -472,6 +385,13 @@ def _resolve_exact[CapsT](
     caps = capabilities.get(model_id)
     if caps is not None:
         return caps
+    if requested is not None and requested.startswith("ep-") and kind in ("image", "video"):
+        raise ValueError(
+            "ENDPOINT_NOT_CONFIGURED: The selected endpoint is not configured for this tool. "
+            "Use an exact model ID from ark_list_models or ask the operator to verify and "
+            "bind this endpoint. GetEndpoint metadata verification requires Access Key "
+            "authentication; a ModelArk API key alone cannot perform that lookup."
+        )
     configured = list(capabilities)
     suggestion = _closest_model_id(model_id, configured)
     hint = f" Did you mean '{suggestion}'?" if suggestion else ""

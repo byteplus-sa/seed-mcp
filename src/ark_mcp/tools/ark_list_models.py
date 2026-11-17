@@ -10,19 +10,21 @@ from pydantic import BaseModel, Field
 from ark_mcp.config.env import Settings, get_settings, settings_scope
 from ark_mcp.config.model_capabilities import (
     ImageCapabilities,
-    UnderstandingCapabilities,
     VideoCapabilities,
     get_capability_registry,
 )
-from ark_mcp.tools.seed_audio_understand import MAX_AUDIO_INPUTS
+from ark_mcp.security.credentials import (
+    endpoint_default,
+    has_client_secret,
+    has_provider_credential,
+)
 
-ModelKind = Literal["video", "image", "understanding"]
-UnderstandingModality = Literal["image", "video", "audio"]
+ModelKind = Literal["video", "image"]
+EndpointTool = Literal["seedance_create_task", "seedream_generate_image"]
+ConnectionIssueCode = Literal["missing_modelark_key", "missing_client_secret"]
 
 VIDEO_TOOL = "seedance_create_task"
 IMAGE_TOOL = "seedream_generate_image"
-UNDERSTANDING_TOOL = "seed_understand"
-AUDIO_UNDERSTANDING_TOOL = "seed_audio_understand"
 
 
 class ArkListModelsInput(BaseModel):
@@ -30,7 +32,15 @@ class ArkListModelsInput(BaseModel):
 
     kind: ModelKind | None = Field(
         None,
-        description="Filter to video, image, or understanding. Omit to list every configured kind.",
+        description="Filter to video or image. Omit to list both configured kinds.",
+    )
+    check_connection: bool = Field(
+        False,
+        description=(
+            "HTTP-only configuration check: ModelArk key/client-secret presence and exact "
+            "endpoint bindings; no provider calls or authentication proof. Image/video kind "
+            "checks that route; omitted kind checks both."
+        ),
     )
 
 
@@ -101,18 +111,6 @@ class ImageModelLimits(BaseModel):
     )
 
 
-class UnderstandingModelLimits(BaseModel):
-    """Per-model limits for a multimodal understanding model."""
-
-    modalities: list[UnderstandingModality] = Field(
-        ..., description="Input media modalities accepted by the named tool for this model."
-    )
-    max_media_parts: int = Field(..., description="Maximum media inputs per request.")
-    supports_thinking: bool = Field(..., description="Whether deep thinking is available.")
-    reasoning_efforts: list[str] = Field(..., description="Accepted reasoning_effort values.")
-    response_formats: list[str] = Field(..., description="Accepted response_format types.")
-
-
 class ModelInfo(BaseModel):
     """One configured model binding."""
 
@@ -123,20 +121,11 @@ class ModelInfo(BaseModel):
     kind: ModelKind = Field(..., description="Model kind.")
     is_default: bool = Field(
         ...,
-        description=(
-            "Whether this model is used when `model` is omitted. For understanding models, "
-            "the default for requests with audio and the default for requests without audio "
-            "are both marked."
-        ),
+        description=("Server default, independent of HTTP endpoint-header overrides."),
     )
-    tool: str = Field(
-        ..., description="Tool serving this model; understanding limits describe this route."
-    )
+    tool: str = Field(..., description="Tool serving this configured model.")
     video: VideoModelLimits | None = Field(None, description="Limits for video models.")
     image: ImageModelLimits | None = Field(None, description="Limits for image models.")
-    understanding: UnderstandingModelLimits | None = Field(
-        None, description="Limits for understanding models."
-    )
 
 
 class ServiceStatus(BaseModel):
@@ -150,11 +139,66 @@ class ServiceStatus(BaseModel):
     )
 
 
+class EndpointSelectionCheck(BaseModel):
+    """An exact configured image/video route, never an inference about an unknown endpoint."""
+
+    tool: EndpointTool = Field(description="Image or video create tool checked.")
+    source: Literal["request_header", "server_default"] = Field(
+        description="Whether the default selection came from its endpoint header or server settings."
+    )
+    configured: bool = Field(description="Whether this exact ID is bound to the selected product.")
+    model_id: str | None = Field(
+        None,
+        description="Configured model/endpoint ID; null for unknown selections, which are not echoed.",
+    )
+    family: str | None = Field(
+        None, description="Operator-configured model family; null for unknown selections."
+    )
+    issue: Literal["endpoint_not_configured"] | None = Field(
+        None, description="endpoint_not_configured when operator verification/binding is needed."
+    )
+
+
+class HttpConnectionCheck(BaseModel):
+    """Local HTTP configuration diagnostics, not provider authentication or live lineage."""
+
+    configuration_valid: bool = Field(
+        description="True only when both required headers are present and all checked routes are configured."
+    )
+    modelark_key_present: bool = Field(
+        description="Whether the live request includes a ModelArk key header."
+    )
+    client_secret_present: bool = Field(
+        description="Whether the live request includes the independent client secret."
+    )
+    authentication_verified: Literal[False] = Field(
+        False,
+        description="Always false: provider authentication, entitlement and balance are not tested.",
+    )
+    provider_calls_made: Literal[False] = Field(
+        False,
+        description="Always false: this check performs no provider or endpoint metadata requests.",
+    )
+    issues: list[ConnectionIssueCode] = Field(
+        description="Missing required headers: missing_modelark_key and/or missing_client_secret."
+    )
+    routes: list[EndpointSelectionCheck] = Field(
+        description="Endpoint header or server-default checks for the requested image/video kinds."
+    )
+
+
 class ArkListModelsOutput(BaseModel):
     """Output model for ``ark_list_models``."""
 
     models: list[ModelInfo] = Field(..., description="Configured models matching the filter.")
     services: list[ServiceStatus] = Field(..., description="Enablement of each optional service.")
+    connection: HttpConnectionCheck | None = Field(
+        None,
+        description=(
+            "Opt-in HTTP configuration-only preflight. Null unless check_connection=true; "
+            "never verifies upstream credentials, live endpoint lineage or permission."
+        ),
+    )
 
 
 TOOL_ANNOTATIONS = {
@@ -166,17 +210,65 @@ TOOL_ANNOTATIONS = {
 
 
 async def ark_list_models(input: ArkListModelsInput, ctx: Context) -> ArkListModelsOutput:
-    """List configured models and limits. Makes no provider calls.
+    """List configured models, limits and service enablement without provider calls.
 
-    Call before generation or understanding tools: their `model` argument accepts only the
-    exact `model_id` values listed, and the server validates requests against these limits.
-    `services` shows which optional services are enabled and the setting that enables a
-    disabled one.
+    Use exact model_id values for generation. HTTP check_connection=true checks header
+    presence and configured image/video endpoint defaults, not upstream authorization or
+    live lineage. Unknown endpoints need verified operator bindings. Explicit create-tool
+    model arguments override endpoint headers. Default discovery is static and anonymous.
     """
     settings = get_settings()
     return ArkListModelsOutput(
         models=[model for model in describe_models(settings) if input.kind in (None, model.kind)],
         services=describe_services(settings),
+        connection=_connection_check(input, settings) if input.check_connection else None,
+    )
+
+
+def _connection_check(input: ArkListModelsInput, settings: Settings) -> HttpConnectionCheck:
+    if settings.mcp_transport != "http":
+        raise ValueError(
+            "check_connection requires live HTTP requests; it is not available on stdio."
+        )
+    key_present = has_provider_credential("modelark")
+    secret_present = has_client_secret()
+    issues: list[ConnectionIssueCode] = []
+    if not key_present:
+        issues.append("missing_modelark_key")
+    if not secret_present:
+        issues.append("missing_client_secret")
+    with settings_scope(settings):
+        routes = [
+            _endpoint_selection(kind) for kind in ("video", "image") if input.kind in (None, kind)
+        ]
+    return HttpConnectionCheck(
+        configuration_valid=not issues and all(route.configured for route in routes),
+        modelark_key_present=key_present,
+        client_secret_present=secret_present,
+        issues=issues,
+        routes=routes,
+    )
+
+
+def _endpoint_selection(kind: str) -> EndpointSelectionCheck:
+    tool: EndpointTool = "seedance_create_task" if kind == "video" else "seedream_generate_image"
+    selected = endpoint_default(tool)
+    source: Literal["request_header", "server_default"] = (
+        "request_header" if selected is not None else "server_default"
+    )
+    registry = get_capability_registry()
+    try:
+        caps = (
+            registry.resolve_video_model(selected)
+            if kind == "video"
+            else registry.resolve_image_model(selected)
+        )
+    except ValueError:
+        return EndpointSelectionCheck(
+            tool=tool, source=source, configured=False, issue="endpoint_not_configured"
+        )
+    return EndpointSelectionCheck(
+        tool=tool, source=source, configured=True, model_id=caps.model_id, family=caps.family.value
     )
 
 
@@ -185,10 +277,9 @@ def describe_models(settings: Settings) -> list[ModelInfo]:
     if settings.mcp_transport != "http" and not settings.has_modelark:
         return []
     with settings_scope(settings):
-        image_caps, video_caps, understanding_caps = get_capability_registry().configured_models()
+        image_caps, video_caps = get_capability_registry().configured_models()
     models = [_video_info(caps, settings) for caps in video_caps.values()]
     models += [_image_info(caps, settings) for caps in image_caps.values()]
-    models += [_understanding_info(caps, settings) for caps in understanding_caps.values()]
     return models
 
 
@@ -237,33 +328,6 @@ def _image_info(caps: ImageCapabilities, settings: Settings) -> ModelInfo:
             supports_transparent_background=caps.supports_transparent_background,
             supports_transparent_generation=caps.supports_transparent_generation,
             supports_prompt_optimization=caps.supports_prompt_optimization,
-        ),
-    )
-
-
-def _understanding_info(caps: UnderstandingCapabilities, settings: Settings) -> ModelInfo:
-    is_audio_model = caps.model_id == settings.seed_audio_understanding_model
-    modalities: list[UnderstandingModality] = []
-    if is_audio_model:
-        modalities.append("audio")
-    else:
-        if caps.supports_image:
-            modalities.append("image")
-        if caps.supports_video:
-            modalities.append("video")
-    defaults = {settings.seed_understanding_default_model, settings.seed_audio_understanding_model}
-    return ModelInfo(
-        model_id=caps.model_id,
-        family=caps.family.value,
-        kind="understanding",
-        is_default=caps.model_id in defaults,
-        tool=AUDIO_UNDERSTANDING_TOOL if is_audio_model else UNDERSTANDING_TOOL,
-        understanding=UnderstandingModelLimits(
-            modalities=modalities,
-            max_media_parts=MAX_AUDIO_INPUTS if is_audio_model else caps.max_media_parts,
-            supports_thinking=caps.supports_thinking,
-            reasoning_efforts=list(caps.reasoning_efforts),
-            response_formats=list(caps.response_formats),
         ),
     )
 

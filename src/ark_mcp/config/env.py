@@ -16,6 +16,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from enum import StrEnum
 from functools import lru_cache
+from ipaddress import IPv4Network, IPv6Network, collapse_addresses, ip_network
 from pathlib import Path
 from typing import TYPE_CHECKING, Literal
 from urllib.parse import urlsplit
@@ -33,6 +34,32 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
+
+
+def parse_trusted_proxy_cidrs(value: str) -> tuple[IPv4Network | IPv6Network, ...]:
+    """Validate explicit proxy networks, normalizing mapped IPv6 to IPv4."""
+    if not value.strip():
+        return ()
+    networks: list[IPv4Network | IPv6Network] = []
+    try:
+        for entry in value.split(","):
+            cidr = entry.strip()
+            if not re.fullmatch(r"[0-9a-fA-F:.]+/[0-9]{1,3}", cidr):
+                raise ValueError
+            network = ip_network(cidr, strict=True)
+            if isinstance(network, IPv6Network) and network.network_address.ipv4_mapped:
+                network = IPv4Network((network.network_address.ipv4_mapped, network.prefixlen - 96))
+            networks.append(network)
+        ipv4 = collapse_addresses(n for n in networks if isinstance(n, IPv4Network))
+        ipv6 = collapse_addresses(n for n in networks if isinstance(n, IPv6Network))
+        if any(n.prefixlen == 0 for n in ipv4) or any(n.prefixlen == 0 for n in ipv6):
+            raise ValueError
+    except ValueError:
+        raise ValueError(
+            "RATE_LIMIT_TRUSTED_PROXY_CIDRS must contain explicit IPv4/IPv6 CIDRs "
+            "without host bits, empty entries or catch-all networks."
+        ) from None
+    return tuple(networks)
 
 
 def resolve_env_file() -> str:
@@ -93,11 +120,6 @@ SEEDANCE_2_5_FLASH_MODEL_ID = "dreamina-seedance-2-5-flash-261115"
 SEEDANCE_DRAFT_MAX_AGE_DAYS = 14
 
 
-class SeedUnderstandingFamily(StrEnum):
-    PRO = "pro"
-    TURBO = "turbo"
-
-
 class AuthMode(StrEnum):
     LOCAL = "local"
     BYOK = "byok"
@@ -111,11 +133,6 @@ class ImageModelBinding(BaseModel):
 class VideoModelBinding(BaseModel):
     model_id: str = Field(min_length=1)
     family: SeedanceFamily
-
-
-class UnderstandingModelBinding(BaseModel):
-    model_id: str = Field(min_length=1)
-    family: SeedUnderstandingFamily
 
 
 class Settings(BaseSettings):
@@ -229,28 +246,6 @@ class Settings(BaseSettings):
         default_factory=list,
         validation_alias="SEEDANCE_MODEL_BINDINGS",
     )
-    seed_understanding_default_model: str = Field(
-        default="dola-seed-2-1-turbo-260628",
-        validation_alias="SEED_UNDERSTANDING_DEFAULT_MODEL",
-    )
-    seed_understanding_model_family: str = Field(
-        default="",
-        validation_alias="SEED_UNDERSTANDING_MODEL_FAMILY",
-        description="Explicit family: 'pro' or 'turbo'. Empty = infer from default model ID.",
-    )
-    seed_understanding_model_bindings: list[UnderstandingModelBinding] = Field(
-        default_factory=list,
-        validation_alias="SEED_UNDERSTANDING_MODEL_BINDINGS",
-    )
-    seed_audio_understanding_model: str = Field(
-        default="seed-2-0-lite-260428",
-        min_length=1,
-        validation_alias="SEED_AUDIO_UNDERSTANDING_MODEL",
-        description=(
-            "ModelArk model ID used by seed_audio_understand. Must accept Chat "
-            "Completions input_audio parts with deep thinking."
-        ),
-    )
 
     # --- MCP transport -------------------------------------------------------
 
@@ -267,6 +262,16 @@ class Settings(BaseSettings):
         ge=1,
         le=65535,
         validation_alias=AliasChoices("MCP_PORT", "FASTMCP_PORT"),
+    )
+    metrics_port: int = Field(
+        default=0,
+        ge=0,
+        le=65535,
+        validation_alias="MCP_METRICS_PORT",
+        description=(
+            "Private metrics listener port: 0 disables it, otherwise 1024-65535. "
+            "Owned by the HTTP runtime and bound only to 127.0.0.1; ignored on stdio."
+        ),
     )
     mcp_allowed_origins: str = Field(default="", validation_alias="MCP_ALLOWED_ORIGINS")
     mcp_allowed_hosts: str = Field(
@@ -325,12 +330,13 @@ class Settings(BaseSettings):
         validation_alias="RATE_LIMIT_BURST",
         description="Maximum burst size for the token bucket. 0 defaults to RATE_LIMIT_RPM.",
     )
-    rate_limit_trust_proxy_headers: bool = Field(
-        default=False,
-        validation_alias="RATE_LIMIT_TRUST_PROXY_HEADERS",
+    rate_limit_trusted_proxy_cidrs: str = Field(
+        default="",
+        validation_alias="RATE_LIMIT_TRUSTED_PROXY_CIDRS",
         description=(
-            "Trust the first X-Forwarded-For entry for rate-limit keys instead of the "
-            "socket peer IP. Only enable behind a trusted proxy that overwrites the header."
+            "Comma-separated explicit IPv4/IPv6 proxy CIDRs; empty trusts no proxy. "
+            "Catch-all networks are rejected. X-Forwarded-For is used only when the "
+            "immediate peer is trusted, stripping trusted hops from right to left."
         ),
     )
 
@@ -467,17 +473,6 @@ class Settings(BaseSettings):
         ),
     )
 
-    seed_understanding_timeout_ms: int | None = Field(
-        default=None,
-        gt=0,
-        validation_alias="SEED_UNDERSTANDING_TIMEOUT_MS",
-        description=(
-            "Request timeout for seed_understand and seed_audio_understand chat completions. "
-            "Deep thinking is always on, so long analyses may need more than "
-            "BYTEPLUS_REQUEST_TIMEOUT_MS. "
-            "Defaults to BYTEPLUS_REQUEST_TIMEOUT_MS."
-        ),
-    )
     media_upload_batch_max_bytes: int = Field(
         default=500 * 1024 * 1024,
         ge=1,
@@ -487,6 +482,28 @@ class Settings(BaseSettings):
 
     # --- Runtime policy -----------------------------------------------------
 
+    admission_timeout_seconds: float = Field(
+        default=2.0,
+        gt=0,
+        le=30,
+        allow_inf_nan=False,
+        validation_alias="MCP_ADMISSION_TIMEOUT_SECONDS",
+        description=(
+            "Finite provider admission wait in seconds, greater than 0 and at most 30. "
+            "Covers owner and provider slot waiting, not the provider operation."
+        ),
+    )
+    tool_timeout_seconds: float = Field(
+        default=600.0,
+        gt=0,
+        le=3600,
+        allow_inf_nan=False,
+        validation_alias="MCP_TOOL_TIMEOUT_SECONDS",
+        description=(
+            "Finite cooperative tool deadline in seconds, greater than 0 and at most 3600. "
+            "Starts at handler-wrapper entry; cleanup may outlast the deadline."
+        ),
+    )
     provider_max_concurrency: int = Field(
         default=5,
         ge=1,
@@ -528,11 +545,6 @@ class Settings(BaseSettings):
     @property
     def has_modelark(self) -> bool:
         """Whether ModelArk credentials are configured (Seedream + Seedance)."""
-        return bool(self.modelark_api_key)
-
-    @property
-    def has_understanding(self) -> bool:
-        """Whether Seed 2.1 understanding is configured (reuses ModelArk key)."""
         return bool(self.modelark_api_key)
 
     @property
@@ -584,6 +596,22 @@ class Settings(BaseSettings):
     @property
     def allowed_hosts(self) -> list[str]:
         return [host.strip() for host in self.mcp_allowed_hosts.split(",") if host.strip()]
+
+    @property
+    def trusted_proxy_networks(self) -> tuple[IPv4Network | IPv6Network, ...]:
+        return parse_trusted_proxy_cidrs(self.rate_limit_trusted_proxy_cidrs)
+
+    @field_validator("rate_limit_trusted_proxy_cidrs")
+    @classmethod
+    def validate_trusted_proxy_cidrs(cls, value: str) -> str:
+        return ",".join(str(network) for network in parse_trusted_proxy_cidrs(value))
+
+    @field_validator("metrics_port")
+    @classmethod
+    def validate_metrics_port(cls, value: int) -> int:
+        if 0 < value < 1024:
+            raise ValueError("MCP_METRICS_PORT must be 0 or between 1024 and 65535.")
+        return value
 
     @field_validator("mcp_transport")
     @classmethod
@@ -668,33 +696,9 @@ class Settings(BaseSettings):
                     )
                 )
 
-        if not self.seed_understanding_model_bindings:
-            family = self.seed_understanding_model_family.strip().lower()
-            if not family:
-                if self.seed_understanding_default_model == "dola-seed-2-1-turbo-260628":
-                    family = SeedUnderstandingFamily.TURBO
-                elif self.seed_understanding_default_model == "dola-seed-evolving":
-                    family = SeedUnderstandingFamily.PRO
-                else:
-                    raise ValueError(
-                        "A custom SEED_UNDERSTANDING_DEFAULT_MODEL requires "
-                        "SEED_UNDERSTANDING_MODEL_FAMILY or SEED_UNDERSTANDING_MODEL_BINDINGS."
-                    )
-            self.seed_understanding_model_bindings = [
-                UnderstandingModelBinding(
-                    model_id=self.seed_understanding_default_model,
-                    family=SeedUnderstandingFamily(family),
-                )
-            ]
-
         for label, bindings, default_model in (
             ("Seedream", self.seedream_model_bindings, self.seedream_default_model),
             ("Seedance", self.seedance_model_bindings, self.seedance_default_model),
-            (
-                "SeedUnderstanding",
-                self.seed_understanding_model_bindings,
-                self.seed_understanding_default_model,
-            ),
         ):
             ids = [binding.model_id for binding in bindings]
             if len(ids) != len(set(ids)):

@@ -22,6 +22,7 @@ from ark_mcp.observability.logger import info as log_info
 from ark_mcp.runtime import get_runtime
 from ark_mcp.security.credentials import provider_api_key
 from ark_mcp.tools._capability_checks import check_video_request, raise_on_violations
+from ark_mcp.tools._context import context_log
 from ark_mcp.tools._cost import estimate_cost
 from ark_mcp.tools._redaction import redact_media_url
 from ark_mcp.tools._seedance_shared import (
@@ -41,7 +42,6 @@ from ark_mcp.tools._seedance_shared import (
     run_seedance_variations,
     task_type_constraint_violations,
 )
-from ark_mcp.tools._task_execution import context_log
 
 SeedanceRatio = Literal["16:9", "4:3", "1:1", "3:4", "9:16", "21:9", "adaptive"]
 MAX_VARIATIONS = 5
@@ -366,7 +366,7 @@ async def seedance_create_task(
     fail before submission. Regular 2.5 accepts 4K locally; verify provider support.
     Flash only 480p/720p, without Draft.
     Draft previews are 480p; finals are 1080p. Cost previews are static.
-    HTTP submits in the foreground; stdio uses ark_job_submit. Poll task IDs with
+    Both transports submit directly. Poll task IDs with
     gen_task_get. HTTP non-dry creates require idempotency_key; repeat identical
     arguments/key only to recover a lost response, never to request another generation.
     Interrupted or partial attempts require reconciliation, not a new key.

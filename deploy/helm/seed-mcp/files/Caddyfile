@@ -1,0 +1,42 @@
+{
+	admin off
+	auto_https off
+	grace_period {$MCP_PROXY_GRACE_PERIOD:630s}
+	log {
+		output discard
+	}
+	servers {
+		protocols h1 h2
+		timeouts {
+			read_header 10s
+			read_body 30s
+			idle 5m
+		}
+	}
+}
+
+https://{$MCP_PUBLIC_HOST}:{$MCP_PROXY_PORT:8443} {
+	tls {$MCP_TLS_CERT_FILE} {$MCP_TLS_KEY_FILE}
+
+	@public path /mcp /health
+	handle @public {
+		request_body {
+			max_size {$MCP_HTTP_MAX_BODY_BYTES:2097152}
+		}
+		reverse_proxy 127.0.0.1:{$MCP_PORT:3000} {
+			header_up -Forwarded
+			header_up X-Forwarded-For {http.request.remote.host}
+			header_up X-Forwarded-Proto https
+			header_up X-Forwarded-Host {http.request.host}
+			flush_interval -1
+			transport http {
+				dial_timeout 5s
+				response_header_timeout {$MCP_PROXY_GRACE_PERIOD:630s}
+			}
+		}
+	}
+
+	handle {
+		respond "Not Found" 404
+	}
+}

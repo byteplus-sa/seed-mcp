@@ -1,7 +1,7 @@
 """Static MCP tool catalog: the single inventory of registered tools.
 
 Each entry names the tool, the module that implements it, its authorization
-scope, its background-job mode, and the settings gate that decides whether it
+scope, and the settings gate that decides whether it
 is registered. Entries hold metadata only, so importing the catalog never
 imports a tool module; ``load_tool_definitions`` imports the modules whose
 gate passes.
@@ -18,8 +18,6 @@ if TYPE_CHECKING:
     from pydantic import BaseModel
 
     from ark_mcp.config.env import Settings
-
-BackgroundMode = Literal["required", "optional"]
 
 
 def _always(_settings: Settings) -> bool:
@@ -56,7 +54,6 @@ class CatalogEntry:
     module: str
     output: str
     scope: str | None
-    background: BackgroundMode | None = None
     gate: Callable[[Settings], bool] = _always
     annotations: str = "TOOL_ANNOTATIONS"
     provider: Literal["modelark", "seed-speech", "vision-cv"] | None = None
@@ -76,7 +73,6 @@ def _entry(
     output: str,
     scope: str | None,
     *,
-    background: BackgroundMode | None = None,
     gate: Callable[[Settings], bool] = _always,
     module: str | None = None,
     annotations: str = "TOOL_ANNOTATIONS",
@@ -86,7 +82,6 @@ def _entry(
         module=f"ark_mcp.tools.{module or name}",
         output=output,
         scope=scope,
-        background=background,
         gate=gate,
         annotations=annotations,
         provider=(
@@ -102,38 +97,6 @@ def _entry(
 
 
 CATALOG: tuple[CatalogEntry, ...] = (
-    _entry(
-        "ark_job_capabilities",
-        "BackgroundJobCapabilities",
-        None,
-        module="background_jobs",
-        annotations="CAPABILITIES_TOOL_ANNOTATIONS",
-        gate=_local,
-    ),
-    _entry(
-        "ark_job_submit",
-        "BackgroundJobAccepted",
-        None,
-        module="background_jobs",
-        annotations="SUBMIT_TOOL_ANNOTATIONS",
-        gate=_local,
-    ),
-    _entry(
-        "ark_job_get",
-        "BackgroundJobSnapshot",
-        None,
-        module="background_jobs",
-        annotations="GET_TOOL_ANNOTATIONS",
-        gate=_local,
-    ),
-    _entry(
-        "ark_job_cancel",
-        "BackgroundJobCancelled",
-        None,
-        module="background_jobs",
-        annotations="CANCEL_TOOL_ANNOTATIONS",
-        gate=_local,
-    ),
     _entry("ark_list_models", "ArkListModelsOutput", None),
     _entry("seed_media_get_artifact", "SeedMediaGetArtifactOutput", "artifacts:read", gate=_local),
     _entry(
@@ -143,21 +106,18 @@ CATALOG: tuple[CatalogEntry, ...] = (
         "seed_media_persist_url",
         "SeedMediaPersistUrlOutput",
         "media:upload",
-        background="optional",
         gate=_local,
     ),
     _entry(
         "seed_audio_generate",
         "SeedAudioGenerateOutput",
         "seed:audio:generate",
-        background="required",
         gate=_seed_audio,
     ),
     _entry(
         "media_upload",
         "MediaUploadOutput",
         "media:upload",
-        background="required",
         gate=_object_storage,
     ),
     _entry("media_presign", "MediaPresignOutput", "media:presign", gate=_object_storage),
@@ -165,14 +125,12 @@ CATALOG: tuple[CatalogEntry, ...] = (
         "omnihuman_create_task",
         "OmniHumanCreateTaskOutput",
         "omnihuman:create",
-        background="required",
         gate=_omnihuman,
     ),
     _entry(
         "omnihuman_get_task",
         "OmniHumanTaskOutput",
         "omnihuman:read",
-        background="optional",
         gate=_omnihuman,
     ),
     _entry(
@@ -185,21 +143,18 @@ CATALOG: tuple[CatalogEntry, ...] = (
         "seedream_generate_image",
         "SeedreamGenerateOutput",
         "seedream:generate",
-        background="required",
         gate=_modelark,
     ),
     _entry(
         "seedance_create_task",
         "SeedanceCreateTaskOutput",
         "seedance:create",
-        background="required",
         gate=_modelark,
     ),
     _entry(
         "gen_task_get",
         "GenTaskGetOutput",
         "gen:read",
-        background="optional",
         gate=_modelark,
     ),
     _entry("gen_task_list", "GenTaskPage", "gen:read", gate=_modelark),
@@ -207,20 +162,6 @@ CATALOG: tuple[CatalogEntry, ...] = (
         "gen_task_cancel_or_delete",
         "GenTaskCancelOrDeleteOutput",
         "gen:delete",
-        gate=_modelark,
-    ),
-    _entry(
-        "seed_understand",
-        "SeedUnderstandOutput",
-        "understanding:read",
-        background="required",
-        gate=_modelark,
-    ),
-    _entry(
-        "seed_audio_understand",
-        "SeedAudioUnderstandOutput",
-        "understanding:read",
-        background="required",
         gate=_modelark,
     ),
 )

@@ -35,8 +35,15 @@ from ark_mcp.providers.modelark.schemas import (
 )
 from ark_mcp.providers.modelark.seedance import SeedanceService
 from ark_mcp.providers.retry import call_with_retry
-from ark_mcp.runtime import billed_provider_slot, get_principal, get_runtime, record_accepted_task
+from ark_mcp.runtime import (
+    billed_provider_slot,
+    capture_accepted_task,
+    get_principal,
+    get_runtime,
+    record_accepted_task,
+)
 from ark_mcp.security.credentials import redact_request_secrets
+from ark_mcp.tools._context import context_log
 from ark_mcp.tools._cost import DEFAULT_MAX_CONCURRENT, estimate_cost, log_cost_estimate
 from ark_mcp.tools._errors import provider_error_result
 from ark_mcp.tools._parallel import (
@@ -44,7 +51,6 @@ from ark_mcp.tools._parallel import (
     run_variation_batch,
     variation_batch_deadline,
 )
-from ark_mcp.tools._task_execution import context_log
 
 _IMAGE_INPUT_EXAMPLE = (
     'Expected each image reference to be a URL string ("https://..." or '
@@ -283,6 +289,7 @@ async def submit_seedance_request(
         estimated_cost_usd=estimate_cost(product="video", variations=1, video_family=caps.family),
     ):
         task_id, request_id = await call_with_retry(lambda: service.create_task(request))
+        capture_accepted_task(ctx, "modelark", task_id, request_id)
     await record_accepted_task(ctx, "modelark", task_id, request_id)
     return task_id, request_id
 

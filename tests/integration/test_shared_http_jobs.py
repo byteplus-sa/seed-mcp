@@ -1,15 +1,12 @@
-"""HTTP has no shared jobs or snapshots: specs/SPEC_HOSTED_BYOK.md."""
+"""Removed protocol boundaries per specs/SPEC_DIRECT_EXECUTION.md."""
 
 from __future__ import annotations
 
 from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, Mock
 
 import pytest
 import respx
-from docket import Docket
-from fastmcp_tasks.context import TaskContextSnapshot
 
 from tests.integration.test_byok_http import (
     MODELARK,
@@ -23,31 +20,6 @@ from tests.integration.test_byok_http import (
 )
 
 
-@pytest.fixture
-def background_spies(monkeypatch: pytest.MonkeyPatch) -> dict[str, Mock]:
-    spies: dict[str, Mock] = {
-        "capture": Mock(wraps=TaskContextSnapshot.capture),
-        "save": AsyncMock(),
-        "create": AsyncMock(),
-        "bridge_create": AsyncMock(),
-        "enqueue": AsyncMock(),
-        "docket_add": Mock(),
-    }
-    monkeypatch.setattr(TaskContextSnapshot, "capture", spies["capture"])
-    monkeypatch.setattr(TaskContextSnapshot, "save", spies["save"])
-    monkeypatch.setattr("fastmcp_tasks.creation.create_task", spies["create"])
-    monkeypatch.setattr("fastmcp_tasks.extension.create_task", spies["create"])
-    monkeypatch.setattr("ark_mcp.background_jobs.create_task", spies["bridge_create"])
-    monkeypatch.setattr("fastmcp_tasks.creation.add_component_to_docket", spies["enqueue"])
-    monkeypatch.setattr(Docket, "add", spies["docket_add"])
-    return spies
-
-
-def assert_no_background_activity(spies: dict[str, Mock]) -> None:
-    for spy in spies.values():
-        spy.assert_not_called()
-
-
 @pytest.mark.parametrize(
     ("name", "input_data"),
     [
@@ -58,19 +30,20 @@ def assert_no_background_activity(spies: dict[str, Mock]) -> None:
         ),
         ("ark_job_get", {"job_id": "synthetic-job-" + "x" * 32}),
         ("ark_job_cancel", {"job_id": "synthetic-job-" + "x" * 32}),
+        ("seed_understand", {"prompt": "square"}),
+        ("seed_audio_understand", {"prompt": "tone"}),
     ],
 )
 @respx.mock
-async def test_ordinary_jobs_unavailable_to_every_http_client_before_snapshot_or_queue(
-    tmp_path: Path, background_spies: dict[str, Mock], name: str, input_data: dict[str, Any] | None
+async def test_removed_tools_unavailable_to_every_http_client_without_dispatch(
+    tmp_path: Path, name: str, input_data: dict[str, Any] | None
 ) -> None:
     async with http_server(tmp_path) as (server, _, client):
-        assert server._docket is None
+        assert "io.modelcontextprotocol/tasks" not in server._extensions
         for headers in ({}, credentials(), credentials(MODELARK_KEY, OTHER_SECRET)):
             result = await call_tool(client, name, input_data, headers=headers)
             assert_denied(result)
             assert "unknown tool" in str(result).lower()
-    assert_no_background_activity(background_spies)
     assert len(respx.calls) == 0
 
 
@@ -92,9 +65,8 @@ async def test_ordinary_jobs_unavailable_to_every_http_client_before_snapshot_or
     ],
 )
 @respx.mock
-async def test_native_task_opt_in_is_rejected_before_snapshot_queue_or_provider(
+async def test_native_task_opt_in_is_rejected_before_provider_dispatch(
     tmp_path: Path,
-    background_spies: dict[str, Mock],
     name: str,
     input_data: dict[str, Any],
     url: str,
@@ -102,18 +74,15 @@ async def test_native_task_opt_in_is_rejected_before_snapshot_queue_or_provider(
 ) -> None:
     route = respx.post(url).respond(200, json=response)
     async with http_server(tmp_path) as (server, _, client):
-        assert server._docket is None
+        assert "io.modelcontextprotocol/tasks" not in server._extensions
         result = await call_tool(client, name, input_data, headers=credentials(), task_capable=True)
-    assert_no_background_activity(background_spies)
     assert route.call_count == 0, "Native task opt-in dispatched provider work in the foreground."
     assert_denied(result)
 
 
 @pytest.mark.parametrize("method", ["tasks/get", "tasks/update", "tasks/cancel"])
 @respx.mock
-async def test_native_task_methods_are_not_registered(
-    tmp_path: Path, background_spies: dict[str, Mock], method: str
-) -> None:
+async def test_native_task_methods_are_not_registered(tmp_path: Path, method: str) -> None:
     params: dict[str, Any] = {"taskId": "synthetic-task"}
     if method == "tasks/update":
         params["inputResponses"] = {}
@@ -122,7 +91,6 @@ async def test_native_task_methods_are_not_registered(
             client, method, params, headers=credentials(), task_capable=True, expected_status=404
         )
         assert result["error"]["code"] == -32601
-    assert_no_background_activity(background_spies)
     assert len(respx.calls) == 0
 
 

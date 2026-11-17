@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import base64
 import json
 from collections.abc import Iterator
@@ -32,22 +31,15 @@ def configured(test_env: None, monkeypatch: pytest.MonkeyPatch) -> Iterator[None
     refresh_capability_registry()
 
 
-async def _image_job(client: Client, arguments: dict[str, Any]) -> dict[str, Any]:
-    submitted = await client.call_tool(
-        "ark_job_submit",
-        {"input": {"tool_name": "seedream_generate_image", "arguments": {"input": arguments}}},
+async def _image_call(client: Client, arguments: dict[str, Any]) -> dict[str, Any]:
+    result = await client.call_tool(
+        "seedream_generate_image", {"input": arguments}, raise_on_error=False
     )
-    assert submitted.structured_content is not None
-    job_id = submitted.structured_content["job_id"]
-    async with asyncio.timeout(15):
-        while True:
-            result = await client.call_tool("ark_job_get", {"input": {"job_id": job_id}})
-            assert result.structured_content is not None
-            state = result.structured_content
-            if state["status"] != "working":
-                assert state["status"] == "completed", state
-                return state["result"]
-            await asyncio.sleep(0.02)
+    return {
+        "is_error": result.is_error,
+        "structured_content": result.structured_content,
+        "content": [item.model_dump() for item in result.content],
+    }
 
 
 async def test_seedream55_discovery_reports_default_and_transparency(configured: None) -> None:
@@ -72,7 +64,7 @@ async def test_seedream55_discovery_reports_default_and_transparency(configured:
 async def test_seedream55_transparent_dry_run_matches_example(configured: None) -> None:
     with respx.mock(assert_all_called=False) as router:
         async with Client(create_server(get_settings())) as client:
-            result = await _image_job(
+            result = await _image_call(
                 client,
                 {
                     "model": MODEL,
@@ -105,7 +97,7 @@ async def test_seedream55_transparent_dry_run_matches_example(configured: None) 
 
 @pytest.mark.parametrize("variations", [1, 2])
 @pytest.mark.parametrize("persist", [True, False])
-async def test_seedream55_job_keeps_png_metadata_when_format_is_omitted(
+async def test_seedream55_direct_keeps_png_metadata_when_format_is_omitted(
     configured: None, variations: int, persist: bool
 ) -> None:
     buffer = BytesIO()
@@ -122,7 +114,7 @@ async def test_seedream55_job_keeps_png_metadata_when_format_is_omitted(
             return_value=httpx.Response(200, json={"created": 1721400000, "data": [item]})
         )
         async with Client(create_server(get_settings())) as client:
-            result = await _image_job(
+            result = await _image_call(
                 client,
                 {
                     "prompt": "Embroidered heart sticker",
@@ -159,15 +151,14 @@ async def test_seedream55_job_keeps_png_metadata_when_format_is_omitted(
 async def test_seedream55_invalid_transparent_jpeg_never_calls_provider(configured: None) -> None:
     with respx.mock(assert_all_called=False) as router:
         async with Client(create_server(get_settings())) as client:
-            result = await _image_job(
+            result = await _image_call(
                 client,
                 {"prompt": "test", "background": "transparent", "output_format": "jpeg"},
             )
     assert not router.calls
     assert result["is_error"]
-    assert result["content"] == [
-        {"type": "text", "text": "Error calling tool 'seedream_generate_image'"}
-    ]
+    assert result["structured_content"] is None
+    assert "background='transparent' requires output_format" in result["content"][0]["text"]
 
 
 async def test_seedream55_provider_access_error_is_not_retried(configured: None) -> None:
@@ -180,7 +171,7 @@ async def test_seedream55_provider_access_error_is_not_retried(configured: None)
             )
         )
         async with Client(create_server(get_settings())) as client:
-            result = await _image_job(client, {"prompt": "Embroidered heart sticker"})
+            result = await _image_call(client, {"prompt": "Embroidered heart sticker"})
     assert route.call_count == 1
     assert result["is_error"]
     assert "req-seedream55-denied" in str(result["content"])
@@ -216,7 +207,7 @@ async def test_seedream55_preserves_actual_metadata_and_usage(
             )
         )
         async with Client(create_server(get_settings())) as client:
-            result = await _image_job(
+            result = await _image_call(
                 client,
                 {
                     "prompt": "Extract the subject",
@@ -279,7 +270,7 @@ async def test_seedream55_auto_jpeg_returns_opaque_metadata(configured: None) ->
             )
         )
         async with Client(create_server(get_settings())) as client:
-            result = await _image_job(
+            result = await _image_call(
                 client,
                 {
                     "prompt": "test",
@@ -300,7 +291,7 @@ async def test_seedream55_auto_jpeg_returns_opaque_metadata(configured: None) ->
 async def test_seedream55_dry_run_redacts_safety_identifier(configured: None) -> None:
     with respx.mock(assert_all_called=False) as router:
         async with Client(create_server(get_settings())) as client:
-            result = await _image_job(
+            result = await _image_call(
                 client,
                 {
                     "prompt": "test",
@@ -329,7 +320,7 @@ async def test_invalid_api_controls_never_reach_provider(
 ) -> None:
     with respx.mock(assert_all_called=False) as router:
         async with Client(create_server(get_settings())) as client:
-            result = await _image_job(client, {"prompt": "test", **arguments})
+            result = await _image_call(client, {"prompt": "test", **arguments})
     assert not router.calls
     assert result["is_error"]
 
@@ -342,13 +333,15 @@ async def test_invalid_api_controls_never_reach_provider(
         {"safety_identifier": "a" * 65},
     ],
 )
-async def test_unsupported_input_is_rejected_before_job_submission(
+async def test_unsupported_input_is_rejected_before_provider_dispatch(
     configured: None, arguments: dict[str, Any]
 ) -> None:
     with respx.mock(assert_all_called=False) as router:
         async with Client(create_server(get_settings())) as client:
             with pytest.raises(ToolError, match=next(iter(arguments))):
-                await _image_job(client, {"prompt": "test", **arguments})
+                await client.call_tool(
+                    "seedream_generate_image", {"input": {"prompt": "test", **arguments}}
+                )
     assert not router.calls
 
 
@@ -373,7 +366,7 @@ async def test_seedream55_metadata_survives_partial_variation_failure(configured
     with respx.mock:
         route = respx.post(f"{ARK_BASE}/images/generations").mock(side_effect=respond)
         async with Client(create_server(get_settings())) as client:
-            result = await _image_job(
+            result = await _image_call(
                 client,
                 {
                     "variations": 2,

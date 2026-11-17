@@ -6,16 +6,34 @@ import asyncio
 import math
 import time
 from contextlib import ExitStack
+from ipaddress import IPv4Address, IPv6Address, ip_address
 from typing import TYPE_CHECKING
 
 from starlette.responses import PlainTextResponse
 
-from ark_mcp.config.env import Settings, settings_scope
+from ark_mcp.config.env import Settings, parse_trusted_proxy_cidrs, settings_scope
 from ark_mcp.observability.logger import warning as log_warning
 from ark_mcp.security.credentials import request_credentials_scope
 
 if TYPE_CHECKING:
+    from ipaddress import IPv4Network, IPv6Network
+
     from starlette.types import ASGIApp, Message, Receive, Scope, Send
+
+
+def _route_label(scope: Scope) -> str:
+    return {"/mcp": "mcp", "/health": "health", "/ready": "ready"}.get(
+        scope.get("path", ""), "other"
+    )
+
+
+def _client_address(value: str) -> IPv4Address | IPv6Address:
+    if "%" in value:
+        raise ValueError("Scoped addresses are not supported.")
+    address = ip_address(value)
+    if isinstance(address, IPv6Address) and address.ipv4_mapped is not None:
+        return address.ipv4_mapped
+    return address
 
 
 class RequestBodyTooLarge(Exception):
@@ -88,16 +106,15 @@ class RequestBodyLimitMiddleware:
                 if int(content_length) > self.max_bytes:
                     log_warning(
                         "request_body_too_large",
-                        content_length=int(content_length),
                         max_bytes=self.max_bytes,
-                        path=scope.get("path", ""),
+                        route=_route_label(scope),
                     )
                     await self._reject(scope, receive, send)
                     return
             except ValueError:
                 log_warning(
                     "request_body_invalid_content_length",
-                    path=scope.get("path", ""),
+                    route=_route_label(scope),
                 )
                 await PlainTextResponse("Invalid Content-Length", status_code=400)(
                     scope, receive, send
@@ -131,7 +148,7 @@ class RequestBodyLimitMiddleware:
                 "request_body_too_large_streamed",
                 received=received,
                 max_bytes=self.max_bytes,
-                path=scope.get("path", ""),
+                route=_route_label(scope),
             )
             await self._reject(scope, receive, send)
 
@@ -142,9 +159,11 @@ class RequestBodyLimitMiddleware:
 
 
 class RateLimitMiddleware:
-    """Per-client-IP token bucket rate limiter for HTTP requests."""
+    """Peer-validated rate limits from specs/SPEC_HOSTED_BYOK.md."""
 
     _MAX_BUCKETS = 10_000
+    _MAX_FORWARDED_BYTES = 4096
+    _MAX_FORWARDED_HOPS = 32
 
     def __init__(
         self,
@@ -152,7 +171,7 @@ class RateLimitMiddleware:
         *,
         rpm: int,
         burst: int | None = None,
-        trust_proxy_headers: bool = False,
+        trusted_proxy_cidrs: tuple[str | IPv4Network | IPv6Network, ...] = (),
     ) -> None:
         self.app = app
         self.rpm = rpm
@@ -160,24 +179,31 @@ class RateLimitMiddleware:
         self._rate = rpm / 60.0
         self._buckets: dict[str, tuple[float, float]] = {}
         self._lock = asyncio.Lock()
-        self.trust_proxy_headers = trust_proxy_headers
+        self.trusted_proxy_networks = parse_trusted_proxy_cidrs(
+            ",".join(str(network) for network in trusted_proxy_cidrs)
+        )
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
-        if scope["type"] != "http" or self.rpm <= 0:
+        if scope["type"] != "http" or self.rpm <= 0 or scope.get("path") in {"/health", "/ready"}:
             await self.app(scope, receive, send)
             return
 
-        ip = self._client_key(scope)
+        try:
+            ip = self._client_key(scope)
+        except ValueError:
+            await PlainTextResponse("Invalid forwarding headers.", status_code=400)(
+                scope, receive, send
+            )
+            return
 
         retry_after = await self._consume(ip)
         if retry_after > 0:
             reset = math.ceil(retry_after)
             log_warning(
                 "rate_limit_exceeded",
-                client_ip=ip,
                 retry_after_seconds=reset,
                 capacity=self.capacity,
-                path=scope.get("path", ""),
+                route=_route_label(scope),
             )
             response = PlainTextResponse(
                 "Rate limit exceeded",
@@ -195,15 +221,45 @@ class RateLimitMiddleware:
         await self.app(scope, receive, send)
 
     def _client_key(self, scope: Scope) -> str:
-        if self.trust_proxy_headers:
-            headers = dict(scope.get("headers", []))
-            forwarded = headers.get(b"x-forwarded-for")
-            if isinstance(forwarded, bytes):
-                first = forwarded.decode("latin-1").split(",", 1)[0].strip()
-                if first:
-                    return first
         client = scope.get("client")
-        return str(client[0]) if client else "unknown"
+        if not client:
+            return "unknown"
+        try:
+            peer = _client_address(client[0])
+        except ValueError:
+            return "unknown"
+        if not self._is_trusted(peer):
+            return str(peer)
+        addresses = self._forwarded_addresses(scope)
+        for address in reversed(addresses):
+            if not self._is_trusted(peer):
+                break
+            peer = address
+        return str(peer)
+
+    def _is_trusted(self, address: IPv4Address | IPv6Address) -> bool:
+        return any(address in network for network in self.trusted_proxy_networks)
+
+    def _forwarded_addresses(self, scope: Scope) -> tuple[IPv4Address | IPv6Address, ...]:
+        forwarded: bytes | None = None
+        for name, value in scope.get("headers", []):
+            if name.lower() != b"x-forwarded-for":
+                continue
+            if forwarded is not None or len(value) > self._MAX_FORWARDED_BYTES:
+                raise ValueError("Invalid forwarding headers.")
+            forwarded = value
+        if forwarded is None:
+            return ()
+        try:
+            entries = forwarded.decode("ascii").split(",")
+            if len(entries) > self._MAX_FORWARDED_HOPS:
+                raise ValueError
+            addresses = tuple(_client_address(entry.strip(" \t")) for entry in entries)
+            if len(set(addresses)) != len(addresses):
+                raise ValueError
+        except ValueError:
+            raise ValueError("Invalid forwarding headers.") from None
+        return addresses
 
     async def _consume(self, ip: str) -> float:
         """Try to consume one token. Return 0 on success, or seconds to wait."""

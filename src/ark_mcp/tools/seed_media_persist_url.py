@@ -18,7 +18,7 @@ from ark_mcp.artifacts.store import ArtifactPersistenceError
 from ark_mcp.domain.artifacts import ArtifactRef, MediaType
 from ark_mcp.observability.logger import info as log_info
 from ark_mcp.runtime import get_principal, get_runtime
-from ark_mcp.tools._task_execution import context_log
+from ark_mcp.tools._context import context_log
 
 
 class SeedMediaPersistUrlInput(BaseModel):

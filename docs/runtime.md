@@ -10,7 +10,8 @@ per-task persistence single-flight, the HTTP submission journal, and the provide
 HTTP is the forward-only [BYOK foundation](../specs/SPEC_HOSTED_BYOK.md):
 foreground direct calls with request-key gateways, minimal scoped SQLite state,
 no jobs/native tasks, storage/artifact tools or resources. Artifact caches,
-object storage and MCP execution claims below are local stdio capabilities.
+and object storage below are local stdio capabilities. Both transports execute
+directly, with no MCP jobs, native tasks, snapshots or execution claims.
 Fresh state is required; no old-schema migration exists.
 
 ## Request Configuration
@@ -33,8 +34,8 @@ an explicit tool `model` wins.
 All state lives in a single SQLite database at
 `<artifact_dir>/runtime.sqlite3` (default `artifact_dir` is `~/.seed-mcp/artifacts`),
 shared by the ownership stores, budget ledger, HTTP submission journal and
-task-artifact cache. The
-ownership table also stores MCP task owners and atomic execution claims. The
+task-artifact cache. Provider task ownership is retained independently of
+direct-call execution. The
 database is opened in WAL mode (`PRAGMA journal_mode=WAL`) with a
 `busy_timeout`; each store's
 synchronous `sqlite3.Connection` is guarded by a per-instance `asyncio.Lock`
@@ -46,6 +47,22 @@ the runtime stores and submission journal. These stores are still
 **single-process only** — horizontal scaling requires a distributed
 replacement.
 
+### HTTP State Lease
+
+`RuntimeStateLease` (`runtime_lock.py`) holds `runtime.sqlite3.lock` for the
+whole HTTP runtime. A nonblocking hard filesystem lock is acquired **before**
+opening any store or running submission recovery. Contention fails startup
+with fixed text. Partial startup failure and cancellation drain acquisition/
+cleanup and release the lease; normal shutdown releases it after all state
+users close. Never unlink or replace a live lock file. The file can remain
+after process exit; its presence alone does not mean a process owns the lock.
+
+This is local block-storage protection, not distributed fencing. Do not use a
+network filesystem, multiple Uvicorn workers or multiple application replicas.
+Stdio does not acquire this HTTP lease; never point it at an active HTTP
+state directory. The [VKE chart](byteplus-terraform.md#chart-inputs-and-network)
+uses one StatefulSet and retained ext4 ReadWriteOnce EBS.
+
 ## `RuntimeServices` fields
 
 | Field | Type | Built from |
@@ -56,35 +73,39 @@ replacement.
 | `ownership_store` | `SQLiteTaskOwnershipStore` | `SQLiteTaskOwnershipStore(database_path)` |
 | `object_key_ownership_store` | `SQLiteObjectKeyOwnershipStore` | `SQLiteObjectKeyOwnershipStore(database_path)` |
 | `budget_ledger` | `BudgetLedger` | `BudgetLedger(database_path, daily_limit_usd)` |
-| `provider_limiters` | `ProviderLimiters` | `ProviderLimiters(provider_limit, principal_limit)` |
+| `provider_limiters` | `ProviderLimiters` | `ProviderLimiters(provider_limit, principal_limit, admission_timeout_seconds)` |
 | `task_artifact_cache` | `TaskArtifactCache` | `SQLiteTaskArtifactCache(database_path, ttl_seconds, max_size)` |
 | `task_artifact_locks` | `TaskArtifactPersistenceLocks` | process-local lock registry |
 | `submission_store` | `SQLiteSubmissionStore \| None` | HTTP only: `SQLiteSubmissionStore(database_path, max_records=state_max_records)` in a worker thread; stdio defaults to `None` |
+| `state_lease` | `RuntimeStateLease \| None` | HTTP only: exclusive filesystem lease before stores/recovery |
+| `metrics_listener` | `MetricsListener \| None` | HTTP only when `MCP_METRICS_PORT` is nonzero; loopback listener with owned thread |
 
-`close_runtime_services` closes these subsystems in order: `artifact_store`,
+`close_runtime_services` first drains the optional metrics listener, then `artifact_store`,
 `ownership_store`, `object_key_ownership_store`, `budget_ledger`, and
-`task_artifact_cache`, then `submission_store` when present. Journal close
-drains admitted operations before closing its connection.
-The `SafeDownloader` is closed **indirectly** —
-`FilesystemArtifactStore.close()` calls `self._downloader.close()`. The
-provider/principal limiters and per-task lock registry have no close method.
+`task_artifact_cache`, then `submission_store` when present, the downloader
+and finally the lease. Journal close drains admitted operations before closing
+its connection. Artifact-store close also closes its downloader. Cleanup
+drains despite repeated cancellation; the same close task is reused.
+The provider/principal limiters and per-task lock registry have no close method.
 
 ## Concurrency limiters (`ProviderLimiters`)
 
-Two distinct layers, acquired together for every billable call:
+Two distinct layers, acquired owner-first for billable calls:
 
 - **Provider-level** — one global `asyncio.Semaphore` per provider bucket:
   `"modelark"`, `"seed-speech"`, `"vision-cv"`, `"tos"`, and `"s3"`.
   Each is independently sized to `provider_limit`, so the default cap is five
   concurrent calls per provider rather than five shared across all providers.
 - **Principal-level** — one `asyncio.Semaphore(principal_limit)` per
-  principal, lazily created and stored in a `TTLCache` keyed by
-  `"<tenant_id>\0<principal_id>"` (NUL-separated). Cache get/create is
-  guarded by an `asyncio.Lock`.
+  owner, keyed by `(tenant_id, principal_id)` in a bounded registry.
+  Active holders and waiters pin the same entry; idle entries are removed.
 
 `acquire(provider, owner)` is an async context manager that holds **both**
-the provider bucket semaphore and the principal's semaphore for the duration
-of the call.
+the principal's semaphore and then the provider bucket semaphore for the
+duration of the call. A single admission deadline covers both waits, not
+provider execution after acquisition. Partial acquisition is released on
+timeout/error/cancellation. Waiting for an owner slot never occupies a global
+provider slot, so a same-owner backlog cannot monopolize that provider.
 
 For a **local principal** (stdio transport), the
 per-principal semaphore is **skipped**: a single trusted local caller is
@@ -100,10 +121,13 @@ client secret. Unrelated provider keys do not change that scope.
 | `PROVIDER_MAX_CONCURRENCY` | `5` | `ge=1` | per-bucket provider limit |
 | `PRINCIPAL_MAX_CONCURRENCY` | `3` | `ge=1` | derived HTTP owner limit; skipped on local stdio |
 
-The per-principal semaphore cache defaults to `maxsize=10_000` and
-`ttl=86_400` (24h); idle principal semaphores expire after 24h. A `TTLCache`
-eviction of a held semaphore dereferences it from the cache but does not
-cancel its waiters.
+The owner registry defaults to capacity 10,000. Active/waiting entries cannot
+be evicted and replaced with independent semaphores. A new owner beyond
+capacity receives `ADMISSION_CAPACITY_EXCEEDED`; a slot-wait expiry receives
+`ADMISSION_TIMEOUT`. Both are `ProviderError`, operation `admission`,
+`retryable=true`, `ambiguous_completion=false`: this attempt did not dispatch.
+Other variations may already have dispatched; no automatic admission retry
+loop is added.
 
 > For parallel variation tools, a third local `asyncio.Semaphore(max_concurrent=5)`
 > is created per batch by `run_variation_batch` (see [Parallel
@@ -112,27 +136,34 @@ cancel its waiters.
 
 ## Concurrency and timeouts
 
-**Parallel tool calls are bounded only by the limiters above.** Slow responses
-come from provider latency, not from a server-wide lock. The other bounds:
+**Both transports execute ordinary tool calls directly.** Provider latency,
+admission and the cooperative whole-call deadline are separate bounds:
 
 | Bound | Default | Code | Effect |
 |---|---|---|---|
+| Provider admission | `MCP_ADMISSION_TIMEOUT_SECONDS=2.0` | `runtime.py::ProviderLimiters` | Finite positive seconds, max 30; combined owner-first/provider wait |
+| Whole tool | `MCP_TOOL_TIMEOUT_SECONDS=600.0` | `execution.py::run_direct_call` | Finite positive seconds, max 3600; cooperative deadline from wrapper entry |
 | Provider request | `BYTEPLUS_REQUEST_TIMEOUT_MS=600000` (10 min), connect `BYTEPLUS_CONNECT_TIMEOUT_MS=10000` | `config/env.py` | Per HTTP call to a provider; timeouts are classified in [Error taxonomy](#error-taxonomy) |
-| HTTP graceful shutdown | equals `BYTEPLUS_REQUEST_TIMEOUT_MS` | `__main__.py` (`timeout_graceful_shutdown`) | In-flight HTTP requests get up to one provider timeout to finish on shutdown |
+| HTTP graceful shutdown | `max(tool seconds, provider milliseconds / 1000) + 30`, default 630 s | `__main__.py::graceful_shutdown_timeout_seconds` | Cooperative drain allowance; chart pod grace uses max + 60, default 660 s |
 | SQLite lock wait | `busy_timeout=5000` ms | `runtime.py::_open_sqlite_connection` | A blocked writer waits up to 5 s in its worker thread, never on the event loop |
 | HTTP request body | `MCP_HTTP_MAX_BODY_BYTES=2097152` (2 MiB) | `config/env.py` | Positive streamed body cap |
 | HTTP admission | `MCP_HTTP_MAX_IN_FLIGHT=64`, `RATE_LIMIT_RPM=60` | `security/http_middleware.py` | Positive global in-flight and per-IP rate bounds, including discovery |
 | Retained state | `STATE_MAX_RECORDS=100000` | `runtime.py`, `submission_store.py` | Positive capacity; never evict live owners or journal claims; existing journal keys remain readable at capacity |
 | Variation batch | `variation_batch_deadline(...)` | `tools/_parallel.py` | See [Parallel variations](#parallel-variations-tools_parallelpy) |
 
-- **A client's foreground deadline is not a server timeout.** On stdio, generation,
-  understanding and upload tools use task mode `required`, so
-  they run in the background worker and a foreground call is rejected before
-  the provider is called. See
-  [SPEC_BACKGROUND_JOBS.md](../specs/SPEC_BACKGROUND_JOBS.md) and
-  [troubleshooting](troubleshooting.md#client-timeouts-vs-provider-latency).
-  HTTP runs directly in the foreground; configure client/proxy timeouts
-  accordingly and never blindly resubmit after a lost response.
+- **Use client timeout 660 seconds** with the default 600-second tool deadline,
+  and compatible proxy timeouts. The tool timer starts after MCP parsing,
+  before credentials, bindings, journal, admission and execution.
+- **Cancellation is cooperative.** SQLite and SDK threads drain before locks,
+  slots or clients are released, including repeated cancellation. Cleanup can
+  exceed the nominal deadline; it is not a hard kill or provider cancellation.
+- `TOOL_DEADLINE_EXCEEDED` is text-only, preserving possible mutation and known
+  safe accepted IDs. Pre-dispatch/read-only expiry does not claim billed work
+  began. External cancellation propagates; inner provider timeouts retain
+  their normalized errors. Never blindly resubmit after a lost response.
+- ModelArk polling and discovery do not wait on saturated generation slots.
+  They are still subject to HTTP global in-flight/body/rate bounds.
+  See [Direct Execution](../specs/SPEC_DIRECT_EXECUTION.md).
 - **Large media should not travel inside JSON-RPC.** Use `media_upload` with a
   file path (stdio) or the presign and direct-upload path; the body limit only
   bounds inlined Base64.
@@ -205,7 +236,6 @@ quotes, settlement amounts or guarantees of an actual spend ceiling.
 | `COST_PER_IMAGE` | `0.03` USD |
 | `COST_PER_AUDIO_SECOND` | `0.0031` USD |
 | `COST_PER_VIDEO_TASK` | `0.07` USD (`0.35` for Seedance 2.5) |
-| `COST_UNDERSTANDING_INPUT_PER_MTOK` / `_OUTPUT_PER_MTOK` | `0.50` / `3.00` USD |
 | `DEFAULT_MAX_CONCURRENT` | `5` |
 
 `estimate_cost(product, variations, ..., model_id=None)`:
@@ -213,7 +243,6 @@ quotes, settlement amounts or guarantees of an actual spend ceiling.
 | `product` | Formula |
 |---|---|
 | `"image"` | `round(variations * 0.03, 4)` |
-| `"understanding"` | `round(variations * (prompt_tokens / 1000000 * 0.50 + max_tokens / 1000000 * 3.00), 4)`; missing token counts are zero |
 | `"audio"` | `round(variations * max(duration_seconds, 10) * 0.0031, 2)` — **floor of 10 seconds per variation** |
 | `"video"` | `round(variations * 0.07, 2)`; regular 2.5 and Flash use `0.35` per task, selected by registry family; a registered model-specific override wins |
 | (any other) | `0.0` |
@@ -346,11 +375,8 @@ random_value=random.random)`:
 
 - **Only `ProviderError` is retried**, and only when `exc.retryable` **and**
   `not exc.ambiguous_completion` **and** `attempt < max_attempts` **and**
-  (`policy.retry_timeouts` or `exc.code != "TIMEOUT"`). `seed_understand`
-  and `seed_audio_understand` use `retry_timeouts=False`, which also excludes
-  demonstrably pre-dispatch connect/pool timeouts. A chat timeout after possible
-  dispatch is ambiguous/nonretryable because completion may already be billed.
-  Eligible 429 rejections can be retried. Chat/mutation 5xx responses remain
+  (`policy.retry_timeouts` or `exc.code != "TIMEOUT"`).
+  Eligible 429 rejections can be retried. Mutation 5xx responses remain
   `retryable=true` in normalized HTTP errors but also have
   `ambiguous_completion=True`, so they are never automatically retried.
   Reconcile via the task ID / request ID instead of risking duplicate billing.
@@ -365,8 +391,7 @@ random_value=random.random)`:
 - Each retry increments `ark_mcp_retry_attempts_total{provider, operation}`.
 
 Mutation read/write/protocol transport failures with uncertain acceptance
-and malformed 2xx responses are ambiguous/nonretryable, including understanding
-completions and Files API uploads. Demonstrably pre-dispatch connection/pool
+and malformed 2xx responses are ambiguous/nonretryable. Demonstrably pre-dispatch connection/pool
 failures remain eligible for bounded retries subject to the timeout policy above.
 Diagnostics omit raw exceptions, credentials and credential-bearing URLs.
 Keep safe request IDs for reconciliation. Provider retries do not supply
@@ -379,10 +404,14 @@ A single async context manager ties the above together:
 
 ```python
 async with billed_provider_slot(ctx, provider=..., product=..., estimated_cost_usd=...):
-    # 1. reserve budget  (raises BudgetExceededError before dispatch if over)
-    # 2. acquire provider + principal semaphores
-    # 3. (caller runs the provider call, typically via call_with_retry)
+    result = await provider_call()
 ```
+
+The context manager acquires the owner slot, then provider slot, and only
+then reserves budget. The caller runs the provider operation after reservation.
+Each gateway marks dispatch semantically; a read-only status POST is not a
+mutation. Seedance/OmniHuman capture safe accepted IDs synchronously inside
+the slot, before the next await or budget-finalization step.
 
 Outcome handling (commit/release are best-effort finalization attempts):
 
@@ -392,8 +421,9 @@ Outcome handling (commit/release are best-effort finalization attempts):
 | `ProviderError` with `ambiguous_completion` | `commit` (treats as billable — may have succeeded) |
 | `ProviderError` with `code="TIMEOUT"` (any, including retryable read timeouts) | `commit` (a timed-out completion may still have consumed billable tokens) |
 | Other `ProviderError` | `release` |
-| Cancellation after the provider slot was acquired (call dispatched) | `commit` (outcome unknown) |
-| Cancellation while still waiting for a limiter slot | `release` |
+| Cancellation after reservation and handler entry | `commit` conservatively; this alone does not prove dispatch |
+| Cancellation while still waiting for a limiter slot | No budget reservation exists |
+| Cancellation during reservation | Drain reservation, then release any known reservation best-effort; never dispatch |
 | Any other exception | `release` |
 
 Reservation failures still fail closed before provider dispatch. After reservation,
@@ -403,9 +433,10 @@ They do not replace the provider result or original error, raise `AcceptedTaskEr
 or add a variation failure. A failed commit/release leaves the allowance
 conservatively reserved and counted against the daily limit.
 
-The original exception is re-raised on error or cancellation. Cancellation
-finalization is shielded but best effort; it does not guarantee that no
-`reserved` rows remain.
+The original exception is re-raised on error or cancellation. Reservation
+and finalization tasks drain through repeated cancellation. Cleanup is best
+effort and may exceed the cooperative deadline; it does not guarantee that
+no `reserved` rows remain. Admission stays held during finalization and SDK drain.
 
 Seedance proceeds to the shared `record_accepted_task` helper after budget
 finalization, even if finalization logged a failure. OmniHuman uses the same
@@ -457,7 +488,6 @@ change provider state or consume billable inference:
 |---|---|---|---|
 | Mutation | Seedance/OmniHuman create, cancel, delete; Seedream/Seed Audio generate | `retryable=False`, `ambiguous_completion=True` | No — reconcile by task/request ID |
 | Read-only poll | Seedance `get_task`/`list_tasks`, OmniHuman status | `retryable=True`, `ambiguous_completion=False` | Yes |
-| Chat completion | `seed_understand`, `seed_audio_understand` | `retryable=False`, `ambiguous_completion=True` | No; completion may already be billed |
 
 ## Parallel variations (`tools/_parallel.py`)
 
@@ -481,8 +511,9 @@ Re-exports `DEFAULT_MAX_CONCURRENT = 5`.
   (Seedance variations).
 - **`run_variation_batch(count, factory, *, batch_deadline,
   max_concurrent=5)`** — local `asyncio.Semaphore(max_concurrent)` around
-  `factory(idx, progress)`. There is no per-variation timeout; slot waiting
-  never counts. At `batch_deadline`, unfinished variations are cancelled and
+  `factory(idx, progress)`. There is no separate per-variation timer, but
+  provider admission is bounded and the whole-tool deadline includes slot
+  waiting. At `batch_deadline`, unfinished variations are cancelled and
   classified by `VariationProgress.phase`: `queued` → `QUEUE_TIMEOUT`
   (retryable), `generating`/`persisting` → `TIMEOUT` (ambiguous), or the
   factory's recorded `partial` result (an unpersisted provider-URL artifact)
@@ -498,27 +529,26 @@ both. Budget-finalization log events do not add failures to these counters.
 See [api-reference.md](api-reference.md) for `VariationResult` /
 `VariationSummary` / `VariationError` field tables.
 
+The outer cooperative tool deadline can expire before that batch safety net.
+It returns text-only `TOOL_DEADLINE_EXCEEDED` with uncertainty and known safe
+accepted IDs, not a guaranteed complete variation summary. Cleanup can exceed
+the deadline. Preserve partial acceptance; never blindly rerun the batch.
 
-## MCP task execution claims
 
-This section is stdio-only. HTTP does not register ordinary jobs or the native
-task extension. It also rejects explicit per-call `io.modelcontextprotocol/tasks`
-opt-in, including discovery, before provider dispatch, task-snapshot
-capture/save or queue creation. Calls must omit task opt-in.
+## Direct execution state
 
-`TaskOwnershipStore.claim(provider, task_id, owner) -> bool` uses an atomic
-`INSERT ... ON CONFLICT DO NOTHING`, returning true only for the first claim.
-The `mcp` namespace binds protocol tasks to their application owners; the
-`mcp-execution` namespace records the first entry into a required-task handler.
-Neither namespace changes provider task IDs or provider ownership checks.
+`execution.py` maintains ephemeral ContextVar state shared with variation
+children: monotonic deadline, possible-mutation flag and bounded safe accepted
+receipts. It is invalidated when the call exits. No credentials, payloads,
+snapshots, durable execution claims or MCP job records are created.
 
-Execution claims are not released on failure or cancellation: provider work may
-already have been accepted. A restarted worker encountering an existing claim
-fails before entering the handler and asks for reconciliation. Foreground status
-checks and optional background persistence remain repeatable. Claims are stored
-in the same SQLite file, share its locking/transaction behavior, and follow the
-existing ownership retention policy. The queue, database and configured snapshot
-encryption key must stay together across restarts.
+`before_provider_request(side_effect=...)` checks expiry before dispatch;
+`record_accepted_receipt` retains safe IDs. `runtime.capture_accepted_task`
+validates IDs before capture, including checks against startup/request secrets.
+After a handler suppresses cancellation, the wrapper rechecks expiry.
+Neither transport accepts explicit `io.modelcontextprotocol/tasks` opt-in.
+Provider ownership and the HTTP journal are separate durable state and remain
+intact. See [Direct Execution](../specs/SPEC_DIRECT_EXECUTION.md).
 
 ## HTTP Readiness and Recovery
 
@@ -527,10 +557,66 @@ probe providers. `/metrics` and configuration-detail resources are unavailable
 on public HTTP. Positive state admission reduces capacity failures before
 dispatch, but post-acceptance record failures remain ambiguous.
 
-Keys are request-only, not persisted. Files API cleanup uses the same live
-ModelArk key; remote temporary-file expiry is distinct from output URL expiry.
+VKE Caddy exposes `/mcp` and `/health` only; `/ready` remains an internal
+loopback exec probe. `MCP_METRICS_PORT` defaults to `0` (disabled) and otherwise
+binds only `127.0.0.1` on ports 1024-65535 for the HTTP runtime. Stdio never
+starts this listener. The listener drains its thread on shutdown and is not
+registered on the main app. Use [authorized private access](observability.md#metrics-endpoint),
+never a public Service.
+
+Keys are request-only, not persisted.
 HTTP asynchronous-create idempotency is the first slice described above.
 Synchronous product replay and complete crash recovery remain deferred,
 including the acceptance-to-first-ID-write crash gap and unknown-task
 reconciliation. PostgreSQL/Redis are future scaling choices, not initial
 requirements. Multi-replica support and public-launch readiness are not claimed.
+
+## Read-Only State Inspection
+
+The standalone stdlib-only `scripts/inspect_runtime_state.py` accepts explicit
+`--database` (alias `--path`), `--capacity` and optional `--timeout-seconds`.
+It does not import Settings, load `.env`, start the app or trigger recovery.
+Run against an authorized database path or a consistent isolated backup:
+
+```bash
+python scripts/inspect_runtime_state.py --help
+python scripts/inspect_runtime_state.py \
+  --database /absolute/private/runtime.sqlite3 --capacity 100000 --timeout-seconds 2
+```
+
+The container includes the same standalone command at
+`/app/scripts/inspect_runtime_state.py`. After deployment, an authorized
+operator with private API connectivity and pod exec permission can run:
+
+```bash
+kubectl -n seed-mcp exec seed-mcp-seed-mcp-0 -c app -- \
+  /app/.venv/bin/python /app/scripts/inspect_runtime_state.py \
+  --database /app/.artifacts/runtime.sqlite3 --capacity 100000 --timeout-seconds 2
+```
+
+The example assumes namespace/release `seed-mcp`. Select the actual namespace,
+pod and configured capacity deliberately. No shell, environment dump, Secret
+read or extra writer is required.
+
+Supply the deployment's actual `STATE_MAX_RECORDS`, not a guessed capacity.
+The timeout defaults to 2 seconds and must be finite, positive and at most 30.
+Missing/corrupt/schema-mismatched databases fail with fixed JSON errors and
+are never created. Queries use SQLite read-only/query-only mode, a bounded
+busy/query timeout and one consistent transaction.
+
+Output contains only `schema_version`, `capacity`, table row counts and
+capacity ratios, `submission_states`, `budget_states`, and
+`oldest_unresolved_age_seconds` (null when none). Age is measured from the
+oldest unresolved claim's creation, not when its state changed. Capacity
+ratios apply independently to task ownership, budget reservations and HTTP
+submission claims. No IDs, tenant/owner hashes, receipts, prompts, URLs,
+credentials or raw errors are emitted. This does not report in-flight worker
+counts; there is no MCP worker queue.
+
+At high utilization, review claim growth, disk headroom and future row-cap
+requirements before admitting new work. Claims never auto-prune. Raising a
+cap needs a reviewed capacity decision; adding nodes does not raise SQLite
+capacity or permit replicas. Never reset state, delete claims, requeue,
+mark running submissions unresolved or blindly restore an older backup.
+Unresolved work requires provider-side reconciliation, not database edits.
+See [backup and recovery](byteplus-terraform.md#backup-upgrade-and-recovery).

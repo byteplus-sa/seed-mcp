@@ -133,28 +133,12 @@ class TestBuiltinEstimates:
     ) -> None:
         assert image_cost_estimate(model_id, count) == (round(count * COST_PER_IMAGE, 4), "builtin")
 
-    @pytest.mark.parametrize("product", ["image", "audio", "video", "understanding"])
+    @pytest.mark.parametrize("product", ["image", "audio", "video"])
     @pytest.mark.parametrize("model_id", [None, "ep-custom-model"])
     def test_estimates_never_claim_account_pricing(
         self, product: str, model_id: str | None
     ) -> None:
         assert price_source(product, model_id) == "builtin"
-
-    @pytest.mark.parametrize("model_id", [None, "dola-seed-2-1-turbo-260628", "ep-custom-model"])
-    @pytest.mark.parametrize("variations", [0, 1, 5])
-    def test_understanding_estimate_uses_static_token_rates(
-        self, model_id: str | None, variations: int
-    ) -> None:
-        assert estimate_cost(
-            product="understanding",
-            variations=variations,
-            prompt_tokens=1_000_000,
-            max_tokens=1_000_000,
-            model_id=model_id,
-        ) == round(variations * (0.50 + 3.00), 4)
-
-    def test_understanding_without_token_counts_estimates_zero(self) -> None:
-        assert estimate_cost(product="understanding", variations=1) == 0.0
 
 
 class TestCostConstants:

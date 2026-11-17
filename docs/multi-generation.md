@@ -3,10 +3,8 @@
 The server supports two mechanisms for producing multiple outputs from one
 tool call: **native provider batch** (one API call, many outputs) and
 **client-side parallel variation** (many independent API calls with bounded
-concurrency). On stdio a client submits through `ark_job_submit`, receives
-an Ark job ID, and polls `ark_job_get`; a task-capable client may instead
-receive an MCP task ID and poll `tasks/get`. Either terminal response contains
-the same typed output, referred to below as the **background result**.
+concurrency). Both transports await ordinary direct calls and return the
+original typed tool result. Neither exposes MCP jobs or native tasks.
 
 HTTP uses direct foreground calls and returns that tool result directly.
 It has no jobs/native tasks/storage/artifact tools/resources. HTTP persistence
@@ -86,11 +84,20 @@ values remain `null`. The top-level `usage` remains single-call-only.
 
 ### Deadlines and failure phases
 
-Individual variations have **no wall-clock timeout** of their own. Every phase
-is already bounded where it happens (httpx timeouts, the retry policy, and the
-artifact downloader's per-attempt timeout), and time spent waiting for a
-concurrency slot never counts against a variation. A variation queued behind
-others therefore cannot time out just because it waited.
+Individual variations have no separate wall-clock timer, but the direct
+call's cooperative deadline covers all phases, including slot waiting.
+`MCP_TOOL_TIMEOUT_SECONDS=600.0` (finite positive, max 3600) starts at wrapper
+entry. Provider admission separately bounds owner-first/provider waiting to
+`MCP_ADMISSION_TIMEOUT_SECONDS=2.0` (finite positive, max 30), before budget
+reservation. `ADMISSION_TIMEOUT` means only this attempt did not dispatch;
+other variations may already be accepted.
+
+Whole-call expiry returns text-only `TOOL_DEADLINE_EXCEEDED`, with mutation
+uncertainty and known safe accepted IDs, rather than a guaranteed complete
+variation summary. Use client timeout 660 seconds. SDK/SQLite cleanup can
+exceed the deadline; neither it nor client cancellation cancels provider work.
+Never blindly resubmit a partial batch. HTTP one-key-per-batch journal recovery
+replays only complete saved success; unresolved attempts never resume.
 
 One batch deadline is a safety net for a stuck batch:
 
@@ -140,7 +147,7 @@ directory ending in `/`, and every persisted variation is written there as
 Seedance variations are fundamentally different from Seedream/Seed Audio
 because each variation creates a **separate provider task**. They are not a
 separate tool: call `seedance_create_task` with `variations` (1-5) and
-optionally `variation_prompts` (exactly one per variation). The background
+optionally `variation_prompts` (exactly one per variation). The direct
 result lists every variation in `tasks` (`index`, `task_id`, `request_id`,
 `error`). `task_id` and `error` can coexist after an accepted task's
 ownership-record failure: `submitted` counts known accepted IDs, while

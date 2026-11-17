@@ -27,7 +27,7 @@ from ark_mcp.tools.seedream_generate_image import (
     seedream_generate_image,
 )
 from tests.fixtures.fake_context import FakeContext
-from tests.integration.test_seedream55 import _image_job
+from tests.integration.test_seedream55 import _image_call
 
 ARK_BASE = "https://ark.test.example.com/api/v3"
 
@@ -48,13 +48,15 @@ async def test_base64_without_persistence_rejected_before_submission(
     with respx.mock(assert_all_called=False) as router:
         async with Client(create_server(get_settings())) as client:
             with pytest.raises(ToolError, match=r"b64_json.*persist"):
-                await _image_job(
-                    client,
+                await client.call_tool(
+                    "seedream_generate_image",
                     {
-                        "prompt": "test",
-                        "response_format": "b64_json",
-                        "persist": False,
-                        "dry_run": dry_run,
+                        "input": {
+                            "prompt": "test",
+                            "response_format": "b64_json",
+                            "persist": False,
+                            "dry_run": dry_run,
+                        }
                     },
                 )
     assert not router.calls
@@ -454,7 +456,7 @@ async def test_inspection_detects_format_and_size_disagreement(fake_ctx: FakeCon
 
 async def test_dry_run_reports_fallback_price_source(test_env: None) -> None:
     async with Client(create_server(get_settings())) as client:
-        result = await _image_job(client, {"prompt": "test", "dry_run": True})
+        result = await _image_call(client, {"prompt": "test", "dry_run": True})
     assert result["structured_content"]["preview"]["price_source"] == "builtin"
 
 
@@ -472,7 +474,7 @@ async def test_55_edit_jobs_accept_point_and_bbox_with_real_reference(
             )
         )
         async with Client(create_server(get_settings())) as client:
-            result = await _image_job(
+            result = await _image_call(
                 client,
                 {
                     "prompt": "Change red to blue",

@@ -36,7 +36,7 @@ test("first use leads with a generation prompt rather than tool orchestration", 
   assert.match(content, /may incur charges/i);
   assert.match(content, /Do not submit a new generation request/);
   assert.match(content, /preview.*not.*generated image/i);
-  assert.match(content, /integration-guide\.md#background-execution/);
+  assert.match(content, /integration-guide\.md#direct-execution/);
   for (const anchor of [
     "discover-before-spending",
     "preview-an-image-request",

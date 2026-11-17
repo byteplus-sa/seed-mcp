@@ -1,40 +1,57 @@
 from __future__ import annotations
 
-import asyncio
+import base64
 import sys
 import textwrap
-from time import perf_counter
 
 import pytest
 from fastmcp import Client
 from fastmcp.client.transports import StdioTransport
-from fastmcp_tasks import call_tool_task
 
 
 def _mock_server_transport(tmp_path) -> StdioTransport:
     script = tmp_path / "server.py"
     script.write_text(
         textwrap.dedent("""
-        import asyncio
+        import base64
+        import httpx
+        import pytest_socket
         from ark_mcp.config.env import Settings
-        from ark_mcp.providers.modelark.schemas import ChatCompletionProviderResponse
-        from ark_mcp.providers.modelark.understanding import SeedUnderstandingService
+        from ark_mcp.providers.base import BaseHttpGateway
         from ark_mcp.server import create_server
 
-        async def delayed_generate(self, request):
-            await asyncio.sleep(2)
-            return (
-                ChatCompletionProviderResponse.model_validate({
-                    "id": "stdio-test",
-                    "choices": [{"index": 0, "message": {"role": "assistant", "content": "stdio completed"}, "finish_reason": "stop"}],
-                    "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2}
-                }),
-                None,
-            )
+        pytest_socket.disable_socket(allow_unix_socket=True)
+        calls = []
 
-        SeedUnderstandingService.generate = delayed_generate
-        settings = Settings(_env_file=None, BYTEPLUS_MODELARK_API_KEY="test-key", artifact_dir="ARTIFACT_PATH")
+        def respond(request):
+            assert request.method == "POST"
+            assert request.url.path == "/api/v3/images/generations"
+            assert request.headers["Authorization"] == "Bearer test-key"
+            calls.append(request)
+            return httpx.Response(200, json={
+                "data": [{
+                    "b64_json": base64.b64encode(b"stdio-image").decode(),
+                    "output_format": "png",
+                }]
+            })
+
+        async def ensure_client(self):
+            if self._client is None or self._client.is_closed:
+                self._client = httpx.AsyncClient(
+                    transport=httpx.MockTransport(respond), trust_env=False
+                )
+            return self._client
+
+        BaseHttpGateway._ensure_client = ensure_client
+        settings = Settings(
+            _env_file=None,
+            BYTEPLUS_MODELARK_API_KEY="test-key",
+            MCP_TRANSPORT="stdio",
+            MCP_AUTH_MODE="local",
+            artifact_dir="ARTIFACT_PATH",
+        )
         create_server(settings).run(transport="stdio", show_banner=False)
+        assert len(calls) == 1
     """).replace("ARTIFACT_PATH", str(tmp_path / "artifacts"))
     )
     transport = StdioTransport(
@@ -46,43 +63,23 @@ def _mock_server_transport(tmp_path) -> StdioTransport:
     return transport
 
 
-@pytest.mark.asyncio
-async def test_stdio_background_task_completes_with_mocked_provider(tmp_path):
+@pytest.mark.parametrize("mode", ["modern", "legacy"])
+async def test_stdio_direct_call_persists_and_reads_media_with_child_network_blocked(
+    tmp_path, mode
+):
     transport = _mock_server_transport(tmp_path)
-    async with Client(transport) as client:
-        task = await call_tool_task(client, "seed_understand", {"input": {"prompt": "Test"}})
-        result = await asyncio.wait_for(task.result(), timeout=20)
-        assert not result.is_error
-        assert result.structured_content["choices"][0]["content"] == "stdio completed"
-
-
-@pytest.mark.asyncio
-async def test_stdio_legacy_client_completes_background_job(tmp_path):
-    transport = _mock_server_transport(tmp_path)
-    async with Client(transport, mode="legacy") as client:
-        started = perf_counter()
-        submitted = await client.call_tool(
-            "ark_job_submit",
-            {
-                "input": {
-                    "tool_name": "seed_understand",
-                    "arguments": {"input": {"prompt": "Test"}},
-                }
-            },
+    options = {"mode": "legacy"} if mode == "legacy" else {}
+    async with Client(transport, **options) as client:
+        tools = await client.list_tools()
+        assert all(tool.execution is None for tool in tools)
+        assert not any(tool.name.startswith("ark_job_") for tool in tools)
+        result = await client.call_tool(
+            "seedream_generate_image",
+            {"input": {"prompt": "A blue square", "persist": True}},
+            timeout=20,
         )
-        assert perf_counter() - started < 1.5
-        job_id = submitted.structured_content["job_id"]
-        async with asyncio.timeout(20):
-            while True:
-                result = await client.call_tool(
-                    "ark_job_get",
-                    {"input": {"job_id": job_id}},
-                )
-                if result.structured_content["status"] != "working":
-                    break
-                await asyncio.sleep(0.01)
-
-    assert result.structured_content["status"] == "completed"
-    target_result = result.structured_content["result"]
-    assert target_result["is_error"] is False
-    assert target_result["structured_content"]["choices"][0]["content"] == "stdio completed"
+        assert not result.is_error
+        artifact = result.structured_content["artifacts"][0]
+        assert artifact["uri"].startswith("seed-media://artifacts/")
+        resource = await client.read_resource(artifact["uri"])
+        assert base64.b64decode(resource[0].blob) == b"stdio-image"

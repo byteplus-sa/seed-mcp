@@ -30,8 +30,6 @@ def test_env(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
     # asserts the shipped default.
     monkeypatch.setenv("SEEDREAM_PROMPT_OPTIMIZATION_MODE", "standard")
     monkeypatch.setenv("SEEDANCE_DEFAULT_MODEL", "dreamina-seedance-2-0-260128")
-    monkeypatch.setenv("SEED_UNDERSTANDING_DEFAULT_MODEL", "dola-seed-2-1-turbo-260628")
-    monkeypatch.setenv("SEED_AUDIO_UNDERSTANDING_MODEL", "seed-2-0-lite-260428")
     monkeypatch.setenv("ARTIFACT_DIR", str(tmp_path / ".artifacts"))
     monkeypatch.setenv("ARTIFACT_BACKEND", "filesystem")
     monkeypatch.setenv("TOS_ACCESS_KEY", "ak-test-tos")

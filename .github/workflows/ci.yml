@@ -23,6 +23,10 @@ concurrency:
 env:
   PYTHON_VERSION: "3.12"
   UV_VERSION: "0.11.26"
+  HELM_VERSION: "4.3.2"
+  HELM_SHA256: "d1c0278d46beab79582d7e50f5b3dc206944ba8e577cde618513fd07daa53983" # pragma: allowlist secret
+  CADDY_VERSION: "2.11.9"
+  CADDY_SHA256: "5b8cb7faf8726a2028ad96a66e54e6e81e8f361bc6175e5d22bbd997cc5177fb" # pragma: allowlist secret
 
 jobs:
   quality:
@@ -47,16 +51,35 @@ jobs:
           uv sync --locked
           uv run python scripts/release_checks.py
 
+      - name: Install checksum-verified validation tools
+        run: |
+          curl --fail --silent --show-error --location \
+            --output "$RUNNER_TEMP/helm.tar.gz" \
+            "https://get.helm.sh/helm-v${HELM_VERSION}-linux-amd64.tar.gz"
+          printf '%s  %s\n' "$HELM_SHA256" "$RUNNER_TEMP/helm.tar.gz" | sha256sum --check
+          tar -xzf "$RUNNER_TEMP/helm.tar.gz" -C "$RUNNER_TEMP"
+          printf '%s\n' "$RUNNER_TEMP/linux-amd64" >> "$GITHUB_PATH"
+          curl --fail --silent --show-error --location \
+            --output "$RUNNER_TEMP/caddy.tar.gz" \
+            "https://github.com/caddyserver/caddy/releases/download/v${CADDY_VERSION}/caddy_${CADDY_VERSION}_linux_amd64.tar.gz"
+          printf '%s  %s\n' "$CADDY_SHA256" "$RUNNER_TEMP/caddy.tar.gz" | sha256sum --check
+          mkdir "$RUNNER_TEMP/caddy-bin"
+          tar -xzf "$RUNNER_TEMP/caddy.tar.gz" -C "$RUNNER_TEMP/caddy-bin" caddy
+          printf 'CADDY_BIN=%s/caddy-bin/caddy\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+
       - name: Lint and format check
         run: |
           uv run ruff check src tests scripts
           uv run ruff format --check src tests scripts
 
       - name: Type check
-        run: uv run mypy src
+        run: make typecheck
 
       - name: Offline tests with coverage
         run: uv run pytest --disable-socket --allow-unix-socket --cov=ark_mcp --cov-report=term-missing
+
+      - name: Mock-provider HTTPS acceptance and bounded load
+        run: uv run python scripts/hosted_acceptance.py --caddy-bin "$CADDY_BIN"
 
       - name: Static security scan
         run: uv run bandit -q -r src/ark_mcp
@@ -65,7 +88,7 @@ jobs:
         run: bash scripts/audit_dependencies.sh
 
       - name: Secret scan
-        run: uv run detect-secrets scan --baseline .secrets.baseline
+        run: git ls-files -z | xargs -0 uv run detect-secrets-hook --no-verify --baseline .secrets.baseline
 
       - name: Build wheel and source distribution
         run: uv build
@@ -110,7 +133,7 @@ jobs:
                 --data '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}' \
                 http://127.0.0.1:3000/mcp)"
               test "$status" = "200"
-              jq -e '.result.tools | length == 9' /tmp/seed-mcp-discovery.json
+              jq -e '.result.tools | length == 7' /tmp/seed-mcp-discovery.json
               curl --fail --silent --request POST \
                 --header 'Content-Type: application/json' \
                 --header 'Accept: application/json, text/event-stream' \

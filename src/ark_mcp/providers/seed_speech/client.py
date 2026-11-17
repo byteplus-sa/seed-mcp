@@ -66,7 +66,7 @@ class SeedSpeechGateway(BaseHttpGateway):
         headers = self._headers()
         if request_id:
             headers["X-Api-Request-Id"] = request_id
-        return await self._request("POST", path, json=json_body, headers=headers)
+        return await self._request("POST", path, side_effect=True, json=json_body, headers=headers)
 
     @staticmethod
     def extract_request_id(response: httpx.Response) -> str | None:

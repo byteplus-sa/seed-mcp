@@ -1,11 +1,11 @@
 # Create-tool reference
 
-Per-product behaviour of the create tools that the tool schemas do not spell out: flows, cross-field rules, gotchas, and recovery. Parameters, ranges and output fields are in each tool's schema (also [API reference](https://byteplus-sa.github.io/ark-mcp/api-reference/)); per-model limits are in [models-and-limits.md](models-and-limits.md); polling, persistence and artifact handling are in [polling-and-artifacts.md](polling-and-artifacts.md); background-job mechanics are in [workflows.md](workflows.md).
+Per-product behaviour of the create tools that the tool schemas do not spell out: flows, cross-field rules, gotchas, and recovery. Parameters, ranges and output fields are in each tool's schema (also [API reference](https://byteplus-sa.github.io/ark-mcp/api-reference/)); per-model limits are in [models-and-limits.md](models-and-limits.md); polling, persistence and artifact handling are in [polling-and-artifacts.md](polling-and-artifacts.md); direct execution is in [workflows.md](workflows.md).
 
 **Choose transport first:** HTTP calls provider tools directly in the foreground,
 with selected provider key plus client secret headers. It has no jobs/native
-tasks/storage/artifact tools/resources. Stdio uses `ark_job_submit` (or native
-augmentation); job and persistence guidance below is local-only.
+tasks/storage/artifact tools/resources. Stdio also calls directly;
+persistence guidance below is local-only.
 **Never resubmit a create tool to poll or bypass an ambiguous failure.**
 Take exact model IDs from `ark_list_models`.
 
@@ -37,10 +37,10 @@ See [HTTP recovery guidance](environment.md#delivery-and-retries).
 - **Partial failure is normal.** Each variation is independent; 4 of 5 can succeed and the call still returns 4 results plus 1 error. Read every `error` before concluding.
   On HTTP one key covers the whole Seedance batch; partial results are not
   replayed as success and missing variations are never automatically resumed.
-- **No per-variation timeout.** Queue wait never counts; one batch deadline bounds the call. A deadline or storage failure sets `error.phase`: `queued` (`QUEUE_TIMEOUT`, safe to retry), `generating` (may have completed, **do not retry blindly**), `persisting` (billed output not stored; the provider URL may still be in the result).
+- **No separate per-variation timer.** The whole-call cooperative deadline includes all waiting. Provider admission is separately bounded. A batch deadline or storage failure can set `error.phase`: `queued` (`QUEUE_TIMEOUT`, unstarted), `generating` (may have completed, **do not retry blindly**), `persisting` (billed output not stored). Whole-tool expiry instead returns text-only `TOOL_DEADLINE_EXCEEDED` with safe known IDs; reconcile partial acceptance.
 - **`variation_prompts`** must have exactly `variations` entries and replaces `prompt` (and satisfies "prompt required").
 - **Local export:** image and audio variations need an `output_path` directory ending in `/`. Video variations are polled together with **one** `gen_task_get` call over all non-null `task_id`s.
-- **`dry_run: true`** (Seedance and Seedream only) runs local validation and returns `preview` (provider request bodies with media URLs reduced to scheme and host, Base64 reduced to its size) plus `estimated_cost_usd`. **Nothing is submitted or billed**; the cost is a built-in estimate, not account billing or a provider quote. It does not check native asset authorization. Poll `ark_job_get` for the preview. Remove `dry_run` to run for real.
+- **`dry_run: true`** (Seedance and Seedream only) runs local validation and directly returns `preview` (provider request bodies with media URLs reduced to scheme and host, Base64 reduced to its size) plus `estimated_cost_usd`. **Nothing is submitted or billed**; the cost is a built-in estimate, not account billing or a provider quote. It does not check native asset authorization. Remove `dry_run` only for an approved paid operation.
 - **Runtime validation reports everything at once.** Per-model limits are checked from the capability registry before any provider call, and all violations come back in one error ending with `Call ark_list_models(kind=...) for per-model limits.` Fix them together.
 
 ## Seedance
@@ -65,7 +65,7 @@ Family limits (resolutions, durations, reference counts, Draft final resolution)
 ### Inputs and media rules
 
 - **At least one of `prompt`, `images`, `videos`, `audios`** is required (except with `draft_task_id`). Text-only is valid text-to-video; audio-only works on regular 2.5 and Flash.
-- **Media is URL-only for video.** Every video reference must be an HTTPS URL or `asset://<asset_id>`. Images and audio also accept inline Base64 (size- and MIME-checked), but prefer URLs; local files go through `media_upload` first ([understanding-media-assets.md](understanding-media-assets.md)).
+- **Media is URL-only for video.** Every video reference must be an HTTPS URL or `asset://<asset_id>`. Images and audio also accept inline Base64 (size- and MIME-checked), but prefer URLs; local files go through `media_upload` first ([media-assets.md](media-assets.md)).
 - **Private and link-local hosts are rejected** (SSRF policy); the URL must be publicly fetchable by the provider while the task is queued.
 - **`asset://<asset_id>`** passes an existing authorized provider asset natively to Seedance with the ModelArk Bearer key. Establish rights, consent and usability outside this server. The server does not create, resolve or preflight assets; dry runs validate syntax and request limits only.
 - **Image roles:** `first_frame`, `last_frame`, `reference_image` (default for bare URLs). Videos and audios have a fixed role.
@@ -144,8 +144,7 @@ for creation and promotion; recover each receipt with its original arguments/key
 Needs local `BYTEPLUS_MODELARK_API_KEY` or HTTP `X-ModelArk-Api-Key` plus the
 client secret. **`seedream_generate_image` is the only Seedream tool**:
 text-to-image, image-to-image, reference editing, point/box edits, provider
-batches (`max_images`), parallel `variations`, and dry runs. On stdio, a
-foreground direct call is rejected; use `ark_job_submit`. HTTP calls directly.
+batches (`max_images`), parallel `variations`, and dry runs. Both transports call directly.
 
 ### Prompt and edit rules
 
@@ -227,8 +226,8 @@ The following example selects Pro, which must be bound by the operator:
 ## Seed Audio
 
 Needs a Seed Speech key, local configuration or HTTP `X-Seed-Speech-Api-Key`.
-`seed_audio_generate` produces a full-scene clip from text. Stdio uses jobs;
-HTTP calls directly with persistence false. Default `persist=false` is global;
+`seed_audio_generate` produces a full-scene clip from text. Both transports call
+directly; HTTP requires persistence false. Default `persist=false` is global;
 explicit local true retains outputs. URLs expire after 2 hours.
 Missing/unusable URL-only output is a nonretryable per-item
 `NO_DELIVERABLE_OUTPUT`, not an empty success or regeneration trigger.

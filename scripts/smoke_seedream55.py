@@ -3,7 +3,7 @@
 Example: uv run python scripts/smoke_seedream55.py --execute --confirm-cost 0.20
 The USD confirmation caps the aggregate estimate, not the eventual provider bill.
 All dry runs finish before any paid case. No submission is retried.
-See specs/SPEC_BACKGROUND_JOBS.md and docs/models.md for the current contracts.
+See specs/SPEC_DIRECT_EXECUTION.md and docs/models.md for the contracts.
 """
 
 from __future__ import annotations
@@ -18,7 +18,6 @@ import os
 import re
 import sys
 import tempfile
-import time
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
@@ -26,7 +25,7 @@ from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
+    from collections.abc import Sequence
 
     from fastmcp import Client
 
@@ -40,12 +39,11 @@ DIMENSIONS = (1024, 1024)
 
 
 class SmokeFailure(Exception):
-    """Carry only a script-owned error code and an optional validated job handle."""
+    """Carry only a script-owned error code."""
 
-    def __init__(self, code: str, *, job_id: str | None = None) -> None:
+    def __init__(self, code: str) -> None:
         super().__init__(code)
         self.code = code
-        self.job_id = job_id
 
 
 @dataclass(frozen=True)
@@ -81,14 +79,7 @@ def parser() -> argparse.ArgumentParser:
         default=REPOSITORY / ".artifacts",
         help="Safe local output root (default .artifacts); a fresh run subdirectory is created.",
     )
-    result.add_argument("--timeout", type=float, default=300, help="Seconds per job, 0-1800.")
-    result.add_argument(
-        "--poll-interval",
-        type=float,
-        default=2,
-        help="Minimum polling interval in seconds, 0-60; provider recommendations are honored.",
-    )
-    result.add_argument("--max-polls", type=int, default=150, help="Poll cap per job, 1-900.")
+    result.add_argument("--timeout", type=float, default=300, help="Seconds per call, 0-1800.")
     return result
 
 
@@ -228,88 +219,30 @@ def build_cases(
     return cases
 
 
-async def run_job(
+async def run_generation(
     client: Client[Any],
     arguments: dict[str, Any],
     *,
     timeout: float,
-    interval: float,
-    max_polls: int,
-    on_accept: Callable[[str], None] | None = None,
 ) -> dict[str, Any]:
-    """Submit once, journal the handle, then poll within a single monotonic deadline."""
-    from ark_mcp.domain.background_jobs import BackgroundJobAccepted, BackgroundJobSnapshot
-
-    deadline = time.monotonic() + timeout
-    job_id: str | None = None
-
-    async def call(name: str, payload: dict[str, Any]) -> dict[str, Any]:
-        remaining = deadline - time.monotonic()
-        if remaining <= 0:
-            raise SmokeFailure("poll_timeout", job_id=job_id)
-        try:
-            result = await asyncio.wait_for(
-                client.call_tool(name, payload, raise_on_error=False, timeout=remaining),
-                timeout=remaining,
-            )
-        except TimeoutError:
-            raise SmokeFailure(
-                "poll_timeout" if job_id else "submission_unknown", job_id=job_id
-            ) from None
-        except Exception:
-            raise SmokeFailure(
-                "poll_failed" if job_id else "submission_unknown", job_id=job_id
-            ) from None
-        if result.is_error or not isinstance(result.structured_content, dict):
-            raise SmokeFailure("job_tool_error" if job_id else "submission_unknown", job_id=job_id)
-        return dict(result.structured_content)
-
+    """Await one direct call with a bounded client deadline and no retry."""
     try:
-        accepted = BackgroundJobAccepted.model_validate(
-            await call(
-                "ark_job_submit",
-                {
-                    "input": {
-                        "tool_name": "seedream_generate_image",
-                        "arguments": {"input": arguments},
-                    }
-                },
-            )
+        result = await asyncio.wait_for(
+            client.call_tool(
+                "seedream_generate_image",
+                {"input": arguments},
+                raise_on_error=False,
+                timeout=timeout,
+            ),
+            timeout=timeout,
         )
-        job_id = accepted.job_id
-        if on_accept is not None:
-            on_accept(job_id)
-        if accepted.target_tool != "seedream_generate_image":
-            raise SmokeFailure("unexpected_job_target", job_id=job_id)
-        delay = accepted.poll_after_ms / 1000
-        for _ in range(max_polls):
-            remaining = deadline - time.monotonic()
-            wait = max(interval, delay)
-            if wait >= remaining:
-                raise SmokeFailure("poll_timeout", job_id=job_id)
-            await asyncio.sleep(wait)
-            current = BackgroundJobSnapshot.model_validate(
-                await call("ark_job_get", {"input": {"job_id": job_id}})
-            )
-            if current.job_id != job_id:
-                raise SmokeFailure("unexpected_job_handle", job_id=job_id)
-            if current.status == "working":
-                delay = current.poll_after_ms / 1000
-                continue
-            if current.status != "completed":
-                raise SmokeFailure(f"job_{current.status}", job_id=job_id)
-            if current.result is None or current.result.is_error:
-                raise SmokeFailure("target_result_error", job_id=job_id)
-            if current.result.structured_content is None:
-                raise SmokeFailure("missing_structured_result", job_id=job_id)
-            return dict(current.result.structured_content)
-        raise SmokeFailure("poll_limit", job_id=job_id)
-    except SmokeFailure:
-        raise
     except Exception:
-        raise SmokeFailure(
-            "invalid_job_response" if job_id else "submission_unknown", job_id=job_id
-        ) from None
+        raise SmokeFailure("submission_unknown") from None
+    if result.is_error:
+        raise SmokeFailure("target_result_error")
+    if not isinstance(result.structured_content, dict):
+        raise SmokeFailure("missing_structured_result")
+    return dict(result.structured_content)
 
 
 def inspect_image(data: bytes, case: SmokeCase) -> dict[str, Any]:
@@ -458,8 +391,6 @@ async def run_matrix(
     *,
     confirmed_cost: float,
     timeout: float,
-    interval: float,
-    max_polls: int,
 ) -> int:
     """Price all selected cases first; stop the matrix at the first error without retries."""
     report: dict[str, Any] = {
@@ -469,16 +400,15 @@ async def run_matrix(
         "cases": [{"case": case.name, "status": "not_run"} for case in cases],
     }
     write_report(directory, report)
-    options: dict[str, Any] = {"timeout": timeout, "interval": interval, "max_polls": max_polls}
     current: dict[str, Any] | None = None
     try:
         estimates = []
         for case, current in zip(cases, report["cases"], strict=True):
             current["status"] = "preflighting"
-            preview = await run_job(
+            preview = await run_generation(
                 client,
                 case.request.model_dump(mode="json", exclude_none=True) | {"dry_run": True},
-                **options,
+                timeout=timeout,
             )
             if preview.get("dry_run") is not True:
                 raise SmokeFailure("invalid_dry_run_result")
@@ -504,19 +434,11 @@ async def run_matrix(
             raise SmokeFailure("cost_limit_exceeded")
         for case, current in zip(cases, report["cases"], strict=True):
             current["status"] = "submitting"
-
-            def record(
-                job_id: str, entry: dict[str, Any] = current, case_name: str = case.name
-            ) -> None:
-                entry.update(status="working", job_id=job_id)
-                write_report(directory, report)
-                print(f"{case_name}: accepted job {job_id}", flush=True)
-
-            output = await run_job(
+            write_report(directory, report)
+            output = await run_generation(
                 client,
                 case.request.model_dump(mode="json", exclude_none=True) | {"dry_run": False},
-                on_accept=record,
-                **options,
+                timeout=timeout,
             )
             current.update(await verify_output(client, case, output, directory, timeout=timeout))
             current["status"] = "passed"
@@ -527,8 +449,6 @@ async def run_matrix(
         report["error"] = exc.code
         if current is not None:
             current.update(status="failed", error=exc.code)
-            if exc.job_id is not None:
-                current["job_id"] = exc.job_id
         print(f"Stopped: {exc.code}. No automatic resubmission.", file=sys.stderr, flush=True)
         return 1
     except (Exception, asyncio.CancelledError):
@@ -578,21 +498,15 @@ async def execute(args: argparse.Namespace) -> int:
         }
     )
     async with Client(create_server(runtime_settings)) as client:
-        capabilities = await client.call_tool("ark_job_capabilities", {}, timeout=args.timeout)
-        payload = capabilities.structured_content or {}
-        if not any(
-            target.get("tool_name") == "seedream_generate_image"
-            for target in payload.get("targets", [])
-        ):
-            raise SmokeFailure("seedream_background_target_unavailable")
+        tools = await client.list_tools()
+        if not any(tool.name == "seedream_generate_image" for tool in tools):
+            raise SmokeFailure("seedream_tool_unavailable")
         result = await run_matrix(
             client,
             cases,
             run_directory,
             confirmed_cost=args.confirm_cost,
             timeout=args.timeout,
-            interval=args.poll_interval,
-            max_polls=args.max_polls,
         )
     print(f"Report: {run_directory.name}/report.json under --output-dir.")
     return result
@@ -616,11 +530,6 @@ def main(argv: Sequence[str] | None = None) -> int:
             math.isfinite(args.timeout) and 0 < args.timeout <= 1800,
             "--timeout must be 0-1800 seconds",
         ),
-        (
-            math.isfinite(args.poll_interval) and 0 < args.poll_interval <= 60,
-            "--poll-interval must be 0-60 seconds",
-        ),
-        (1 <= args.max_polls <= 900, "--max-polls must be 1-900"),
     ):
         if not valid:
             arguments.error(message)

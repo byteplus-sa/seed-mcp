@@ -1,12 +1,11 @@
 ---
 title: Python Client
-description: Use FastMCP StdioTransport for safe Ark discovery and an opt-in ordinary-job dry run.
+description: Use FastMCP StdioTransport for safe Ark discovery and an opt-in direct dry run.
 ---
 
 Use the checkout's locked FastMCP environment, not an independently upgraded
 client library. This example uses a real subprocess `StdioTransport` and
-ordinary MCP tool calls with `mode="legacy"`, so no native task extension is
-required. It is not a guarantee of compatibility with every future FastMCP
+ordinary MCP tool calls, with no native task opt-in. It is not a guarantee of compatibility with every future FastMCP
 edition.
 
 ## Prerequisites and Scope
@@ -28,18 +27,18 @@ Run the program with the prepared checkout's Python environment, for example:
   run --locked --no-sync python "/absolute/path/to/client_example.py"
 ```
 
-## Discovery and Ordinary Jobs
+## Discovery and Direct Calls
 
-By default, the program only lists tools, calls `ark_list_models`, and calls
-`ark_job_capabilities`. These discovery operations make no provider calls.
+By default, the program only lists tools and calls `ark_list_models`.
+These discovery operations make no provider calls.
 It disables optional readiness probes for this
 example process. The server still initializes its configured local runtime
 state; use an isolated private artifact directory for a standalone preflight
 as described in the [integration index](index.md#verify-without-paid-calls).
 
 The explicit `--dry-run` option additionally submits a **non-billable**
-Seedream request preview through `ark_job_submit`. It requires the Seedream
-target to be enabled. The code always sets `dry_run=True`; it has no paid
+Seedream request preview directly. It requires Seedream to be enabled.
+The code always sets `dry_run=True`; it has no paid
 generation option and never automatically falls back to generation.
 
 ```python
@@ -59,56 +58,29 @@ ENV_FILE = "/absolute/path/to/private/ark-mcp/.env"
 async def call(
     client: Client[StdioTransport], name: str, arguments: dict[str, Any]
 ) -> dict[str, Any]:
-    response = await client.call_tool(name, arguments)
+    response = await client.call_tool(name, arguments, raise_on_error=False)
     if response.is_error or response.structured_content is None:
         raise RuntimeError(f"{name} did not return successful structured output")
     return response.structured_content
 
 
-async def run_dry_run(
-    client: Client[StdioTransport], capabilities: dict[str, Any]
-) -> None:
-    targets = {target["tool_name"] for target in capabilities["targets"]}
-    if "seedream_generate_image" not in targets:
-        raise RuntimeError("Seedream is not enabled; no job was submitted")
+async def run_dry_run(client: Client[StdioTransport], names: set[str]) -> None:
+    if "seedream_generate_image" not in names:
+        raise RuntimeError("Seedream is not enabled; no call was submitted")
 
-    accepted = await call(
+    preview = await call(
         client,
-        "ark_job_submit",
+        "seedream_generate_image",
         {
             "input": {
-                "tool_name": "seedream_generate_image",
-                "arguments": {
-                    "input": {
-                        "prompt": "A ceramic mug on a wooden desk.",
-                        "dry_run": True,
-                    }
-                },
+                "prompt": "A ceramic mug on a wooden desk.",
+                "dry_run": True,
             }
         },
     )
-    job_id = accepted["job_id"]
-    print("Ark job ID:", job_id)
-    delay_ms = accepted["poll_after_ms"]
-
-    async with asyncio.timeout(60):
-        while True:
-            await asyncio.sleep(delay_ms / 1000)
-            snapshot = await call(
-                client, "ark_job_get", {"input": {"job_id": job_id}}
-            )
-            if snapshot["status"] == "working":
-                delay_ms = snapshot["poll_after_ms"]
-                continue
-            if snapshot["status"] != "completed":
-                raise RuntimeError(f"Job {job_id} stopped: {snapshot['status']}")
-            result = snapshot.get("result")
-            if not isinstance(result, dict) or result.get("is_error"):
-                raise RuntimeError(f"Job {job_id} returned a tool error")
-            if not isinstance(result.get("structured_content"), dict):
-                raise RuntimeError(f"Job {job_id} has no structured result")
-            print("Dry run completed; no image was generated.")
-            return
+    if preview.get("preview") is None:
+        raise RuntimeError("Dry run returned no preview")
+    print("Dry run completed; no image was generated.")
 
 
 async def main(dry_run: bool) -> None:
@@ -134,26 +106,17 @@ async def main(dry_run: bool) -> None:
             keep_alive=False,
             log_file=server_stderr,
         )
-        async with Client(transport, mode="legacy", timeout=30) as client:
+        async with Client(transport, timeout=660) as client:
             tools = await client.list_tools()
             models = await call(client, "ark_list_models", {"input": {}})
-            capabilities = await call(client, "ark_job_capabilities", {})
             print("Connected; tool count:", len(tools))
             print("Models:", [model["model_id"] for model in models["models"]])
             print(
                 "Enabled services:",
-                [
-                    service["service"]
-                    for service in models["services"]
-                    if service["enabled"]
-                ],
-            )
-            print(
-                "Job targets:",
-                [target["tool_name"] for target in capabilities["targets"]],
+                [service["service"] for service in models["services"] if service["enabled"]],
             )
             if dry_run:
-                await run_dry_run(client, capabilities)
+                await run_dry_run(client, {tool.name for tool in tools})
 
 
 if __name__ == "__main__":
@@ -164,7 +127,7 @@ if __name__ == "__main__":
         asyncio.run(main(options.dry_run))
     except Exception:
         raise SystemExit(
-            "Connection or job failed. Inspect private local diagnostics; "
+            "Connection or tool failed. Inspect private local diagnostics; "
             "do not share credentials or automatically resubmit."
         ) from None
 ```
@@ -172,31 +135,26 @@ if __name__ == "__main__":
 The example suppresses server stderr and raw exceptions to avoid accidental
 disclosure. For troubleshooting, use owner-only local diagnostics and report
 sanitized status/field names, not environment dumps or raw validation errors.
-Empty models or targets mean discovery succeeded but the requested providers
+Empty models mean discovery succeeded but the requested providers
 may not be configured. Discovery does not verify key validity or entitlement.
 
 ## Result and Process Handling
 
-Ordinary `ark_job_*` tools are the default for long operations:
-`ark_job_capabilities`, `ark_job_submit`, `ark_job_get`, and `ark_job_cancel`.
-Match the target's full `input_schema`; do not omit the inner `input` wrapper
-from `arguments`. Check both the outer job status and `result.is_error`.
-`failed`, `cancelled`, and `input_required` need explicit handling rather than
-being treated as successful output.
+Match the original tool's schema and retain its `input` wrapper. Check
+`result.is_error` before using `result.structured_content`. There are no MCP
+jobs or native task extensions on either transport.
 
-The helper honors `poll_after_ms`, stops after 60 seconds, and does not
-automatically retry submission. A timeout is not proof that nothing was
-accepted. `keep_alive=False` closes the subprocess at context exit; keep it
-alive until all needed job results are retrieved. Default in-memory jobs
-cannot be resumed from a newly launched stdio process.
+The client allows 660 seconds for the default 600-second cooperative server
+deadline. SDK/SQLite cleanup can exceed it. `keep_alive=False` closes the
+subprocess at context exit; finish needed calls before exiting. Do not
+automatically retry submission after a timeout or cancellation.
 
-An Ark `job_id` is not a provider task ID. After an explicitly approved,
-potentially billable provider-submission operation, read the provider ID
-from `result.structured_content` and poll `gen_task_get`
-or `omnihuman_get_task` as appropriate. Do not repeat a create call to poll.
-`ark_job_cancel` is cooperative local cancellation, not a guarantee of
-provider cancellation. Explicit file writes from jobs need `OUTPUT_ROOTS`
-because workers have no client MCP roots.
+After an authorized billable async create, retain safe provider task/request
+IDs even alongside errors. Poll with `gen_task_get` or `omnihuman_get_task`,
+respecting polling hints; never repeat create to poll. HTTP receipt recovery
+uses identical arguments and the original idempotency key, not a new create.
+Direct local persistence uses live MCP roots or `OUTPUT_ROOTS`.
+See the [deadline and admission contract](../integration-guide.md#direct-execution).
 
 See [Integrations](index.md), [OpenCode](opencode.md),
 [Getting Started](../getting-started.md), [Tools](../tools.md), and
@@ -207,7 +165,8 @@ See [Integrations](index.md), [OpenCode](opencode.md),
 - [FastMCP client transports and subprocess lifecycle](https://gofastmcp.com/clients/transports)
 - [FastMCP tool calls and structured results](https://gofastmcp.com/clients/tools)
 
-Sources consulted 2026-11-10, with Context7 corroboration for
-`StdioTransport`. The constructor and client APIs were checked against this
-checkout's locked FastMCP runtime; provider generation is not part of setup
-validation.
+Tool-call/result/error APIs rechecked against the official documentation on
+2026-11-17. The direct discovery example is exercised over real subprocess
+stdio by `docs/site/scripts/direct-execution.test.mjs`, with isolated state,
+no provider credentials and no generation. Exact desktop-client behavior
+and paid provider acceptance are not established by this test.

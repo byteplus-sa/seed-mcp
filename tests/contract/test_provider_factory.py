@@ -12,7 +12,6 @@ import pytest
 from fastmcp import Context
 
 from ark_mcp.config.env import Settings
-from ark_mcp.providers.modelark.files import ModelArkFilesService
 from ark_mcp.providers.modelark.seedance import SeedanceService
 
 
@@ -70,34 +69,6 @@ async def test_factories_use_selected_request_key_and_runtime_settings(
         runtime.assert_called_once_with(ctx)
     finally:
         await gateway.close()
-
-
-@pytest.mark.parametrize("understanding_timeout_ms", [None, 123000])
-async def test_understanding_timeout_is_taken_from_runtime(
-    monkeypatch: pytest.MonkeyPatch, understanding_timeout_ms: int | None
-) -> None:
-    from ark_mcp.providers import factory
-
-    settings = Settings(
-        _env_file=None,
-        BYTEPLUS_REQUEST_TIMEOUT_MS=45000,
-        SEED_UNDERSTANDING_TIMEOUT_MS=understanding_timeout_ms,
-    )
-    monkeypatch.setattr(factory, "get_runtime", lambda _ctx: SimpleNamespace(settings=settings))
-    monkeypatch.setattr(
-        factory, "provider_api_key", lambda _ctx, _provider: "synthetic-request-key"
-    )
-    ctx = cast("Context", object())
-    normal = factory.modelark_gateway(ctx)
-    understanding = factory.modelark_gateway(ctx, understanding=True)
-    try:
-        assert (await normal._ensure_client()).timeout.read == 45.0
-        assert (await understanding._ensure_client()).timeout.read == (
-            understanding_timeout_ms / 1000 if understanding_timeout_ms else 45.0
-        )
-    finally:
-        await normal.close()
-        await understanding.close()
 
 
 @pytest.mark.parametrize(
@@ -162,36 +133,3 @@ async def test_separate_services_isolate_headers_and_close_per_invocation(
         await services[0].close()
         await services[1].close()
     assert clients[1].is_closed
-
-
-async def test_files_upload_and_cleanup_keep_same_request_key(
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    from ark_mcp.providers import factory
-
-    settings = Settings(_env_file=None)
-    monkeypatch.setattr(factory, "get_runtime", lambda _ctx: SimpleNamespace(settings=settings))
-    monkeypatch.setattr(factory, "provider_api_key", lambda _ctx, _provider: "synthetic-file-key")
-    gateway = factory.modelark_gateway(cast("Context", object()), understanding=True)
-    requests: list[httpx.Request] = []
-
-    def dispatch(request: httpx.Request) -> httpx.Response:
-        requests.append(request)
-        if request.method == "POST":
-            return httpx.Response(200, json={"id": "file-created", "status": "active"})
-        return httpx.Response(204)
-
-    client = await gateway._ensure_client()
-    client._transport = httpx.MockTransport(dispatch)
-    service = ModelArkFilesService(gateway)
-    try:
-        uploaded = await service.upload_url("https://example.com/input.wav")
-        assert await service.delete(uploaded.id)
-        assert [request.method for request in requests] == ["POST", "DELETE"]
-        assert all(
-            request.headers["Authorization"] == "Bearer synthetic-file-key" for request in requests
-        )
-        assert requests[0].headers["Content-Type"].startswith("multipart/form-data; boundary=")
-    finally:
-        await service.close()
-    assert client.is_closed

@@ -8,8 +8,8 @@ This document consolidates the server's security model. See
 ## Dependency Security
 
 Use `uv sync --locked` to install the reviewed dependency set. FastMCP is
-bounded to `fastmcp[tasks]>=4.1.8,<4.2`; older 4.0.x environments do not contain
-the current upstream security fixes. The framework, task extension and MCP SDK
+bounded to `fastmcp>=4.1.8,<4.2`; older 4.0.x environments do not contain
+the current upstream security fixes. The framework and MCP SDK
 must be upgraded together through the lockfile rather than independently.
 
 On 2026-11-10, `bash scripts/audit_dependencies.sh` reported no known
@@ -19,8 +19,8 @@ audit without vulnerability exemptions.
 
 Upstream release details:
 [FastMCP 4.1.8](https://github.com/PrefectHQ/fastmcp/releases/tag/v4.1.8).
-Stage upgrades separately, finish active jobs before restarting, and preserve
-runtime state, artifact storage and any task-snapshot encryption key.
+Stage upgrades separately, finish active calls before restarting, and preserve
+runtime state, artifact storage and HTTP HMAC identity configuration.
 
 ## HTTP BYOK Boundary
 
@@ -71,7 +71,7 @@ Catalog scope strings remain capability metadata, not customer-selected roles,
 OAuth grants or a common team identity. HTTP admission enforces the selected
 provider key and client owner. Local stdio trusts its local principal.
 
-All 12 scope strings in the catalog are retained below as metadata, not auth
+All 11 scope strings in the catalog are retained below as metadata, not auth
 grants. A label does not register a tool or grant access to provider accounts.
 
 | Catalog scope metadata | Tools |
@@ -84,17 +84,16 @@ grants. A label does not register a tool or grant access to provider accounts.
 | `seedance:create` | `seedance_create_task` |
 | `gen:read` | `gen_task_get`, `gen_task_list` |
 | `gen:delete` | `gen_task_cancel_or_delete` |
-| `understanding:read` | `seed_understand`, `seed_audio_understand` |
 | `omnihuman:create` | `omnihuman_create_task` |
 | `omnihuman:read` | `omnihuman_get_task` |
 | `omnihuman:cancel` | `omnihuman_cancel_task` |
 
-HTTP exposes 9 provider/discovery tools, or 12 with OmniHuman enabled, without
+HTTP exposes 7 provider/discovery tools, or 10 with OmniHuman enabled, without
 requiring operator provider keys. Anonymous `ark_list_models` lists configured
 model bindings even without an environment provider key. `services[].enabled`
 describes registration, not customer entitlement or key validity. Jobs, native tasks, storage/artifact tools and all MCP
-resources are absent on HTTP. They remain local stdio capabilities within the
-21-entry catalog. No asset administration exists on either transport.
+resources are absent on HTTP. Storage/artifacts remain local stdio capabilities within the
+15-entry catalog. No asset administration exists on either transport.
 
 ## HTTP Admission and Routing
 
@@ -102,9 +101,15 @@ resources are absent on HTTP. They remain local stdio capabilities within the
 and live credentials on every entry path; stdio-configured HTTP construction
 is rejected. Set `MCP_ALLOWED_HOSTS` explicitly for ingress and allow browser
 Origins only where needed. Proxy headers are not trusted by default.
+`RATE_LIMIT_TRUSTED_PROXY_CIDRS` defaults empty and replaces the removed
+boolean trust setting. Only a trusted immediate socket peer can supply
+`X-Forwarded-For`; validated bounded chains are walked right-to-left to the
+first untrusted address. Malformed/duplicate trusted chains fail without echo.
+Catch-all networks are rejected. Uvicorn proxy-header rewriting is disabled.
+Rate/body events retain bounded route labels, not raw paths/forwarding headers.
 Explicit per-call `io.modelcontextprotocol/tasks` opt-in is rejected before
 provider dispatch, task-snapshot capture/save or queue creation, including
-on discovery. Omit the opt-in and call HTTP tools directly.
+on discovery. Both transports reject this opt-in and execute directly.
 
 | Setting | Default | Rule |
 | --- | --- | --- |
@@ -114,8 +119,12 @@ on discovery. Omit the opt-in and call HTTP tools directly.
 | `MCP_HTTP_MAX_IN_FLIGHT` | `64` | Positive global admission limit before body handling, including discovery |
 | `STATE_MAX_RECORDS` | `100000` | Positive state bound, also caps submission claims; existing keys remain readable at capacity, no claim eviction |
 
-`/health` and `/ready` are anonymous minimal process/state probes; HTTP
-readiness never contacts providers. `/metrics` is unavailable on HTTP.
+Backend `/health` and `/ready` are anonymous minimal process/state probes;
+HTTP readiness never contacts providers. VKE Caddy exposes only `/mcp` and
+`/health`; `/ready` is an internal exec-probe target. `/metrics` is absent
+from the main app and proxy. Optional `MCP_METRICS_PORT=0` disables the
+HTTP-runtime listener; nonzero 1024-65535 ports bind only 127.0.0.1.
+Private metrics require authorized operator access, never a public Service.
 `seed-health://status` and artifact resources are stdio-only.
 
 Provider origins are fixed to official ModelArk, Seed Speech and Vision AI
@@ -127,8 +136,6 @@ wins and arbitrary opaque `ep-*` lineage is not inferred.
 HTTP rejects `persist=true`, `persist_output=true`, local paths and stored
 artifact references before dispatch. Seed Audio/Seedream/OmniHuman get
 persistence defaults are false globally. Clients retrieve expiring outputs.
-Files API temporary uploads are cleaned up using the same request key;
-remote file expiry is distinct from output URL expiry/local persistence.
 
 ## SSRF-safe downloader (`security/safe_downloader.py`)
 
@@ -194,8 +201,7 @@ Full source URLs and credentials are excluded from logs and safe error messages.
 ## Local output paths
 
 Tools that write to a caller-chosen local path — `output_path`/`output_dir` on
-generation and get tools, `save_to` on `seed_understand` and
-`seed_audio_understand`, and
+generation and get tools, and
 `destination_path` on `seed_media_export_artifact` — share one policy in
 `security/output_paths.py`:
 
@@ -204,9 +210,8 @@ generation and get tools, `save_to` on `seed_understand` and
 - **Allowed roots.** The client's MCP roots (`roots/list`, `file://` URIs
   only, 2-second timeout) are used when available; otherwise `OUTPUT_ROOTS`
   (comma-separated absolute directories). With neither, path writing is
-  disabled and every such field is rejected. A background worker has no MCP
-  session and so no MCP roots: local writes inside `ark_job_submit` are
-  checked against `OUTPUT_ROOTS` only.
+  disabled and every such field is rejected. Direct stdio calls retain live
+  MCP roots; no worker snapshot or task extension is required.
 - **Containment.** The path must be absolute and resolve inside a root. A file
   target cannot be a directory or a root itself.
 - **Pre-flight.** Paths are validated before any billable provider call, so a
@@ -299,12 +304,22 @@ with an under-reported size could bypass it. The provider enforces the
 ## Failure and Launch Limits
 
 Uncertain mutation transport failures and malformed 2xx responses are
-ambiguous/nonretryable, including billable understanding completions.
+ambiguous/nonretryable.
 Mutation 5xx responses are ambiguous and never automatically retried,
 even when `retryable=true`. Eligible 429 rejections, demonstrably pre-dispatch
-failures and reads can retain bounded retries; understanding disables all
-automatic `TIMEOUT` retries. Diagnostics retain safe codes/request IDs, never
+failures and reads can retain bounded retries. Diagnostics retain safe codes/request IDs, never
 raw exceptions or echoed secrets. Reconcile accepted work before resubmission.
+
+Owner-first provider admission is bounded to 2 seconds by default (maximum
+30); it precedes budget reservation and pins active/waiting owner entries.
+The whole-tool deadline defaults to 600 seconds (maximum 3600), starting at
+wrapper entry before credentials, journal and admission. Both settings require
+finite positive values. `ADMISSION_TIMEOUT` means this attempt did not dispatch,
+not that the entire variation batch did not. `TOOL_DEADLINE_EXCEEDED` preserves
+uncertainty and validated accepted IDs. SDK/SQLite draining can exceed the
+cooperative deadline. Use client timeout 660 seconds and never blindly
+resubmit or assume timeout cancelled upstream work. See
+[Direct Execution](../specs/SPEC_DIRECT_EXECUTION.md).
 
 Single-instance SQLite is the only state backend. HTTP asynchronous creates
 require `idempotency_key` (except Seedance dry runs); stdio rejects supplied keys.
@@ -320,3 +335,29 @@ complete crash recovery remain deferred. PostgreSQL/Redis are future scaling
 choices, not initial requirements; multi-replica coordination is unsupported.
 No exactly-once inference or public-launch readiness is claimed.
 See [SPEC_HOSTED_BYOK.md](../specs/SPEC_HOSTED_BYOK.md).
+
+## VKE Operations
+
+The dedicated VKE path replaces ECS/Compose. One StatefulSet uses retained
+ext4 ReadWriteOnce EBS, with no application HPA. HTTP acquires
+`runtime.sqlite3.lock` before stores/recovery and holds it through close.
+Never unlink an active lock, overlap writers or share SQLite on a network
+filesystem; a local lease is not distributed fencing.
+
+CLB TCP 443 reaches same-pod Caddy 8443; the app binds `127.0.0.1:3000`
+and trusts only `127.0.0.1/32`. Caddy overwrites forwarding headers and has no
+admin API/access logging. Node/API access remains private, with operator
+private connectivity required. Source-IP preservation is still a live gate.
+
+Terraform uses separate fresh state and stores no HMAC/TLS material or
+kubeconfig. Helm references existing Secrets only; TLS mounts only in Caddy.
+Both `csi-ebs` and `cloud-controller-manager` are VKE-admin owned outside
+Terraform/Helm. Inspect existing addons, install absent compatible maintained
+versions via VKE, verify CSI ready/nodes Ready/CCM Running, then acknowledge
+`prerequisitesConfirmed=true`. The flag is not readiness proof.
+
+Preserve consistent SQLite/WAL backups and matching HMAC key/version.
+Use read-only aggregate inspection, never reset, blind restore or requeue.
+Source deletion is not cloud decommissioning; preserve the reviewed old
+checkout, private workspaces, old state and backups for approved retirement.
+See [the operator runbook](byteplus-terraform.md) for live acceptance gaps.

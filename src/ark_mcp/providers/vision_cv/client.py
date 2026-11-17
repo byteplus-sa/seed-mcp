@@ -114,9 +114,11 @@ class VisionCvGateway(BaseHttpGateway):
             "Accept": "application/json",
         }
 
-    async def post(self, path: str, json_body: dict[str, Any]) -> httpx.Response:
+    async def post(
+        self, path: str, json_body: dict[str, Any], *, side_effect: bool = True
+    ) -> httpx.Response:
         """POST a Vision AI task endpoint and return the raw response."""
-        return await self._request("POST", path, json=json_body)
+        return await self._request("POST", path, side_effect=side_effect, json=json_body)
 
     @staticmethod
     def extract_request_id(response: httpx.Response) -> str | None:

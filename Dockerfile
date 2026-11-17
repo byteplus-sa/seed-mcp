@@ -34,6 +34,7 @@ RUN groupadd --system --gid 1001 modelark \
 
 WORKDIR /app
 COPY --from=builder --chown=modelark:modelark /app/.venv /app/.venv
+COPY --chown=modelark:modelark scripts/inspect_runtime_state.py /app/scripts/inspect_runtime_state.py
 RUN mkdir -p /app/.artifacts && chown modelark:modelark /app/.artifacts
 
 USER modelark

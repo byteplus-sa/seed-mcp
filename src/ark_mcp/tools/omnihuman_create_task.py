@@ -14,15 +14,15 @@ from ark_mcp.observability.logger import info as log_info
 from ark_mcp.providers.factory import vision_cv_gateway
 from ark_mcp.providers.vision_cv.omnihuman import OmniHumanService
 from ark_mcp.providers.vision_cv.schemas import PROMPT_MAX_LENGTH, OmniHumanSubmitRequest
-from ark_mcp.runtime import get_principal, get_runtime, record_accepted_task
+from ark_mcp.runtime import capture_accepted_task, get_principal, get_runtime, record_accepted_task
 from ark_mcp.security.credentials import provider_api_key
+from ark_mcp.tools._context import context_log
 from ark_mcp.tools._errors import provider_error_result
 from ark_mcp.tools._http_policy import validate_http_options
 from ark_mcp.tools._omnihuman_shared import (
     MediaRefError,
     resolve_media_ref,
 )
-from ark_mcp.tools._task_execution import context_log
 
 RECOMMENDED_POLL_AFTER_MS = 10_000
 
@@ -80,7 +80,7 @@ async def omnihuman_create_task(
     expiry). Submission is never retried automatically. HTTP runs in the foreground.
     HTTP requires idempotency_key; repeat identical arguments/key only to recover a
     successful receipt. Unresolved attempts need reconciliation, never a new key.
-    Stdio uses ark_job_submit and allows explicit persistence when polling.
+    Stdio also calls directly and allows explicit persistence when polling.
     """
     if input.idempotency_key is not None and get_runtime(ctx).settings.mcp_transport == "stdio":
         raise ValueError("idempotency_key is HTTP-only; omit it for local stdio.")
@@ -129,6 +129,7 @@ async def omnihuman_create_task(
         await runtime.ownership_store.require_capacity()
         async with runtime.provider_limiters.acquire("vision-cv", owner):
             submission = await service.create(request)
+            capture_accepted_task(ctx, "vision-cv", submission.task_id, submission.request_id)
         await record_accepted_task(ctx, "vision-cv", submission.task_id, submission.request_id)
     except AcceptedTaskError as exc:
         await context_log(

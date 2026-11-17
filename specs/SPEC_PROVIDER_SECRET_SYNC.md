@@ -4,7 +4,7 @@ type: spec
 status: deprecated
 horizon: current
 created: 2026-11-13
-updated: 2026-11-16
+updated: 2026-11-17
 tags: [deployment, secrets, kms, security]
 source:
   - https://docs.byteplus.com/en/docs/kms/Request_structure
@@ -12,6 +12,7 @@ source:
   - https://docs.byteplus.com/en/docs/kms/GetSecretValue
 related:
   - specs/SPEC_HOSTED_BYOK.md
+  - specs/SPEC_VKE_DEPLOYMENT.md
   - docs/secret-manager.md
 ---
 
@@ -25,6 +26,12 @@ Do not use the former hosted provider-secret deployment or `config` sync
 workflow for this foundation. No compatibility migration or adoption of old
 hosted state is provided. Retain older deployment history separately; do not
 reapply it to provision keys or jobs for BYOK.
+
+The ECS/Compose automation is removed. Dedicated
+[VKE deployment](SPEC_VKE_DEPLOYMENT.md) references existing identity/TLS
+Secrets only; Terraform stores neither their values nor kubeconfig.
+Source deletion is not cloud decommissioning. Preserve reviewed old checkouts,
+private workspaces, state and backups for separately approved retirement.
 
 The operator's `MCP_IDENTITY_HMAC_KEY` is separate identity configuration,
 not a customer credential or a provider-key replacement. Keep it stable and

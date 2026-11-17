@@ -43,7 +43,7 @@ export default defineConfig({
         alt: "",
       },
       description:
-        "Set up Ark MCP in your AI client and use BytePlus image, video, audio, understanding and media tools.",
+        "Set up Ark MCP in your AI client and use BytePlus image, video, audio and media tools.",
       social: [
         {
           icon: "github",
@@ -111,7 +111,7 @@ export default defineConfig({
             { slug: "multi-generation" },
             { slug: "assets" },
             { slug: "use-cases" },
-            { slug: "integration-guide", label: "Background Execution" },
+            { slug: "integration-guide", label: "Direct Execution" },
           ],
         },
         {

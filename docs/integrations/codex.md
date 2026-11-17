@@ -70,6 +70,7 @@ args = [
   "-m",
   "ark_mcp",
 ]
+tool_timeout_sec = 660
 
 [mcp_servers.ark-seed.env]
 ARK_MCP_ENV_FILE = "/absolute/path/to/private/ark-mcp/.env"
@@ -83,33 +84,56 @@ team setup and should not be committed automatically.
 
 ## HTTP BYOK
 
-For an existing trusted endpoint, replace the local entry with a remote one.
-Replace the angle-bracket placeholders with private environment variable names,
-not secret values. Load those variables privately in the actual Codex launch environment;
-do not put them in command-line flags or chat.
+For an existing trusted endpoint, configure a remote entry in the intended
+scope, preserving other entries. Load the named variables privately in the
+actual Codex launch environment; do not put secret values in flags or chat.
+From a reviewed checkout, this optional generator prints the following TOML
+without reading files or environment secret values, writing configuration,
+contacting servers or invoking a client:
+
+```bash
+python scripts/configure_http_client.py --client codex \
+  --url https://mcp.example.com/mcp --name ark-seed
+```
 
 ```toml
-[mcp_servers.ark-seed]
+[mcp_servers."ark-seed"]
 url = "https://mcp.example.com/mcp"
 tool_timeout_sec = 660
 
-[mcp_servers.ark-seed.env_http_headers]
-X-ModelArk-Api-Key = "<MODELARK_KEY_ENV_VAR>"
-X-MCP-Client-Secret = "<CLIENT_SECRET_ENV_VAR>"
+[mcp_servers."ark-seed".env_http_headers]
+"X-ModelArk-Api-Key" = "SEED_MCP_MODELARK_KEY"
+"X-MCP-Client-Secret" = "SEED_MCP_CLIENT_SECRET" # pragma: allowlist secret
 ```
 
 Use `X-Seed-Speech-Api-Key` or `X-OmniHuman-Api-Key` with separately named private
-environment variables when needed. Only the selected provider key is required.
+environment variables when needed. The generator's repeatable `--provider`
+selects `modelark` (default), `seed-speech` or `vision-cv`; `--help` lists
+variable-name overrides. Selected headers must use independent variable names.
 Generate the client secret privately from 32 random bytes as 64 lowercase hex,
 once per intended owner. No `Authorization`, OAuth, signup or server-issued key
-is used. Do not use `bearer_token_env_var`.
+is used. Do not use `bearer_token_env_var`. `tool_timeout_sec` is in seconds
+(generator default 660, configurable from 1-3600); it does not extend proxy
+or provider timeouts.
 
-Discovery is anonymous/static. HTTP has 9 tools (12 with OmniHuman), direct
+Default discovery is anonymous/static with `connection=null`. HTTP has 7 tools (10 with OmniHuman), direct
 foreground calls and no jobs/native tasks/storage/artifacts/resources.
 Keep persistence false and retrieve expiring URLs yourself. Optional endpoint
-headers need exact registered bindings; explicit tool `model` wins.
-See [private setup and ownership](../setup/shared-server.md).
-This is a configuration template, not an exact-client live verification claim.
+headers need operator-verified exact bindings; explicit create-tool `model` wins.
+Add `--seedance-endpoint-env SEED_MCP_SEEDANCE_ENDPOINT` and/or
+`--seedream-endpoint-env SEED_MCP_SEEDREAM_ENDPOINT` only for bindings you use;
+these options require `modelark` and take variable names, not endpoint values.
+An unknown endpoint is not echoed; ask the operator to verify and bind it.
+
+Use the HTTP-only [configuration check](../setup/shared-server.md#optional-imagevideo-configuration-check)
+with `{"input":{"check_connection":true}}` to inspect image/video header
+presence and exact bindings, not provider authentication or live lineage.
+See [generator options and private setup](../setup/shared-server.md#generate-a-client-snippet).
+Validated on 2026-11-17 with **Codex 0.163.0**: `codex mcp get --json` parsed
+the generated configuration with isolated `CODEX_HOME`, `HOME` and working
+directory. This verifies configuration parsing only. Actual exact-client,
+model-driven Codex tool execution remains unverified; provider credentials and
+paid provider validation remain pending.
 
 </details>
 
@@ -117,7 +141,7 @@ This is a configuration template, not an exact-client live verification claim.
 
 Run the [discovery-only check](index.md#verify-without-paid-calls) and confirm
 the tools you need appear. Continue with [Your First Tool Call](../setup/first-run.md).
-Finish active jobs before reconnecting; a new local process does not inherit
+Finish active calls before reconnecting; a new local process does not inherit
 the previous process's in-memory queue.
 
 See [Integrations](index.md), [Claude Code](claude-code.md),

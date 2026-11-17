@@ -85,16 +85,16 @@ async def test_health_reports_defaults_even_without_credentials(tmp_path: Path) 
 
 
 @pytest.mark.parametrize("output_roots", ["", " ,  , "])
-async def test_background_export_without_roots_is_not_configured(
+async def test_local_export_without_configured_roots_is_request_dependent(
     tmp_path: Path, output_roots: str
 ) -> None:
     text = await _health_text(
         _settings(tmp_path, OUTPUT_ROOTS=output_roots), roots=[tmp_path.as_uri()]
     )
 
-    assert "Background-job local export: not configured" in text
+    assert "Local export: request-dependent" in text
     assert "OUTPUT_ROOTS" in text
-    assert "background jobs cannot use client MCP roots" in text
+    assert "use client MCP roots" in text
     assert str(tmp_path) not in text
 
 
@@ -120,7 +120,7 @@ async def test_http_has_no_health_resource_or_export_diagnostics(
             await client.read_resource("seed-health://status")
 
     text = str(exc_info.value)
-    assert "Background-job local export:" not in text
+    assert "Local export:" not in text
     assert "Seedream default model:" not in text
     assert settings.modelark_api_key not in text
     assert str(tmp_path) not in text
@@ -144,7 +144,7 @@ async def test_invalid_root_configuration_does_not_break_health_or_leak_values(
     text = await _health_text(_settings(tmp_path, OUTPUT_ROOTS=output_roots))
 
     assert "Status: healthy\n" in text
-    assert "Background-job local export: not configured" in text
+    assert "Local export: not configured" in text
     assert "OUTPUT_ROOTS has no usable absolute roots" in text
     assert output_roots not in text
 
@@ -162,7 +162,7 @@ async def test_absolute_roots_need_request_preflight_not_readiness(
 
     text = await _health_text(_settings(tmp_path, OUTPUT_ROOTS=output_roots))
 
-    assert "Background-job local export: configured; needs request preflight\n" in text
+    assert "Local export: configured; needs request preflight\n" in text
     assert "filesystem readiness is not checked" in text
     assert str(root) not in text
     assert "relative-root" not in text
@@ -213,4 +213,4 @@ async def test_health_does_not_probe_output_filesystem(
             content = await client.read_resource("seed-health://status")
 
     assert "Build: test-build\n" in content[0].text
-    assert "Background-job local export: configured; needs request preflight\n" in content[0].text
+    assert "Local export: configured; needs request preflight\n" in content[0].text

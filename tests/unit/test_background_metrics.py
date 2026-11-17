@@ -1,236 +1,124 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, Mock
 
 import pytest
 from fastmcp import Client, FastMCP
 from fastmcp.exceptions import ToolError
 from fastmcp.tools import ToolResult
-from fastmcp.utilities.tasks import TaskConfig
-from fastmcp_tasks import TasksExtension, call_tool_task
-from mcp.shared.exceptions import MCPError
 
 from ark_mcp.observability import metrics
 
 
 @pytest.fixture
 def instruments(monkeypatch):
-    counters = {
-        name: Mock()
-        for name in (
-            "TOOL_REQUESTS",
-            "TOOL_DURATION",
-            "TOOL_ADMISSION_DURATION",
-            "BACKGROUND_JOB_SUBMISSIONS",
-        )
-    }
+    counters = {name: Mock() for name in ("TOOL_REQUESTS", "TOOL_DURATION")}
     for name, counter in counters.items():
         monkeypatch.setattr(metrics, name, counter)
     return counters
 
 
-@pytest.mark.parametrize("outcome", ["success", "error", "exception", "cancelled"])
-async def test_real_worker_records_terminal_outcome_once(outcome, instruments):
-    started = asyncio.Event()
-
-    async def measured(value: int = 1) -> ToolResult:
-        started.set()
-        if outcome == "cancelled":
-            await asyncio.Event().wait()
-        await asyncio.sleep(0.06)
-        if outcome == "exception":
-            raise ValueError("pre-provider failure")
-        return ToolResult(content=str(value), is_error=outcome == "error")
-
-    wrapped = metrics.instrument_tool_execution(measured, tool_name="measured")
-    assert inspect.signature(wrapped) == inspect.signature(measured, eval_str=True)
-    server = FastMCP(middleware=[metrics.MetricsMiddleware()])
-    server.add_extension(TasksExtension())
-    server.tool(name="measured", task=True)(wrapped)
-    async with Client(server) as client:
-        task = await call_tool_task(client, "measured", {}, raise_on_error=False)
-        await asyncio.wait_for(started.wait(), timeout=5)
-        if outcome == "cancelled":
-            await task.cancel()
-            for _ in range(100):
-                if instruments["TOOL_DURATION"].labels.return_value.observe.called:
-                    break
-                await asyncio.sleep(0.01)
-        else:
-            result = await task.result()
-            assert result.is_error == (outcome in ("error", "exception"))
-            await task.result()
-            await task.status()
-    labels = instruments["TOOL_REQUESTS"].labels.call_args_list
-    assert {entry.kwargs["tool"] for entry in labels} == {"unknown"}
-    assert [entry.kwargs["status"] for entry in labels].count("accepted") == 1
-    assert [entry.kwargs["status"] for entry in labels].count(outcome) == 1
-    instruments["TOOL_DURATION"].labels.return_value.observe.assert_called_once()
-    if outcome != "cancelled":
-        assert instruments["TOOL_DURATION"].labels.return_value.observe.call_args.args[0] >= 0.06
-    instruments["TOOL_ADMISSION_DURATION"].labels.return_value.observe.assert_called_once()
-
-
-async def test_foreground_wrapper_preserves_single_measurement(instruments):
+async def test_direct_middleware_records_one_success(instruments):
     async def measured(value: int = 1) -> int:
         return value
 
     server = FastMCP(middleware=[metrics.MetricsMiddleware()])
-    server.tool(name="media_presign")(
-        metrics.instrument_tool_execution(measured, tool_name="media_presign")
-    )
+    server.tool(name="media_presign")(measured)
     async with Client(server) as client:
         assert (await client.call_tool("media_presign", {"value": 9})).data == 9
     instruments["TOOL_REQUESTS"].labels.assert_called_once_with(
         tool="media_presign", status="success"
     )
     instruments["TOOL_DURATION"].labels.return_value.observe.assert_called_once()
-    instruments["TOOL_ADMISSION_DURATION"].labels.assert_not_called()
 
 
-async def test_required_native_submission_rejection_is_recorded(instruments):
-    async def seed_understand(value: int = 1) -> int:
+@pytest.mark.parametrize("outcome", ["success", "error", "exception"])
+async def test_direct_client_records_terminal_outcome_once(instruments, outcome):
+    async def measured() -> ToolResult:
+        if outcome == "exception":
+            raise ValueError("synthetic failure")
+        return ToolResult(content="result", is_error=outcome == "error")
+
+    server = FastMCP(middleware=[metrics.MetricsMiddleware()])
+    server.tool(name="seedream_generate_image")(measured)
+    async with Client(server) as client:
+        result = await client.call_tool("seedream_generate_image", {}, raise_on_error=False)
+    assert result.is_error == (outcome != "success")
+    instruments["TOOL_REQUESTS"].labels.assert_called_once_with(
+        tool="seedream_generate_image", status=outcome
+    )
+    instruments["TOOL_DURATION"].labels.return_value.observe.assert_called_once()
+
+
+async def test_direct_middleware_records_and_propagates_cancellation(instruments):
+    started = asyncio.Event()
+    middleware = metrics.MetricsMiddleware()
+    context = SimpleNamespace(message=SimpleNamespace(name="gen_task_get"))
+
+    async def call_next(context):
+        started.set()
+        await asyncio.Event().wait()
+
+    call = asyncio.create_task(middleware.on_call_tool(context, call_next))
+    await asyncio.wait_for(started.wait(), timeout=5)
+    call.cancel()
+    with pytest.raises(asyncio.CancelledError):
+        await call
+    instruments["TOOL_REQUESTS"].labels.assert_called_once_with(
+        tool="gen_task_get", status="cancelled"
+    )
+    instruments["TOOL_DURATION"].labels.return_value.observe.assert_called_once()
+
+
+async def test_direct_validation_failure_does_not_enter_handler(instruments):
+    dispatch = AsyncMock()
+
+    async def measured(value: int) -> int:
+        await dispatch()
         return value
 
     server = FastMCP(middleware=[metrics.MetricsMiddleware()])
-    server.add_extension(TasksExtension())
-    server.tool(name="seed_understand", task=TaskConfig(mode="required"))(seed_understand)
-
-    async with Client(server, mode="legacy") as client:
-        with pytest.raises(MCPError, match="requires the tasks extension"):
-            await client.call_tool("seed_understand", {})
-
-    instruments["BACKGROUND_JOB_SUBMISSIONS"].labels.assert_called_once_with(
-        target="seed_understand",
-        status="rejected",
-        path="native",
-    )
-    instruments["BACKGROUND_JOB_SUBMISSIONS"].labels.return_value.inc.assert_called_once_with()
-    instruments["TOOL_ADMISSION_DURATION"].labels.return_value.observe.assert_called_once()
-    instruments["TOOL_DURATION"].labels.assert_not_called()
-
-
-async def test_optional_native_submission_rejection_is_recorded(instruments, monkeypatch):
-    async def gen_task_get() -> str:
-        return "unused"
-
-    create_failure = AsyncMock(
-        side_effect=MCPError(code=-32603, message="task backend unavailable")
-    )
-    monkeypatch.setattr("fastmcp_tasks.extension.create_task", create_failure)
-    server = FastMCP(middleware=[metrics.MetricsMiddleware()])
-    server.add_extension(TasksExtension())
-    server.tool(name="gen_task_get", task=TaskConfig(mode="optional"))(gen_task_get)
-
+    server.tool(name="seedream_generate_image")(measured)
     async with Client(server) as client:
-        with pytest.raises(MCPError, match="task backend unavailable"):
-            await call_tool_task(client, "gen_task_get", {})
-
-    create_failure.assert_awaited_once()
-    instruments["BACKGROUND_JOB_SUBMISSIONS"].labels.assert_called_once_with(
-        target="gen_task_get",
-        status="rejected",
-        path="native",
+        with pytest.raises(ToolError):
+            await client.call_tool("seedream_generate_image", {"value": "invalid"})
+    dispatch.assert_not_awaited()
+    instruments["TOOL_REQUESTS"].labels.assert_called_once_with(
+        tool="seedream_generate_image", status="exception"
     )
-    instruments["BACKGROUND_JOB_SUBMISSIONS"].labels.return_value.inc.assert_called_once_with()
-    instruments["TOOL_ADMISSION_DURATION"].labels.return_value.observe.assert_called_once()
-    instruments["TOOL_DURATION"].labels.assert_not_called()
+    instruments["TOOL_DURATION"].labels.return_value.observe.assert_called_once()
 
 
-async def test_native_argument_validation_rejection_is_recorded(instruments):
-    async def seed_understand(value: int) -> int:
-        return value
-
-    server = FastMCP(middleware=[metrics.MetricsMiddleware()])
-    server.add_extension(TasksExtension())
-    server.tool(name="seed_understand", task=TaskConfig(mode="required"))(seed_understand)
-
-    async with Client(server) as client:
-        with pytest.raises(ToolError, match="did not run as a task"):
-            await call_tool_task(client, "seed_understand", {"value": "invalid"})
-
-    instruments["BACKGROUND_JOB_SUBMISSIONS"].labels.assert_called_once_with(
-        target="seed_understand",
-        status="rejected",
-        path="native",
-    )
-    instruments["BACKGROUND_JOB_SUBMISSIONS"].labels.return_value.inc.assert_called_once_with()
-    instruments["TOOL_ADMISSION_DURATION"].labels.return_value.observe.assert_called_once()
-    instruments["TOOL_DURATION"].labels.assert_not_called()
-
-
-async def test_registered_server_worker_records_pre_provider_failure(
+async def test_registered_direct_server_records_safe_pre_provider_failure(
     instruments, monkeypatch, tmp_path
 ):
-    from ark_mcp.config.env import get_settings
-    from ark_mcp.config.model_capabilities import refresh_capability_registry
-    from ark_mcp.providers.modelark.understanding import SeedUnderstandingService
+    from ark_mcp.config.env import Settings
+    from ark_mcp.providers.modelark.seedream import SeedreamService
     from ark_mcp.server import create_server
 
-    monkeypatch.setenv("BYTEPLUS_MODELARK_API_KEY", "test-placeholder")
-    monkeypatch.setenv("ARTIFACT_DIR", str(tmp_path / "artifacts"))
-    monkeypatch.setenv("ARTIFACT_BACKEND", "filesystem")
-    get_settings.cache_clear()
-    refresh_capability_registry()
-    build_request = Mock(side_effect=ValueError("pre-provider regression sentinel"))
-    generate = AsyncMock(side_effect=AssertionError("Invalid requests must not reach providers"))
-    monkeypatch.setattr(SeedUnderstandingService, "build_request", build_request)
-    monkeypatch.setattr(SeedUnderstandingService, "generate", generate)
-    try:
-        server = create_server(get_settings())
-        async with Client(server) as client:
-            task = await call_tool_task(
-                client,
-                "seed_understand",
-                {"input": {"prompt": "test"}},
-                raise_on_error=False,
-            )
-            result = await task.result()
-            assert result.is_error
-            assert result.content[0].text == "Error calling tool 'seed_understand'"
-            assert "pre-provider regression sentinel" not in str(result)
-            await task.result()
-            await task.status()
-        build_request.assert_called_once()
-        generate.assert_not_called()
-        labels = instruments["TOOL_REQUESTS"].labels.call_args_list
-        assert sorted((entry.kwargs for entry in labels), key=lambda item: item["status"]) == [
-            {"tool": "seed_understand", "status": "accepted"},
-            {"tool": "seed_understand", "status": "exception"},
-        ]
-        instruments["TOOL_DURATION"].labels.return_value.observe.assert_called_once()
-        instruments["TOOL_ADMISSION_DURATION"].labels.return_value.observe.assert_called_once()
-        instruments["BACKGROUND_JOB_SUBMISSIONS"].labels.assert_called_once_with(
-            target="seed_understand",
-            status="accepted",
-            path="native",
+    build_request = Mock(side_effect=RuntimeError("private-pre-provider-sentinel"))
+    generate = AsyncMock(side_effect=AssertionError("Invalid input reached the provider"))
+    monkeypatch.setattr(SeedreamService, "build_request", build_request)
+    monkeypatch.setattr(SeedreamService, "generate", generate)
+    server = create_server(
+        Settings(
+            _env_file=None,
+            BYTEPLUS_MODELARK_API_KEY="test-placeholder",  # pragma: allowlist secret
+            ARTIFACT_DIR=str(tmp_path),
         )
-        instruments["BACKGROUND_JOB_SUBMISSIONS"].labels.return_value.inc.assert_called_once_with()
-    finally:
-        get_settings.cache_clear()
-        refresh_capability_registry()
-
-
-def test_background_submission_metric_accepts_only_allowlisted_targets(monkeypatch):
-    counter = Mock()
-    monkeypatch.setattr(metrics, "BACKGROUND_JOB_SUBMISSIONS", counter)
-
-    metrics.record_background_job_submission(
-        target="seed_understand",
-        status="accepted",
-        path="compatibility",
     )
-    metrics.record_background_job_submission(
-        target="ark_job_submit",
-        status="rejected",
-        path="compatibility",
+    async with Client(server) as client:
+        result = await client.call_tool(
+            "seedream_generate_image", {"input": {"prompt": "square"}}, raise_on_error=False
+        )
+    assert result.is_error
+    assert result.structured_content is None
+    assert "private-pre-provider-sentinel" not in str(result)
+    build_request.assert_called_once()
+    generate.assert_not_awaited()
+    instruments["TOOL_REQUESTS"].labels.assert_called_once_with(
+        tool="seedream_generate_image", status="exception"
     )
-
-    counter.labels.assert_called_once_with(
-        target="seed_understand",
-        status="accepted",
-        path="compatibility",
-    )
-    counter.labels.return_value.inc.assert_called_once_with()
+    instruments["TOOL_DURATION"].labels.return_value.observe.assert_called_once()

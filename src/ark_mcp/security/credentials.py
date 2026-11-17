@@ -104,6 +104,16 @@ def _live_request() -> _RequestCredentials:
     return request
 
 
+def has_provider_credential(provider: CredentialProvider) -> bool:
+    """Inspect presence only; a syntactically valid header is not provider authorization."""
+    return PROVIDER_HEADERS[provider] in _live_request().values
+
+
+def has_client_secret() -> bool:
+    """Report client-secret header presence only within a live HTTP request."""
+    return INSTALLATION_HEADER_NAME in _live_request().values
+
+
 def _digest(settings: Settings, domain: str, *parts: str) -> str:
     payload = json.dumps(
         [domain, settings.identity_key_version, *parts], separators=(",", ":"), ensure_ascii=True

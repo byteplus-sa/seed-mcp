@@ -9,31 +9,40 @@ from __future__ import annotations
 
 import asyncio
 import json
+import math
+import re
 import sqlite3
 from collections.abc import AsyncIterator, Awaitable, Callable
-from contextlib import AbstractAsyncContextManager, asynccontextmanager, suppress
-from dataclasses import dataclass
+from contextlib import (
+    AbstractAsyncContextManager,
+    AsyncExitStack,
+    ExitStack,
+    asynccontextmanager,
+    suppress,
+)
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, Protocol, cast
-
-from cachetools import TTLCache
 
 from ark_mcp.artifacts.filesystem_store import FilesystemArtifactStore
 from ark_mcp.artifacts.object_storage_store import ObjectStorageArtifactStore
 from ark_mcp.config.env import Settings
 from ark_mcp.domain.artifacts import ArtifactRef
 from ark_mcp.domain.errors import AcceptedTaskError, NormalizedProviderError, ProviderError
+from ark_mcp.execution import record_accepted_receipt
+from ark_mcp.observability.admin import MetricsListener
 from ark_mcp.observability.logger import error as log_error
 from ark_mcp.observability.logger import info as log_info
 from ark_mcp.observability.logger import warning as log_warning
-from ark_mcp.observability.metrics import BUDGET_REJECTIONS
+from ark_mcp.observability.metrics import ADMISSION_REJECTIONS, BUDGET_REJECTIONS
 from ark_mcp.providers.base import safe_provider_text
+from ark_mcp.runtime_lock import RuntimeStateLease
 from ark_mcp.security.auth_context import AuthContext, PrincipalContext
-from ark_mcp.security.credentials import request_principal
+from ark_mcp.security.credentials import redact_request_secrets, request_principal
 from ark_mcp.security.safe_downloader import SafeDownloader
 from ark_mcp.sqlite_io import drain_task
-from ark_mcp.submission_store import SQLiteSubmissionStore
+from ark_mcp.submission_store import IDENTIFIER_PATTERN, SQLiteSubmissionStore
 
 if TYPE_CHECKING:
     from fastmcp import Context, FastMCP
@@ -41,6 +50,17 @@ if TYPE_CHECKING:
     from ark_mcp.artifacts.store import ArtifactStore
 
 ProviderKey = Literal["modelark", "seed-speech", "vision-cv", "tos", "s3"]
+
+
+class _StateCleanupFailed(RuntimeError):
+    """An incompletely initialized state connection could not be closed."""
+
+
+def _close_initializing_connection(connection: sqlite3.Connection) -> None:
+    try:
+        connection.close()
+    except BaseException:
+        raise _StateCleanupFailed("Runtime state initialization cleanup failed.") from None
 
 
 def _open_sqlite_connection(database_path: Path) -> sqlite3.Connection:
@@ -53,8 +73,12 @@ def _open_sqlite_connection(database_path: Path) -> sqlite3.Connection:
     """
     database_path.parent.mkdir(parents=True, exist_ok=True)
     connection = sqlite3.connect(database_path, check_same_thread=False)
-    connection.execute("PRAGMA journal_mode=WAL").fetchone()
-    connection.execute("PRAGMA busy_timeout=5000")
+    try:
+        connection.execute("PRAGMA journal_mode=WAL").fetchone()
+        connection.execute("PRAGMA busy_timeout=5000")
+    except BaseException:
+        _close_initializing_connection(connection)
+        raise
     return connection
 
 
@@ -76,6 +100,12 @@ async def _run_locked[T](lock: asyncio.Lock, func: Callable[[], T]) -> T:
         return await drain_task(asyncio.create_task(_offload(func)))
 
 
+@dataclass(slots=True)
+class _PrincipalLimiter:
+    semaphore: asyncio.Semaphore
+    users: int = 0
+
+
 class ProviderLimiters:
     """Shared provider and bounded per-principal concurrency controls."""
 
@@ -85,10 +115,12 @@ class ProviderLimiters:
         provider_limit: int = 5,
         principal_limit: int = 3,
         principal_cache_size: int = 10_000,
-        principal_ttl_seconds: int = 86_400,
+        admission_timeout_seconds: float = 2.0,
     ) -> None:
-        if provider_limit <= 0 or principal_limit <= 0:
-            raise ValueError("Concurrency limits must be positive.")
+        if provider_limit <= 0 or principal_limit <= 0 or principal_cache_size <= 0:
+            raise ValueError("Concurrency limits and owner capacity must be positive.")
+        if not math.isfinite(admission_timeout_seconds) or admission_timeout_seconds <= 0:
+            raise ValueError("Admission timeout must be finite and positive.")
         self._provider = {
             "modelark": asyncio.Semaphore(provider_limit),
             "seed-speech": asyncio.Semaphore(provider_limit),
@@ -97,23 +129,32 @@ class ProviderLimiters:
             "s3": asyncio.Semaphore(provider_limit),
         }
         self._principal_limit = principal_limit
-        self._principals: TTLCache[str, asyncio.Semaphore] = TTLCache(
-            maxsize=principal_cache_size,
-            ttl=principal_ttl_seconds,
-        )
-        self._cache_lock = asyncio.Lock()
+        self._principal_capacity = principal_cache_size
+        self._principals: dict[tuple[str, str], _PrincipalLimiter] = {}
+        self._admission_timeout_seconds = admission_timeout_seconds
 
     def provider(self, provider: ProviderKey) -> asyncio.Semaphore:
         return self._provider[provider]
 
-    async def principal(self, owner: AuthContext) -> asyncio.Semaphore:
-        key = f"{owner.tenant_id}\0{owner.principal_id}"
-        async with self._cache_lock:
-            limiter = self._principals.get(key)
-            if limiter is None:
-                limiter = asyncio.Semaphore(self._principal_limit)
-                self._principals[key] = limiter
-            return limiter
+    @staticmethod
+    def _admission_error(provider: ProviderKey, *, capacity: bool = False) -> ProviderError:
+        ADMISSION_REJECTIONS.labels(
+            provider=provider, reason="capacity" if capacity else "timeout"
+        ).inc()
+        return ProviderError(
+            NormalizedProviderError(
+                provider="byteplus-vision-cv" if provider == "vision-cv" else provider,
+                operation="admission",
+                code="ADMISSION_CAPACITY_EXCEEDED" if capacity else "ADMISSION_TIMEOUT",
+                message=(
+                    "Provider admission capacity is unavailable; this attempt did not dispatch."
+                    if capacity
+                    else "Provider admission timed out; this attempt did not dispatch."
+                ),
+                retryable=True,
+                ambiguous_completion=False,
+            )
+        )
 
     @asynccontextmanager
     async def acquire(
@@ -121,17 +162,41 @@ class ProviderLimiters:
         provider: ProviderKey,
         owner: AuthContext,
     ) -> AsyncIterator[None]:
-        if owner.is_local:
-            # A local stdio principal is a single trusted caller; the
-            # per-principal semaphore would otherwise cap ALL concurrent calls
-            # across every provider at ``principal_limit``, below the
-            # per-provider limit. Bound local concurrency by provider only.
-            async with self.provider(provider):
-                yield
-        else:
-            principal_limiter = await self.principal(owner)
-            async with self.provider(provider), principal_limiter:
-                yield
+        deadline = asyncio.get_running_loop().time() + self._admission_timeout_seconds
+        key = (owner.tenant_id, owner.principal_id)
+        entry = None
+        if not owner.is_local:
+            entry = self._principals.get(key)
+            if entry is None:
+                if len(self._principals) >= self._principal_capacity:
+                    raise self._admission_error(provider, capacity=True)
+                entry = _PrincipalLimiter(asyncio.Semaphore(self._principal_limit))
+                self._principals[key] = entry
+            entry.users += 1
+        owner_acquired = provider_acquired = False
+        provider_limiter = self.provider(provider)
+        try:
+            try:
+                async with asyncio.timeout_at(deadline):
+                    if entry is not None:
+                        await entry.semaphore.acquire()
+                        owner_acquired = True
+                    await provider_limiter.acquire()
+                    provider_acquired = True
+                    if asyncio.get_running_loop().time() >= deadline:
+                        raise TimeoutError
+            except TimeoutError:
+                raise self._admission_error(provider) from None
+            yield
+        finally:
+            if provider_acquired:
+                provider_limiter.release()
+            if entry is not None:
+                if owner_acquired:
+                    entry.semaphore.release()
+                entry.users -= 1
+                if entry.users == 0:
+                    self._principals.pop(key)
 
 
 @dataclass(frozen=True, slots=True)
@@ -144,8 +209,6 @@ class OwnedTask:
 
 class TaskOwnershipStore(Protocol):
     async def require_capacity(self) -> None: ...
-
-    async def claim(self, provider: str, task_id: str, owner: AuthContext) -> bool: ...
 
     async def record(self, provider: str, task_id: str, owner: AuthContext) -> None: ...
 
@@ -246,8 +309,12 @@ class SQLiteTaskOwnershipStore:
     def __init__(self, database_path: Path, *, max_records: int = 100_000) -> None:
         self._connection = _open_sqlite_connection(database_path)
         self._max_records = max_records
-        self._ensure_schema()
-        self._connection.commit()
+        try:
+            self._ensure_schema()
+            self._connection.commit()
+        except BaseException:
+            _close_initializing_connection(self._connection)
+            raise
         self._lock = asyncio.Lock()
 
     def _ensure_schema(self) -> None:
@@ -305,27 +372,6 @@ class SQLiteTaskOwnershipStore:
                 )
 
         await _run_locked(self._lock, _run)
-
-    async def claim(self, provider: str, task_id: str, owner: AuthContext) -> bool:
-        created_at = _ownership_timestamp(datetime.now(UTC))
-
-        def _run() -> bool:
-            with self._connection:
-                self._connection.execute("BEGIN IMMEDIATE")
-                row = self._connection.execute(
-                    "SELECT 1 FROM task_ownership WHERE provider=? AND tenant_id=? AND task_id=?",
-                    (provider, owner.tenant_id, task_id),
-                ).fetchone()
-                if row is not None:
-                    return False
-                self._require_capacity()
-                self._connection.execute(
-                    "INSERT INTO task_ownership(provider, task_id, principal_id, tenant_id, created_at) VALUES (?, ?, ?, ?, ?)",
-                    (provider, task_id, owner.principal_id, owner.tenant_id, created_at),
-                )
-                return True
-
-        return await _run_locked(self._lock, _run)
 
     def _require_capacity(self) -> None:
         count = self._connection.execute("SELECT COUNT(*) FROM task_ownership").fetchone()[0]
@@ -420,17 +466,21 @@ class SQLiteObjectKeyOwnershipStore:
 
     def __init__(self, database_path: Path) -> None:
         self._connection = _open_sqlite_connection(database_path)
-        self._connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS object_key_ownership (
-                object_key TEXT NOT NULL PRIMARY KEY,
-                principal_id TEXT NOT NULL,
-                tenant_id TEXT NOT NULL,
-                created_at TEXT NOT NULL
+        try:
+            self._connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS object_key_ownership (
+                    object_key TEXT NOT NULL PRIMARY KEY,
+                    principal_id TEXT NOT NULL,
+                    tenant_id TEXT NOT NULL,
+                    created_at TEXT NOT NULL
+                )
+                """
             )
-            """
-        )
-        self._connection.commit()
+            self._connection.commit()
+        except BaseException:
+            _close_initializing_connection(self._connection)
+            raise
         self._lock = asyncio.Lock()
 
     async def record(self, object_key: str, owner: AuthContext) -> None:
@@ -513,8 +563,12 @@ class SQLiteTaskArtifactCache:
         max_size: int = 10_000,
     ) -> None:
         self._connection = _open_sqlite_connection(database_path)
-        self._ensure_schema()
-        self._connection.commit()
+        try:
+            self._ensure_schema()
+            self._connection.commit()
+        except BaseException:
+            _close_initializing_connection(self._connection)
+            raise
         self._lock = asyncio.Lock()
         self._ttl_seconds = ttl_seconds
         self._max_size = max_size
@@ -729,20 +783,24 @@ class BudgetLedger:
     ) -> None:
         self._connection = _open_sqlite_connection(database_path)
         self._max_records = max_records
-        self._connection.execute(
-            """
-            CREATE TABLE IF NOT EXISTS budget_reservations (
-                id INTEGER PRIMARY KEY AUTOINCREMENT,
-                usage_date TEXT NOT NULL,
-                principal_id TEXT NOT NULL,
-                tenant_id TEXT NOT NULL,
-                product TEXT NOT NULL,
-                amount_usd REAL NOT NULL,
-                status TEXT NOT NULL CHECK(status IN ('reserved', 'committed', 'released'))
+        try:
+            self._connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS budget_reservations (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    usage_date TEXT NOT NULL,
+                    principal_id TEXT NOT NULL,
+                    tenant_id TEXT NOT NULL,
+                    product TEXT NOT NULL,
+                    amount_usd REAL NOT NULL,
+                    status TEXT NOT NULL CHECK(status IN ('reserved', 'committed', 'released'))
+                )
+                """
             )
-            """
-        )
-        self._connection.commit()
+            self._connection.commit()
+        except BaseException:
+            _close_initializing_connection(self._connection)
+            raise
         self._daily_limit_usd = daily_limit_usd
         self._lock = asyncio.Lock()
 
@@ -857,6 +915,9 @@ class RuntimeServices:
     task_artifact_cache: TaskArtifactCache
     task_artifact_locks: TaskArtifactPersistenceLocks
     submission_store: SQLiteSubmissionStore | None = None
+    state_lease: RuntimeStateLease | None = None
+    metrics_listener: MetricsListener | None = None
+    _close_task: asyncio.Task[None] | None = field(default=None, init=False, repr=False)
 
 
 @dataclass(slots=True)
@@ -876,75 +937,155 @@ def build_state_stores(
         backend=settings.state_backend,
         note="Only one replica may run with the SQLite state backend.",
     )
-    return (
-        SQLiteTaskOwnershipStore(database_path, max_records=settings.state_max_records),
-        SQLiteObjectKeyOwnershipStore(database_path),
-        BudgetLedger(
+    with ExitStack() as cleanup:
+        ownership = SQLiteTaskOwnershipStore(database_path, max_records=settings.state_max_records)
+        cleanup.callback(_close_initializing_connection, ownership._connection)
+        object_keys = SQLiteObjectKeyOwnershipStore(database_path)
+        cleanup.callback(_close_initializing_connection, object_keys._connection)
+        budget = BudgetLedger(
             database_path,
             daily_limit_usd=settings.daily_budget_usd or None,
             max_records=settings.state_max_records,
-        ),
-        SQLiteTaskArtifactCache(
+        )
+        cleanup.callback(_close_initializing_connection, budget._connection)
+        cache = SQLiteTaskArtifactCache(
             database_path,
             ttl_seconds=settings.persistence_cache_ttl_seconds,
             max_size=settings.persistence_cache_max_size,
-        ),
-    )
+        )
+        cleanup.callback(_close_initializing_connection, cache._connection)
+        cleanup.pop_all()
+        return ownership, object_keys, budget, cache
 
 
 async def create_runtime_services(settings: Settings) -> RuntimeServices:
+    """Acquire HTTP ownership before stores, per specs/SPEC_VKE_DEPLOYMENT.md.
+
+    specs/SPEC_HOSTED_BYOK.md defines the durable single-instance boundary.
+    Resource acquisition results are registered before cancellation can escape.
+    """
     artifact_dir = Path(settings.artifact_dir).expanduser().resolve()
     artifact_dir.mkdir(parents=True, exist_ok=True)
-    downloader = SafeDownloader(
-        timeout=settings.artifact_download_timeout_seconds,
-        connect_timeout=settings.connect_timeout_ms / 1000,
-        max_attempts=settings.artifact_download_max_attempts,
-    )
-    if settings.artifact_backend == "object_storage":
-        artifact_store: ArtifactStore = ObjectStorageArtifactStore(
-            settings=settings,
-            downloader=downloader,
-        )
-    else:
-        artifact_store = FilesystemArtifactStore(
-            artifact_dir=str(artifact_dir),
-            ttl_seconds=settings.artifact_ttl_seconds,
-            downloader=downloader,
-        )
     database_path = artifact_dir / "runtime.sqlite3"
-    ownership_store, object_key_ownership_store, budget_ledger, task_artifact_cache = (
-        build_state_stores(settings, database_path)
-    )
-    submission_store = None
-    if settings.mcp_transport == "http":
-        submission_store = await asyncio.to_thread(
-            SQLiteSubmissionStore, database_path, max_records=settings.state_max_records
+    cleanup = AsyncExitStack()
+    state_cleanup_failed = False
+    try:
+        lease = None
+        if settings.mcp_transport == "http":
+            lease = RuntimeStateLease(database_path)
+            await lease.acquire()
+        downloader = SafeDownloader(
+            timeout=settings.artifact_download_timeout_seconds,
+            connect_timeout=settings.connect_timeout_ms / 1000,
+            max_attempts=settings.artifact_download_max_attempts,
         )
-    return RuntimeServices(
-        settings=settings,
-        artifact_store=artifact_store,
-        safe_downloader=downloader,
-        ownership_store=ownership_store,
-        object_key_ownership_store=object_key_ownership_store,
-        budget_ledger=budget_ledger,
-        provider_limiters=ProviderLimiters(
-            provider_limit=settings.provider_max_concurrency,
-            principal_limit=settings.principal_max_concurrency,
-        ),
-        task_artifact_cache=task_artifact_cache,
-        task_artifact_locks=TaskArtifactPersistenceLocks(),
-        submission_store=submission_store,
-    )
+        cleanup.push_async_callback(downloader.close)
+        if settings.artifact_backend == "object_storage":
+            artifact_store: ArtifactStore = ObjectStorageArtifactStore(
+                settings=settings,
+                downloader=downloader,
+            )
+        else:
+            artifact_store = FilesystemArtifactStore(
+                artifact_dir=str(artifact_dir),
+                ttl_seconds=settings.artifact_ttl_seconds,
+                downloader=downloader,
+            )
+        cleanup.push_async_callback(artifact_store.close)
+
+        async def open_stores() -> tuple[
+            TaskOwnershipStore, ObjectKeyOwnershipStore, BudgetLedger, TaskArtifactCache
+        ]:
+            nonlocal state_cleanup_failed
+            try:
+                stores = await asyncio.to_thread(build_state_stores, settings, database_path)
+            except _StateCleanupFailed:
+                state_cleanup_failed = True
+                raise
+            for store in stores:
+                cleanup.push_async_callback(store.close)
+            return stores
+
+        (
+            ownership_store,
+            object_key_ownership_store,
+            budget_ledger,
+            task_artifact_cache,
+        ) = await drain_task(asyncio.create_task(open_stores()))
+
+        async def open_submissions() -> SQLiteSubmissionStore:
+            store = await asyncio.to_thread(
+                SQLiteSubmissionStore, database_path, max_records=settings.state_max_records
+            )
+            cleanup.push_async_callback(store.close)
+            return store
+
+        submission_store = None
+        listener = None
+        if settings.mcp_transport == "http":
+            submission_store = await drain_task(asyncio.create_task(open_submissions()))
+            if settings.metrics_port:
+                listener = MetricsListener(settings.metrics_port)
+                cleanup.push_async_callback(listener.close)
+        runtime = RuntimeServices(
+            settings=settings,
+            artifact_store=artifact_store,
+            safe_downloader=downloader,
+            ownership_store=ownership_store,
+            object_key_ownership_store=object_key_ownership_store,
+            budget_ledger=budget_ledger,
+            provider_limiters=ProviderLimiters(
+                provider_limit=settings.provider_max_concurrency,
+                principal_limit=settings.principal_max_concurrency,
+                admission_timeout_seconds=settings.admission_timeout_seconds,
+            ),
+            task_artifact_cache=task_artifact_cache,
+            task_artifact_locks=TaskArtifactPersistenceLocks(),
+            submission_store=submission_store,
+            state_lease=lease,
+            metrics_listener=listener,
+        )
+    except BaseException:
+
+        async def close_partial() -> None:
+            await cleanup.aclose()
+            if state_cleanup_failed:
+                raise _StateCleanupFailed("Runtime state initialization cleanup failed.")
+            if lease is not None:
+                await lease.close()
+
+        cleanup_task = asyncio.create_task(close_partial())
+        try:
+            await drain_task(cleanup_task)
+        except (Exception, asyncio.CancelledError):
+            if cleanup_task.cancelled() or cleanup_task.exception() is not None:
+                log_error("runtime_startup_cleanup_failed")
+        raise
+    cleanup.pop_all()
+    return runtime
 
 
 async def close_runtime_services(runtime: RuntimeServices) -> None:
-    await runtime.artifact_store.close()
-    await runtime.ownership_store.close()
-    await runtime.object_key_ownership_store.close()
-    await runtime.budget_ledger.close()
-    await runtime.task_artifact_cache.close()
-    if runtime.submission_store is not None:
-        await runtime.submission_store.close()
+    """Drain all cleanup, including repeated cancellation, before releasing HTTP ownership."""
+
+    async def close() -> None:
+        async with AsyncExitStack() as cleanup:
+            cleanup.push_async_callback(runtime.safe_downloader.close)
+            if runtime.submission_store is not None:
+                cleanup.push_async_callback(runtime.submission_store.close)
+            cleanup.push_async_callback(runtime.task_artifact_cache.close)
+            cleanup.push_async_callback(runtime.budget_ledger.close)
+            cleanup.push_async_callback(runtime.object_key_ownership_store.close)
+            cleanup.push_async_callback(runtime.ownership_store.close)
+            cleanup.push_async_callback(runtime.artifact_store.close)
+            if runtime.metrics_listener is not None:
+                cleanup.push_async_callback(runtime.metrics_listener.close)
+        if runtime.state_lease is not None:
+            await runtime.state_lease.close()
+
+    if runtime._close_task is None:
+        runtime._close_task = asyncio.create_task(close())
+    await drain_task(runtime._close_task)
 
 
 RuntimeFactory = Callable[[Settings], Awaitable[RuntimeServices]]
@@ -965,6 +1106,42 @@ def get_principal(ctx: Context) -> PrincipalContext:
     return request_principal()
 
 
+def _safe_receipt_identifier(settings: Settings, value: str | None) -> bool:
+    if not isinstance(value, str) or not re.fullmatch(IDENTIFIER_PATTERN, value):
+        return False
+    if redact_request_secrets(value) != value:
+        return False
+    secrets = (
+        settings.identity_hmac_key.get_secret_value(),
+        settings.modelark_api_key,
+        settings.seed_speech_api_key,
+        settings.cv_api_key,
+        settings.s3_access_key,
+        settings.s3_secret_key,
+        settings.tos_access_key,
+        settings.tos_secret_key,
+        settings.tos_security_token,
+    )
+    return not any(secret and secret in value for secret in secrets)
+
+
+def capture_accepted_task(
+    ctx: Context,
+    provider: Literal["modelark", "vision-cv"],
+    task_id: str,
+    request_id: str | None,
+) -> None:
+    """Capture safe transient receipts synchronously, before leaving the provider slot."""
+    from ark_mcp.submissions import validate_receipt_identifiers
+
+    validate_receipt_identifiers(ctx, provider, task_id, request_id)
+    settings = get_runtime(ctx).settings
+    if _safe_receipt_identifier(settings, task_id):
+        record_accepted_receipt(
+            task_id, request_id if _safe_receipt_identifier(settings, request_id) else None
+        )
+
+
 async def record_accepted_task(
     ctx: Context,
     provider: Literal["modelark", "vision-cv"],
@@ -972,9 +1149,9 @@ async def record_accepted_task(
     request_id: str | None,
 ) -> None:
     """Never report an accepted but unrecorded task as safe to resubmit."""
-    from ark_mcp.submissions import record_submission_task, validate_receipt_identifiers
+    from ark_mcp.submissions import record_submission_task
 
-    validate_receipt_identifiers(ctx, provider, task_id, request_id)
+    capture_accepted_task(ctx, provider, task_id, request_id)
     submission_record_failed = False
     if get_runtime(ctx).settings.mcp_transport == "http":
         try:
@@ -1029,25 +1206,23 @@ async def billed_provider_slot(
     product: str,
     estimated_cost_usd: float,
 ) -> AsyncIterator[None]:
-    """Reserve budget and acquire shared limits around one billable call.
+    """Acquire shared limits before reserving budget for one billable call.
 
+    Each slot covers one billable operation and its explicitly safe retries.
     The reservation is committed when the call succeeds, when the provider
     error is ambiguous, or when it is a ``TIMEOUT`` (a timed-out completion may
     still have consumed billable tokens). It is released for other errors.
-    On cancellation it is committed if the provider call had already started
-    (the outcome is unknown) and released if the call was still waiting for a
-    limiter slot. Finalization is best-effort: failures are logged without
-    replacing the provider outcome, and failed commits leave the reservation
-    reserved so it still consumes allowance. Cancellation cleanup is shielded.
+    Cancellation during reservation drains and recovers a known reservation,
+    then releases it without dispatch. After handler entry cancellation is
+    conservatively committed. Finalization and SDK draining hold admission
+    through repeated cancellation; failures never replace a provider outcome.
     """
     runtime = get_runtime(ctx)
     owner = get_principal(ctx)
-    reservation = await runtime.budget_ledger.reserve(
-        owner,
-        CostEstimate(product=product, amount_usd=estimated_cost_usd),
-    )
 
-    async def finalize(action: Literal["commit", "release"]) -> None:
+    async def finalize(
+        reservation: BudgetReservation, action: Literal["commit", "release"]
+    ) -> None:
         try:
             if action == "commit":
                 await runtime.budget_ledger.commit(reservation)
@@ -1061,25 +1236,50 @@ async def billed_provider_slot(
                 reservation_id=reservation.reservation_id,
             )
 
-    dispatched = False
-    try:
-        async with runtime.provider_limiters.acquire(provider, owner):
-            dispatched = True
+    async with runtime.provider_limiters.acquire(provider, owner):
+        reserve_task = asyncio.create_task(
+            runtime.budget_ledger.reserve(
+                owner, CostEstimate(product=product, amount_usd=estimated_cost_usd)
+            )
+        )
+        try:
+            reservation = await asyncio.shield(reserve_task)
+        except asyncio.CancelledError:
+            with suppress(Exception, asyncio.CancelledError):
+                await drain_task(reserve_task)
+            try:
+                reservation = reserve_task.result()
+            except (Exception, asyncio.CancelledError):
+                log_error("budget_reservation_failed", provider=provider)
+            else:
+                with suppress(asyncio.CancelledError):
+                    await drain_task(asyncio.create_task(finalize(reservation, "release")))
+            raise
+
+        async def finish(action: Literal["commit", "release"]) -> None:
+            await drain_task(asyncio.create_task(finalize(reservation, action)))
+
+        task = asyncio.current_task()
+        if task is not None and task.cancelling():
+            with suppress(asyncio.CancelledError):
+                await finish("release")
+            raise asyncio.CancelledError
+        try:
             yield
-    except ProviderError as exc:
-        if exc.ambiguous_completion or exc.code == "TIMEOUT":
-            await finalize("commit")
+        except ProviderError as exc:
+            await finish(
+                "commit" if exc.ambiguous_completion or exc.code == "TIMEOUT" else "release"
+            )
+            raise
+        except asyncio.CancelledError:
+            with suppress(asyncio.CancelledError):
+                await finish("commit")
+            raise
+        except BaseException:
+            await finish("release")
+            raise
         else:
-            await finalize("release")
-        raise
-    except asyncio.CancelledError:
-        await asyncio.shield(finalize("commit" if dispatched else "release"))
-        raise
-    except Exception:
-        await finalize("release")
-        raise
-    else:
-        await finalize("commit")
+            await finish("commit")
 
 
 async def _state_sweeper(runtime: RuntimeServices, settings: Settings) -> None:
@@ -1134,11 +1334,17 @@ def build_lifespan(
         try:
             yield {"runtime": runtime}
         finally:
-            sweeper.cancel()
-            with suppress(asyncio.CancelledError):
-                await sweeper
             if state is not None:
                 state.runtime = None
-            await close_runtime_services(runtime)
+
+            async def shutdown() -> None:
+                try:
+                    sweeper.cancel()
+                    with suppress(asyncio.CancelledError):
+                        await sweeper
+                finally:
+                    await close_runtime_services(runtime)
+
+            await drain_task(asyncio.create_task(shutdown()))
 
     return server_lifespan

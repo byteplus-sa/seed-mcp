@@ -1,19 +1,24 @@
 # Integration Guide
 
-This is the technical reference for background execution. For everyday setup,
+This is the technical reference for direct execution. For everyday setup,
 start with [Set Up Ark MCP](setup/install.md) and [your client guide](integrations/index.md).
 Users can ask their client in plain language; the client handles tool calls.
 
-**Choose the transport first.** Background workflows below are local stdio only.
-HTTP BYOK exposes 9 tools (12 with OmniHuman), direct foreground provider calls
+**Choose the transport first.** Both transports use direct tool calls.
+HTTP BYOK exposes 7 tools (10 with OmniHuman), direct foreground provider calls
 and anonymous static discovery. It has no jobs/native tasks/storage/artifact
 tools/resources. Keep persistence false and download expiring provider URLs
 on the client. See [HTTP setup](setup/shared-server.md).
 Anonymous discovery lists configured bindings without environment provider
 keys; `services[].enabled` reports registration, not customer entitlement.
+Default discovery returns `connection=null`; opt-in HTTP `check_connection`
+checks only image/video header presence and exact bindings. Use the
+[shared-server preflight](setup/shared-server.md#optional-imagevideo-configuration-check)
+and [client snippet generator](setup/shared-server.md#generate-a-client-snippet);
+neither verifies authentication, live endpoint lineage or paid provider access.
 Explicit per-call `io.modelcontextprotocol/tasks` opt-in is rejected before
 provider dispatch, snapshot capture/save or queue creation. Omit the opt-in;
-ordinary jobs are unavailable on HTTP.
+ordinary jobs are unavailable on both transports.
 
 HTTP non-dry Seedance/OmniHuman creates require `idempotency_key` (16-128 ASCII
 letters, digits, `_` or `-`; UUID recommended), one per intended whole call.
@@ -22,7 +27,7 @@ polling. Unresolved/partial attempts need reconciliation using known IDs,
 never automatic resume or a new key to bypass uncertainty. Seedance dry runs
 need no key/journal; stdio rejects supplied keys. See the
 [submission contract](../specs/SPEC_HOSTED_BYOK.md#http-submission-safety).
-All local job examples below remain keyless.
+All local examples below remain keyless.
 
 ## Prerequisites
 
@@ -41,52 +46,23 @@ Use `python -m ark_mcp` in client configurations so transport security
 settings are applied consistently. The server module also injects `truststore`
 before provider clients are created.
 
-## Background Execution
+## Direct Execution
 
-**Local stdio long-running work uses the worker.** The server exposes
-two entry paths to the same FastMCP Docket worker:
+Call the named product tool directly with `{"input": {...}}`. No MCP jobs,
+native tasks, worker queue, task snapshots or execution claims exist.
 
-| Entry path | Client requirement | Result retrieval |
-|---|---|---|
-| `ark_job_submit` with the original tool name and arguments (**default**) | Any MCP client (no task extension needed) | `ark_job_get` |
-| Call the original tool with task augmentation | MCP `2026-07-28` task extension | `tasks/get` |
+1. Discover configured bindings and services with `ark_list_models`.
+2. For Seedream/Seedance, optionally call the product with `dry_run=true`.
+3. Make one authorized direct create call and retain safe task/request IDs.
+4. Poll Seedance with `gen_task_get` or OmniHuman with `omnihuman_get_task`;
+   never call create to poll. Respect `recommended_poll_after_ms`.
+5. On stdio, explicitly persist successful outputs with the same direct
+   poller and `persist_output=true`. HTTP clients download expiring URLs.
 
-**Use the ordinary `ark_job_*` tools by default.** MCP tasks remain
-experimental and most clients cannot negotiate task augmentation; verify
-against the client release in front of you rather than assuming support. The
-ordinary path needs no task-specific transport feature, runs the selected tool
-in the same background worker, and preserves the original tool result inside
-`result.structured_content` when the job completes.
-
-A client that does negotiate the task extension may call the original tools
-with task metadata instead; that path is fully supported and unchanged. A
-foreground call made directly to a required-task tool is still rejected before
-provider submission.
-
-The repository tests both paths with the locked FastMCP **4.1.8** runtime. The
-ordinary local path is covered in-process and over a real subprocess stdio transport.
-These tests use mocked providers and do not make billable generation calls.
-Exact desktop/IDE releases and their automatic tool-selection behavior can
-change; the standard `ark_job_*` protocol surface is the portable contract.
-
-### Ordinary-tool workflow (default)
-
-1. Call `ark_job_capabilities` to discover targets enabled by server
-   configuration and visible to the current principal.
-2. Call `ark_job_submit` with `tool_name` and the exact `arguments` object the
-   original tool accepts.
-3. Store the returned Ark `job_id`. Do not confuse it with a Seedance or OmniHuman provider task ID returned later by the original tool.
-4. Poll `ark_job_get` no faster than `poll_after_ms` until `status` is terminal.
-5. Read the original MCP tool result from `result`. For provider-submission
-   tools, its `structured_content` contains the provider task ID.
-6. Use `ark_job_cancel` for a locally running job when needed. Cancellation is
-   cooperative and does not guarantee cancellation of provider work already
-   accepted upstream.
-
-Inspect terminal status and `result.is_error` before using
-`result.structured_content`; completion alone is not success. The
+Inspect `result.is_error` before using `result.structured_content`;
+completion alone is not success. The
 [Python client guide](integrations/python.md) has a complete discovery and
-dry-run example with bounded polling and error checks. The
+direct dry-run example with error checks. The
 [first-run guide](setup/first-run.md) provides copyable generation prompts and
 optional no-charge checks.
 
@@ -99,12 +75,23 @@ work. HTTP polling requires recorded ownership; otherwise reconcile with the
 provider using those IDs. Trusted stdio permits unrecorded IDs, but still
 rejects a recorded owner mismatch.
 
-### Native task workflow
+### Deadlines and admission
 
-A client that negotiates the task extension can call the same tools with task
-augmentation instead; that path follows the official
-[FastMCP task documentation](https://gofastmcp.com/servers/tasks). The example
-under [Python Task Workflow](#python-task-workflow) uses it.
+`MCP_ADMISSION_TIMEOUT_SECONDS=2.0` (finite positive, max 30) bounds all waiting
+for owner then provider slots. Owner-first acquisition prevents a same-owner
+backlog occupying provider slots. Budget is reserved after admission.
+`ADMISSION_TIMEOUT` means this attempt did not dispatch; other variations may
+have done so. No automatic retry loop is added.
+
+`MCP_TOOL_TIMEOUT_SECONDS=600.0` (finite positive, max 3600) starts at wrapper
+entry after MCP parsing, before credentials, journal and admission.
+Use client timeout **660 seconds** and compatible proxy settings.
+SQLite/SDK cleanup may exceed this cooperative deadline.
+`TOOL_DEADLINE_EXCEEDED` is a text-only error preserving mutation uncertainty
+and known safe accepted IDs. External cancellation propagates; timeout does
+not cancel accepted provider work. Never blindly resubmit. Read-only polling
+and discovery avoid saturated generation slots, but HTTP global limits still
+apply. See [Direct Execution](../specs/SPEC_DIRECT_EXECUTION.md).
 
 ## Seedream Review And Edit
 
@@ -113,22 +100,22 @@ uses existing tools; the Ark MCP integration exposes no native OCR or layer
 decomposition, even when the provider API supports those operations.
 
 1. Discover the model and dry-run the intended request. Record an explicit
-   paid-attempt limit and USD estimate budget covering generation, any
-   `seed_understand` reviews and edits. `preview.price_source` is `builtin`,
+   paid-attempt limit and USD estimate budget covering generation and edits.
+   `preview.price_source` is `builtin`,
    not an account-specific quote or actual charge. Stop when either limit is reached.
-2. Submit once, directly on HTTP or through `ark_job_submit` on stdio. Keep any Ark job ID and completed
+2. Submit once, directly on either transport. Keep completed
    per-call `request_id`, submitted `seed`, final `prompt_sha256`,
    `request_options`, usage, artifact ID and artifact SHA-256. Store the original
    prompt and reference hashes in a private manifest; the hash is not the prompt.
 3. Check `item_errors` or variation errors, persistence and byte `inspection`.
    A delivered PNG is not automatically a passing image. Inspection problems
    do not cause paid rerolls.
-4. Review the immutable output visually, using an authorized human or
-   `seed_understand` (direct HTTP, ordinary job on stdio). Use its provider URL;
+4. Review the immutable output visually with an authorized human or a separately
+   configured review system outside this server. Use its provider URL;
    local stdio can also export/read or upload a durable image. Evaluate
    exact spelling/case, forbidden text (including absence checks), object/person
    counts, geometry, visibility, anatomy and composition against the brief.
-   An understanding response is fallible evidence, not authoritative OCR.
+   Automated review is fallible evidence, not authoritative OCR.
 5. Record `Pass`, `Partial`, `Fail`, or `Not evaluated` with evidence. A reviewer
    refusal or unavailable review is `Not evaluated`, not a generation failure;
    exclude it from assessed pass-rate denominators and do not bypass refusals.
@@ -143,7 +130,7 @@ decomposition, even when the provider API supports those operations.
    consumer integration, not the Seedream adapter.
 
 Never resubmit after an ambiguous timeout simply to get another answer. Resume
-the existing job or reconcile its request ID first. Recovery of persisted media
+polling of known provider tasks or reconcile its request ID first. Recovery of persisted media
 is distinct from another paid generation.
 
 ### Opt-In Seedream Smoke Matrix
@@ -166,7 +153,7 @@ the complete matrix). Results go to a fresh private run directory under
 The script checks persistence, hashes, decode, dimensions, format and visible
 alpha. A byte-smoke pass does not prove the requested color change or region
 adherence: visually review editing semantics and composition separately. Polling
-is bounded; a timeout is not permission to rerun an accepted job.
+is bounded; a timeout is not permission to rerun accepted work.
 
 ## Python Task Workflow
 
@@ -175,11 +162,11 @@ reviewed environment with `ARK_MCP_ENV_FILE` pointing to your private file
 and `SMOKE_REFERENCE_IMAGE_URL` pointing to an accessible reference
 image. **This example submits one billable video generation.** The provider ID
 is saved before polling; if polling fails, use that ID to resume retrieval rather
-than repeating submission. The MCP task ID identifies the worker operation,
-while the provider ID identifies the video generation.
+than repeating submission. The provider ID identifies the video generation;
+there is no MCP job ID.
 
 <details>
-<summary>Native-task Python example (billable)</summary>
+<summary>Direct-call Python example (billable)</summary>
 
 ```python
 import asyncio
@@ -190,7 +177,6 @@ from pathlib import Path
 
 from fastmcp import Client
 from fastmcp.client.transports import StdioTransport
-from fastmcp_tasks import call_tool_task
 
 
 async def main():
@@ -204,23 +190,27 @@ async def main():
         },
         keep_alive=False,
     )
-    async with Client(transport) as client:
-        submission = await call_tool_task(
-            client,
+    async with Client(transport, timeout=660) as client:
+        created = await client.call_tool(
             "seedance_create_task",
-            {"input": {
-                "prompt": "A gentle camera move through the scene",
-                "images": [{
-                    "kind": "url",
-                    "url": os.environ["SMOKE_REFERENCE_IMAGE_URL"],
-                    "role": "reference_image",
-                }],
-                "duration": 5,
-                "resolution": "480p",
-            }},
+            {
+                "input": {
+                    "prompt": "A gentle camera move through the scene",
+                    "images": [
+                        {
+                            "kind": "url",
+                            "url": os.environ["SMOKE_REFERENCE_IMAGE_URL"],
+                            "role": "reference_image",
+                        }
+                    ],
+                    "duration": 5,
+                    "resolution": "480p",
+                }
+            },
+            raise_on_error=False,
         )
-        print("MCP submission task:", submission.task_id)
-        created = await submission.result()
+        if created.is_error or created.structured_content is None:
+            raise RuntimeError("Create failed; reconcile safe IDs without resubmission")
         provider_id = created.structured_content["tasks"][0]["task_id"]
         directory = Path(".artifacts")
         directory.mkdir(exist_ok=True)
@@ -233,7 +223,10 @@ async def main():
             status = await client.call_tool(
                 "gen_task_get",
                 {"input": {"task_ids": [provider_id], "persist_output": False}},
+                raise_on_error=False,
             )
+            if status.is_error or status.structured_content is None:
+                raise RuntimeError(f"Resume polling provider task {provider_id}")
             result = status.structured_content
             if result["errors"]:
                 raise RuntimeError(f"Provider task {provider_id}: {result['errors'][0]}")
@@ -246,25 +239,21 @@ async def main():
         else:
             raise TimeoutError(f"Resume polling provider task {provider_id}")
 
-        persistence = await call_tool_task(
-            client,
+        completed = await client.call_tool(
             "gen_task_get",
             {"input": {"task_ids": [provider_id], "persist_output": True}},
+            raise_on_error=False,
         )
-        completed = await persistence.result()
+        if completed.is_error or completed.structured_content is None:
+            raise RuntimeError("Persistence failed; retain the provider ID")
         print(completed.structured_content["tasks"][0]["outputs"])
 
 
 asyncio.run(main())
 ```
 
-`task.result()` waits through `tasks/get` and returns the terminal tool result.
-In this single-process stdio example, FastMCP 4.1.8 automatically task-augments
-`client.call_tool()` for the optional status tool as well; `persist_output=false`
-still prevents downloads. The standalone smoke scripts use modern and public
-`mode="legacy"` clients connected to the same in-process server lifespan to
-exercise a genuinely foreground status call. Do not launch a second stdio server
-against the same SQLite state to obtain that behavior.
+`client.call_tool()` awaits the ordinary result. No task extension or second
+client is needed; do not launch concurrent processes against the same SQLite state.
 A provider success can still have `video=null` when best-effort persistence
 fails; inspect the result before treating the artifact as delivered. The same
 submit/status/persistence sequence is tested offline by the smoke-workflow tests;
@@ -329,9 +318,9 @@ start through `python -m ark_mcp` so the complete entrypoint runs.
 ### "API key not configured" Error
 
 Check the private `ARK_MCP_ENV_FILE` path, requested credential names and
-feature flags, then reconnect after finishing active jobs. Do not print the
+feature flags, then reconnect after finishing active calls. Do not print the
 file or raw settings-validation exceptions. See
-[missing tools](troubleshooting.md#ark_job_capabilities-returns-no-targets).
+[missing tools](troubleshooting.md#missing-provider-tools).
 
 ### Server Not Discovered by Client
 
@@ -345,7 +334,7 @@ diagnostics locally, not dump complete logs into chat. See
 On local stdio, if only some products' tools are registered:
 
 - No ModelArk key → no `seedream_generate_image`, `seedance_create_task`,
-  `gen_task_*`, `seed_understand`, or `seed_audio_understand`
+  `gen_task_*`
 - Seed Audio, OmniHuman and object storage need their own credentials
   or feature flags; see
   [Configuration](configuration.md).

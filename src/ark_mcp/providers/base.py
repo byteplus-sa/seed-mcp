@@ -8,19 +8,26 @@ request-ID extraction, and HTTP error normalization.
 
 from __future__ import annotations
 
+import asyncio
 import math
 import re
 from abc import ABC, abstractmethod
 from time import perf_counter
-from typing import Any, ClassVar
+from typing import TYPE_CHECKING, Any, ClassVar
 
 import httpx
 from fastmcp.telemetry import get_tracer, record_span_error
 from pydantic import BaseModel
 
 from ark_mcp.domain.errors import NormalizedProviderError, ProviderError, ProviderName
+from ark_mcp.execution import before_provider_request
+from ark_mcp.observability.logger import error as log_error
 from ark_mcp.observability.logger import info as log_info
 from ark_mcp.observability.metrics import PROVIDER_DURATION, PROVIDER_REQUESTS
+from ark_mcp.sqlite_io import drain_task
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
 _URL_PATTERN = re.compile(r"https?://\S+", re.IGNORECASE)
 
@@ -54,6 +61,39 @@ def retry_after_seconds(value: str | None) -> float | None:
     except ValueError:
         return None
     return delay if delay is not None and math.isfinite(delay) and delay >= 0 else None
+
+
+class BlockingSdkCalls:
+    """Keep SDK calls and close alive until their threads drain, even after cancellation."""
+
+    def __init__(self) -> None:
+        self._pending: set[asyncio.Task[Any]] = set()
+        self._close_task: asyncio.Task[None] | None = None
+
+    async def run[T](self, call: Callable[[], T], *, side_effect: bool) -> T:
+        if self._close_task is not None:
+            raise RuntimeError("SDK client is closed or closing.")
+        if side_effect:
+            before_provider_request(side_effect=True)
+        task = asyncio.create_task(asyncio.to_thread(call))
+        self._pending.add(task)
+        try:
+            return await drain_task(task)
+        finally:
+            self._pending.discard(task)
+
+    async def close(self, close: Callable[[], Any] | None, *, provider: ProviderName) -> None:
+        async def finish() -> None:
+            await asyncio.gather(*self._pending, return_exceptions=True)
+            if close is not None:
+                try:
+                    await asyncio.to_thread(close)
+                except Exception:
+                    log_error("sdk_close_failed", provider=provider)
+
+        if self._close_task is None:
+            self._close_task = asyncio.create_task(finish())
+        await drain_task(self._close_task)
 
 
 class BaseHttpGateway(ABC):
@@ -100,7 +140,9 @@ class BaseHttpGateway(ABC):
     def base_url(self) -> str:
         return self._base_url
 
-    async def _request(self, method: str, path: str, **kwargs: Any) -> httpx.Response:
+    async def _request(
+        self, method: str, path: str, *, side_effect: bool, **kwargs: Any
+    ) -> httpx.Response:
         client = await self._ensure_client()
         url = f"{self._base_url}{path}"
         log_info(f"{self.PROVIDER}_request", method=method)
@@ -115,6 +157,7 @@ class BaseHttpGateway(ABC):
             span.set_attribute("provider.name", self.PROVIDER)
             span.set_attribute("http.request.method", method)
             try:
+                before_provider_request(side_effect=side_effect)
                 response = await client.request(method, url, headers=headers, **kwargs)
             except Exception as exc:
                 record_span_error(span, RuntimeError("Provider request failed."))

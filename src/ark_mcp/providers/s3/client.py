@@ -8,8 +8,6 @@ helpers work uniformly across all object-storage backends.
 
 from __future__ import annotations
 
-import asyncio
-import contextlib
 from typing import Any, cast
 
 import boto3
@@ -19,6 +17,7 @@ from botocore.exceptions import ClientError
 from ark_mcp.config.env import get_settings
 from ark_mcp.domain.errors import NormalizedProviderError, ProviderError, ProviderName
 from ark_mcp.observability.logger import info as log_info
+from ark_mcp.providers.base import BlockingSdkCalls
 
 PROVIDER: ProviderName = "s3"
 
@@ -52,6 +51,7 @@ class S3Gateway:
                 s3={"addressing_style": "path"} if settings.s3_endpoint else {},
             ),
         )
+        self._calls = BlockingSdkCalls()
 
     async def upload_bytes(self, *, key: str, data: bytes, mime_type: str) -> None:
         def _upload() -> None:
@@ -97,17 +97,15 @@ class S3Gateway:
         return cast("str", await self._dispatch(_presign, operation="presign"))
 
     async def close(self) -> None:
-        client = self._client
-        self._client = None
-        close = getattr(client, "close", None)
-        if not callable(close):
-            return
-        with contextlib.suppress(Exception):
-            await asyncio.to_thread(close)
+        close = getattr(self._client, "close", None)
+        try:
+            await self._calls.close(close if callable(close) else None, provider=PROVIDER)
+        finally:
+            self._client = None
 
     async def _dispatch(self, func: Any, *, operation: str) -> Any:
         try:
-            return await asyncio.to_thread(func)
+            return await self._calls.run(func, side_effect=operation != "presign")
         except ClientError as exc:
             raise _normalize_client_error(exc, operation) from None
         except Exception as exc:

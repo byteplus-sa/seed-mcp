@@ -8,10 +8,11 @@
 ## Breaking Capability Migration
 
 **The current narrowing is a breaking capability removal, not a compatible
-upgrade.** With all services configured, the catalog now contains **21 tools**.
+upgrade.** With all services configured, the catalog now contains **15 tools**.
 VOD / AI MediaKit, 3D generation, dedicated ASR (`speech_to_text`), asset
 administration (`ark_asset_*`), asset resolution/preflight and operator AK/SK
-live-pricing discovery have been removed. Historical replacements below do
+live-pricing discovery have been removed. MCP jobs/native task execution and
+both understanding tools are also removed. Historical replacements below do
 not restore these capabilities.
 
 **Old saved 3D artifacts are no longer served by the narrowed media schema.**
@@ -28,19 +29,20 @@ is provided.
    encryption key. Retain the old installation for controlled recovery; do not
    run old and new workers concurrently against the same state.
 3. Remove retired tool calls and settings from clients, prompts, skills and
-   dashboards. `gen_task_*` now handles Seedance only. Use
-   `seed_audio_understand` for model-generated transcription, not as a
-   drop-in replacement for dedicated ASR alignment.
+   dashboards. `gen_task_*` now handles Seedance only. No transcription or
+   understanding replacement is offered by this server.
 4. Rediscover configured tools and models after upgrading. Existing authorized
    Seedance `asset://` references still pass natively with the ModelArk Bearer
    key, but administration, lookup, resolution and status preflight are absent.
    Ordinary TOS/S3 uploads do not register provider assets.
 
-Current HTTP is a forward-only BYOK foundation with 9 tools (12 with
+Current HTTP is a forward-only BYOK foundation with 7 tools (10 with
 OmniHuman), anonymous static discovery and foreground provider calls.
-Local stdio retains the conditional 21-tool catalog, jobs and storage.
-Use fresh SQLite state; no old-auth compatibility or ownership migration
-exists. See [the current contract](../specs/SPEC_HOSTED_BYOK.md) and
+Local stdio retains the conditional 15-tool catalog and storage, using direct
+calls without MCP workers. Removing jobs does not delete current provider
+ownership or journal state; preserve it. No old-auth compatibility or ownership
+migration exists. See [direct execution](../specs/SPEC_DIRECT_EXECUTION.md),
+[the current HTTP contract](../specs/SPEC_HOSTED_BYOK.md) and
 [self-hosting](self-hosting.md), not the historical scope tables below.
 
 ## Historical Consolidation
@@ -48,7 +50,7 @@ exists. See [the current contract](../specs/SPEC_HOSTED_BYOK.md) and
 **0.2.0 consolidated the tool surface.** One tool per product capability
 replaced the per-model, per-variation and per-operation tools of 0.1.x. The
 broader catalog documented at that time contained **38 tools** when every
-service was enabled, not the current 21. **There was no
+service was enabled, not the current 15. **There was no
 compatibility layer**: clients, prompts, skills and dashboards that name a
 removed tool must switch to its replacement.
 

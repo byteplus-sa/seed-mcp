@@ -1,10 +1,10 @@
 ---
 title: Background Jobs Contract
 type: spec
-status: accepted
+status: deprecated
 horizon: current
 created: 2026-10-17
-updated: 2026-11-16
+updated: 2026-11-17
 tags: [mcp, fastmcp, background-jobs, tasks, security]
 source:
   - https://gofastmcp.com/servers/tasks
@@ -18,6 +18,11 @@ related:
 <!-- markdownlint-disable MD013 MD025 -->
 
 # Background Jobs Contract
+
+Historical contract only. Superseded by
+[Direct Execution](SPEC_DIRECT_EXECUTION.md). Neither transport now exposes
+these tools, native tasks, snapshots or MCP execution claims. The remainder
+records the retired design, not current setup instructions.
 
 ## Scope
 
@@ -103,7 +108,7 @@ job bridge nor provider retries promise exactly-once billing.
 Workers have no MCP roots. `output_path`, `output_dir` and `save_to` require
 server-configured absolute `OUTPUT_ROOTS`; otherwise validation rejects the
 request before provider work. Persistence itself does not need output roots.
-See [integration workflows](../docs/integration-guide.md#background-execution).
+See the current [integration workflows](../docs/integration-guide.md#direct-execution).
 
 ## Implementation and Limits
 

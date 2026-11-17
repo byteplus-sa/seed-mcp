@@ -44,9 +44,9 @@ BYTEPLUS_SEED_SPEECH_API_KEY=
 BYTEPLUS_CV_API_KEY=
 ```
 
-Omit unneeded fields. ModelArk covers image/video and understanding;
+Omit unneeded fields. ModelArk covers image/video generation;
 Seed Speech covers audio generation; Vision AI has its own
-key. Audio understanding and transcription use ModelArk. OmniHuman also needs
+key. OmniHuman also needs
 an explicitly requested `BYTEPLUS_OMNIHUMAN_ENABLED=true`. Derive additional storage
 credential names from the selected release's `.env.example` and docs.
 Never enable optional services or object storage just because settings exist.
@@ -143,6 +143,14 @@ dry runs; discovery is anonymous. No OAuth, signup, server-issued key or
 `Authorization` is used. Protect plaintext env files as described above and
 do not source them as shell code.
 
+Client snippet flags take environment **names**, never values. Keep every
+selected header's source variable distinct, especially the independent client
+secret; do not reuse a provider key as the secret. The stdout generator neither
+reads files nor environment values and cannot prove value independence.
+Optional endpoint variables require selected provider `modelark`; their values
+must be operator-verified exact bindings. Unknown endpoints require operator
+verification/binding, not customer AK/SK entry into this server.
+
 Keep the client secret and provider key stable to poll earlier work or recover
 an HTTP create receipt. The operator must retain the same state and HMAC
 key/version too. Changes
@@ -150,6 +158,12 @@ alter ownership scope with no recovery bridge. Separate provider keys/projects
 are needed to prevent direct upstream access by others sharing a key.
 Validate configuration syntax and discovery without printing secret values;
 exact-client header handling remains unverified until tested there.
+Default discovery returns `connection=null`. Optional live HTTP
+`check_connection=true` checks ModelArk/client-secret presence and exact
+image/video bindings only; missing headers become issues, malformed headers
+can be rejected before diagnostics. `configuration_valid=true` is not
+authentication, live lineage or entitlement proof. Never use a paid call to
+validate credentials without separate approval.
 
 `idempotency_key` is a separate per-operation tool argument, not a credential.
 Non-dry HTTP Seedance/OmniHuman creates require it; generate a fresh UUID per

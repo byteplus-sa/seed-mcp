@@ -5,8 +5,8 @@ forward-only BYOK surface, including on loopback.
 
 | Transport | Tools | Execution |
 | --- | --- | --- |
-| stdio | 21 catalog tools, conditional on local credentials/flags; eight always available | Local jobs/native tasks, storage and artifacts retained |
-| HTTP | 9, or 12 with OmniHuman enabled | Direct foreground provider calls; no jobs, native tasks, storage/artifact tools or resources |
+| stdio | 15 catalog tools, conditional on local credentials/flags; four always available | Direct calls; storage and artifacts retained |
+| HTTP | 7, or 10 with OmniHuman enabled | Direct foreground provider calls; no jobs, native tasks, storage/artifact tools or resources |
 
 ## stdio
 
@@ -19,10 +19,9 @@ come from private local configuration referenced by `ARK_MCP_ENV_FILE`.
 uv run --locked --no-sync python -m ark_mcp
 ```
 
-Use `ark_job_submit`/`ark_job_get` for required long operations. Native MCP
-tasks remain available to capable clients. Local jobs are process-local with
-the default memory backend. Separate stdio processes do not share jobs.
-See [background execution](integration-guide.md#background-execution).
+Call the original tool directly, without native task opt-in. No MCP jobs,
+workers, snapshots or execution claims exist. Local storage/artifacts remain.
+See [direct execution](integration-guide.md#direct-execution).
 Local Seedance/OmniHuman calls must omit `idempotency_key`; supplied keys are
 rejected, including on Seedance dry runs.
 
@@ -56,8 +55,20 @@ provider keys; `services[].enabled` reports registration, not entitlement.
 Provider calls, including dry runs, need live
 headers on every request. No server provider-key fallback exists. Model
 endpoint defaults are exact registered IDs; explicit tool `model` wins.
-HTTP generation and understanding run in the foreground, so configure the
-client/proxy timeout for long calls. Keep returned provider task IDs and poll
+Default discovery returns `connection=null`. Opt-in `check_connection=true`
+requires live HTTP and checks only ModelArk/client-secret header presence and
+exact image/video defaults. It does not authenticate, query endpoint lineage
+or verify entitlement. Unknown IDs are not echoed; the operator must verify
+and bind them. See the [configuration check](setup/shared-server.md#optional-imagevideo-configuration-check).
+Use client timeout 660 seconds with the default 600-second cooperative tool
+deadline and compatible proxy settings on both transports. SDK/SQLite cleanup
+may exceed the nominal deadline. Owner-first provider admission defaults to
+2 seconds (max 30); the tool deadline max is 3600 seconds. Both settings
+require finite positive values. Admission precedes budget reservation.
+`ADMISSION_TIMEOUT` means this attempt did not dispatch, not the whole batch.
+`TOOL_DEADLINE_EXCEEDED` preserves uncertainty and safe accepted IDs; never
+blindly resubmit or assume timeout cancelled upstream work.
+Keep returned provider task IDs and poll
 with `gen_task_get` or `omnihuman_get_task`. Never resubmit to poll.
 
 ### Create Delivery Recovery
@@ -84,12 +95,21 @@ requests and `STATE_MAX_RECORDS=100000`. Positive limits are enforced; global
 admission includes anonymous discovery. Proxy headers are untrusted by default.
 See [configuration](configuration.md#transport-and-authentication).
 
-| Route | Access | Meaning |
+| Route | Backend access | Meaning |
 | --- | --- | --- |
 | `/mcp` | Anonymous discovery; request BYOK for provider tools | Stateless Streamable HTTP |
 | `/health` | Anonymous | Minimal process liveness |
-| `/ready` | Anonymous | Minimal local state readiness; no provider probes |
-| `/metrics` | Unavailable on HTTP | Not a public monitoring endpoint |
+| `/ready` | Anonymous on backend; blocked by VKE Caddy | Minimal local state readiness; no provider probes |
+| `/metrics` | Absent from main app and public proxy | Optional separate loopback-only operator listener |
+
+`RATE_LIMIT_TRUSTED_PROXY_CIDRS` replaces the removed boolean trust setting;
+empty means ignore forwarded identities. Only trusted immediate peers can
+supply a bounded validated chain; walk right-to-left to the first untrusted
+address. Uvicorn proxy rewriting is disabled.
+VKE uses same-pod Caddy, application bind `127.0.0.1:3000`, trusted
+`127.0.0.1/32` and CLB TCP 443 to Caddy 8443. Only `/mcp` and `/health` are
+public. `MCP_METRICS_PORT=0` disables private metrics by default; enabled ports
+1024-65535 bind only 127.0.0.1. See [private monitoring](observability.md#metrics-endpoint).
 
 `seed-health://status` and `seed-media://` resources are stdio-only.
 No HTTP local file access, persistence, artifact downloads or uploads are
@@ -106,6 +126,13 @@ recovery remain deferred; PostgreSQL/Redis are future scaling choices, not
 initial requirements. This foundation is not public-launch certification.
 See [self-hosting](self-hosting.md), [security](security.md), and the
 [BYOK contract](../specs/SPEC_HOSTED_BYOK.md).
+
+HTTP holds an exclusive state lease before stores/recovery until close.
+Dedicated VKE uses one StatefulSet with retained RWO ext4 storage; no
+application HPA or network-filesystem SQLite is supported. HTTP/Caddy grace is
+max(tool, provider seconds) + 30; pod termination uses the maximum + 60.
+Keep live source-IP/CSI/rollout/client/provider acceptance separate from
+mocked TLS/load checks. Source deletion does not decommission old cloud state.
 
 ## MCP Inspector
 

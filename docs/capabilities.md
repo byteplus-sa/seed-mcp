@@ -5,9 +5,10 @@ description: Find the right Ark MCP capability and learn its credentials, execut
 
 Ark MCP has one tool per capability. Models, variations, edits and previews
 are parameters, not separate tool names. Start with `ark_list_models`.
-HTTP has 9 tools, or 12 with OmniHuman enabled, anonymous static discovery
-and direct foreground provider calls. Local stdio retains the 21-tool catalog
-and can additionally use `ark_job_capabilities`.
+HTTP has 7 tools, or 10 with OmniHuman enabled, anonymous static discovery
+and direct foreground provider calls. Local stdio has a 15-tool conditional
+catalog, four always registered. It also calls directly, with local
+storage/artifacts retained. Neither transport exposes MCP jobs/native tasks.
 
 The sidebar's **Tool Reference** contains one generated page per catalog tool,
 with exact input/output schemas, nested types, registration requirements and
@@ -35,27 +36,12 @@ default; explicit lists remain authoritative. Discovery does not prove account
 entitlement. The models enabled on the ComfyUI node pack are not automatically
 available in Ark MCP.
 
-<span id="audio-and-understanding"></span>
 
 ## Audio
 
 | Task | Tool | Credential |
 | --- | --- | --- |
 | Generate full-scene audio | [seed_audio_generate](/ark-mcp/tool-reference/seed-audio-generate/) | Seed Speech key |
-
-## Understanding
-
-| Task | Tool | Credential |
-| --- | --- | --- |
-| Understand images/video | [seed_understand](/ark-mcp/tool-reference/seed-understand/) | ModelArk key |
-| Understand/transcribe/translate audio | [seed_audio_understand](/ark-mcp/tool-reference/seed-audio-understand/) | ModelArk key |
-
-Seed Audio Understanding uses a server-configured ModelArk model, including
-Files API delivery for oversized URL media. It is not a dedicated alignment
-service; verify timestamps against the recording. Do not pass audio to `seed_understand`.
-Understanding and transcription are provider operations, not free setup tests.
-
-<span id="3d-and-avatars"></span>
 
 ## Avatars
 
@@ -84,19 +70,3 @@ Video references need public HTTPS URLs. `media_upload` requires configured
 object storage and accepts local paths only over stdio. Private-network URLs
 are rejected. Store results promptly because provider links expire; consult
 [Artifacts](artifacts.md) for durable resource access.
-
-## Background Jobs
-
-Use these ordinary MCP tools on **stdio** clients without native task augmentation.
-HTTP exposes no ordinary jobs or native tasks:
-
-| Tool | Purpose |
-| --- | --- |
-| [ark_job_capabilities](/ark-mcp/tool-reference/ark-job-capabilities/) | Discover enabled targets and their schemas |
-| [ark_job_submit](/ark-mcp/tool-reference/ark-job-submit/) | Start a target operation and receive an Ark job ID |
-| [ark_job_get](/ark-mcp/tool-reference/ark-job-get/) | Retrieve terminal original-tool results |
-| [ark_job_cancel](/ark-mcp/tool-reference/ark-job-cancel/) | Cooperatively cancel local worker execution |
-
-Keep job IDs distinct from provider task IDs. Honor polling hints, inspect
-partial variation failures, and do not retry a potentially accepted create
-call automatically. Start with [Your First Tool Call](setup/first-run.md).

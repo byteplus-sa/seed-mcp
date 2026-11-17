@@ -1,0 +1,34 @@
+{{- if contains "API_KEY" (toJson .Values) -}}
+{{- fail "provider API_KEY configuration is not accepted in this BYOK chart" -}}
+{{- end -}}
+{{- if not .Values.prerequisitesConfirmed -}}
+{{- fail "prerequisitesConfirmed=true requires manual addon, node, private access, identity and TLS readiness checks" -}}
+{{- end -}}
+{{- if eq .Values.identitySecret.name .Values.tlsSecretName -}}
+{{- fail "identity and TLS must use different existing Secrets" -}}
+{{- end -}}
+{{- if eq .Values.identitySecret.hmacKey .Values.identitySecret.versionKey -}}
+{{- fail "identity HMAC and version must use distinct Secret keys" -}}
+{{- end -}}
+{{- range $resources := .Values.resources -}}
+{{- if or (gt $resources.cpuRequestMillis $resources.cpuLimitMillis) (gt $resources.memoryRequestMiB $resources.memoryLimitMiB) -}}
+{{- fail "resource requests must not exceed limits" -}}
+{{- end -}}
+{{- end -}}
+{{- $defaults := dict "seedream" "dola-seedream-5-5-261028" "seedance" "dreamina-seedance-2-5-260628" -}}
+{{- range $product, $selection := .Values.models -}}
+{{- $seen := dict -}}
+{{- range $binding := $selection.bindings -}}
+{{- if hasKey $seen $binding.model_id -}}
+{{- fail "model bindings must have unique IDs within each product" -}}
+{{- end -}}
+{{- $_ := set $seen $binding.model_id true -}}
+{{- end -}}
+{{- if gt (len $selection.bindings) 0 -}}
+{{- if not (hasKey $seen $selection.defaultModel) -}}
+{{- fail "model bindings must include the selected product default" -}}
+{{- end -}}
+{{- else if ne $selection.defaultModel (get $defaults $product) -}}
+{{- fail "alternate model defaults require explicit verified bindings" -}}
+{{- end -}}
+{{- end -}}

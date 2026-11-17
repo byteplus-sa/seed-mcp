@@ -19,7 +19,7 @@ from ark_mcp.domain.artifacts import MediaType
 from ark_mcp.observability.logger import info as log_info
 from ark_mcp.runtime import get_principal, get_runtime
 from ark_mcp.security.output_paths import validate_output_target
-from ark_mcp.tools._task_execution import context_log
+from ark_mcp.tools._context import context_log
 
 
 class SeedMediaExportArtifactInput(BaseModel):

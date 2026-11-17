@@ -37,7 +37,7 @@ Use only the selected provider header plus the client secret:
 
 | Header | Use |
 | --- | --- |
-| `X-ModelArk-Api-Key` | Images, video, image/video/audio understanding |
+| `X-ModelArk-Api-Key` | Images and video |
 | `X-Seed-Speech-Api-Key` | Seed Audio generation |
 | `X-OmniHuman-Api-Key` | OmniHuman when enabled by the operator |
 | `X-MCP-Client-Secret` | Required for every provider call, including dry runs |
@@ -60,7 +60,11 @@ for this workflow. Do not disable the boundary.
 
 Optional `X-ModelArk-Seedance-Endpoint` and `X-ModelArk-Seedream-Endpoint`
 headers select only exact registered bindings. Explicit tool `model` wins.
-Arbitrary opaque endpoint lineage is not inferred.
+An unknown endpoint is not echoed by diagnostics; the operator must verify its
+model/version and bind it before use. Arbitrary BYOE self-service is not
+implemented. The official GetEndpoint API needs AK/SK signing, not your
+ModelArk Bearer key; do not send AK/SK to this server. See the
+[endpoint authority contract](../../specs/SPEC_HOSTED_BYOK.md#byoe-endpoint-authority).
 
 Changing your provider key or client secret changes scope and can make earlier
 tasks inaccessible through this server. Changing the operator HMAC key/version
@@ -68,23 +72,131 @@ also changes scope. No recovery bridge exists. Two clients sharing a provider
 key can still access that provider directly; separate provider keys/projects
 are needed for stronger separation.
 
+## Generate a Client Snippet
+
+This optional helper needs Python and a reviewed checkout containing
+`scripts/configure_http_client.py`; connecting with the manual client
+templates above does not. From that checkout:
+
+```bash
+python scripts/configure_http_client.py --help
+python scripts/configure_http_client.py --client codex --url https://mcp.example.com/mcp
+python scripts/configure_http_client.py --client claude-code --url https://mcp.example.com/mcp
+```
+
+Replace the URL with your trusted server's HTTPS address. The helper prints
+one snippet to **stdout only**: it reads no files or environment secret values,
+writes no client files, makes no network requests, and runs no client commands.
+Review and merge only the intended entry through your client's supported
+configuration workflow, preserving unrelated entries. Private variable values
+must be available to the actual client process, not just the setup terminal.
+
+| Option | Use |
+| --- | --- |
+| `--name` | Server name; default `seed-mcp`. Use `--name ark-seed` to match the client guides |
+| `--provider` | Repeat for `modelark`, `seed-speech`, `vision-cv`; omitted means `modelark` |
+| `--modelark-key-env`, `--seed-speech-key-env`, `--omnihuman-key-env` | Variable names, defaulting to `SEED_MCP_MODELARK_KEY`, `SEED_MCP_SEED_SPEECH_KEY`, `SEED_MCP_OMNIHUMAN_KEY` |
+| `--client-secret-env` | Independent variable name, default `SEED_MCP_CLIENT_SECRET` |
+| `--seedance-endpoint-env`, `--seedream-endpoint-env` | Optional endpoint variable names; require `modelark` among selected providers |
+| `--tool-timeout-seconds` | 1-3600 seconds; default 660. Codex `tool_timeout_sec`; Claude `timeout` in milliseconds |
+
+For operator-verified image/video bindings, generate their optional header
+references without reading the endpoint values:
+
+```bash
+python scripts/configure_http_client.py --client codex \
+  --url https://mcp.example.com/mcp --name ark-seed \
+  --provider modelark \
+  --seedance-endpoint-env SEED_MCP_SEEDANCE_ENDPOINT \
+  --seedream-endpoint-env SEED_MCP_SEEDREAM_ENDPOINT
+```
+
+Use `--client claude-code` for JSON with `${VAR}` references; Codex TOML uses
+`env_http_headers`. All `*-env` flags take names, never keys or endpoint values.
+Names must match `[A-Za-z_][A-Za-z0-9_]{0,127}` and be distinct across selected
+headers. Keep the actual client secret independent of all provider keys too;
+the helper cannot inspect that. Omit unused endpoint flags instead of mapping
+them to empty values.
+
+URLs cannot contain credentials, queries, fragments, whitespace, controls or
+backslashes. The explicit `--allow-loopback-http` exception is only for
+isolated tests on literal `localhost`, `127.0.0.1` or `::1`, not a remote
+plaintext or TLS-verification bypass. Invalid arguments return a generic
+error; inspect names/options privately rather than printing secret values.
+
 ## Verify
 
 Ask your connected client:
 
 ```text
-Use the Ark MCP server I just connected. Call only ark_list_models
-and report its static services and tools.
-Do not generate, understand, transcribe, upload, or submit jobs.
+Use the Ark MCP server I just connected. List its tools and call
+ark_list_models with {"input": {}}. Report its static models and services
+and confirm connection is null.
+Do not generate or upload.
 ```
 
-HTTP lists 9 tools, or 12 with OmniHuman enabled, independently of operator keys.
+HTTP lists 7 tools, or 10 with OmniHuman enabled, independently of operator keys.
 Anonymous discovery returns configured model bindings even without environment
 provider keys. `services[].enabled` means registered, not entitled.
+Default discovery is static/anonymous: `check_connection=false` returns
+`connection=null` without inspecting credentials in the discovery handler.
 Discovery does not validate your provider key. Provider tools
 are called directly in the foreground, not through jobs/native tasks.
 Disable explicit per-call `io.modelcontextprotocol/tasks` opt-in: it is rejected
 before provider dispatch, snapshot capture/save or queue creation, even on discovery.
+
+### Optional Image/Video Configuration Check
+
+After private headers are configured, ask the connected HTTP client:
+
+```text
+Call only ark_list_models with {"input":{"check_connection":true}}.
+Report header presence, route source and configured bindings, and any issues.
+Do not claim authentication, entitlement or live lineage was verified.
+Do not generate or upload.
+```
+
+Omit `kind` to check both image and video, or use `"kind":"image"` /
+`"kind":"video"` for just that route. This needs a live HTTP request context;
+stdio checks and other kinds are rejected. It checks no
+Seed Speech or OmniHuman credentials.
+
+| Result | Meaning / action |
+| --- | --- |
+| `connection=null` | Check was not requested; normal anonymous discovery |
+| `issues` includes `missing_modelark_key` | ModelArk header absent; check the client's private variable mapping |
+| `issues` includes `missing_client_secret` | Client-secret header absent; supply the independent private variable |
+| `routes[].issue="endpoint_not_configured"` | Exact product binding missing; operator must verify and bind it. Unknown ID/family are null, not echoed |
+| `routes[].source="request_header"` | The product's endpoint header selected the checked default |
+| `routes[].source="server_default"` | No endpoint header; the operator default was checked |
+| `configuration_valid=true` | Both required headers present and every checked route configured, not proof of upstream access |
+| `authentication_verified=false`, `provider_calls_made=false` | Always false; no provider authentication, lineage or entitlement check took place |
+
+Malformed headers can fail HTTP validation before diagnostics. A valid result
+does not prove endpoint existence, current model/version, activation, balance
+or reachability. The check describes defaults, not a create payload:
+explicit create-tool `model` wins even when an endpoint header is present.
+`models[].is_default` still describes the server default.
+
+### Validation Boundary
+
+Verified on 2026-11-17:
+
+- Real loopback HTTP preflight, image generation, video creation and polling
+  passed with strict provider `respx` mocks installed in the server child.
+  Duplicate video submission produced one video POST; no key or prompt
+  persistence was observed. No live provider was contacted.
+- [Codex 0.163.0](../integrations/codex.md#http-byok) parsed the generated
+  configuration through `mcp get --json` in isolated client directories.
+- [Claude Code 2.1.292](../integrations/claude-code.md#http-byok) recognized
+  the isolated project configuration through `mcp get`, with no network
+  access; it remained **Pending approval**.
+
+Actual model-driven Codex/Claude tool execution and paid provider validation
+remain pending. Isolated config inspections demonstrate parsing only;
+mocked-network loopback smoke demonstrates only the tested transport path.
+Neither establishes deployed TLS, live credentials or endpoint lineage.
+An unapproved Claude project entry is not a connected-client success.
 
 Continue with [Your First Tool Call](first-run.md).
 
@@ -95,8 +207,7 @@ path. HTTP has no storage/artifact tools or resources. Use supported URLs
 (small inline references remain subject to the 2 MiB body cap). Persistence
 defaults to false globally; HTTP rejects true. Download returned provider
 URLs before expiry: audio about 2 hours, image/video 24 hours, OmniHuman 1 hour.
-Files API temporary-upload cleanup uses your live ModelArk key; remote file
-expiry is distinct from output URL expiry. Do not send private media without approval.
+Do not send private media without approval.
 
 ## For Administrators
 
@@ -110,6 +221,16 @@ For BytePlus infrastructure, start with
 Hosted [provider-secret sync is superseded](../secret-manager.md).
 Operators supply a stable `MCP_IDENTITY_HMAC_KEY` and version, not provider keys.
 These are operator requirements, not customer credentials.
+Dedicated VKE replaces the old ECS/Compose path. Operators need private
+control-plane connectivity, VKE-admin-owned CSI/CCM readiness and existing
+identity/TLS Secrets; customers do not. One StatefulSet with retained ext4
+RWO state is required, without application HPA. Public routes are `/mcp` and
+`/health`; readiness and optional metrics remain private.
+Source deletion does not decommission old cloud resources. Preserve old
+reviewed checkouts, private workspaces, state/backups and matching HMAC
+configuration for separately approved retirement. No reset, blind restore
+or requeue is a supported repair.
+
 Non-dry HTTP Seedance/OmniHuman creates require `idempotency_key`: 16-128 ASCII
 letters, digits, `_` or `-`; generate a fresh UUID per intended call, including
 one key for all variations. Repeat identical arguments/key only for delivery

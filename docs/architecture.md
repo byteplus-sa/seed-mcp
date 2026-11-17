@@ -1,7 +1,7 @@
 # Architecture
 
-The static catalog contains 21 local stdio tools. HTTP exposes only nine
-discovery/provider tools, or twelve when OmniHuman is enabled. The
+The static catalog contains 15 local stdio tools. HTTP exposes only seven
+discovery/provider tools, or ten when OmniHuman is enabled. The
 [BYOK specification](../specs/SPEC_HOSTED_BYOK.md) defines the forward-only
 boundary implemented by this server.
 
@@ -10,7 +10,7 @@ boundary implemented by this server.
 ```mermaid
 flowchart TD
     Client["MCP client"] --> Transport{"Transport"}
-    Transport -->|stdio| Local["Local configured keys; jobs and artifacts"]
+    Transport -->|stdio| Local["Local configured keys and artifacts"]
     Transport -->|HTTP| Limits["Admission, rate, body and Host/Origin checks"]
     Limits --> Headers["Ephemeral raw-header validation"]
     Headers --> Discovery{"Discovery?"}
@@ -23,9 +23,11 @@ flowchart TD
     Claim -->|New| Validate
     Claim -->|Existing| Replay["Owned saved receipt or safe error; no upstream"]
     Local --> Validate
-    Validate --> Factory["Explicit-key gateway factory"]
+    Validate --> Admission["Bounded owner slot then provider slot"]
+    Admission --> Budget["Reserve budget after admission"]
+    Budget --> Factory["Explicit-key gateway factory"]
     Factory --> Provider["Official BytePlus provider"]
-    Provider --> Result["URL, task ID, answer or safe error"]
+    Provider --> Result["URL, task ID or safe error"]
     Result --> Record["Claimed create: journal IDs, ownership, success or unresolved"]
 ```
 
@@ -47,7 +49,7 @@ provider keys. `services[].enabled` means registered, not entitled.
 
 | Provider | Fixed HTTP origin | Upstream auth |
 | --- | --- | --- |
-| ModelArk | `https://ark.ap-southeast.bytepluses.com/api/v3` | Bearer; Seedream, Seedance, image/video/audio understanding and Files API |
+| ModelArk | `https://ark.ap-southeast.bytepluses.com/api/v3` | Bearer; Seedream and Seedance |
 | Seed Speech | `https://voice.ap-southeast-1.bytepluses.com` | `X-Api-Key`; Seed Audio |
 | Vision AI | `https://openapi.cv.bytepluses.com` | Separate Bearer key; optional OmniHuman |
 
@@ -63,7 +65,7 @@ passed through without asset administration, resolution or status preflight.
 
 ## Execution and Delivery
 
-HTTP calls execute directly in the foreground. Seedance/OmniHuman execution
+Both transports execute ordinary calls directly. Seedance/OmniHuman execution
 remains asynchronous at the provider: return a provider ID and poll it with
 the corresponding tool. HTTP has no Docket queue, task snapshots, native tasks,
 storage/artifact tools or MCP resources.
@@ -77,15 +79,19 @@ Seedance dry runs need no key/journal; stdio rejects supplied keys.
 Explicit per-call `io.modelcontextprotocol/tasks` opt-in is rejected, including
 on discovery, before provider dispatch, snapshot capture/save or queue creation.
 
-Local stdio retains [ordinary jobs and native tasks](../specs/SPEC_BACKGROUND_JOBS.md).
-Required tools run through `ark_job_submit` by default; capable clients can use
-native augmentation. Job IDs and provider IDs remain distinct.
+Local stdio retains storage and artifacts, not MCP jobs or native tasks.
+The wrapper starts a cooperative 600-second deadline before credential checks,
+journal and admission (`MCP_TOOL_TIMEOUT_SECONDS`, finite positive, max 3600).
+Owner-first provider admission has a separate combined 2-second wait
+(`MCP_ADMISSION_TIMEOUT_SECONDS`, finite positive, max 30). Read-only polling
+and discovery skip generation slots but still face HTTP global limits.
+Use client timeout 660 seconds. SDK/SQLite draining may exceed the deadline.
+See [Direct Execution](../specs/SPEC_DIRECT_EXECUTION.md).
 
 Seed Audio/Seedream `persist` and OmniHuman get `persist_output` default to false
 globally. HTTP rejects true; stdio permits explicit persistence and guarded
-local outputs. HTTP clients retrieve expiring URLs themselves. Files API
-cleanup uses the same request key; remote temporary-file expiry is not local
-artifact persistence.
+local outputs through live MCP roots or `OUTPUT_ROOTS`.
+HTTP clients retrieve expiring URLs themselves.
 
 ## Ownership and State
 
@@ -102,18 +108,29 @@ The journal stores no raw prompts, media or errors. Claims never auto-prune;
 `STATE_MAX_RECORDS` limits new keys while existing keys remain readable.
 Retain state, HMAC key/version and the original provider/client credentials.
 
-HTTP starts with positive rate/body/in-flight/state limits. `/health` and
-`/ready` expose minimal state status and never probe providers; `/metrics`
-is unavailable publicly. See [security](security.md) and [runtime](runtime.md).
+HTTP starts with positive rate/body/in-flight/state limits. Backend `/health`
+and `/ready` expose minimal state status and never probe providers. VKE Caddy
+exposes only `/mcp` and `/health`; private metrics are an optional loopback
+listener, off by default. See [security](security.md) and [runtime](runtime.md).
+
+Dedicated VKE replaces ECS/Compose. A single StatefulSet runs same-pod Caddy
+TLS and the application on loopback; CLB TCP443 reaches Caddy8443. An exclusive
+HTTP state lease is acquired before stores/recovery and released after close.
+Retained RWO ext4 EBS and one replica remain mandatory; no application HPA or
+distributed fencing is implied. Terraform uses new infrastructure state and
+Helm references existing Secrets. Both VKE addons are administrator-owned
+outside those stacks. See [VKE Deployment](../specs/SPEC_VKE_DEPLOYMENT.md)
+for the topology, source evidence and unverified live gates.
 
 ## Failure Boundary
 
 Provider mutation failures with uncertain dispatch and malformed 2xx responses
-are nonretryable/ambiguous, including potentially billed understanding
-completions. Chat/mutation 5xx responses are ambiguous and never automatically
+are nonretryable/ambiguous. Mutation 5xx responses are ambiguous and never automatically
 retried, even if marked `retryable=true`. Eligible 429 rejections, pre-dispatch
-failures and reads can have bounded retries; understanding excludes all
-`TIMEOUT` retries. Preserve task/request IDs, including IDs retained alongside
+failures and reads can have bounded retries. `ADMISSION_TIMEOUT` means this
+attempt did not dispatch, not the whole batch. `TOOL_DEADLINE_EXCEEDED`
+preserves uncertainty and safe accepted IDs; it does not cancel provider work.
+Preserve task/request IDs, including IDs retained alongside
 Seedance bookkeeping errors. See [runtime recovery](runtime.md#billable-call-composition-billed_provider_slot).
 
 SQLite and in-process limiters support one instance only. Synchronous product

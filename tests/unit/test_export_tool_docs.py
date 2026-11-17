@@ -9,13 +9,11 @@ import re
 import subprocess
 import sys
 from collections.abc import Iterator
-from datetime import timedelta
 from pathlib import Path
 from typing import Any
 
 import pytest
 from fastmcp.tools import FunctionTool
-from fastmcp.utilities.tasks import TaskConfig
 from jsonschema import Draft202012Validator
 
 from ark_mcp.tools._catalog import CATALOG, CatalogEntry, resolve_tool_definition
@@ -225,12 +223,8 @@ runpy.run_path = missing_gate
 
 def test_catalog_inventory_and_order_are_exact(exported: dict[str, Any]) -> None:
     assert [tool["name"] for tool in exported["tools"]] == [entry.name for entry in CATALOG]
-    assert len(exported["tools"]) == len(CATALOG) == 21
+    assert len(exported["tools"]) == len(CATALOG) == 15
     assert {tool["name"] for tool in exported["tools"]} == {
-        "ark_job_capabilities",
-        "ark_job_submit",
-        "ark_job_get",
-        "ark_job_cancel",
         "ark_list_models",
         "seed_media_get_artifact",
         "seed_media_export_artifact",
@@ -246,8 +240,6 @@ def test_catalog_inventory_and_order_are_exact(exported: dict[str, Any]) -> None
         "gen_task_get",
         "gen_task_list",
         "gen_task_cancel_or_delete",
-        "seed_understand",
-        "seed_audio_understand",
     }
 
 
@@ -355,7 +347,7 @@ process.stdout.write(JSON.stringify(
             local_match = re.search(r"```json\n(.*?)\n```", local, re.S)
             assert local_match is not None
             local_call = json.loads(local_match[1])
-            assert local_call["arguments"]["input"]["arguments"] == examples[name]
+            assert local_call["arguments"] == examples[name]
             assert "idempotency_key" not in examples[name]["input"]
 
 
@@ -378,8 +370,6 @@ def test_model_tables_only_document_catalog_tools() -> None:
     [
         ("seedream_generate_image", "seedream_default_model"),
         ("seedance_create_task", "seedance_default_model"),
-        ("seed_understand", "seed_understanding_default_model"),
-        ("seed_audio_understand", "seed_audio_understanding_model"),
         ("omnihuman_create_task", "omnihuman_req_key"),
     ],
 )
@@ -421,16 +411,10 @@ def _canonical_schema(value: Any) -> Any:
 @pytest.mark.parametrize("entry", CATALOG, ids=lambda entry: entry.name)
 def test_export_matches_fastmcp_and_catalog(exported: dict[str, Any], entry: CatalogEntry) -> None:
     definition = resolve_tool_definition(entry)
-    task = (
-        TaskConfig(mode=entry.background, poll_interval=timedelta(seconds=2))
-        if entry.background
-        else None
-    )
     expected = FunctionTool.from_function(
         definition.handler,
         name=entry.name,
         output_schema=definition.output_model.model_json_schema(),
-        task=task,
     )
     actual = next(tool for tool in exported["tools"] if tool["name"] == entry.name)
     assert set(actual) == {
@@ -440,7 +424,7 @@ def test_export_matches_fastmcp_and_catalog(exported: dict[str, Any], entry: Cat
         "inputSchema",
         "outputSchema",
         "scope",
-        "background",
+        "execution",
         "registration_gate",
         "transports",
     }
@@ -449,15 +433,12 @@ def test_export_matches_fastmcp_and_catalog(exported: dict[str, Any], entry: Cat
     assert _canonical_schema(actual["inputSchema"]) == _canonical_schema(expected.parameters)
     assert actual["outputSchema"] == definition.output_model.model_json_schema()
     assert actual["scope"] == entry.scope
-    assert actual["background"] == entry.background
+    assert actual["execution"] == "direct"
     assert actual["registration_gate"].strip()
     Draft202012Validator.check_schema(actual["inputSchema"])
     Draft202012Validator.check_schema(actual["outputSchema"])
-    if entry.name == "ark_job_capabilities":
-        assert actual["inputSchema"]["properties"] == {}
-    else:
-        assert set(actual["inputSchema"]["properties"]) == {"input"}
-        assert actual["inputSchema"]["required"] == ["input"]
+    assert set(actual["inputSchema"]["properties"]) == {"input"}
+    assert actual["inputSchema"]["required"] == ["input"]
 
 
 def test_all_registration_gates_name_the_exact_environment_variables(
@@ -502,14 +483,14 @@ def test_transport_inventory_and_execution_match_catalog(exported: dict[str, Any
     with_omnihuman = Settings.model_construct(mcp_transport="http", omnihuman_enabled=True)
     ordinary = {entry.name for entry in CATALOG if entry.gate(settings)}
     enabled = {entry.name for entry in CATALOG if entry.gate(with_omnihuman)}
-    assert len(ordinary) == 9
-    assert len(enabled) == 12
+    assert len(ordinary) == 7
+    assert len(enabled) == 10
     for tool in exported["tools"]:
         transports = tool["transports"]
         assert set(transports) == ({"stdio", "http"} if tool["name"] in enabled else {"stdio"})
-        assert transports["stdio"]["background"] == tool["background"]
+        assert transports["stdio"]["execution"] == tool["execution"] == "direct"
         if "http" in transports:
-            assert transports["http"]["background"] is None
+            assert transports["http"]["execution"] == "direct"
             assert transports["http"]["registration_gate"].strip()
             assert transports["http"]["credential_header"] == (
                 None
@@ -602,9 +583,10 @@ def test_http_client_examples_use_private_headers_and_no_bearer(client: str) -> 
         config = tomllib.loads(block[1])
         headers = config["mcp_servers"]["ark-seed"]["env_http_headers"]
         assert headers == {
-            "X-ModelArk-Api-Key": "<MODELARK_KEY_ENV_VAR>",
-            "X-MCP-Client-Secret": "<CLIENT_SECRET_ENV_VAR>",
+            "X-ModelArk-Api-Key": "SEED_MCP_MODELARK_KEY",
+            "X-MCP-Client-Secret": "SEED_MCP_CLIENT_SECRET",  # pragma: allowlist secret
         }
+        assert config["mcp_servers"]["ark-seed"]["tool_timeout_sec"] == 660
     else:
         config = json.loads(block[1])
         headers = config["mcpServers"]["ark-seed"]["headers"]
@@ -612,6 +594,64 @@ def test_http_client_examples_use_private_headers_and_no_bearer(client: str) -> 
             "X-ModelArk-Api-Key": "${SEED_MCP_MODELARK_KEY}",
             "X-MCP-Client-Secret": "${SEED_MCP_CLIENT_SECRET}",
         }
+        assert config["mcpServers"]["ark-seed"]["timeout"] == 660000
+    generated = subprocess.run(
+        [
+            sys.executable,
+            str(SCRIPT.parents[1] / "scripts/configure_http_client.py"),
+            "--client",
+            client,
+            "--url",
+            "https://mcp.example.com/mcp",
+            "--name",
+            "ark-seed",
+        ],
+        capture_output=True,
+        text=True,
+        check=True,
+    )
+    rendered = (
+        tomllib.loads(generated.stdout) if client == "codex" else json.loads(generated.stdout)
+    )
+    assert rendered == config
+
+
+def test_exported_connection_check_cannot_claim_provider_authentication(
+    exported: dict[str, Any],
+) -> None:
+    tool = next(tool for tool in exported["tools"] if tool["name"] == "ark_list_models")
+    input_schema = tool["inputSchema"]
+    model = input_schema["$defs"]["ArkListModelsInput"]
+    assert model["properties"]["check_connection"]["default"] is False
+    assert "check_connection" not in model.get("required", [])
+    output_schema = tool["outputSchema"]
+    assert output_schema["properties"]["connection"]["default"] is None
+    check = {
+        "configuration_valid": True,
+        "modelark_key_present": True,
+        "client_secret_present": True,
+        "authentication_verified": False,
+        "provider_calls_made": False,
+        "issues": [],
+        "routes": [
+            {
+                "tool": "seedance_create_task",
+                "source": "request_header",
+                "configured": True,
+                "model_id": "ep-synthetic",
+                "family": "seedance_2_5",
+                "issue": None,
+            }
+        ],
+    }
+    validator = Draft202012Validator(output_schema)
+    validator.validate({"models": [], "services": [], "connection": check})
+    for field in ("authentication_verified", "provider_calls_made"):
+        assert list(
+            validator.iter_errors(
+                {"models": [], "services": [], "connection": {**check, field: True}}
+            )
+        )
 
 
 @pytest.mark.parametrize("name", ["ark-mcp", "ark-mcp-setup"])
@@ -658,7 +698,6 @@ def test_nested_input_and_output_fields_are_described(exported: dict[str, Any]) 
 @pytest.mark.parametrize(
     ("name", "schema_name", "valid", "invalid"),
     [
-        ("ark_job_capabilities", "inputSchema", {}, {"input": {}}),
         ("ark_list_models", "inputSchema", {"input": {"kind": None}}, {}),
         (
             "gen_task_list",
@@ -678,7 +717,6 @@ def test_nested_input_and_output_fields_are_described(exported: dict[str, Any]) 
             {"models": [], "services": []},
             {"models": [], "services": [{"service": "modelark", "enabled": "yes"}]},
         ),
-        ("ark_job_capabilities", "outputSchema", {"targets": []}, {"targets": [{}]}),
     ],
     ids=lambda value: value if isinstance(value, str) else None,
 )

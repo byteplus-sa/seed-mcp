@@ -16,8 +16,6 @@ COST_PER_IMAGE = 0.03
 COST_PER_AUDIO_SECOND = 0.0031
 COST_PER_VIDEO_TASK = 0.07
 COST_PER_VIDEO_TASK_2_5 = 0.35
-COST_UNDERSTANDING_INPUT_PER_MTOK = 0.50
-COST_UNDERSTANDING_OUTPUT_PER_MTOK = 3.00
 
 # Default max concurrent provider calls.
 DEFAULT_MAX_CONCURRENT = 5
@@ -60,19 +58,15 @@ def estimate_cost(
     product: str,
     variations: int,
     duration_seconds: float = 0.0,
-    prompt_tokens: int | None = None,
-    max_tokens: int | None = None,
     model_id: str | None = None,
     video_family: str | None = None,
 ) -> float:
     """Estimate the cost of a parallel generation batch.
 
     Args:
-        product: "image", "audio", "video", or "understanding".
+        product: "image", "audio", or "video".
         variations: Number of variations.
         duration_seconds: Expected output duration (audio only).
-        prompt_tokens: Estimated input tokens (understanding only).
-        max_tokens: Maximum output tokens (understanding only).
         model_id: Model ID for an optional static video cost override.
         video_family: Registry family for video pricing (e.g. "seedance_2_5").
 
@@ -85,14 +79,6 @@ def estimate_cost(
         return round(variations * max(duration_seconds, 10) * COST_PER_AUDIO_SECOND, 2)
     if product == "video":
         return round(variations * _video_cost_for_model(model_id, video_family), 2)
-    if product == "understanding":
-        input_rate, output_rate = (
-            COST_UNDERSTANDING_INPUT_PER_MTOK,
-            COST_UNDERSTANDING_OUTPUT_PER_MTOK,
-        )
-        out = (max_tokens or 0) / 1_000_000 * output_rate
-        inp = (prompt_tokens or 0) / 1_000_000 * input_rate
-        return round(variations * (inp + out), 4)
     return 0.0
 
 
@@ -101,8 +87,6 @@ def log_cost_estimate(
     product: str,
     variations: int,
     duration_seconds: float = 0.0,
-    prompt_tokens: int | None = None,
-    max_tokens: int | None = None,
     model_id: str | None = None,
     video_family: str | None = None,
 ) -> float:
@@ -111,8 +95,6 @@ def log_cost_estimate(
         product=product,
         variations=variations,
         duration_seconds=duration_seconds,
-        prompt_tokens=prompt_tokens,
-        max_tokens=max_tokens,
         model_id=model_id,
         video_family=video_family,
     )
