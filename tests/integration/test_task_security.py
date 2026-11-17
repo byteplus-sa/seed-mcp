@@ -42,10 +42,15 @@ def provider_task(task_id: str, status: str = "queued", **extra: Any) -> dict[st
     }
 
 
-async def create_video(client: httpx.AsyncClient, headers: dict[str, str]) -> str:
+async def create_video(
+    client: httpx.AsyncClient, headers: dict[str, str], *, idempotency_key: str
+) -> str:
     result = successful(
         await call_tool(
-            client, "seedance_create_task", {"prompt": "A synthetic scene"}, headers=headers
+            client,
+            "seedance_create_task",
+            {"prompt": "A synthetic scene", "idempotency_key": idempotency_key},
+            headers=headers,
         )
     )
     assert result["submitted"] == 1
@@ -85,14 +90,20 @@ async def test_cross_owner_get_list_cancel_and_draft_are_denied_before_outbound(
                 "gen_task_cancel_or_delete",
                 {"task_id": "task-private", "mode": "cancel", "expected_status": "queued"},
             ),
-            ("seedance_create_task", {"draft_task_id": "task-private"}),
+            (
+                "seedance_create_task",
+                {"draft_task_id": "task-private", "idempotency_key": "foreign-draft-create"},
+            ),
             ("seedance_create_task", {"draft_task_id": "task-private", "dry_run": True}),
         ):
             assert_denied(await call_tool(client, name, input_data, headers=stranger))
         assert len(respx.calls) == before
 
     async with http_server(tmp_path) as (_, _, client):
-        assert await create_video(client, owner) == "task-private"
+        assert (
+            await create_video(client, owner, idempotency_key="private-owner-create")
+            == "task-private"
+        )
         if not restart:
             await check_denied(client)
     if restart:
@@ -119,7 +130,10 @@ async def test_owner_survives_restart_and_unrelated_provider_key_addition(
         assert [task["task_id"] for task in listed["tasks"]] == ["task-owned"]
 
     async with http_server(tmp_path) as (_, _, client):
-        assert await create_video(client, credentials()) == "task-owned"
+        assert (
+            await create_video(client, credentials(), idempotency_key="restart-owner-create")
+            == "task-owned"
+        )
         if not restart:
             await check_owner(client)
     if restart:
@@ -156,7 +170,12 @@ async def test_distinct_keys_may_own_identical_provider_task_ids_after_restart(
 
     respx.get(TASKS_URL).mock(side_effect=poll)
     async with http_server(tmp_path) as (_, _, client):
-        ids = await asyncio.gather(*(create_video(client, credentials(key)) for key in keys))
+        ids = await asyncio.gather(
+            *(
+                create_video(client, credentials(key), idempotency_key=f"tenant-create-{index:04d}")
+                for index, key in enumerate(keys)
+            )
+        )
         assert ids == ["provider-reused-id", "provider-reused-id"]
     async with http_server(tmp_path) as (_, _, client):
         for index, key in enumerate(keys):
@@ -196,8 +215,13 @@ async def test_conflicting_same_key_submissions_never_reassign_owner(
     async with http_server(tmp_path) as (_, _, client):
         results = await asyncio.gather(
             *(
-                call_tool(client, "seedance_create_task", {"prompt": "scene"}, headers=headers)
-                for headers in owners
+                call_tool(
+                    client,
+                    "seedance_create_task",
+                    {"prompt": "scene", "idempotency_key": f"owner-collision-{index:04d}"},
+                    headers=headers,
+                )
+                for index, headers in enumerate(owners)
             )
         )
         winners = [
@@ -238,7 +262,7 @@ async def test_owner_can_cancel_but_spoofed_identity_headers_cannot(
     deleted = respx.delete(f"{TASKS_URL}/task-cancel").respond(204)
     input_data = {"task_id": "task-cancel", "mode": "cancel", "expected_status": "queued"}
     async with http_server(tmp_path) as (_, _, client):
-        await create_video(client, credentials())
+        await create_video(client, credentials(), idempotency_key="cancel-owner-create")
         before = len(respx.calls)
         spoofed = {
             **credentials(MODELARK_KEY, OTHER_SECRET),
@@ -273,8 +297,12 @@ async def test_mixed_owned_and_foreign_get_filters_before_upstream(
         200, json={"data": [provider_task("mine"), provider_task("foreign")]}
     )
     async with http_server(tmp_path) as (_, _, client):
-        await create_video(client, credentials())
-        await create_video(client, credentials(MODELARK_KEY, OTHER_SECRET))
+        await create_video(client, credentials(), idempotency_key="mixed-owner-create")
+        await create_video(
+            client,
+            credentials(MODELARK_KEY, OTHER_SECRET),
+            idempotency_key="mixed-foreign-create",
+        )
         result = successful(
             await call_tool(
                 client,
@@ -303,7 +331,10 @@ async def test_ownership_database_failure_fails_closed(
                 "gen_task_cancel_or_delete",
                 {"task_id": "unknown", "mode": "cancel", "expected_status": "queued"},
             ),
-            ("seedance_create_task", {"draft_task_id": "unknown"}),
+            (
+                "seedance_create_task",
+                {"draft_task_id": "unknown", "idempotency_key": "storage-failed-draft"},
+            ),
         ):
             assert_denied(await call_tool(client, name, input_data, headers=credentials()))
         assert failure.await_count == 3
@@ -323,7 +354,11 @@ async def test_omnihuman_ownership_denied_before_get_or_cancel(
             await call_tool(
                 client,
                 "omnihuman_create_task",
-                {"image": "https://example.com/face.png", "audio": "https://example.com/a.wav"},
+                {
+                    "image": "https://example.com/face.png",
+                    "audio": "https://example.com/a.wav",
+                    "idempotency_key": "private-avatar-create",
+                },
                 headers=credentials(VISION_KEY, header="X-OmniHuman-Api-Key"),
             )
         )

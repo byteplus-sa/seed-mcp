@@ -95,9 +95,23 @@ are false for Seed Audio, Seedream and OmniHuman get; HTTP rejects true while
 local explicit true remains supported. Files API cleanup uses the live request
 key; remote file expiry is separate from output URL expiry.
 Uncertain mutation transport failures and malformed 2xx responses are
-ambiguous/nonretryable with safe diagnostics. Durable idempotency, crash
-recovery, PostgreSQL and multi-replica support remain next phase; no public
-launch claim. See `specs/SPEC_HOSTED_BYOK.md`.
+ambiguous/nonretryable with safe diagnostics.
+HTTP non-dry Seedance and OmniHuman creates require `idempotency_key`:
+16-128 ASCII letters, digits, `_` or `-`; UUID recommended, one key per whole
+batch. Stdio rejects supplied keys; Seedance dry runs are keyless/no journal.
+The SQLite root claim is durable before handler entry, with HMAC key/input
+fingerprints. Only complete saved success replays after ownership checks,
+before any upstream access including Draft lookup. Repeat identical key/input
+for delivery recovery, never polling. Failed/partial/cancelled attempts remain
+unresolved with known accepted IDs, never automatically resumed. Safe IDs are
+journaled before ownership; a journal failure still attempts ownership.
+No raw prompts, media, credentials, idempotency keys or error messages are
+journaled. States are `running`, `succeeded`, `unresolved`; claims never
+auto-prune. `STATE_MAX_RECORDS` caps new keys while existing reads work.
+Preserve the same state and HMAC key/version. Synchronous product replay and
+complete crash recovery/live validation remain deferred. PostgreSQL/Redis are
+future scaling choices, not initial requirements; no multi-replica or public
+launch claim. See `specs/SPEC_HOSTED_BYOK.md#http-submission-safety`.
 
 ## Repository Layout
 

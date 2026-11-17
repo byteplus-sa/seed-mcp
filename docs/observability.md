@@ -92,8 +92,16 @@ cleanup is shielded best effort, not a guarantee that no reserved rows remain.
 Seedance and OmniHuman share `record_accepted_task`. An accepted task's
 ownership-record failure logs `ownership_record_failed` and surfaces an
 ambiguous/nonretryable `AcceptedTaskError` retaining task/request IDs.
-Seedance's `submitted` and `failed` counts can overlap for these ownership
+On HTTP, safe IDs are journaled before ownership. A journal-write failure
+logs `submission_record_failed`, still attempts ownership, and surfaces
+`SUBMISSION_RECORD_FAILED` with safe accepted IDs. Unsafe IDs are rejected
+before either write without echoing them.
+Seedance's `submitted` and `failed` counts can overlap for these journal/ownership
 errors, not for budget-finalization log events.
+`submission_finalization_failed` records only a safe action (`save_receipt`
+or `mark_unresolved`), never raw errors or input. A receipt-write failure
+preserves the first provider result but leaves repeat calls fail-closed.
+See [HTTP submission recovery](runtime.md#http-submission-journal).
 
 Understanding JSON Schema validation is offline: `$ref`, `$dynamicRef` and
 `$recursiveRef` must be fragment-only (`#...`), and external schemas are never

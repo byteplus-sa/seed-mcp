@@ -102,6 +102,7 @@ async def test_accepted_tasks_survive_bookkeeping_failures(
             {
                 "variation_prompts": [f"scene-{index}" for index in range(variations)],
                 "variations": variations,
+                "idempotency_key": f"accepted-bookkeeping-{variations}-{budget_fails}-{ownership_fails}",
             },
             headers=credentials(),
         )
@@ -188,7 +189,11 @@ async def test_mixed_accepted_and_rejected_variations_keep_ids_and_error_counts(
             await call_tool(
                 client,
                 "seedance_create_task",
-                {"variation_prompts": ["first", "rejected", "last"], "variations": 3},
+                {
+                    "variation_prompts": ["first", "rejected", "last"],
+                    "variations": 3,
+                    "idempotency_key": "accepted-mixed-variations",
+                },
                 headers=credentials(),
             )
         )
@@ -226,7 +231,11 @@ async def test_budget_admission_failure_never_dispatches_or_records_ownership(
         response = await call_tool(
             client,
             "seedance_create_task",
-            {"prompt": "scene", "variations": variations},
+            {
+                "prompt": "scene",
+                "variations": variations,
+                "idempotency_key": f"budget-admission-failure-{variations}",
+            },
             headers=credentials(),
         )
         if variations == 1:
@@ -313,9 +322,10 @@ async def test_uncertain_503_survives_budget_commit_failure_without_replay(
         monkeypatch.setattr(runtime.budget_ledger, "commit", commit)
         monkeypatch.setattr(runtime.budget_ledger, "release", release)
         monkeypatch.setattr(runtime.ownership_store, "record", record)
-        response = await call_tool(
-            client, tool, {"prompt": "scene", "variations": variations}, headers=credentials()
-        )
+        input_data = {"prompt": "scene", "variations": variations}
+        if tool == "seedance_create_task":
+            input_data["idempotency_key"] = f"uncertain-budget-commit-{variations}"
+        response = await call_tool(client, tool, input_data, headers=credentials())
         assert route.call_count == len(respx.calls) == commit.await_count == variations
         release.assert_not_awaited()
         record.assert_not_awaited()
@@ -373,7 +383,11 @@ async def test_omnihuman_record_failure_retains_accepted_id_without_replay(
         response = await call_tool(
             client,
             "omnihuman_create_task",
-            {"image": "https://example.com/face.png", "audio": "https://example.com/audio.wav"},
+            {
+                "image": "https://example.com/face.png",
+                "audio": "https://example.com/audio.wav",
+                "idempotency_key": f"avatar-record-failure-{request_id}",
+            },
             headers=credentials(VISION_KEY, header="X-OmniHuman-Api-Key"),
         )
         assert_denied(response)

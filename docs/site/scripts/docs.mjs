@@ -99,9 +99,14 @@ export function schemaTable(schema) {
       "maxItems",
       "pattern",
       "format",
-    ]
-      .filter((key) => key in field)
-      .map((key) => `${key}: ${JSON.stringify(field[key])}`);
+    ].flatMap((key) =>
+      [field, ...(field.anyOf || field.oneOf || [])]
+        .filter((branch) => key in branch)
+        .map(
+          (branch) =>
+            `${branch === field ? "" : `${fieldType(branch)}: `}${key}: ${JSON.stringify(branch[key])}`,
+        ),
+    );
     if ("default" in field)
       constraints.push(`Default: ${JSON.stringify(field.default)}`);
     const description = [field.description || "", ...constraints]
@@ -154,6 +159,20 @@ export function toolPage(tool) {
     ? input.$defs[inputRef.split("/").at(-1)]
     : input.properties?.input || input;
   const args = EXAMPLES[name];
+  const asyncCreate = [
+    "seedance_create_task",
+    "omnihuman_create_task",
+  ].includes(name);
+  const httpArgs =
+    args && asyncCreate && !args.input?.dry_run
+      ? {
+          ...args,
+          input: {
+            ...args.input,
+            idempotency_key: "fa02c945-0497-4cd2-987b-e56b1de39915",
+          },
+        }
+      : args;
   const call =
     args &&
     (tool.background === "required"
@@ -211,6 +230,8 @@ ${execution}
 
 ${httpExecution}
 
+${asyncCreate ? `HTTP non-dry creates require \`idempotency_key\`: 16-128 ASCII letters, digits, underscores or hyphens. Generate a fresh UUID per intended create (one for the entire variation batch); replace the example UUID before first use. Repeat identical arguments and the same key only for delivery recovery, not polling. Only fully successful saved receipts replay, with ownership checked before upstream access, including Draft lookup. Running, failed, partial or cancelled attempts require reconciliation; never change keys to bypass uncertain acceptance. Keep known task/request IDs and poll existing tasks. Seedance dry runs need no key and use no journal; local stdio rejects a supplied key. See the [submission contract](${SOURCE_BASE}specs/SPEC_HOSTED_BYOK.md#http-submission-safety).` : ""}
+
 ${http ? "HTTP rejects explicit per-call `io.modelcontextprotocol/tasks` opt-in before provider dispatch, snapshot capture/save or queue creation, including discovery. Omit task opt-in; ordinary jobs are unavailable." : ""}
 
 ${
@@ -220,7 +241,7 @@ ${
 The same input schema is used directly, without a job wrapper. Configure private headers separately; examples contain no credentials.
 
 \`\`\`json
-${JSON.stringify({ name, arguments: args }, null, 2)}
+${JSON.stringify({ name, arguments: httpArgs }, null, 2)}
 \`\`\`
 `
     : ""

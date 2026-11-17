@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from pathlib import Path
+from unittest.mock import AsyncMock
 
+import pytest
 import respx
 
 from tests.integration.test_byok_http import (
@@ -86,26 +88,36 @@ async def test_endpoint_defaults_are_validated_and_explicit_model_wins(tmp_path:
 
 @respx.mock
 async def test_full_ownership_store_rejects_new_calls_before_provider_dispatch(
-    tmp_path: Path,
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     created = respx.post(f"{MODELARK}/contents/generations/tasks").respond(
         200, json={"id": "only-task"}
     )
-    settings = http_settings(tmp_path, STATE_MAX_RECORDS=1)
-    async with http_server(tmp_path, settings=settings) as (_, _, client):
+    settings = http_settings(tmp_path, STATE_MAX_RECORDS=2)
+    async with http_server(tmp_path, settings=settings) as (_, runtime, client):
+        record = AsyncMock(wraps=runtime.ownership_store.record)
+        capacity = AsyncMock(wraps=runtime.ownership_store.require_capacity)
+        monkeypatch.setattr(runtime.ownership_store, "record", record)
+        monkeypatch.setattr(runtime.ownership_store, "require_capacity", capacity)
         first = successful(
             await call_tool(
-                client, "seedance_create_task", {"prompt": "scene"}, headers=credentials()
+                client,
+                "seedance_create_task",
+                {"prompt": "scene", "idempotency_key": "ownership-capacity-first"},
+                headers=credentials(),
             )
         )
         assert first["submitted"] == 1
+        owner = record.await_args_list[0].args[2]
+        await runtime.ownership_store.record("modelark", "already-owned-task", owner)
         denied = await call_tool(
             client,
             "seedance_create_task",
-            {"prompt": "another scene"},
+            {"prompt": "another scene", "idempotency_key": "ownership-capacity-second"},
             headers=credentials("different-key", "c" * 64),
         )
         assert_denied(denied)
+        assert capacity.await_count == 2
     assert created.call_count == 1
 
 

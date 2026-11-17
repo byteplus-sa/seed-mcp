@@ -17,6 +17,16 @@ HTTP rejects explicit per-call `io.modelcontextprotocol/tasks` opt-in, including
 on discovery, before provider dispatch, snapshot capture/save or queue creation.
 Omit task opt-in; ordinary jobs are not an HTTP fallback.
 
+For non-dry HTTP Seedance/OmniHuman creates, generate `idempotency_key` once
+per intended whole call (16-128 ASCII letters, digits, `_` or `-`; UUID
+recommended). Repeat identical arguments/key only for saved-success delivery
+recovery, not polling. Replay checks ownership before any provider/Draft read.
+Failed/partial/cancelled attempts are unresolved with known IDs, never
+automatically resumed; do not change keys to bypass uncertain acceptance.
+Keep the original provider/client credentials and same server state/HMAC
+configuration. Seedance dry runs need no key or journal; stdio rejects keys.
+The job examples below remain keyless.
+
 **Long-running tools run in a background worker. Use the ordinary
 `ark_job_*` tools unless native task support is confirmed.** Most clients
 cannot negotiate MCP task augmentation, and seeing the tools does not prove
@@ -109,7 +119,7 @@ For Seedance and OmniHuman:
    `submitted` counts known accepted IDs; `failed` counts entries with errors,
    so the counts can overlap. Single-call failures instead return error
    `ToolResult` text with any known accepted task/request IDs. Only accepted
-   ownership-record failures become outward `AcceptedTaskError` failures,
+   journal/ownership-record failures become outward `AcceptedTaskError` failures,
    which are ambiguous/nonretryable. Budget-finalization exceptions only log
    `budget_finalization_failed`, preserving the provider result/error without
    adding to `failed`.
@@ -210,6 +220,9 @@ not provider assets. See [understanding-media-assets.md](understanding-media-ass
   raised. `error.phase` tells you what to do: `queued` (`QUEUE_TIMEOUT`) never
   started, safe to retry; `generating` may have completed, do not retry
   blindly; `persisting` means billed output was not stored.
+  An HTTP Seedance key covers the whole batch, not individual variations.
+  Partial results leave it unresolved; do not retry the batch or automatically
+  create a new key for the missing entries.
 - Write image/audio variations to a directory path ending in `/`.
 - `dry_run: true` (Seedance, Seedream) validates against the model's limits
   and returns request bodies plus `estimated_cost_usd`, an estimate rather than
@@ -270,7 +283,12 @@ Eligible 429 rejections, demonstrably pre-dispatch connection/pool failures and
 reads retain bounded retries. Chat/mutation 5xx responses may still carry
 `retryable=true`, but `ambiguous_completion=true` prevents automatic retry.
 Diagnostics are sanitized; never add blind client-side retries.
-Durable idempotency/crash recovery remain next phase.
+HTTP asynchronous-create receipt recovery is implemented; synchronous product
+replay and complete crash recovery remain deferred. Journal claims never
+auto-prune; `STATE_MAX_RECORDS` rejects new keys at capacity without blocking
+existing-key reads. PostgreSQL/Redis are future scaling choices, not initial
+requirements. See `specs/SPEC_HOSTED_BYOK.md#http-submission-safety` in the
+selected checkout.
 
 | Operation | Timeout after possible dispatch | Server retries? | You should |
 |---|---|---|---|

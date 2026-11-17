@@ -77,4 +77,8 @@ Start with anonymous static HTTP discovery before making a paid generation.
 HTTP calls run directly in the foreground, with no jobs/native tasks/storage
 or artifact resources. Local stdio retains those capabilities.
 This is a single-instance foundation, not public-launch certification;
-durable idempotency and crash recovery remain next phase.
+HTTP Seedance/OmniHuman non-dry creates require `idempotency_key` and support
+saved-success receipt recovery, not polling or automatic resume.
+Seedance dry runs are keyless; stdio rejects supplied keys.
+Synchronous product replay and complete crash recovery remain deferred.
+See the [submission contract](../specs/SPEC_HOSTED_BYOK.md#http-submission-safety).

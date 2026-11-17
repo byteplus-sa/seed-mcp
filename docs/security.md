@@ -112,7 +112,7 @@ on discovery. Omit the opt-in and call HTTP tools directly.
 | `RATE_LIMIT_BURST` | `0` | Uses RPM when zero |
 | `MCP_HTTP_MAX_BODY_BYTES` | `2097152` (2 MiB) | Positive streamed body cap |
 | `MCP_HTTP_MAX_IN_FLIGHT` | `64` | Positive global admission limit before body handling, including discovery |
-| `STATE_MAX_RECORDS` | `100000` | Positive state bound; never evict live owners to admit work |
+| `STATE_MAX_RECORDS` | `100000` | Positive state bound, also caps submission claims; existing keys remain readable at capacity, no claim eviction |
 
 `/health` and `/ready` are anonymous minimal process/state probes; HTTP
 readiness never contacts providers. `/metrics` is unavailable on HTTP.
@@ -306,7 +306,17 @@ failures and reads can retain bounded retries; understanding disables all
 automatic `TIMEOUT` retries. Diagnostics retain safe codes/request IDs, never
 raw exceptions or echoed secrets. Reconcile accepted work before resubmission.
 
-Single-instance SQLite is the only state backend. PostgreSQL, multi-replica
-coordination, durable idempotency and crash recovery are next phase.
+Single-instance SQLite is the only state backend. HTTP asynchronous creates
+require `idempotency_key` (except Seedance dry runs); stdio rejects supplied keys.
+A whole-call durable claim precedes handler entry. Both key and canonical
+input are HMAC-fingerprinted; no raw prompts, media, credentials or errors
+are journaled. Only saved success replays, after current ownership checks
+and before upstream access including Draft lookup. Failed/partial/cancelled
+attempts retain known safe IDs but never automatically resume.
+Claims never auto-prune; retain the same state and HMAC key/version. Ownership
+expiry can prevent replay even while a receipt survives. Do not change keys or
+erase claims to bypass uncertain acceptance. Synchronous product replay and
+complete crash recovery remain deferred. PostgreSQL/Redis are future scaling
+choices, not initial requirements; multi-replica coordination is unsupported.
 No exactly-once inference or public-launch readiness is claimed.
 See [SPEC_HOSTED_BYOK.md](../specs/SPEC_HOSTED_BYOK.md).

@@ -252,12 +252,12 @@ S3-compatible storage.
 | Variable | Default | Purpose |
 |---|---|---|
 | `ARTIFACT_BACKEND` | `filesystem` | `filesystem` (local disk) or `object_storage` (TOS/S3) |
-| `STATE_BACKEND` | `sqlite` | Task ownership/budget/cache backend; only `sqlite` (single instance) is implemented |
-| `STATE_MAX_RECORDS` | `100000` | Positive ownership/budget retained-state capacity; exhaustion fails closed |
+| `STATE_BACKEND` | `sqlite` | Task ownership/budget/cache and HTTP submission backend; only `sqlite` (single instance) is implemented |
+| `STATE_MAX_RECORDS` | `100000` | Positive retained-state capacity, also caps HTTP journal claims; new keys fail at capacity, existing keys remain readable |
 | `ARTIFACT_DIR` | `~/.seed-mcp/artifacts` | Media, metadata, ownership, and budget state; separate from `ark-mcp` |
 | `ARTIFACT_TTL_SECONDS` | `604800` | Artifact retention, in seconds |
 | `ARTIFACT_SWEEP_INTERVAL_SECONDS` | `3600` | Interval between background artifact/state expiry sweeps |
-| `STATE_PRUNE_MAX_AGE_DAYS` | `30` | Max age for ownership/budget/cache rows before pruning; at least 14 for authenticated HTTP with regular Seedance 2.5 enabled |
+| `STATE_PRUNE_MAX_AGE_DAYS` | `30` | Max age for ownership/budget/cache rows before pruning; at least 14 for authenticated HTTP with regular Seedance 2.5 enabled. Never prunes submission claims |
 | `MCP_INLINE_MEDIA_MAX_BYTES` | `8388608` | Maximum inline MCP media size |
 | `ARTIFACT_DOWNLOAD_TIMEOUT_SECONDS` | `120` | Timeout for each attempt to download provider output into artifact storage (filesystem and object-storage backends) |
 | `ARTIFACT_DOWNLOAD_MAX_ATTEMPTS` | `3` | Attempts (1-10) for a retryable output download (timeouts, network errors, 408/429/5xx), with 1s, 2s, 4s, ... backoff. Expired, untrusted, or oversized sources are never retried |
@@ -334,4 +334,11 @@ The default local in-memory queue loses task results at process exit. Local
 Redis retention does not distribute SQLite or make replicas safe. Restrict
 access to retained arguments/results and protect configured snapshot keys.
 HTTP retains only minimal scoped state, never customer credentials.
-Durable HTTP submission records, idempotency and crash recovery remain next phase.
+HTTP non-dry Seedance/OmniHuman creates use a durable SQLite submission journal
+and require `idempotency_key`; Seedance dry runs need no key/journal and stdio
+rejects supplied keys. Claims never auto-prune; preserve the state volume and
+matching HMAC configuration. Do not reset claims to free capacity.
+Only saved success replays with current ownership, not failed/partial work.
+See the [submission contract](../specs/SPEC_HOSTED_BYOK.md#http-submission-safety).
+Synchronous product replay and complete crash recovery remain deferred.
+PostgreSQL/Redis are future scaling choices, not initial HTTP requirements.

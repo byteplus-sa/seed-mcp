@@ -113,6 +113,18 @@ def _digest(settings: Settings, domain: str, *parts: str) -> str:
     ).hexdigest()
 
 
+def submission_fingerprints(
+    settings: Settings, tool_name: str, key: str, canonical_input: str
+) -> tuple[str, str]:
+    """Hash operation keys and inputs within the current provider/client identity."""
+    owner = request_principal()
+    scope = (owner.tenant_id, owner.principal_id, tool_name)
+    return (
+        _digest(settings, "seed-mcp:submission-key:v1", *scope, key),
+        _digest(settings, "seed-mcp:submission-input:v1", *scope, canonical_input),
+    )
+
+
 @contextmanager
 def provider_scope(settings: Settings, provider: CredentialProvider) -> Iterator[None]:
     """Bind ownership to one provider credential and one installation secret."""

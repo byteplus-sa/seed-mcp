@@ -85,7 +85,7 @@ async def test_ordinary_jobs_unavailable_to_every_http_client_before_snapshot_or
         ),
         (
             "seedance_create_task",
-            {"prompt": "scene"},
+            {"prompt": "scene", "idempotency_key": "native-task-rejected"},
             f"{MODELARK}/contents/generations/tasks",
             {"id": "must-not-submit"},
         ),

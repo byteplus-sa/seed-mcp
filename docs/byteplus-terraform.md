@@ -143,9 +143,18 @@ review the entire Terraform plan, protect retained storage and never remove
 deletion guards as an automatic workaround.
 
 Provider acceptance followed by a lost response or failed ownership write can
-remain ambiguous. Durable pre-dispatch records, idempotency and crash recovery
-are next-phase requirements. Do not claim exactly-once generation, multi-replica
-support or public-launch readiness from an infrastructure apply.
+remain ambiguous. SQLite HTTP asynchronous-create idempotency is implemented:
+non-dry Seedance/OmniHuman calls require `idempotency_key`, and only complete
+saved receipts replay with ownership checks. Same-key recovery is not polling
+or automatic resume of unresolved work. Claims never auto-prune; at
+`STATE_MAX_RECORDS` new keys fail while existing keys remain readable. Preserve
+the state volume and matching HMAC configuration, never delete claims to
+admit work. See the
+[submission contract](../specs/SPEC_HOSTED_BYOK.md#http-submission-safety).
+Synchronous product replay and complete crash recovery remain deferred;
+PostgreSQL/Redis are future scaling choices, not initial requirements.
+Do not claim exactly-once generation, multi-replica support or public-launch
+readiness from an infrastructure apply.
 
 ## Decommissioning
 

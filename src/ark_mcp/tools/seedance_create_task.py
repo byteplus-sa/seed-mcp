@@ -17,7 +17,9 @@ from pydantic import BaseModel, Field, JsonValue, model_validator
 
 from ark_mcp.config.model_capabilities import VideoCapabilities, get_capability_registry
 from ark_mcp.domain.models import VariationError, VariationSummary
+from ark_mcp.domain.submissions import IDEMPOTENCY_KEY_DESCRIPTION, IdempotencyKey
 from ark_mcp.observability.logger import info as log_info
+from ark_mcp.runtime import get_runtime
 from ark_mcp.security.credentials import provider_api_key
 from ark_mcp.tools._capability_checks import check_video_request, raise_on_violations
 from ark_mcp.tools._cost import estimate_cost
@@ -59,6 +61,7 @@ __all__ = [
 class SeedanceCreateTaskInput(BaseModel):
     """Input model for ``seedance_create_task``."""
 
+    idempotency_key: IdempotencyKey | None = Field(None, description=IDEMPOTENCY_KEY_DESCRIPTION)
     prompt: str | None = Field(
         None,
         min_length=1,
@@ -364,8 +367,12 @@ async def seedance_create_task(
     Flash only 480p/720p, without Draft.
     Draft previews are 480p; finals are 1080p. Cost previews are static.
     HTTP submits in the foreground; stdio uses ark_job_submit. Poll task IDs with
-    gen_task_get; never resubmit to poll, because each create starts new billed tasks.
+    gen_task_get. HTTP non-dry creates require idempotency_key; repeat identical
+    arguments/key only to recover a lost response, never to request another generation.
+    Interrupted or partial attempts require reconciliation, not a new key.
     """
+    if input.idempotency_key is not None and get_runtime(ctx).settings.mcp_transport == "stdio":
+        raise ValueError("idempotency_key is HTTP-only; omit it for local stdio.")
     provider_api_key(ctx, "modelark")
     await context_log(ctx, "info", "Creating Seedance video generation task")
     await ctx.report_progress(progress=10, total=100)

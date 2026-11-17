@@ -269,6 +269,96 @@ def test_documentation_examples_match_actual_input_schemas(exported: dict[str, A
                 )
 
 
+@pytest.mark.parametrize("name", ["seedance_create_task", "omnihuman_create_task"])
+def test_create_key_schema_describes_transport_rules_and_validates_boundaries(
+    exported: dict[str, Any], name: str
+) -> None:
+    schema = next(tool for tool in exported["tools"] if tool["name"] == name)["inputSchema"]
+    model = schema["$defs"][schema["properties"]["input"]["$ref"].split("/")[-1]]
+    field = model["properties"]["idempotency_key"]
+    assert field["default"] is None
+    assert "idempotency_key" not in model.get("required", [])
+    for text in ("16-128 ASCII", "UUID", "HTTP", "dry runs", "stdio", "recover"):
+        assert text in field["description"]
+    arguments = (
+        {"prompt": "A paper boat on calm water.", "variations": 2}
+        if name == "seedance_create_task"
+        else {
+            "image": "https://example.com/portrait.png",
+            "audio": "https://example.com/speech.mp3",
+        }
+    )
+    validator = Draft202012Validator(schema)
+    validator.validate({"input": arguments})
+    for key in (None, "a" * 16, "Z9_-" * 32, "fa02c945-0497-4cd2-987b-e56b1de39915"):
+        validator.validate({"input": {**arguments, "idempotency_key": key}})
+    for key in (
+        "",
+        "a" * 15,
+        "a" * 129,
+        "a" * 16 + " ",
+        "a" * 16 + "/",
+        "a" * 16 + "\n",
+        "a" * 16 + "\r\n",
+        "\u00e9" * 16,
+        123,
+    ):
+        assert list(validator.iter_errors({"input": {**arguments, "idempotency_key": key}})), repr(
+            key
+        )
+
+
+def test_generated_http_examples_validate_without_changing_local_inputs(
+    exported: dict[str, Any],
+) -> None:
+    root = SCRIPT.parents[1]
+    generated = subprocess.run(
+        [
+            "node",
+            "--input-type=module",
+            "-e",
+            """
+import { readFileSync } from "node:fs";
+import { toolPage } from "./docs/site/scripts/docs.mjs";
+const tools = JSON.parse(readFileSync(0, "utf8")).tools;
+process.stdout.write(JSON.stringify(
+    tools.filter(tool => tool.transports.http).map(tool => [tool.name, toolPage(tool)])
+));
+""",
+        ],
+        input=json.dumps(exported),
+        cwd=root,
+        capture_output=True,
+        text=True,
+        timeout=60,
+        check=False,
+    )
+    assert generated.returncode == 0, generated.stderr
+    pages = dict(json.loads(generated.stdout))
+    examples = json.loads((root / "docs/site/tool-examples.json").read_text(encoding="utf-8"))
+    assert "omnihuman_create_task" in examples
+    for tool in exported["tools"]:
+        name = tool["name"]
+        if name not in pages or name not in examples:
+            continue
+        page = pages[name]
+        http = page.split("### HTTP Call", 1)[1].split("<details>", 1)[0]
+        match = re.search(r"```json\n(.*?)\n```", http, re.S)
+        assert match is not None
+        call = json.loads(match[1])
+        assert call["name"] == name
+        Draft202012Validator(tool["inputSchema"]).validate(call["arguments"])
+        if name in {"seedance_create_task", "omnihuman_create_task"}:
+            request = call["arguments"]["input"]
+            assert ("idempotency_key" in request) is not request.get("dry_run", False)
+            local = page.split("Exact MCP call (for developers)</summary>", 1)[1]
+            local_match = re.search(r"```json\n(.*?)\n```", local, re.S)
+            assert local_match is not None
+            local_call = json.loads(local_match[1])
+            assert local_call["arguments"]["input"]["arguments"] == examples[name]
+            assert "idempotency_key" not in examples[name]["input"]
+
+
 def test_model_tables_only_document_catalog_tools() -> None:
     tables = json.loads(
         (SCRIPT.parents[1] / "docs/site/tool-models.json").read_text(encoding="utf-8")
@@ -478,7 +568,19 @@ def test_byok_spec_matches_header_names_and_settings_defaults() -> None:
         assert f"`{default}`" in spec
     assert "(provider, tenant_id, task_id)" in spec
     assert "No OAuth, signup, server-issued key" in spec
-    assert "idempotency and crash recovery are not implemented" in spec
+    for marker in (
+        "## HTTP Submission Safety",
+        "idempotency_key",
+        "SUBMISSION_CONFLICT",
+        "SUBMISSION_IN_PROGRESS",
+        "SUBMISSION_UNRESOLVED",
+        "running",
+        "succeeded",
+        "unresolved",
+    ):
+        assert marker in spec
+    assert "idempotency and crash recovery are not implemented" not in spec
+    assert "Synchronous product replay" in spec
 
 
 @pytest.mark.parametrize("client", ["codex", "claude-code"])

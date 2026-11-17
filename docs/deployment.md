@@ -1,9 +1,11 @@
 # Deployment
 
 HTTP deployments implement the [BYOK foundation](../specs/SPEC_HOSTED_BYOK.md).
-Run one instance with fresh SQLite state. PostgreSQL, multi-replica deployment,
-durable idempotency and crash recovery are next phase; this is not a public
-launch claim. Local stdio retains jobs, storage and artifacts separately.
+Run one instance with fresh SQLite state. HTTP asynchronous-create idempotency
+is implemented; synchronous product replay and complete crash recovery remain
+deferred. PostgreSQL/Redis are future scaling choices, not initial requirements.
+This is not a multi-replica or public-launch claim. Local stdio retains jobs,
+storage and artifacts separately.
 
 ## Build the Container
 
@@ -68,6 +70,9 @@ are credential-tenant and client-owner scoped, not a common team namespace.
 `STATE_PRUNE_MAX_AGE_DAYS` defaults to 30 and must be at least 14 for HTTP
 regular Seedance 2.5 Draft ownership. Capacity failures deny new work rather
 than evict live owners.
+Submission claims never auto-prune, even when ownership expires.
+`STATE_MAX_RECORDS` caps journal claims; at capacity existing keys remain
+readable but new keys fail before dispatch. Do not erase claims to admit work.
 
 HTTP is stateless, with no ordinary jobs, native tasks, storage/artifact tools
 or media resources. Do not provision Redis snapshots for hosted requests.
@@ -79,7 +84,12 @@ Drain in-flight foreground work before restart. The entrypoint allows up to
 `BYTEPLUS_REQUEST_TIMEOUT_MS` for graceful shutdown; orchestrator grace must
 cover it plus cleanup. A forced stop or lost submission response can leave
 an unknown provider outcome. Reconcile using saved task/request IDs, never
-blindly replay.
+blindly recreate work. Non-dry HTTP Seedance/OmniHuman calls require
+`idempotency_key`, one per whole call. Repeat identical arguments/key only for
+saved-success delivery recovery, not polling; unresolved attempts never
+automatically resume. Seedance dry runs need no key or journal; stdio rejects
+supplied keys. See the
+[submission contract](../specs/SPEC_HOSTED_BYOK.md#http-submission-safety).
 
 ## Deployment Checklist
 
@@ -93,4 +103,5 @@ blindly replay.
 
 The [BytePlus guide](byteplus-terraform.md) describes infrastructure
 prerequisites. It is not authorization to provision resources or publish an
-endpoint. Public launch remains gated on durable submission and hardening work.
+endpoint. Public launch remains gated on capacity/recovery procedures,
+synchronous product replay, live validation and hardening work.

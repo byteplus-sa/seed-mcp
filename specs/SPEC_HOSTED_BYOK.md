@@ -142,8 +142,8 @@ does not constitute local persistence. Unknown upload acceptance is not retried.
 | `RATE_LIMIT_BURST` | `0` | Uses RPM when zero |
 | `MCP_HTTP_MAX_BODY_BYTES` | `2097152` (2 MiB) | Positive streamed request limit |
 | `MCP_HTTP_MAX_IN_FLIGHT` | `64` | Positive admission bound before body processing, including discovery |
-| `STATE_MAX_RECORDS` | `100000` | Positive retained-state bound; no eviction of live owners |
-| `STATE_PRUNE_MAX_AGE_DAYS` | `30` | At least 14 when regular Seedance 2.5 is bound on HTTP |
+| `STATE_MAX_RECORDS` | `100000` | Positive retained-state bound, also the submission-journal capacity; no eviction of live owners or submission claims |
+| `STATE_PRUNE_MAX_AGE_DAYS` | `30` | At least 14 when regular Seedance 2.5 is bound on HTTP; never prunes submission claims |
 
 Stateless HTTP forces Host/Origin protection. Proxy headers are untrusted by
 default. `/health` and `/ready` return minimal liveness/state readiness without
@@ -170,13 +170,18 @@ reserved allowance. Cancellation cleanup is shielded best effort, not a
 guarantee that no reserved rows remain.
 
 Seedance proceeds to the shared `record_accepted_task` helper even after a
-budget-finalization log event; OmniHuman uses the same ownership helper.
-Only accepted ownership-record failures become outward `AcceptedTaskError`
-(`OWNERSHIP_RECORD_FAILED`), retaining accepted task IDs and available request
-IDs. These failures are ambiguous/nonretryable and never cause internal
+budget-finalization log event; OmniHuman uses the same helper. On HTTP it
+validates task/request IDs against `[A-Za-z0-9._:-]{1,256}` and rejects secret
+echoes before either persistence write. Unsafe IDs produce `UNSAFE_TASK_RECEIPT`
+without persisting or echoing them. Safe accepted IDs are journaled before
+ownership recording. A failed journal write still attempts ownership.
+Accepted journal/ownership failures become outward `AcceptedTaskError`
+(`SUBMISSION_RECORD_FAILED` / `OWNERSHIP_RECORD_FAILED`), retaining safe
+accepted task IDs and available request IDs.
+These failures are ambiguous/nonretryable and never cause internal
 resubmission. In Seedance variation results, `task_id` and `error` can coexist:
 `submitted` counts known accepted IDs, while `failed` counts entries with
-errors, so accepted ownership-record errors can count in both. Single-call
+errors, so accepted journal/ownership errors can count in both. Single-call
 failures remain error `ToolResult` text carrying known IDs, not structured
 success output. HTTP polling requires recorded ownership; otherwise use
 task/request IDs for provider-side reconciliation. Trusted stdio permits
@@ -187,6 +192,78 @@ Understanding JSON Schema validation is offline. `$ref`, `$dynamicRef` and
 retrieved. Internal tool metrics use catalog names or a fixed `unknown` label,
 not arbitrary caller-supplied tool names; unknown background targets are skipped.
 
+## HTTP Submission Safety
+
+This first slice covers only `seedance_create_task` and
+`omnihuman_create_task`, not synchronous generation or understanding.
+The shared input schemas expose nullable `idempotency_key` with default null.
+Non-null keys must contain 16-128 ASCII letters, digits, `_` or `-`;
+a fresh UUID is recommended for each intended create operation.
+HTTP requires a non-null key for non-dry creates, including Draft creation and
+promotion. Seedance dry runs need no key and bypass the journal without
+consuming one. Stdio rejects supplied non-null keys, including on dry runs.
+
+One root claim covers the whole call, including every Seedance variation.
+After live BYOK binding, schema validation and endpoint-default application,
+the coordinator atomically commits that claim **before entering the handler**.
+The scope is `(provider, tenant_id, principal_id, tool_name, key_digest)`.
+Both the key and canonical validated input use domain-separated operator HMAC
+fingerprints. Input defaults and effective endpoint/model are included;
+the key itself is excluded from the input fingerprint.
+An omitted ordinary Seedance model resolves to the registered default.
+An omitted Draft-promotion model instead fingerprints an inherited-model
+marker plus `draft_task_id`, without an upstream Draft lookup. Explicit and
+inherited model forms may conservatively conflict; repeat identical arguments.
+
+Repeating the same key and arguments is **delivery recovery, not polling**.
+Only a fully successful saved receipt replays in the unchanged output schema.
+Every recorded task must still pass ownership checks before replay, with no
+handler entry, provider call, Draft lookup or automatic ownership repair.
+Missing/expired ownership fails closed. Poll recovered task IDs through
+`gen_task_get` or `omnihuman_get_task` to learn current provider status.
+Reuse requires the original provider key/client secret, stable operator HMAC
+key/version, and the same retained SQLite state.
+
+| Error code | Meaning and client action |
+| --- | --- |
+| `IDEMPOTENCY_KEY_REQUIRED` | Non-dry HTTP create has no key; nothing dispatched |
+| `SUBMISSION_CONFLICT` | Existing scoped key with changed input; restore the original arguments to recover that operation |
+| `SUBMISSION_IN_PROGRESS` | Claim is still running; no second handler entry or automatic resume |
+| `SUBMISSION_UNRESOLVED` | Failed, interrupted, partial or cancelled attempt, or unusable receipt/ownership; reconcile known task/request IDs |
+| `SUBMISSION_UNAVAILABLE` | Journal unavailable or full; this call made no provider request |
+
+Errors remain text-only `ToolResult` errors, not structured success. First
+attempts retain existing diagnostics; repeats contain fixed safe guidance and
+durably known accepted IDs, never saved raw errors. Do not change keys to
+bypass uncertain acceptance. No failed variation is automatically resumed.
+
+### Journal and Retention
+
+`SQLiteSubmissionStore` in `submission_store.py` uses `http_submissions` and
+`http_submission_tasks` in `runtime.sqlite3`, with WAL, `synchronous=FULL`,
+a 5-second busy timeout and cancellation-safe serialized worker-thread I/O.
+States are `running`, `succeeded` and `unresolved`; reopening this
+single-instance store marks leftover running claims unresolved.
+Failures, partial results and cancellation attempt the same transition.
+A saved success is never demoted. A final receipt-write failure preserves the
+first provider result but leaves repeated calls fail-closed.
+
+Persist only scope digests, state/timestamps, up to five safe accepted
+task/request-ID pairs, and an allowlisted success receipt of at most 32 KiB.
+Seedance success requires exactly the requested ordered entries, no errors or
+duplicate task IDs, consistent counters and exact journal ID matches.
+OmniHuman success must also match its journal IDs. No raw idempotency keys,
+prompts, media references, credentials, provider bodies or error messages are
+persisted in the journal.
+
+Claims are **never automatically pruned**, including by
+`STATE_PRUNE_MAX_AGE_DAYS`. `STATE_MAX_RECORDS` limits journal rows; at capacity
+new keys fail before dispatch, while existing keys remain readable and owned
+task polling continues. Do not delete claims or reset state to admit more work:
+forgetting a claim can permit duplicates. Operator capacity management remains
+an operational follow-up. Ownership has separate retention; a surviving
+receipt does not restore an expired owner.
+
 ```mermaid
 flowchart TD
     Client["Client request"] --> Limit["Admission, rate and body limits"]
@@ -194,27 +271,42 @@ flowchart TD
     Headers --> Discovery{"Discovery?"}
     Discovery -->|Yes| Static["Static bindings; no provider call"]
     Discovery -->|No| Identity["Selected key and client secret; derive owner"]
-    Identity --> Validate["Validate binding, media and ownership"]
+    Identity --> Input["Schema validation and endpoint defaults"]
+    Input --> Create{"Non-dry async create?"}
+    Create -->|No| Validate["Handler validation: binding, media, ownership"]
+    Create -->|Yes| Claim["Require key; durable whole-call claim"]
+    Claim -->|New| Validate
+    Claim -->|Saved success| Check["Validate receipt and existing ownership"]
+    Check -->|Valid| Receipt["Return saved receipt; no upstream call"]
+    Check -->|Unavailable| Reject["Safe error and known IDs; no resume"]
+    Claim -->|Conflict, running, unresolved or unavailable| Reject
     Validate --> Gateway["Explicit request-key gateway"]
     Gateway --> Provider["Official provider"]
-    Provider --> Result["URL, task ID or safe error"]
-    Result --> Release["Release live credential context"]
+    Provider --> Result["Result; journal accepted IDs before ownership"]
+    Result --> Finalize["Claimed create: save success or mark unresolved"]
+    Finalize --> Release["Release live credential context"]
+    Receipt --> Release
+    Reject --> Release
 ```
 
 ## Next Phase
 
-PostgreSQL, multi-replica coordination, durable pre-dispatch records,
-idempotency and crash recovery are not implemented. Loss of an accepted
-submission response can still require manual provider reconciliation.
-Exactly-once inference is not promised. Public multi-user launch requires
-those follow-ups, load/security validation and exact-client interoperability
-checks. Offline protocol tests are not live provider or desktop-client evidence.
+Synchronous product replay and complete crash recovery remain deferred.
+A crash between provider acceptance and the first accepted-ID write can lose
+that ID; the root claim prevents same-key re-dispatch but cannot discover
+unknown tasks. Automatic reconciliation and exactly-once billing are not
+promised. PostgreSQL/Redis are future scaling choices, not initial requirements;
+SQLite remains the single-instance backend. Public launch still requires
+operational capacity/recovery work, load/security validation and live provider
+and exact-client interoperability checks. Offline protocol tests are not live
+provider or desktop-client evidence.
 
 ## Sources
 
 - Current implementation: `server.py`, `security/http_middleware.py`,
   `config/env.py`, `config/model_capabilities.py`, `tools/ark_list_models.py`,
-  `tools/_seedance_shared.py`, and ModelArk gateway/understanding adapters.
+  `tools/_seedance_shared.py`, `submissions.py`, `submission_store.py`,
+  `runtime.py`, and ModelArk gateway/understanding adapters.
 - [FastMCP background tasks](https://gofastmcp.com/servers/tasks), accessed
   2026-11-16: per-call extension opt-in and execution modes. The application
   boundary above is verified against this checkout, not inferred from framework defaults.

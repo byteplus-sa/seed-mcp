@@ -72,6 +72,7 @@ from ark_mcp.security.http_middleware import (  # noqa: E402
     RequestBodyLimitMiddleware,
 )
 from ark_mcp.security.tasks import TenantTasksExtension, guard_task_execution  # noqa: E402
+from ark_mcp.submissions import execute_submission  # noqa: E402
 from ark_mcp.tools._catalog import (  # noqa: E402
     CATALOG,
     CatalogEntry,
@@ -100,6 +101,9 @@ HTTP_SERVER_INSTRUCTIONS = (
     "Configure provider keys and X-MCP-Client-Secret privately in client HTTP headers, "
     "never prompts or tool arguments. No OAuth, signup or MCP bearer key is used. "
     "Poll existing video task IDs; never resubmit a create call to poll. "
+    "Seedance non-dry and OmniHuman creates require a fresh idempotency_key per operation. "
+    "Reuse identical arguments/key only for delivery recovery; never change keys to bypass "
+    "an unresolved submission. Other provider tools do not have durable replay. "
     "HTTP output is temporary provider URLs: persist and persist_output must be false. "
     "Background tasks, uploads and artifact resources are not available over HTTP."
 )
@@ -126,7 +130,12 @@ def _http_handler(
                     bound.arguments["input"] = type(request).model_validate(
                         {**request.model_dump(), "model": default}
                     )
-                return await handler(*bound.args, **bound.kwargs)
+                return await execute_submission(
+                    bound.arguments["ctx"],
+                    entry.name,
+                    bound.arguments["input"],
+                    lambda: handler(*bound.args, **bound.kwargs),
+                )
         except (PermissionError, ValueError) as exc:
             raise ToolError(redact_request_secrets(str(exc))) from None
         except ToolError as exc:

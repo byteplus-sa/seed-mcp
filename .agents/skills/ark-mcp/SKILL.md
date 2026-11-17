@@ -73,13 +73,36 @@ flowchart LR
    for variation tools, and `dry_run` (Seedance, Seedream) to check a request
    and its cost without billing.
 3. **Poll.** Seedance with `gen_task_get`; OmniHuman with
-   `omnihuman_get_task`. **Never resubmit a create tool to poll**; that bills
-   a second task.
+   `omnihuman_get_task`. **Never resubmit a create tool to poll**; receipt
+   recovery does not refresh provider status, and a new create can bill again.
 4. **Keep outputs.** HTTP clients download expiring provider URLs themselves.
    Stdio can explicitly persist and use `seed_media_get_artifact`,
    `seed_media_export_artifact`, `seed_media_persist_url`, and resources.
 
 ## Rules the schemas do not tell you
+
+### HTTP create recovery
+
+- Require `idempotency_key` on non-dry Seedance and OmniHuman creates:
+  16-128 ASCII letters, digits, `_` or `-`; generate a fresh UUID for each
+  intended operation, one key for the entire variation batch. Seedance dry
+  runs need no key and consume no journal claim. Stdio rejects supplied keys.
+- Repeat identical arguments/key only for delivery recovery, not polling.
+  Only complete saved success replays after ownership checks, before any
+  upstream call including Draft lookup. Failed, partial or cancelled attempts
+  remain unresolved with known accepted IDs, never automatically resumed.
+  Never change keys to bypass uncertain acceptance. Poll known task IDs when
+  ownership remains recorded; otherwise reconcile with the provider.
+- Keep original provider/client credentials and the same server state and HMAC
+  key/version. Claims never auto-prune; at `STATE_MAX_RECORDS` new keys fail
+  while existing keys remain readable. Raw keys, prompts, media, credentials
+  and errors are not journaled; key/input fingerprints use HMAC.
+- Draft creation and promotion are separate intended operations, each with a
+  fresh key on HTTP. Repeat the identical promotion arguments to recover its
+  receipt; do not replace an omitted inherited model with an explicit model.
+- This first slice does not cover synchronous product replay or complete
+  crash recovery. See `specs/SPEC_HOSTED_BYOK.md#http-submission-safety` in the
+  selected checkout and [environment.md](references/environment.md).
 
 ### Background jobs
 
@@ -143,8 +166,10 @@ discovery, before provider dispatch, snapshot capture/save or queue creation.
   with known IDs. Never resubmit accepted tasks; HTTP polling requires recorded
   ownership, otherwise reconcile with the provider. Trusted stdio permits
   unrecorded IDs, not recorded owner mismatches.
-- Only accepted ownership-record failures become outward `AcceptedTaskError`
+- Accepted journal/ownership-record failures become outward `AcceptedTaskError`
   failures, which retain task/request IDs and are ambiguous/nonretryable.
+  On HTTP, safe IDs are journaled before ownership; a failed journal write
+  still attempts ownership. Unsafe or secret-echoing IDs are not persisted.
   Budget-finalization exceptions log `ERROR` event `budget_finalization_failed`
   without replacing the provider result/error or adding to `failed`; failed
   commit/release leaves conservative reserved allowance. Reservation before
@@ -153,7 +178,8 @@ discovery, before provider dispatch, snapshot capture/save or queue creation.
 - **Draft (regular 2.5 only, not Flash):** `draft=true` makes a cheap 480p preview; once it
   has `succeeded` (within 14 days of creation, or 7 if created before
   2026-10-28 10:00 UTC+8), call again with only `draft_task_id`
-  (plus `return_last_frame`, `watermark`, `output_format` and similar) to render
+  (plus a fresh HTTP `idempotency_key`, `return_last_frame`, `watermark`,
+  `output_format` and similar) to render
   the final video at 1080p, not 4K. The Draft's model, prompt, media, duration and ratio are
   reused and must be omitted; `variations` must be 1.
 - Video references must be public HTTPS URLs (or `asset://`); use
@@ -273,9 +299,12 @@ Asset reference: pass an already usable provider reference as
 | `Request is not valid for model ...` | The request breaks that model's limits (all listed) | Fix every item, pick another model from `ark_list_models`, or recheck with `dry_run` |
 | Unknown `model` | Not an exact configured ID | Use the suggested ID or one from `ark_list_models` |
 | Timeout with `ambiguous_completion=true` | Create or cancel may have succeeded | Reconcile by task or request ID; do not resubmit |
+| `SUBMISSION_CONFLICT` | Same HTTP key with changed arguments | Restore identical arguments for receipt recovery |
+| `SUBMISSION_IN_PROGRESS` / `SUBMISSION_UNRESOLVED` | Existing running or unresolved HTTP attempt | Keep known IDs; reconcile, never change keys to bypass uncertainty |
+| `SUBMISSION_UNAVAILABLE` | Journal unavailable or full | No provider call from this attempt; ask the operator to restore availability without deleting claims |
 | `queued` / `running` for a long time | Normal provider queue | Keep polling `gen_task_get`; `queue.hint` explains the wait |
 | `persistence_error` on an artifact | Output billed, storage failed | `seed_media_persist_url` before the URL expires |
-| Variation `error.phase` | `queued` (`QUEUE_TIMEOUT`): safe to retry; `generating`: may have completed; `persisting`: output not stored | Retry only `queued` ones |
+| Variation `error.phase` | `queued` (`QUEUE_TIMEOUT`): not started; `generating`: may have completed; `persisting`: output not stored | Reconcile the whole HTTP create; no automatic partial-batch resume. Local retries only for confirmed unstarted work |
 | `NOT_OWNED` | Task is outside the credential tenant/client owner or ownership is missing | Use the original provider key and client secret; changing credentials or operator HMAC key/version changes scope, with no recovery bridge |
 | OmniHuman failed `InvalidParameter ... audio` or error `50510` | Provider rejected the audio or content after submission | Fix the inputs; never retry unchanged |
 | Budget rejected | `DAILY_BUDGET_USD` exceeded | Wait for the UTC day rollover or raise it |
@@ -291,8 +320,10 @@ reads can retain bounded retries; understanding disables all `TIMEOUT` retries.
 HTTP uses fresh SQLite, fixed official origins and positive 60 RPM / 2 MiB /
 64 in-flight defaults with `STATE_MAX_RECORDS=100000`. The operator HMAC key
 is not a customer credential. Readiness never probes providers; public metrics
-are unavailable. Durable idempotency, crash recovery and multi-replica support
-remain next phase, not a public-launch claim.
+are unavailable. SQLite asynchronous-create receipt recovery is implemented;
+synchronous product replay and complete crash recovery remain deferred.
+PostgreSQL/Redis are future scaling choices, not initial requirements.
+Multi-replica support and public-launch readiness are not claimed.
 
 ## References
 
