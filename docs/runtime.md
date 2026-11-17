@@ -589,7 +589,7 @@ The container includes the same standalone command at
 operator with private API connectivity and pod exec permission can run:
 
 ```bash
-kubectl -n seed-mcp exec seed-mcp-0 -c app -- \
+kubectl -n seed-mcp exec seed-mcp-seed-mcp-0 -c app -- \
   /app/.venv/bin/python /app/scripts/inspect_runtime_state.py \
   --database /app/.artifacts/runtime.sqlite3 --capacity 100000 --timeout-seconds 2
 ```

@@ -2,6 +2,7 @@
 
 import json
 import os
+import re
 import shutil
 import subprocess
 import tarfile
@@ -86,14 +87,17 @@ def helm(tmp_path: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
 
 
 def render(
-    tmp_path: Path, overrides: dict[str, Any] | None = None
+    tmp_path: Path,
+    overrides: dict[str, Any] | None = None,
+    *,
+    release: str = "synthetic",
 ) -> subprocess.CompletedProcess[str]:
     override_file = tmp_path / "overrides.json"
     override_file.write_text(json.dumps(overrides or {}))
     return helm(
         tmp_path,
         "template",
-        "synthetic",
+        release,
         str(CHART),
         "-f",
         str(CHART / "values.ci.yaml"),
@@ -105,6 +109,20 @@ def render(
 def documents(result: subprocess.CompletedProcess[str]) -> list[dict[str, Any]]:
     assert result.returncode == 0, result.stderr
     return [document for document in yaml.safe_load_all(result.stdout) if document]
+
+
+@pytest.mark.parametrize("page", ["runtime.md", "deployment.md", "observability.md"])
+def test_operator_examples_target_the_rendered_release_pod(tmp_path: Path, page: str) -> None:
+    rendered = documents(render(tmp_path, release="seed-mcp"))
+    stateful = next(item for item in rendered if item["kind"] == "StatefulSet")
+    expected_pod = stateful["metadata"]["name"] + "-0"
+    content = (ROOT / "docs" / page).read_text()
+    targets = re.findall(
+        r"kubectl -n seed-mcp (?:exec|port-forward --address 127\.0\.0\.1) (?:pod/)?(\S+)",
+        content,
+    )
+    assert targets, f"No private diagnostic pod targets found in {page}"
+    assert set(targets) == {expected_pod}
 
 
 def test_ci_values_lint_and_single_writer_storage(tmp_path: Path) -> None:

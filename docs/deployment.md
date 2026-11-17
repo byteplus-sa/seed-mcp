@@ -72,10 +72,10 @@ the backend using the Python executable already in the app container. The
 example assumes namespace/release `seed-mcp`; select the actual pod:
 
 ```bash
-kubectl -n seed-mcp exec seed-mcp-0 -c app -- \
+kubectl -n seed-mcp exec seed-mcp-seed-mcp-0 -c app -- \
   /app/.venv/bin/python -c \
   "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:3000/health', timeout=2).status)"
-kubectl -n seed-mcp exec seed-mcp-0 -c app -- \
+kubectl -n seed-mcp exec seed-mcp-seed-mcp-0 -c app -- \
   /app/.venv/bin/python -c \
   "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:3000/ready', timeout=2).status)"
 ```

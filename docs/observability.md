@@ -175,7 +175,7 @@ After separately authorized deployment, with private API connectivity and
 pod port-forward RBAC, an operator can forward only onto workstation loopback:
 
 ```bash
-kubectl -n seed-mcp port-forward --address 127.0.0.1 pod/seed-mcp-0 19000:9000
+kubectl -n seed-mcp port-forward --address 127.0.0.1 pod/seed-mcp-seed-mcp-0 19000:9000
 ```
 
 Use the actual namespace and pod name; the example assumes release `seed-mcp`.

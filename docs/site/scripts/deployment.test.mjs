@@ -140,7 +140,10 @@ test("runtime settings and diagnostic commands stay source-linked", () => {
   assert.match(content, /runtime\.sqlite3\.lock/);
   assert.match(content, /MCP_METRICS_PORT.*0.*127\.0\.0\.1/);
   assert.match(content, /--database.*--capacity.*--timeout-seconds/);
-  assert.match(content, /kubectl -n seed-mcp exec seed-mcp-0 -c app --/);
+  assert.match(
+    content,
+    /kubectl -n seed-mcp exec seed-mcp-seed-mcp-0 -c app --/,
+  );
   assert.ok(
     source("Dockerfile").includes(
       "scripts/inspect_runtime_state.py /app/scripts/inspect_runtime_state.py",
