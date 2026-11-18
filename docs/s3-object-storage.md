@@ -263,7 +263,9 @@ Size limits (applied before upload):
 ### Transport restrictions
 
 Storage tools are **stdio-only**, including Base64 uploads and presigning.
-HTTP exposes no storage or artifact tools/resources. Local file-path policy
+HTTP exposes no local storage or artifact tools/resources. Opt-in
+[temporary references](temporary-uploads.md) use TOS only, with direct client
+upload; no S3 preparation is implemented. Local file-path policy
 also prevents remote reads:
 
 ```python

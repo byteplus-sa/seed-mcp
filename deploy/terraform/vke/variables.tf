@@ -10,13 +10,13 @@ variable "name" {
 }
 
 variable "fresh_state_confirmed" {
-  description = "Acknowledge this is a separate fresh VKE state, never old ECS state. Preserve old state/backups for separately authorized retirement."
+  description = "Acknowledge this is a dedicated fresh VKE backend/workspace, separate from unrelated deployments."
   type        = bool
   default     = false
   nullable    = false
   validation {
     condition     = var.fresh_state_confirmed
-    error_message = "Confirm a separate fresh VKE backend/workspace. Never reuse or migrate old ECS state into this root."
+    error_message = "Confirm a dedicated fresh VKE backend/workspace. Do not reuse state belonging to another deployment."
   }
 }
 
@@ -32,7 +32,7 @@ variable "region" {
 }
 
 variable "zone_id" {
-  description = "Operator-verified zone with node inventory, compatible EBS and NAT. All nodes and the SQLite EBS volume stay in this zone."
+  description = "Operator-verified zone with node inventory, compatible node system disks and NAT. Fixed same-zone nodes do not establish AZ-failure resilience."
   type        = string
   nullable    = false
   validation {
@@ -42,12 +42,12 @@ variable "zone_id" {
 }
 
 variable "kubernetes_version" {
-  description = "Operator-verified currently supported VKE Kubernetes version in x.xx form; compatible with the chart and VKE-admin-owned addons."
+  description = "Operator-verified currently maintained regional VKE Kubernetes release >=1.30 in x.xx form, compatible with the chart and VKE-admin-owned addons. This floor does not establish regional availability or continued maintenance of 1.30."
   type        = string
   nullable    = false
   validation {
-    condition     = can(regex("^1\\.[0-9]{2}$", var.kubernetes_version)) && try(tonumber(split(".", var.kubernetes_version)[1]) >= 27, false)
-    error_message = "Use a supported Kubernetes version >=1.27 in x.xx form."
+    condition     = can(regex("^1\\.[0-9]{2}$", var.kubernetes_version)) && try(tonumber(split(".", var.kubernetes_version)[1]) >= 30, false)
+    error_message = "Select an operator-verified currently maintained regional VKE release >=1.30 in x.xx form. The compatibility floor is not an availability or maintenance claim."
   }
 }
 
@@ -62,13 +62,13 @@ variable "node_instance_type" {
 }
 
 variable "node_count" {
-  description = "Fixed node count, not app replicas. Two nodes give same-zone rescheduling capacity; autoscaling is disabled."
+  description = "Fixed node count, not app replicas; node autoscaling is disabled. Size application HPA against actual schedulable capacity including surge/draining pods; two same-zone nodes are not capacity or AZ-resilience certification."
   type        = number
   default     = 2
   nullable    = false
   validation {
     condition     = var.node_count >= 2 && var.node_count <= 10 && floor(var.node_count) == var.node_count
-    error_message = "Use 2-10 whole on-demand nodes; the app remains exactly one replica."
+    error_message = "Use 2-10 whole on-demand nodes and verify application, surge and draining capacity separately."
   }
 }
 

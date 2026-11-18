@@ -4,8 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import json
-import sqlite3
-from contextlib import closing
 from pathlib import Path
 from typing import Any
 
@@ -120,33 +118,8 @@ def assert_connection(
     assert_no_canaries(json.dumps(result))
 
 
-def state_counts(tmp_path: Path) -> dict[str, int]:
-    database = tmp_path / "artifacts" / "runtime.sqlite3"
-    assert database.is_file()
-    with closing(sqlite3.connect(f"{database.as_uri()}?mode=ro", uri=True)) as connection:
-        return dict(
-            connection.execute(
-                """
-                SELECT 'task_ownership', COUNT(*) FROM task_ownership
-                UNION ALL SELECT 'object_key_ownership', COUNT(*) FROM object_key_ownership
-                UNION ALL SELECT 'task_artifacts', COUNT(*) FROM task_artifacts
-                UNION ALL SELECT 'budget_reservations', COUNT(*) FROM budget_reservations
-                UNION ALL SELECT 'http_submissions', COUNT(*) FROM http_submissions
-                UNION ALL SELECT 'http_submission_tasks', COUNT(*) FROM http_submission_tasks
-                """
-            ).fetchall()
-        )
-
-
 def assert_empty_state(tmp_path: Path) -> None:
-    assert state_counts(tmp_path) == {
-        "task_ownership": 0,
-        "object_key_ownership": 0,
-        "task_artifacts": 0,
-        "budget_reservations": 0,
-        "http_submissions": 0,
-        "http_submission_tasks": 0,
-    }
+    assert not (tmp_path / "artifacts").exists()
 
 
 def assert_forwarded(request: httpx.Request, key: str, *, model: str | None = None) -> None:
@@ -218,7 +191,6 @@ async def test_custom_endpoints_preflight_image_video_poll_and_recovery(
             "images": [image["artifacts"][0]["uri"]],
             "resolution": "4k",
             "duration": 30,
-            "idempotency_key": "byoe-workflow-video-create",
         }
         created = successful(await call_tool(client, VIDEO_TOOL, video_input, headers=headers))
         assert created["model"] == VIDEO_ENDPOINT
@@ -227,11 +199,9 @@ async def test_custom_endpoints_preflight_image_video_poll_and_recovery(
         assert created["failed"] == 0
         assert created["tasks"][0]["task_id"] == "byoe-workflow-video"
         assert created["tasks"][0]["request_id"] == "byoe-create-request"
-        after_create = state_counts(tmp_path)
         recovered = successful(await call_tool(client, VIDEO_TOOL, video_input, headers=headers))
         assert recovered == created
-        assert state_counts(tmp_path) == after_create
-        assert create_route.call_count == 1
+        assert create_route.call_count == 2
         polled = successful(
             await call_tool(
                 client,
@@ -247,12 +217,9 @@ async def test_custom_endpoints_preflight_image_video_poll_and_recovery(
         assert task["status"] == "succeeded"
         assert task["outputs"][0]["source_url"] == VIDEO_URL
         assert_no_canaries(json.dumps([preflight, image, created, recovered, polled]))
-        counts = state_counts(tmp_path)
-        assert counts["task_ownership"] == counts["http_submissions"] == 1
-        assert counts["http_submission_tasks"] == 1
-        assert counts["object_key_ownership"] == counts["task_artifacts"] == 0
-    assert image_route.call_count == create_route.call_count == poll_route.call_count == 1
-    assert len(provider_mock.calls) == 3
+    assert image_route.call_count == poll_route.call_count == 1
+    assert create_route.call_count == 2
+    assert len(provider_mock.calls) == 4
     assert_forwarded(image_route.calls[0].request, MODELARK_KEY, model=IMAGE_ENDPOINT)
     assert_forwarded(create_route.calls[0].request, MODELARK_KEY, model=VIDEO_ENDPOINT)
     body = json.loads(create_route.calls[0].request.content)
@@ -459,8 +426,6 @@ async def test_unknown_and_wrong_product_routes_fail_closed_without_echoing_conn
         assert requested not in json.dumps(preflight["connection"])
         assert_empty_state(tmp_path)
         input_data = {"prompt": "A square"}
-        if kind == "video":
-            input_data["idempotency_key"] = "byoe-invalid-endpoint-create"
         denied = await call_tool(client, tool, input_data, headers=headers)
         assert_denied(denied)
         if selection != "unknown_model":
@@ -468,9 +433,6 @@ async def test_unknown_and_wrong_product_routes_fail_closed_without_echoing_conn
         if selection == "unknown_endpoint":
             assert requested not in json.dumps(denied)
         assert_no_canaries(json.dumps(denied))
-        counts = state_counts(tmp_path)
-        assert counts["budget_reservations"] == counts["task_ownership"] == 0
-        assert counts["http_submission_tasks"] == 0
     assert not provider_mock.calls
 
 
@@ -494,9 +456,7 @@ async def test_explicit_custom_model_overrides_endpoint_header_before_dispatch(
     )
     input_data: dict[str, Any] = {"prompt": "A square", "model": explicit}
     if kind == "video":
-        input_data.update(
-            resolution="720p", duration=30, idempotency_key="byoe-explicit-model-create"
-        )
+        input_data.update(resolution="720p", duration=30)
     async with http_server(tmp_path, settings=byoe_settings(tmp_path)) as (_, _, client):
         result = successful(
             await call_tool(client, tool, input_data, headers={**credentials(), header: requested})
@@ -606,19 +566,12 @@ async def test_overlapping_clients_keep_endpoint_key_preflight_and_replay_isolat
         input_data = {
             "prompt": "Rotate the square",
             "resolution": "720p",
-            "idempotency_key": "same-key-two-byoe-clients",
         }
         created = [
             successful(await call_tool(client, VIDEO_TOOL, input_data, headers=client_headers))
             for client_headers in headers
         ]
-        for index in (1, 0, 1):
-            replay = successful(
-                await call_tool(client, VIDEO_TOOL, input_data, headers=headers[index])
-            )
-            assert replay == created[index]
-            assert replay["model"] == videos[index]
-            assert replay["tasks"][0]["task_id"] == f"byoe-client-{index}"
+        assert [item["model"] for item in created] == list(videos)
         for index in (1, 0):
             result = successful(
                 await call_tool(
@@ -649,8 +602,6 @@ async def test_configuration_valid_is_not_authentication_even_when_provider_reje
     )
     headers = {**credentials(), **endpoint_headers()}
     input_data: dict[str, Any] = {"prompt": "A square"}
-    if kind == "video":
-        input_data["idempotency_key"] = "byoe-rejected-key-create"
     async with http_server(tmp_path, settings=byoe_settings(tmp_path)) as (_, _, client):
         before = successful(
             await call_tool(
@@ -667,7 +618,6 @@ async def test_configuration_valid_is_not_authentication_even_when_provider_reje
         assert_denied(denied)
         assert "INVALID_API_KEY" in str(denied)
         assert_no_canaries(json.dumps(denied))
-        after_failure = state_counts(tmp_path)
         after = successful(
             await call_tool(
                 client,
@@ -678,12 +628,7 @@ async def test_configuration_valid_is_not_authentication_even_when_provider_reje
         )
         assert after == before
         assert_connection(after, [configured_route(tool, model, family)])
-        assert state_counts(tmp_path) == after_failure
-        assert after_failure["task_ownership"] == after_failure["http_submission_tasks"] == 0
-        if kind == "video":
-            repeated = await call_tool(client, tool, input_data, headers=headers)
-            assert_denied(repeated)
-            assert "SUBMISSION_UNRESOLVED" in str(repeated)
+        assert_empty_state(tmp_path)
     assert route.call_count == len(provider_mock.calls) == 1
     assert_forwarded(route.calls[0].request, MODELARK_KEY, model=model)
 
@@ -710,8 +655,6 @@ async def test_configured_endpoint_still_enforces_its_bound_family_capabilities(
     family = "seedream_5_5" if kind == "image" else "seedance_2_5_flash"
     headers = {**credentials(), **endpoint_headers(video=FLASH_ENDPOINT)}
     input_data = {"prompt": "A square", **extra}
-    if kind == "video":
-        input_data["idempotency_key"] = "byoe-capability-rejected"
     async with http_server(tmp_path, settings=byoe_settings(tmp_path)) as (_, _, client):
         preflight = successful(
             await call_tool(
@@ -729,127 +672,7 @@ async def test_configured_endpoint_still_enforces_its_bound_family_capabilities(
         assert model in str(denied)
         assert family in str(denied)
         assert_no_canaries(json.dumps(denied))
-        counts = state_counts(tmp_path)
-        assert counts["budget_reservations"] == counts["task_ownership"] == 0
     assert not provider_mock.calls
-
-
-@provider_mock
-async def test_changed_endpoint_conflicts_but_explicit_original_model_recovers_receipt(
-    tmp_path: Path,
-) -> None:
-    route = provider_mock.post(TASKS_URL).respond(200, json={"id": "byoe-replay-original"})
-    input_data = {"prompt": "A square", "idempotency_key": "byoe-endpoint-replay"}
-    headers = {**credentials(), **endpoint_headers()}
-    async with http_server(tmp_path, settings=byoe_settings(tmp_path)) as (_, _, client):
-        first = successful(await call_tool(client, VIDEO_TOOL, input_data, headers=headers))
-        changed_headers = {**headers, VIDEO_HEADER: FLASH_ENDPOINT}
-        conflict = await call_tool(client, VIDEO_TOOL, input_data, headers=changed_headers)
-        assert_denied(conflict)
-        assert "SUBMISSION_CONFLICT" in str(conflict)
-        recovered = successful(
-            await call_tool(
-                client,
-                VIDEO_TOOL,
-                {**input_data, "model": VIDEO_ENDPOINT},
-                headers=changed_headers,
-            )
-        )
-        assert recovered == first
-        assert state_counts(tmp_path)["http_submissions"] == 1
-    assert route.call_count == len(provider_mock.calls) == 1
-    assert_forwarded(route.calls[0].request, MODELARK_KEY, model=VIDEO_ENDPOINT)
-
-
-@pytest.mark.parametrize("identity_change", ["provider_key", "client_secret"])
-@provider_mock
-async def test_valid_endpoint_preflight_does_not_grant_another_clients_task_ownership(
-    tmp_path: Path, identity_change: str
-) -> None:
-    create_route = provider_mock.post(TASKS_URL).respond(200, json={"id": "byoe-private-draft"})
-    poll_route = provider_mock.get(TASKS_URL).respond(
-        200,
-        json={
-            "data": [
-                provider_task(
-                    "byoe-private-draft",
-                    "succeeded",
-                    model=VIDEO_ENDPOINT,
-                    draft=True,
-                    content={"video_url": VIDEO_URL},
-                )
-            ]
-        },
-    )
-    owner = {**credentials(), **endpoint_headers()}
-    stranger = {
-        **(
-            credentials("synthetic-byoe-foreign-key")
-            if identity_change == "provider_key"
-            else credentials(MODELARK_KEY, OTHER_SECRET)
-        ),
-        **endpoint_headers(),
-    }
-    async with http_server(tmp_path, settings=byoe_settings(tmp_path)) as (_, _, client):
-        created = successful(
-            await call_tool(
-                client,
-                VIDEO_TOOL,
-                {"prompt": "A square", "draft": True, "idempotency_key": "byoe-private-draft-key"},
-                headers=owner,
-            )
-        )
-        assert created["tasks"][0]["task_id"] == "byoe-private-draft"
-        before = state_counts(tmp_path)
-        check = successful(
-            await call_tool(
-                client,
-                "ark_list_models",
-                {"kind": "video", "check_connection": True},
-                headers=stranger,
-            )
-        )
-        assert_connection(check, [configured_route(VIDEO_TOOL, VIDEO_ENDPOINT, "seedance_2_5")])
-        assert state_counts(tmp_path) == before
-        got = successful(
-            await call_tool(
-                client, "gen_task_get", {"task_ids": ["byoe-private-draft"]}, headers=stranger
-            )
-        )
-        assert got["tasks"] == []
-        assert [(error["task_id"], error["code"]) for error in got["errors"]] == [
-            ("byoe-private-draft", "NOT_OWNED")
-        ]
-        listed = successful(await call_tool(client, "gen_task_list", {}, headers=stranger))
-        assert listed == {"tasks": [], "next_cursor": None}
-        for tool, input_data in (
-            (
-                "gen_task_cancel_or_delete",
-                {"task_id": "byoe-private-draft", "mode": "cancel", "expected_status": "queued"},
-            ),
-            (
-                VIDEO_TOOL,
-                {
-                    "draft_task_id": "byoe-private-draft",
-                    "idempotency_key": "byoe-foreign-promotion",
-                },
-            ),
-        ):
-            denied = await call_tool(client, tool, input_data, headers=stranger)
-            assert_denied(denied)
-            assert_no_canaries(json.dumps(denied))
-        assert len(provider_mock.calls) == 1
-        owned = successful(
-            await call_tool(
-                client, "gen_task_get", {"task_ids": ["byoe-private-draft"]}, headers=owner
-            )
-        )
-        assert owned["errors"] == []
-        assert owned["tasks"][0]["model"] == VIDEO_ENDPOINT
-    assert create_route.call_count == poll_route.call_count == 1
-    assert len(provider_mock.calls) == 2
-    assert_forwarded(create_route.calls[0].request, MODELARK_KEY, model=VIDEO_ENDPOINT)
-    assert_forwarded(poll_route.calls[0].request, MODELARK_KEY)
 
 
 @provider_mock
@@ -860,6 +683,7 @@ async def test_custom_endpoint_draft_inherits_model_and_replays_without_another_
         side_effect=[
             httpx.Response(200, json={"id": "byoe-source-draft"}),
             httpx.Response(200, json={"id": "byoe-promoted-final"}),
+            httpx.Response(200, json={"id": "byoe-promoted-again"}),
         ]
     )
     draft_route = provider_mock.get(f"{TASKS_URL}/byoe-source-draft").mock(
@@ -869,12 +693,17 @@ async def test_custom_endpoint_draft_inherits_model_and_replays_without_another_
                 json=provider_task(
                     "byoe-source-draft", "succeeded", model=VIDEO_ENDPOINT, draft=True
                 ),
-            )
+            ),
+            httpx.Response(
+                200,
+                json=provider_task(
+                    "byoe-source-draft", "succeeded", model=VIDEO_ENDPOINT, draft=True
+                ),
+            ),
         ]
     )
     promotion = {
         "draft_task_id": "byoe-source-draft",
-        "idempotency_key": "byoe-draft-promotion-key",
     }
     settings = byoe_settings(tmp_path, SEEDANCE_DEFAULT_MODEL=FLASH_ENDPOINT)
     async with http_server(tmp_path, settings=settings) as (_, _, client):
@@ -894,7 +723,7 @@ async def test_custom_endpoint_draft_inherits_model_and_replays_without_another_
             await call_tool(
                 client,
                 VIDEO_TOOL,
-                {"prompt": "A square", "draft": True, "idempotency_key": "byoe-source-draft-key"},
+                {"prompt": "A square", "draft": True},
                 headers=headers,
             )
         )
@@ -906,15 +735,12 @@ async def test_custom_endpoint_draft_inherits_model_and_replays_without_another_
         assert final["submitted"] == 1
         assert final["failed"] == 0
     async with http_server(tmp_path, settings=settings) as (_, _, client):
-        before = state_counts(tmp_path)
         replay = successful(await call_tool(client, VIDEO_TOOL, promotion, headers=credentials()))
-        assert replay == final
-        assert state_counts(tmp_path) == before
-        assert before["http_submissions"] == before["http_submission_tasks"] == 2
-        assert before["task_ownership"] == 2
-    assert create_route.call_count == 2
-    assert draft_route.call_count == 1
-    assert len(provider_mock.calls) == 3
+        assert replay["tasks"][0]["task_id"] == "byoe-promoted-again"
+        assert replay["model"] == final["model"]
+    assert create_route.call_count == 3
+    assert draft_route.call_count == 2
+    assert len(provider_mock.calls) == 5
     for call in create_route.calls:
         assert_forwarded(call.request, MODELARK_KEY, model=VIDEO_ENDPOINT)
     preview_body = json.loads(create_route.calls[0].request.content)

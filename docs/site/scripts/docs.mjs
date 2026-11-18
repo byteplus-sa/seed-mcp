@@ -148,6 +148,8 @@ ${entry.selection}
 export function toolPage(tool) {
   const name = tool.name;
   const http = tool.transports?.http;
+  const stdio = tool.transports?.stdio;
+  const upload = name === "media_prepare_upload";
   if (
     tool.execution !== "direct" ||
     "background" in tool ||
@@ -169,24 +171,17 @@ export function toolPage(tool) {
     "seedance_create_task",
     "omnihuman_create_task",
   ].includes(name);
-  const httpArgs =
-    args && asyncCreate && !args.input?.dry_run
-      ? {
-          ...args,
-          input: {
-            ...args.input,
-            idempotency_key: "fa02c945-0497-4cd2-987b-e56b1de39915",
-          },
-        }
-      : args;
+  const httpArgs = args;
   const call = args && { name, arguments: args };
   const execution =
     "Call this tool directly on either supported transport, keeping its `input` wrapper. Inspect `is_error` before using `structured_content`. No MCP jobs, worker queue or native tasks exist. Local stdio supports explicit persistence; HTTP remains URL-only.";
   const httpExecution = !http
     ? "**HTTP: unavailable.** This is a local stdio tool."
-    : http.credential_header
-      ? `**HTTP: direct foreground calls only.** Supply \`${http.credential_header}\` and \`X-MCP-Client-Secret\` privately in request headers, including dry runs. The client secret is client-generated 32 random bytes encoded as 64 lowercase hex. Only the selected provider key is needed. Keep persistence false; HTTP rejects true, local paths and stored artifact references. No jobs, native tasks, storage/artifact tools or resources exist on HTTP.`
-      : "**HTTP: anonymous static discovery.** No provider key or client secret is required; it lists configured model bindings even without environment provider keys. `services[].enabled` reports registration, not entitlement. No provider calls are made.";
+    : upload
+      ? "**HTTP: opt-in upload preparation.** Supply only operator-enrolled `X-MCP-Client-Secret` privately. No generation-provider key is needed for preparation. The upload-capable client sends binary data directly to TOS using every signed field unchanged and the file field LAST. Wait for upload success before using `reference_url`. This tool does not upload, inspect bytes or verify the object. See [temporary uploads](/ark-mcp/temporary-uploads/)."
+      : http.credential_header
+        ? `**HTTP: direct foreground calls only.** Supply \`${http.credential_header}\` and \`X-MCP-Client-Secret\` privately in request headers, including dry runs. The client secret is client-generated 32 random bytes encoded as 64 lowercase hex. Only the selected provider key is needed. Keep persistence false; HTTP rejects true, local paths and stored artifact references. No jobs, native tasks, local storage/artifact tools or resources exist on HTTP. Optional temporary upload preparation is separate.`
+        : "**HTTP: anonymous static discovery.** No provider key or client secret is required; it lists configured model bindings even without environment provider keys. `services[].enabled` reports registration, not entitlement. No provider calls are made.";
   const providerTasks = ["seedance_", "omnihuman_", "gen_task_"].some(
     (prefix) => name.startsWith(prefix),
   );
@@ -203,12 +198,12 @@ ${tool.description}
 | Requirement | Value |
 | --- | --- |
 | Local stdio registration | ${cell(tool.registration_gate)} |
-| Local stdio execution | Direct |
+| Local stdio execution | ${stdio ? "Direct" : "Unavailable."} |
 | HTTP registration | ${http ? cell(http.registration_gate) : "Unavailable; local stdio only."} |
 | HTTP execution | ${http ? "Direct foreground only; no native tasks." : "Unavailable."} |
 | Catalog capability label | ${tool.scope ? `\`${tool.scope}\`` : "None"} |
 
-This site lists all 15 conditional local catalog entries, four always registered. HTTP exposes 7 tools, or 10 with OmniHuman enabled, independently of operator provider keys. Use [model discovery](${SITE_BASE}/tool-reference/ark-list-models/) for your connection. Credentials never belong in tool arguments. HTTP has no OAuth, signup or server-issued key and never falls back to operator provider keys.
+This site lists 16 catalog entries: 15 conditional local tools (four always registered) plus HTTP-only upload preparation. HTTP exposes 7 tools, or 10 with OmniHuman enabled, plus one when temporary uploads are enabled. Generation registration is independent of operator provider keys. Use [model discovery](${SITE_BASE}/tool-reference/ark-list-models/) and tools/list for your connection. Credentials never belong in tool arguments. HTTP has no OAuth, signup or server-issued key and never falls back to operator generation-provider keys.
 
 Catalog capability labels are metadata, not auth grants. See the [scope taxonomy](${SITE_BASE}/security/#scope-taxonomy).
 
@@ -225,7 +220,7 @@ ${execution}
 
 ${httpExecution}
 
-${asyncCreate ? `HTTP non-dry creates require \`idempotency_key\`: 16-128 ASCII letters, digits, underscores or hyphens. Generate a fresh UUID per intended create (one for the entire variation batch); replace the example UUID before first use. Repeat identical arguments and the same key only for delivery recovery, not polling. Only fully successful saved receipts replay, with ownership checked before upstream access, including Draft lookup. Running, failed, partial or cancelled attempts require reconciliation; never change keys to bypass uncertain acceptance. Keep known task/request IDs and poll existing tasks. Seedance dry runs need no key and use no journal; local stdio rejects a supplied key. See the [submission contract](${SOURCE_BASE}specs/SPEC_HOSTED_BYOK.md#http-submission-safety).` : ""}
+${asyncCreate ? `HTTP is stateless: omit \`idempotency_key\`; legacy keys are rejected. There is no database, saved-response replay or deduplication. Repeating a create may generate and bill again. Retain task/request IDs, poll existing tasks, and reconcile uncertain acceptance through the provider instead of automatically resubmitting. Task access is authorized by the supplied provider key, not the client secret. See the [submission contract](${SOURCE_BASE}specs/SPEC_HOSTED_BYOK.md#http-submission-safety).` : ""}
 
 Both transports reject explicit per-call \`io.modelcontextprotocol/tasks\` opt-in, including discovery, before provider dispatch. Omit task opt-in.
 
@@ -249,7 +244,7 @@ ${
     ? `<details>
 <summary>Exact MCP call (for developers)</summary>
 
-The following is a local stdio MCP tool-call envelope, not a shell command. Example media URLs and identifiers must be replaced with your own accessible resources. Seedream and Seedance examples are non-billable dry runs; other provider operations may incur charges.
+The following is ${stdio ? "a local stdio" : "an HTTP-only"} MCP tool-call envelope, not a shell command. Example media URLs and identifiers must be replaced with your own accessible resources. Seedream and Seedance examples are non-billable dry runs; other provider operations may incur charges.
 
 \`\`\`json
 ${JSON.stringify(call, null, 2)}
@@ -307,7 +302,7 @@ ${JSON.stringify(tool.outputSchema, null, 2)}
 
 ## Troubleshooting
 
-- Missing tool: check transport first; storage/artifacts are stdio-only. HTTP provider tools are credential-independent at registration; OmniHuman needs its enable flag. Local tools depend on [provider credentials](${SITE_BASE}/api-keys/).
+- Missing tool: check transport first; local storage/artifacts are stdio-only. Temporary upload preparation needs its operator enable flag and enrollment. HTTP generation-provider tools are credential-independent at registration; OmniHuman needs its enable flag. Local tools depend on [provider credentials](${SITE_BASE}/api-keys/).
 - Invalid arguments: keep the correct wrapper and follow current model limits from discovery. A valid schema alone does not prove the chosen model supports the combination.
 - A direct call returns an error: inspect safe task/request IDs, including partial acceptance. Never automatically resubmit potentially billable work on either transport.
 - Local output writes require live MCP roots or server-configured \`OUTPUT_ROOTS\`; HTTP cannot write to a client's local disk.

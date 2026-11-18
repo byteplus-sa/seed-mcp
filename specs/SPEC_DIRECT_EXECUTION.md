@@ -4,7 +4,7 @@ type: spec
 status: accepted
 horizon: current
 created: 2026-11-17
-updated: 2026-11-17
+updated: 2026-11-18
 tags: [mcp, direct-execution, admission, deadlines]
 source:
   - https://gofastmcp.com/servers/tools
@@ -20,6 +20,8 @@ related:
 
 # Direct Execution
 
+Hosted HTTP is stateless; no durable replay or database exists.
+
 This contract supersedes [Background Jobs](SPEC_BACKGROUND_JOBS.md). Both stdio and HTTP
 execute ordinary tool calls directly. There is no MCP job queue, worker,
 job ID, execution claim, task snapshot or native task extension. Explicit
@@ -32,14 +34,16 @@ The catalog contains 15 conditionally registered local tools. Four are always
 available: `ark_list_models`, `seed_media_get_artifact`,
 `seed_media_export_artifact`, and `seed_media_persist_url`.
 HTTP exposes seven discovery/provider tools, or ten with OmniHuman enabled.
-HTTP has no storage/artifact tools or resources; local stdio retains them.
+HTTP has no local storage/artifact tools or resources; local stdio retains them.
+The 16th catalog definition is opt-in HTTP-only `media_prepare_upload`, adding
+one tool to the baseline HTTP inventory. It signs locally under the same direct
+deadline and owner-first `tos` admission, without dispatching a storage mutation
+or reserving budget. Client binary upload occurs separately; see
+[temporary uploads](SPEC_HOSTED_BYOK.md#temporary-upload-preparation).
 Discovery supports image/video bindings only and makes no provider calls.
 
-Seed Audio and Seedream return generation results in the direct call.
-Seedance and OmniHuman return provider task IDs: poll with `gen_task_get`
-or `omnihuman_get_task`, not another create. Their provider-managed queues
-remain asynchronous and are not MCP queues. Provider get/list/cancel tools,
-task ownership, budget state and the HTTP submission journal remain.
+Provider video queues remain asynchronous. Retain provider task IDs and poll;
+direct MCP execution does not mean a video finishes within the create call.
 
 ## Admission and Deadline
 
@@ -47,45 +51,43 @@ task ownership, budget state and the HTTP submission journal remain.
 | --- | --- | --- | --- |
 | `MCP_ADMISSION_TIMEOUT_SECONDS` | `2.0` | Finite, positive, at most 30 | Total wait for owner and provider slots |
 | `MCP_TOOL_TIMEOUT_SECONDS` | `600.0` | Finite, positive, at most 3600 | Cooperative deadline for the whole direct handler |
-| `PROVIDER_MAX_CONCURRENCY` | `5` | Positive integer | Slots per provider bucket |
-| `PRINCIPAL_MAX_CONCURRENCY` | `3` | Positive integer | Slots per derived HTTP owner; skipped for trusted local stdio |
+| `PROVIDER_MAX_CONCURRENCY` | `5` | Positive integer | Per-pod slots per provider bucket |
+| `PRINCIPAL_MAX_CONCURRENCY` | `3` | Positive integer | Per-pod slots per derived HTTP owner; skipped for trusted local stdio |
 
 The tool deadline starts at wrapper entry after MCP input parsing, before
-credential/binding checks, journal work, admission and provider execution.
+credential/binding checks, admission and provider execution.
 Provider request and download timeouts remain separate. Admission acquires
 the owner slot first, then the provider slot, using one admission deadline.
 A same-owner backlog cannot hold global provider slots while waiting for its
 owner slot. Active/waiting owner entries are pinned in a bounded registry;
 idle entries are removed. Partial acquisition is released on failure or
-cancellation. Budget reservation happens only after admission.
+cancellation. Local stdio budget reservation happens only after admission; HTTP has no ledger.
 
 `ADMISSION_TIMEOUT` is a `ProviderError` with operation `admission`,
 `retryable=true`, `ambiguous_completion=false`: **this attempt did not
 dispatch**. This does not prove that other variations in a batch did not
 dispatch. No automatic admission retry loop is added. ModelArk polling and
-discovery do not wait on saturated generation slots, but HTTP global
+discovery do not wait on saturated generation slots, but HTTP per-pod
 body/rate/in-flight limits still apply, including to discovery.
 
 ```mermaid
 flowchart TD
     Call["Ordinary tool call"] --> Guard["Reject task opt-in; start cooperative deadline"]
     Guard --> Validate["Credentials, exact bindings and input checks"]
-    Validate --> Journal["HTTP non-dry async create: durable root claim"]
-    Journal -->|New or not journaled| Owner["Owner slot first, then provider slot"]
-    Journal -->|Existing| Replay["Owned saved success or safe unresolved error"]
+    Validate --> Owner["Owner slot first, then provider slot"]
     Owner -->|Admission timeout| Reject["This attempt did not dispatch"]
-    Owner -->|Admitted| Budget["Reserve budget where applicable"]
+    Owner -->|Admitted| Budget["Stdio: reserve budget; HTTP: no ledger"]
     Budget --> Provider["Provider request"]
     Provider --> Receipt["Capture safe accepted IDs before next await"]
-    Receipt --> Record["Journal IDs, ownership and result bookkeeping"]
+    Receipt --> Record["Stdio: local bookkeeping; HTTP: no persistence"]
     Record --> Reply["URLs, local artifacts or provider task IDs"]
     Reply --> Poll["Poll provider task; never create to poll"]
 ```
 
 The diagram describes `server.py`, `execution.py`,
 `runtime.py::ProviderLimiters`, `billed_provider_slot`,
-`capture_accepted_task`, and `submissions.py`. Read-only/nonbillable paths
-skip inapplicable journal, budget and generation-admission stages.
+`capture_accepted_task`, and `domain/submissions.py`. Read-only/nonbillable paths
+skip inapplicable budget and generation-admission stages.
 
 ## Cancellation and Uncertainty
 
@@ -96,76 +98,62 @@ validated task/request IDs already observed. Mutation tracking follows
 provider-operation semantics, not merely HTTP method or tool annotations;
 OmniHuman's status POST is read-only.
 
-Safe accepted IDs are captured synchronously inside the provider slot before
-the next await, including budget finalization. Durable HTTP ID recording
-precedes ownership recording; journal failure still attempts ownership.
-Known IDs may accompany an error or a partial batch. Do not discard them or
-claim that timeout cancelled accepted upstream work. Malformed or
-credential-bearing IDs are never echoed.
+Safe accepted IDs are captured before the next await after provider acceptance.
+HTTP holds them only in the live call, not a durable journal.
 
 External client cancellation propagates; only the server's own deadline
 becomes `TOOL_DEADLINE_EXCEEDED`. Inner provider timeouts retain their existing
 normalized errors. Expiry is checked before dispatch and after a call that
-suppresses cancellation. Best-effort budget/journal finalization errors do
+suppresses cancellation. Best-effort local budget finalization errors do
 not erase known successful provider results.
 
-The deadline is **cooperative, not a hard wall-clock bound**. SQLite operations
-and blocking S3/TOS SDK threads drain before locks, admission slots or clients
+The deadline is **cooperative, not a hard wall-clock bound**. Local stdio SQLite
+operations and blocking S3/TOS SDK threads drain before locks, admission slots or clients
 are released, even after repeated cancellation. Cleanup may exceed the nominal
 deadline. A cancelled in-progress budget reservation is drained and any known
 reservation released best-effort before cancellation propagates, without
 dispatching afterward. Failed cleanup can leave conservative reserved allowance.
+After reservation, cancellation commits only if that slot dispatched a provider
+mutation; undispatched slots release, independent of earlier variations.
+
+Local accepted-task ownership recording also drains cancellation. Its failure
+returns known accepted IDs with an ambiguous, nonretryable error; it never
+triggers another create.
 
 ## HTTP Lifecycle
 
-The HTTP entrypoint's shutdown allowance is
-`max(MCP_TOOL_TIMEOUT_SECONDS, BYTEPLUS_REQUEST_TIMEOUT_MS / 1000) + 30`
-seconds. The VKE Caddy sidecar uses the same maximum plus 30; pod termination
-grace is the maximum plus 60 (630/660 seconds by default). Neither allowance
-is a hard cleanup guarantee or provider cancellation mechanism.
+HTTP has no task ledger, submission journal, durable replay or budget ledger.
+`STATE_BACKEND=none` is selected automatically; explicit database backends fail
+startup. Local stdio still selects SQLite for its persistence features.
 
-Before stores or submission recovery open, `RuntimeStateLease` acquires the
-exclusive `runtime.sqlite3.lock`; it holds the lease until all state users
-close. Contention fails HTTP startup closed. Startup failure/cancellation
-drains cleanup. Never unlink a live lock, overlap application replicas or
-use a network filesystem. Stdio does not acquire this HTTP lease.
+Task get/list/cancel and Draft lookup are authorized by the supplied provider
+key. `X-MCP-Client-Secret` separates per-pod admission scopes, not task access.
+Clients sharing a provider key can access whatever that key authorizes.
+Use separate provider credentials when independent authorization is required.
 
-The optional `MCP_METRICS_PORT` defaults to `0` (off); HTTP alone can start
-it on 127.0.0.1 at ports 1024-65535. It is absent from the main app and public
-proxy. Aggregate admission/deadline metrics do not introduce MCP workers or
-per-owner telemetry. The read-only state inspector never performs recovery.
-See [hosted operations](SPEC_HOSTED_BYOK.md#trusted-proxy-and-private-operations)
-and [VKE Deployment](SPEC_VKE_DEPLOYMENT.md) for CIDR trust, existing Secrets,
-single-StatefulSet retained storage and manual addon gates.
+Omit `idempotency_key`; the retained legacy field is rejected when supplied.
+An identical create is a new operation and may bill again. Save task/request IDs,
+poll existing tasks, and reconcile lost or uncertain create responses through
+the provider. Never automatically retry an uncertain mutation.
+
+Rate limits and in-flight/provider/principal concurrency are in-memory per pod;
+they multiply with replicas and reset at restart. `DAILY_BUDGET_USD` must be `0`
+on HTTP; use provider-side spend controls. Readiness is lifespan-only and makes
+no storage or provider probes. No database, migration, distributed lock, shared
+volume or sticky session is needed for the hosted deployment.
 
 ## Clients and Recovery
 
-Use a client timeout of **660 seconds** for the default 600-second tool
-deadline, and compatible proxy timeouts. Codex uses `tool_timeout_sec=660`;
-Claude Code uses `timeout=660000` milliseconds; FastMCP Python uses
-`Client(..., timeout=660)`. Increase client/proxy allowances when raising the
-server setting. These allowances do not guarantee that all SDK/SQLite cleanup
-finishes before a client disconnects.
+There is no hosted state to restore or replay. Restarting a pod does not
+cancel provider work; clients must retain IDs and poll with authorized provider
+credentials. A lost create response may hide billed work and must be reconciled,
+not resubmitted automatically.
 
-Never blindly resubmit after a lost response, timeout or cancellation.
-Poll known provider IDs using the original credentials and ownership scope.
-If acceptance is uncertain or ownership was not recorded, reconcile with the
-provider. Stdio has no create journal or replay guarantee.
+This is a fresh stateless deployment. Historical database compatibility and
+stateful-release migration tooling are not part of this repository.
 
-HTTP non-dry Seedance/OmniHuman creates retain their required
-`idempotency_key`: one fresh key per intended whole operation, including
-variations. Repeat identical key/input only for delivery recovery, never
-polling. Only complete saved success replays after ownership checks, before
-upstream access. Failed/partial/cancelled attempts remain unresolved, never
-automatically resumed. Do not change keys to bypass uncertainty.
-Seedance dry runs are keyless and not journaled; stdio rejects supplied keys.
-See [HTTP submission safety](SPEC_HOSTED_BYOK.md#http-submission-safety).
-
-Keep the SQLite state, HMAC key/version and original client/provider credentials.
-Claims never auto-prune; capacity limits new keys without disabling existing
-reads. Removing MCP execution claims does not remove provider ownership or
-journal rows. Synchronous replay, complete crash recovery, exactly-once
-billing and multi-replica operation are not promised.
+Use client timeout 660 seconds and compatible proxy settings. Both transports
+await foreground MCP calls; HTTP outputs remain URL-only.
 
 ## Local Outputs and Export Schema
 

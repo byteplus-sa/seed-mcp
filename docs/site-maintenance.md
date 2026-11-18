@@ -109,8 +109,10 @@ credential reads. Each exported tool has top-level `execution: "direct"`;
 every available entry in `transports` also has `execution: "direct"`.
 There is **no `background` key**, top-level or transport-level. Registration
 gates and selected credential headers remain transport-specific; top-level
-`registration_gate` describes stdio. The catalog contains 15 conditional
-local tools, four always registered; HTTP has 7 or 10 with OmniHuman.
+`registration_gate` describes stdio, including unavailability for HTTP-only
+preparation. The catalog contains 16 definitions: 15 conditional local tools,
+four always registered; HTTP has 7 or 10 with OmniHuman, plus optional
+`media_prepare_upload`. Its export has no invented stdio transport.
 The renderer rejects obsolete execution metadata and shows direct call
 envelopes on both transports, never job wrappers. `scope.test.mjs`
 guards retired capability settings and tool names in current documentation,

@@ -134,6 +134,13 @@ mechanism instead of inlining keys.
 
 ## HTTP BYOK
 
+Optional `media_prepare_upload` adds one tool to the baseline 7/10 inventory.
+It needs an operator-enrolled secret and multipart-capable client, not an
+automatic attachment handoff. Preparation signs only; the client uploads
+directly to TOS and waits for success before generation. Use the checkout's
+`docs/temporary-uploads.md`; do not configure storage or perform uploads during
+connection verification without separate approval.
+
 For an existing trusted URL, configure a remote connection instead of a local
 launcher. No checkout or operator HMAC key is needed on the client.
 Read `credentials.md` for private generation/entry; never insert real values
@@ -211,23 +218,7 @@ Unknown endpoints are not echoed; the operator must verify model/version
 and bind them. GetEndpoint is AK/SK-only, not Bearer-authenticated; this server
 takes no AK/SK custody or arbitrary BYOE self-service.
 
-Default HTTP discovery is anonymous/static with `connection=null`;
-7 tools, or 10 with OmniHuman enabled. Optional
-`{"input":{"check_connection":true}}` checks only image/video header presence
-and exact defaults, not authentication, live lineage or entitlement.
-Omit `kind` for both or select `"image"` / `"video"`; stdio
-checks are rejected. Inspect missing-header issues and per-route
-`endpoint_not_configured`; `authentication_verified` and `provider_calls_made`
-are always false. `models[].is_default` still describes the server default.
-No jobs/native tasks/storage/artifact tools/resources exist. Call provider tools
-in the foreground with persistence false and sufficient client timeouts.
-Non-dry Seedance/OmniHuman tool inputs require `idempotency_key` (16-128 ASCII
-letters, digits, `_` or `-`; fresh UUID per intended whole call). Do not put it
-in connection headers or reuse it for unrelated operations.
-Repeat identical arguments/key only for saved-success delivery recovery,
-not polling. Unresolved attempts need reconciliation, never a new key to
-bypass uncertainty. Seedance dry runs need no key/journal; local stdio rejects
-supplied keys. These templates remain discovery-first, not paid setup tests.
+Hosted HTTP is database-free: provider-key task authorization, no durable replay or shared budget accounting. Omit legacy operation keys; never automatically resubmit uncertain creates. Local stdio persistence remains available.
 
 Actual model-driven Codex/Claude calls and paid provider validation remain
 pending. Isolated `codex mcp get --json` / `claude mcp get` inspections establish
@@ -239,6 +230,8 @@ validate templates. Durable contract:
 Other clients need verified secure custom-header support. Do not assume
 Desktop uses the same remote connector shape as Claude Code. Mark unsupported
 or unverified clients pending; do not weaken the server boundary.
+
+See the database-free HTTP contract above; local stdio persistence is unchanged.
 
 ## Sources
 

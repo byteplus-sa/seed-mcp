@@ -14,7 +14,6 @@ from scripts.hosted_acceptance_support.runtime import (
     BODY_LIMIT,
     IMAGE_MODEL,
     PUBLIC_TOOLS,
-    TOOL_TIMEOUT,
     VIDEO_MODEL,
     Sample,
     aggregate,
@@ -233,7 +232,6 @@ def disconnected_input(values: dict[str, str]) -> dict[str, Any]:
     return {
         "prompt": "disconnect",
         "duration": 4,
-        "idempotency_key": values["operation"] + "-disconnect",
     }
 
 
@@ -249,18 +247,9 @@ async def disconnect_check(
     finally:
         pending.cancel()
         await asyncio.gather(pending, return_exceptions=True)
-    async with asyncio.timeout(TOOL_TIMEOUT + 5):
-        while True:
-            response = await call(
-                client, url, "seedance_create_task", disconnected_input(values), credentials(values)
-            )
-            result = result_of(response)
-            require(result.get("isError") is True, "disconnected_submission_replayed")
-            text = json.dumps(result)
-            if "SUBMISSION_UNRESOLVED" in text:
-                break
-            require("SUBMISSION_IN_PROGRESS" in text, "disconnect_reconciliation")
-            await asyncio.sleep(0.05)
+    # The client must not repeat an uncertain create. Probe liveness only.
+    response = await client.get(url + "/health")
+    require(response.status_code == 200, "disconnect_health")
     require(dispatches(directory)["disconnect"] == before + 1, "disconnect_redispatched")
 
 
@@ -287,7 +276,6 @@ async def run_load(
                     {
                         "prompt": "load",
                         "duration": 4,
-                        "idempotency_key": f"load-operation-{index:06d}",
                     },
                 ),
             ]

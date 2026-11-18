@@ -40,30 +40,34 @@ Only the selected provider key is required, including on dry runs.
 Raw ASGI header validation rejects duplicate, empty, non-ASCII, whitespace,
 control and oversized values without echoing them. Keys are opaque printable
 ASCII of at most 4096 characters. Live credentials are never restored from
-task snapshots, persisted in SQLite/artifacts/cache keys, or put in tool inputs.
+task snapshots, persisted in backend/artifact/cache rows, or put in tool inputs.
 Request and provider contexts are released on completion/cancellation.
 Gateways receive explicit keys and never fall back to environment provider
 credentials for HTTP.
 
 ## Principal and Tenant
 
-Domain-separated HMAC derives the credential tenant from identity version,
-provider, fixed official origin and exact provider key; the client secret
-then derives the owner. Unrelated keys do not alter ownership. Same key plus
-different client secret means a different owner. This is credential possession,
-not verified human or organization identity.
+The credential tenant and client-secret digest are ephemeral per-pod admission scopes,
+not a durable task authorization boundary. `MCP_IDENTITY_HMAC_KEY` and
+`MCP_IDENTITY_KEY_VERSION` never replace provider authorization.
 
-Fresh SQLite ownership uses `(provider, tenant_id, task_id)` as primary key
-and stores an immutable `principal_id`. Reads/claims/lists use that namespace;
-conflicts cannot transfer ownership. Missing records, database errors or
-capacity exhaustion fail closed before upstream access when known.
-Post-acceptance recording failure is ambiguous, never an automatic replay.
+Hosted HTTP is database-free: provider-key task authorization, no durable replay or shared budget accounting. Omit legacy operation keys; never automatically resubmit uncertain creates. Local stdio persistence remains available.
 
-Keep HMAC configuration and credentials stable to preserve scope across
-restarts. Changing a provider key, client secret, HMAC key or version changes
-scope; no compatibility migration or recovery bridge exists. Sharing a
-provider key still permits direct upstream access outside this boundary.
-Use separate provider keys/projects for stronger separation.
+Task get/list/cancel and Draft lookup are authorized by the supplied provider
+key. `X-MCP-Client-Secret` separates per-pod admission scopes, not task access.
+Clients sharing a provider key can access whatever that key authorizes.
+Use separate provider credentials when independent authorization is required.
+
+Omit `idempotency_key`; the retained legacy field is rejected when supplied.
+An identical create is a new operation and may bill again. Save task/request IDs,
+poll existing tasks, and reconcile lost or uncertain create responses through
+the provider. Never automatically retry an uncertain mutation.
+
+Rate limits and in-flight/provider/principal concurrency are in-memory per pod;
+they multiply with replicas and reset at restart. `DAILY_BUDGET_USD` must be `0`
+on HTTP; use provider-side spend controls. Readiness is lifespan-only and makes
+no storage or provider probes. No database, migration, distributed lock, shared
+volume or sticky session is needed for the hosted deployment.
 
 ## Scope Taxonomy
 
@@ -77,7 +81,7 @@ grants. A label does not register a tool or grant access to provider accounts.
 | Catalog scope metadata | Tools |
 | --- | --- |
 | `artifacts:read` | `seed_media_get_artifact`, `seed_media_export_artifact` (stdio only) |
-| `media:upload` | `media_upload`, `seed_media_persist_url` (stdio only) |
+| `media:upload` | `media_upload`, `seed_media_persist_url` (stdio only); opt-in HTTP `media_prepare_upload` |
 | `media:presign` | `media_presign` (stdio only) |
 | `seed:audio:generate` | `seed_audio_generate` |
 | `seedream:generate` | `seedream_generate_image` |
@@ -91,9 +95,23 @@ grants. A label does not register a tool or grant access to provider accounts.
 HTTP exposes 7 provider/discovery tools, or 10 with OmniHuman enabled, without
 requiring operator provider keys. Anonymous `ark_list_models` lists configured
 model bindings even without an environment provider key. `services[].enabled`
-describes registration, not customer entitlement or key validity. Jobs, native tasks, storage/artifact tools and all MCP
+describes registration, not customer entitlement or key validity. Jobs, native tasks, local storage/artifact tools and all MCP
 resources are absent on HTTP. Storage/artifacts remain local stdio capabilities within the
 15-entry catalog. No asset administration exists on either transport.
+
+Opt-in `media_prepare_upload` adds one HTTP tool. Operator-enrolled SHA-256
+digests of exact ASCII client-secret values authorize it, independently of
+generation-provider keys. A self-chosen secret alone grants no upload access.
+The tool signs exact-key/size/MIME private POST and GET permissions using
+restricted operator TOS credentials; clients upload directly. Signed MIME is
+metadata, not content inspection. Returned fields/URLs are sensitive bearer
+permissions, potentially including STS; never log or publish them.
+Permissions are not guaranteed one-use. Enrollment revocation requires all
+pods to reload and does not revoke existing signed permissions.
+One-day scheduled object expiry is not precise 24-hour deletion; URL expiry
+does not delete objects. Versioning must be disabled. Operator IAM, CORS,
+lifecycle and storage/egress abuse controls are separate prerequisites;
+per-pod admission is not a global quota. See [temporary uploads](temporary-uploads.md).
 
 ## HTTP Admission and Routing
 
@@ -113,13 +131,13 @@ on discovery. Both transports reject this opt-in and execute directly.
 
 | Setting | Default | Rule |
 | --- | --- | --- |
-| `RATE_LIMIT_RPM` | `60` | Positive per-IP limit with bounded map cardinality |
+| `RATE_LIMIT_RPM` | `60` | Positive per-IP, per-pod limit with bounded map cardinality; resets at restart |
 | `RATE_LIMIT_BURST` | `0` | Uses RPM when zero |
 | `MCP_HTTP_MAX_BODY_BYTES` | `2097152` (2 MiB) | Positive streamed body cap |
-| `MCP_HTTP_MAX_IN_FLIGHT` | `64` | Positive global admission limit before body handling, including discovery |
-| `STATE_MAX_RECORDS` | `100000` | Positive state bound, also caps submission claims; existing keys remain readable at capacity, no claim eviction |
+| `MCP_HTTP_MAX_IN_FLIGHT` | `64` | Positive per-pod admission limit before body handling, including discovery |
+| `STATE_MAX_RECORDS` | `100000` | Local stdio ownership/budget record bound; unused by stateless HTTP |
 
-Backend `/health` and `/ready` are anonymous minimal process/state probes;
+Backend `/health` and `/ready` are anonymous minimal process/lifespan probes;
 HTTP readiness never contacts providers. VKE Caddy exposes only `/mcp` and
 `/health`; `/ready` is an internal exec-probe target. `/metrics` is absent
 from the main app and proxy. Optional `MCP_METRICS_PORT=0` disables the
@@ -311,9 +329,9 @@ failures and reads can retain bounded retries. Diagnostics retain safe codes/req
 raw exceptions or echoed secrets. Reconcile accepted work before resubmission.
 
 Owner-first provider admission is bounded to 2 seconds by default (maximum
-30); it precedes budget reservation and pins active/waiting owner entries.
+30); it precedes local stdio budget reservation and pins active/waiting owner entries.
 The whole-tool deadline defaults to 600 seconds (maximum 3600), starting at
-wrapper entry before credentials, journal and admission. Both settings require
+wrapper entry before credentials and admission. Both settings require
 finite positive values. `ADMISSION_TIMEOUT` means this attempt did not dispatch,
 not that the entire variation batch did not. `TOOL_DEADLINE_EXCEEDED` preserves
 uncertainty and validated accepted IDs. SDK/SQLite draining can exceed the
@@ -321,43 +339,69 @@ cooperative deadline. Use client timeout 660 seconds and never blindly
 resubmit or assume timeout cancelled upstream work. See
 [Direct Execution](../specs/SPEC_DIRECT_EXECUTION.md).
 
-Single-instance SQLite is the only state backend. HTTP asynchronous creates
-require `idempotency_key` (except Seedance dry runs); stdio rejects supplied keys.
-A whole-call durable claim precedes handler entry. Both key and canonical
-input are HMAC-fingerprinted; no raw prompts, media, credentials or errors
-are journaled. Only saved success replays, after current ownership checks
-and before upstream access including Draft lookup. Failed/partial/cancelled
-attempts retain known safe IDs but never automatically resume.
-Claims never auto-prune; retain the same state and HMAC key/version. Ownership
-expiry can prevent replay even while a receipt survives. Do not change keys or
-erase claims to bypass uncertain acceptance. Synchronous product replay and
-complete crash recovery remain deferred. PostgreSQL/Redis are future scaling
-choices, not initial requirements; multi-replica coordination is unsupported.
-No exactly-once inference or public-launch readiness is claimed.
-See [SPEC_HOSTED_BYOK.md](../specs/SPEC_HOSTED_BYOK.md).
+See the database-free HTTP contract above; local stdio persistence is unchanged.
 
 ## VKE Operations
 
-The dedicated VKE path replaces ECS/Compose. One StatefulSet uses retained
-ext4 ReadWriteOnce EBS, with no application HPA. HTTP acquires
-`runtime.sqlite3.lock` before stores/recovery and holds it through close.
-Never unlink an active lock, overlap writers or share SQLite on a network
-filesystem; a local lease is not distributed fencing.
 
-CLB TCP 443 reaches same-pod Caddy 8443; the app binds `127.0.0.1:3000`
-and trusts only `127.0.0.1/32`. Caddy overwrites forwarding headers and has no
-admin API/access logging. Node/API access remains private, with operator
-private connectivity required. Source-IP preservation is still a live gate.
+The chart renders a stateless `Deployment`, HPA (default 2-6 pods, CPU 70%),
+`PodDisruptionBudget` with `minAvailable: 1` and hostname topology spread with
+`minDomains: 2`. Kubernetes must be >=1.30 and a maintained regional release.
+Same-zone nodes are not zone-failure resilience.
 
-Terraform uses separate fresh state and stores no HMAC/TLS material or
-kubeconfig. Helm references existing Secrets only; TLS mounts only in Caddy.
-Both `csi-ebs` and `cloud-controller-manager` are VKE-admin owned outside
-Terraform/Helm. Inspect existing addons, install absent compatible maintained
-versions via VKE, verify CSI ready/nodes Ready/CCM Running, then acknowledge
-`prerequisitesConfirmed=true`. The flag is not readiness proof.
+Every pod runs FastMCP on `127.0.0.1:3000` and Caddy TLS on 8443. CLB TCP 443 uses
+Local traffic policy; Caddy overwrites forwarding headers and Uvicorn does not
+rewrite them. Only `/mcp` and `/health` are public. `/ready` is an internal exec
+probe. Private metrics remain opt-in on loopback.
 
-Preserve consistent SQLite/WAL backups and matching HMAC key/version.
-Use read-only aggregate inspection, never reset, blind restore or requeue.
-Source deletion is not cloud decommissioning; preserve the reviewed old
-checkout, private workspaces, old state and backups for approved retirement.
-See [the operator runbook](byteplus-terraform.md) for live acceptance gaps.
+Helm references existing identity and TLS Secrets, plus a distinct optional
+TOS/enrollment Secret for temporary upload preparation. `STATE_BACKEND=none` and
+`DAILY_BUDGET_USD=0`; database inputs are rejected. No PVC, StorageClass, database
+CA, PostgreSQL driver or shared state service is required. Bounded scratch uses
+emptyDir. Model bindings remain exact and operator-verified.
+
+Verify private API access, CCM, two Ready nodes and surge/draining headroom,
+DNS/TLS, source restrictions and HPA metrics API before `prerequisitesConfirmed`.
+CSI is not an application prerequisite. Addon readiness and lifecycle remain
+administrator-owned outside Terraform/Helm.
+
+Shutdown allows max(tool, provider seconds)+30; pod grace uses+60. CPU HPA is a
+starting policy, not a capacity guarantee. Measure live rollout, CLB source-IP,
+latency, provider quotas and cost before launch. No paid/live acceptance is
+implied by source checks.
+
+There is no hosted state to restore or replay. Restarting a pod does not
+cancel provider work; clients must retain IDs and poll with authorized provider
+credentials. A lost create response may hide billed work and must be reconciled,
+not resubmitted automatically.
+
+This is a fresh stateless deployment. Historical database compatibility and
+stateful-release migration tooling are not part of this repository.
+
+## Shared Database Boundary
+
+See the database-free HTTP contract above; local stdio persistence is unchanged.
+
+Task get/list/cancel and Draft lookup are authorized by the supplied provider
+key. `X-MCP-Client-Secret` separates per-pod admission scopes, not task access.
+Clients sharing a provider key can access whatever that key authorizes.
+Use separate provider credentials when independent authorization is required.
+
+Omit `idempotency_key`; the retained legacy field is rejected when supplied.
+An identical create is a new operation and may bill again. Save task/request IDs,
+poll existing tasks, and reconcile lost or uncertain create responses through
+the provider. Never automatically retry an uncertain mutation.
+
+Rate limits and in-flight/provider/principal concurrency are in-memory per pod;
+they multiply with replicas and reset at restart. `DAILY_BUDGET_USD` must be `0`
+on HTTP; use provider-side spend controls. Readiness is lifespan-only and makes
+no storage or provider probes. No database, migration, distributed lock, shared
+volume or sticky session is needed for the hosted deployment.
+
+There is no hosted state to restore or replay. Restarting a pod does not
+cancel provider work; clients must retain IDs and poll with authorized provider
+credentials. A lost create response may hide billed work and must be reconciled,
+not resubmitted automatically.
+
+This is a fresh stateless deployment. Historical database compatibility and
+stateful-release migration tooling are not part of this repository.

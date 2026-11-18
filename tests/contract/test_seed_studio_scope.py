@@ -54,8 +54,8 @@ OMNIHUMAN_TOOLS = {"omnihuman_create_task", "omnihuman_get_task", "omnihuman_can
 
 
 def test_catalog_exposes_only_seed_studio_services() -> None:
-    assert len(CATALOG) == 15
-    assert {entry.name for entry in CATALOG} == SUPPORTED_TOOLS
+    assert len(CATALOG) == 16
+    assert {entry.name for entry in CATALOG} == SUPPORTED_TOOLS | {"media_prepare_upload"}
 
 
 async def test_omnihuman_and_supported_services_register(all_services_enabled: None) -> None:

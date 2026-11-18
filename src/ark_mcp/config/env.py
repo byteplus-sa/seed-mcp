@@ -4,8 +4,9 @@ Loads custom environment variables (provider credentials, model bindings,
 artifact storage, transport settings) via Pydantic Settings. FastMCP's own
 settings (log level, etc.) are handled separately by FastMCP.
 
-HTTP credentials are request-only BYOK headers, never tool arguments.
-Startup provider credentials serve only trusted local stdio development.
+HTTP generation credentials are request-only BYOK headers, never tool arguments.
+Startup generation credentials serve only trusted local stdio development.
+Opt-in HTTP temporary upload preparation uses restricted operator TOS signing credentials.
 """
 
 from __future__ import annotations
@@ -154,6 +155,7 @@ class Settings(BaseSettings):
         env_ignore_empty=True,
         extra="ignore",
         validate_default=True,
+        hide_input_in_errors=True,
         secrets_dir="/run/secrets" if Path("/run/secrets").is_dir() else None,
     )
 
@@ -288,13 +290,13 @@ class Settings(BaseSettings):
         default=1,
         ge=1,
         validation_alias="MCP_IDENTITY_KEY_VERSION",
-        description="HMAC identity version; changing it changes ownership scope.",
+        description="HMAC version for ephemeral HTTP admission scopes; not task authorization.",
     )
     http_max_in_flight: int = Field(
         default=64,
         ge=1,
         validation_alias="MCP_HTTP_MAX_IN_FLIGHT",
-        description="Single-instance HTTP admission cap, including requests waiting for providers.",
+        description="Per-pod HTTP admission cap, including requests waiting for providers.",
     )
     state_max_records: int = Field(
         default=100_000,
@@ -322,7 +324,10 @@ class Settings(BaseSettings):
         default=60,
         ge=0,
         validation_alias="RATE_LIMIT_RPM",
-        description="Maximum HTTP requests per minute per client IP. 0 disables rate limiting.",
+        description=(
+            "HTTP requests per minute per client IP per pod; resets at restart. "
+            "0 disables rate limiting only on local/isolated configurations."
+        ),
     )
     rate_limit_burst: int = Field(
         default=0,
@@ -350,12 +355,12 @@ class Settings(BaseSettings):
             "local disk; 'object_storage' stores them in the configured TOS/S3 bucket."
         ),
     )
-    state_backend: Literal["sqlite"] = Field(
-        default="sqlite",
+    state_backend: Literal["sqlite", "none"] | None = Field(
+        default=None,
         validation_alias="STATE_BACKEND",
         description=(
-            "Backend for task ownership, budget, and artifact-cache state. "
-            "Only 'sqlite' (single instance) is implemented today."
+            "Resolved automatically: 'none' for stateless HTTP, 'sqlite' for local stdio. "
+            "HTTP cannot use a database; stdio retains local artifact bookkeeping."
         ),
     )
     artifact_sweep_interval_seconds: int = Field(
@@ -369,8 +374,8 @@ class Settings(BaseSettings):
         ge=1,
         validation_alias="STATE_PRUNE_MAX_AGE_DAYS",
         description=(
-            "Maximum age in days for task-ownership, budget, and cache rows before pruning. "
-            "Authenticated HTTP with regular Seedance 2.5 requires at least 14 days."
+            "Maximum age in days for local stdio task-ownership, budget and cache rows. "
+            "Unused by stateless HTTP."
         ),
     )
     artifact_dir: str = Field(default="~/.seed-mcp/artifacts", validation_alias="ARTIFACT_DIR")
@@ -442,6 +447,47 @@ class Settings(BaseSettings):
         le=604800,
         validation_alias="TOS_PRESIGN_TTL_SECONDS",
     )
+    temporary_upload_enabled: bool = Field(
+        default=False,
+        validation_alias="MCP_TEMPORARY_UPLOAD_ENABLED",
+        description="Enable HTTP-only temporary TOS upload preparation for enrolled clients.",
+    )
+    upload_client_secret_sha256: str = Field(
+        default="",
+        max_length=65000,
+        repr=False,
+        validation_alias="MCP_UPLOAD_CLIENT_SECRET_SHA256",
+        description=(
+            "Comma-separated SHA-256 digests of exact ASCII X-MCP-Client-Secret values. "
+            "Operator enrollment grants upload permission; at most 1000 distinct digests."
+        ),
+    )
+
+    @property
+    def upload_client_digests(self) -> tuple[str, ...]:
+        """Return operator-enrolled digests, never raw client secrets."""
+        return (
+            tuple(self.upload_client_secret_sha256.split(","))
+            if self.upload_client_secret_sha256
+            else ()
+        )
+
+    @field_validator("upload_client_secret_sha256")
+    @classmethod
+    def validate_upload_client_digests(cls, value: str) -> str:
+        if not value:
+            return value
+        digests = value.split(",")
+        if (
+            len(digests) > 1000
+            or len(set(digests)) != len(digests)
+            or any(not re.fullmatch(r"[a-f0-9]{64}", digest) for digest in digests)
+        ):
+            raise ValueError(
+                "MCP_UPLOAD_CLIENT_SECRET_SHA256 requires 1-1000 distinct lowercase "
+                "64-hex SHA-256 digests, comma-separated without whitespace."
+            )
+        return value
 
     # --- S3 object storage (Amazon S3 / S3-compatible) -----------------------
 
@@ -649,6 +695,15 @@ class Settings(BaseSettings):
     @model_validator(mode="after")
     def validate_model_bindings(self) -> Settings:
         """Resolve compatibility settings without model-ID string inference."""
+        expected_backend: Literal["none", "sqlite"] = (
+            "none" if self.mcp_transport == "http" else "sqlite"
+        )
+        if self.state_backend is None:
+            self.state_backend = expected_backend
+        if self.state_backend != expected_backend:
+            raise ValueError(
+                "HTTP requires STATE_BACKEND=none; local stdio requires STATE_BACKEND=sqlite."
+            )
         if not self.seedream_model_bindings:
             family = self.seedream_model_family.strip().lower()
             if not family:
@@ -721,6 +776,10 @@ class Settings(BaseSettings):
             if parsed.scheme not in {"http", "https"} or not parsed.hostname:
                 raise ValueError(f"Invalid MCP allowed origin: '{origin}'")
         if self.mcp_transport == "http":
+            if self.daily_budget_usd:
+                raise ValueError(
+                    "Stateless HTTP requires DAILY_BUDGET_USD=0; enforce spend limits at the provider."
+                )
             if self.mcp_auth_mode is not AuthMode.BYOK:
                 raise ValueError(
                     "HTTP requires MCP_AUTH_MODE=byok; shared-key auth is not supported."
@@ -742,23 +801,32 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "HTTP readiness must not call providers with operator credentials."
                 )
-        if (
-            self.mcp_transport == "http"
-            and any(
-                binding.family is SeedanceFamily.SEEDANCE_2_5
-                for binding in self.seedance_model_bindings
-            )
-            and self.state_prune_max_age_days < SEEDANCE_DRAFT_MAX_AGE_DAYS
-        ):
-            raise ValueError(
-                f"STATE_PRUNE_MAX_AGE_DAYS must be at least {SEEDANCE_DRAFT_MAX_AGE_DAYS} "
-                "for authenticated HTTP with regular Seedance 2.5, to retain Draft ownership "
-                "throughout its promotion window."
-            )
         if bool(self.tos_access_key) != bool(self.tos_secret_key):
             raise ValueError("TOS_ACCESS_KEY and TOS_SECRET_KEY must both be set or both be empty.")
         if self.tos_access_key and not self.tos_endpoint:
             raise ValueError("TOS_ENDPOINT is required when TOS credentials are set.")
+        if self.temporary_upload_enabled:
+            if (
+                self.mcp_transport != "http"
+                or self.object_storage_backend != "tos"
+                or not self.has_tos
+                or not self.upload_client_digests
+            ):
+                raise ValueError(
+                    "MCP_TEMPORARY_UPLOAD_ENABLED requires HTTP, OBJECT_STORAGE_BACKEND=tos, "
+                    "TOS credentials/bucket and a nonempty MCP_UPLOAD_CLIENT_SECRET_SHA256 allowlist."
+                )
+            if not re.fullmatch(r"[a-z0-9][a-z0-9-]{1,61}[a-z0-9]", self.tos_bucket):
+                raise ValueError(
+                    "Temporary uploads require a valid 3-63 character TOS bucket name."
+                )
+            if not re.fullmatch(r"[a-z]+(?:-[a-z]+)+-[0-9]+", self.tos_region):
+                raise ValueError("Temporary uploads require a valid TOS_REGION.")
+            official_host = f"tos-{self.tos_region}.bytepluses.com"
+            if self.tos_endpoint not in {official_host, f"https://{official_host}"}:
+                raise ValueError(
+                    "Temporary uploads require the exact official HTTPS TOS regional endpoint."
+                )
         if bool(self.s3_access_key) != bool(self.s3_secret_key):
             raise ValueError("S3_ACCESS_KEY and S3_SECRET_KEY must both be set or both be empty.")
         if self.s3_access_key and not self.s3_bucket:

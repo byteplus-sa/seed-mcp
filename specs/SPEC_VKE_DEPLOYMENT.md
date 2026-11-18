@@ -4,8 +4,8 @@ type: spec
 status: accepted
 horizon: current
 created: 2026-11-17
-updated: 2026-11-17
-tags: [vke, terraform, helm, sqlite, security]
+updated: 2026-11-18
+tags: [vke, terraform, helm, stateless, security]
 source:
   - https://registry.terraform.io/providers/byteplus-sdk/bytepluscc/0.0.63/docs/resources/vke_cluster
   - https://registry.terraform.io/providers/byteplus-sdk/bytepluscc/0.0.63/docs/resources/vke_node_pool
@@ -21,28 +21,36 @@ related:
 
 # Dedicated VKE Deployment
 
-This describes the repository's deployment source, not a deployed service.
-Live VKE apply, source-IP preservation, CSI behavior, rollout/drain, recovery,
-real-client tool execution and provider acceptance remain **unverified**.
-The dedicated VKE path replaces ECS/Compose. It does not add PostgreSQL,
-Redis, multiple application replicas, application HPA or an HA guarantee.
+Hosted HTTP is database-free, with provider-key task authorization and per-pod
+limits. No durable replay or shared budget accounting is provided. Local stdio
+persistence is separate from this deployment.
 
 ## Ownership Boundaries
 
 | Owner | Resources and responsibilities |
 | --- | --- |
 | Terraform `deploy/terraform/vke` | Dedicated VPC/subnets, NAT/EIP/SNAT/routes, private VKE cluster and fixed on-demand node pool |
-| VKE administrator, outside Terraform and Helm | Both `csi-ebs` and `cloud-controller-manager` addons; compatible versions, installation when absent, readiness and lifecycle |
-| Private operator workflow | Authenticated private kubeconfig/connectivity, existing identity/TLS/image-pull Secrets, DNS, certificate renewal, backups and recovery approval |
-| Helm `deploy/helm/seed-mcp` | Application StatefulSet, proxy ConfigMap, CLB and headless Services, retained StorageClass and state claim template |
-| Runtime | Exclusive HTTP state lease, SQLite stores/journal, request-only BYOK credentials and optional loopback metrics listener |
+| VKE administrator, outside Terraform and Helm | `cloud-controller-manager`, node readiness and addon lifecycle; CSI is not an application prerequisite |
+| Helm `deploy/helm/seed-mcp` | Application Deployment, HPA, PDB, proxy ConfigMap and CLB Service; no state PVC/StorageClass/headless Service |
 
 Terraform does not retrieve kubeconfig or place HMAC keys, TLS Secrets,
 certificates, passwords or customer credentials in state/outputs. Helm
 references existing Secrets only, never accepts their values or emits Secret
-resources. No provider-key environment entries, `envFrom`, credential-fetching
+resources. No generation-provider-key environment entries, `envFrom`, credential-fetching
 bootstrap, hidden exec provisioners or addon resources belong to these roots.
 Infrastructure IDs and safe partial Helm inputs are the only outputs.
+
+Optional `temporaryUpload.enabled` defaults false; `existingSecret` defaults
+empty. Enabling requires a distinct existing Secret, separate from identity/TLS.
+Fixed required secretKeyRef keys are `TOS_ACCESS_KEY`, `TOS_SECRET_KEY`,
+`TOS_BUCKET`, `TOS_REGION`, `TOS_ENDPOINT`, `MCP_UPLOAD_CLIENT_SECRET_SHA256`;
+`TOS_SECURITY_TOKEN` is optional. The chart sets `OBJECT_STORAGE_BACKEND=tos`
+and the enable flag; it never emits Secret resources or accepts credential
+values/arbitrary env maps. External Secret changes require a pod rollout.
+No TOS bucket, IAM, CORS or lifecycle is provisioned by these roots. Operators
+must complete [temporary upload prerequisites](../docs/temporary-uploads.md#operator-setup)
+and live acceptance before enabling; per-pod signing limits are not global
+storage/egress budgets. This capability adds no database or volume.
 
 The private control plane requires operator private connectivity; possession
 of kubeconfig alone is insufficient. No public API fallback is supplied.
@@ -52,7 +60,9 @@ of kubeconfig alone is insufficient. No public API fallback is supplied.
 `versions.tf` requires Terraform `>=1.17.1,<2.0.0` and pins `bytepluscc`
 0.0.63. Use its generated lockfile without bypassing checksum verification.
 Region defaults to `ap-southeast-1`; available zone, node type and currently
-supported Kubernetes version are required operator-verified inputs.
+supported Kubernetes version are required operator-verified inputs. The chart
+requires Kubernetes >=1.30 (`>=1.30.0-0`); choose a currently maintained regional
+release above that floor, not an obsolete release merely satisfying the minimum.
 
 Private VPC and Kubernetes Service ranges must not overlap each other or
 operator networks. The root creates node, VPC-CNI pod and edge subnets; NAT
@@ -61,97 +71,57 @@ node/pod egress. Nodes and the API have public access disabled. Cluster
 deletion protection is enabled. No node passwords or private SSH keys are
 accepted; an existing key-pair name is optional for regional requirements.
 
-The fixed on-demand pool defaults to two nodes in the storage zone with node
-autoscaling disabled. This permits same-zone rescheduling capacity, not
-application scaling or availability certification. Regional inventory, quotas,
+The fixed on-demand pool defaults to two nodes in one zone with node
+autoscaling disabled. Hostname spreading is not AZ-failure resilience.
+Application HPA does not create nodes. Regional inventory, quotas,
 route behavior and image pulls remain live gates.
 
 Use a **separate fresh VKE Terraform state**. The default local backend file
 is `seed-mcp-vke.tfstate`; operators must protect it and review any backend
 selection independently. `fresh_state_confirmed=true` is an acknowledgement,
-not state inspection. Never apply over or migrate old ECS state into this root.
+not state inspection. Do not reuse state belonging to an unrelated deployment.
 
 ## Prerequisite Gate
 
-Deployment is explicitly staged, not a one-command apply:
+Verify private API access, CCM, two Ready nodes and surge/draining headroom,
+existing identity/TLS Secrets, DNS/TLS, source restrictions and HPA metrics API
+before `prerequisitesConfirmed=true`. This is acknowledgement, not proof.
+CSI is not an application prerequisite. Addon readiness and lifecycle remain
+administrator-owned outside Terraform/Helm.
 
-1. After approved infrastructure creation, the VKE administrator inspects both
-   existing addon installations. Retain healthy compatible versions. Install
-   absent addons with compatible maintained versions through VKE addon
-   management. Do not assume auto-installation, duplicate, import, silently
-   upgrade or delete either addon through this Terraform/Helm stack.
-2. Both addon cards must show Running with recorded compatible versions.
-   Check `kubectl get csidriver ebs.csi.volcengine.com`, completed rollouts for
-   `deployment/csi-ebs-controller` and `daemonset/csi-ebs-node` in `kube-system`,
-   and nodes Ready with adequate allocatable resources. Check CCM Running in
-   VKE addon management even if its workload is outside the tenant namespace.
-3. Verify private API connectivity, the target namespace, existing identity
-   Secret keys, valid TLS material/hostname and the planned DNS path privately.
-4. Only after these checks set Helm `prerequisitesConfirmed=true`.
-   The chart refuses default/unacknowledged input; this acknowledgement is
-   **not programmatic proof** of provider readiness or Secret contents.
-
-No addon/cloud readiness is inferred from a successful offline Helm render.
-Record live evidence privately without credentials or customer media.
+Node capacity must accommodate active, surge and draining pods. Application
+HPA does not provision that capacity or establish provider quota headroom.
 
 ## Application Contract
 
-Required chart inputs include digest-pinned `image`, `publicHost`, distinct
-existing `identitySecret.name` and `tlsSecretName`, CLB `service.subnetId`,
-restricted IPv4 `service.sourceRanges` and `storage.zone`.
-The schema rejects unknown properties and unbounded/invalid settings.
-`values.ci.yaml` is synthetic render data, never deployable approval.
+The chart renders a stateless `Deployment`, HPA (default 2-6 pods, total-pod
+CPU 70%, 300-second scale-down stabilization) and `PodDisruptionBudget` with
+`minAvailable: 1`. Hostname topology spread uses `minDomains: 2`, `maxSkew: 1`
+and `DoNotSchedule`. Rollouts use `maxSurge: 1` and `maxUnavailable: 0`.
+There is no headless Service or application storage-zone pin.
 
-Custom BYOE endpoints require operator-verified exact model/family bindings.
-Request headers cannot bypass registry checks or establish endpoint lineage;
-the [BYOE authority contract](SPEC_HOSTED_BYOK.md#byoe-endpoint-authority)
-is unchanged. No arbitrary environment map or provider secrets are supported.
+Helm references existing identity and TLS Secrets only. `STATE_BACKEND=none` and
+`DAILY_BUDGET_USD=0`; database inputs are rejected. No PVC, StorageClass, database
+CA, PostgreSQL driver or shared state service is required. Bounded scratch uses
+`emptyDir`. Model bindings remain exact and operator-verified.
 
-`models.seedream` and `models.seedance` each contain `defaultModel` and
-`bindings: [{model_id, family}]`. Defaults are `dola-seedream-5-5-261028` and
-`dreamina-seedance-2-5-260628`, with empty binding lists. Seedream families
-are `seedream_5_5`, `pro`, `lite`, `4x`; Seedance families are `standard`,
-`fast`, `mini`, `seedance_2_5`, `seedance_2_5_flash`. Lists allow at most 100
-entries, unique IDs per product, and must include the selected default when
-nonempty. Alternate defaults require explicit bindings even for built-in IDs.
-Empty lists with shipped defaults retain the runtime's automatic Flash
-inclusion; explicit lists must include it when wanted. These values map only
-to `SEEDREAM_DEFAULT_MODEL`, `SEEDANCE_DEFAULT_MODEL`, `SEEDREAM_MODEL_BINDINGS`
-and `SEEDANCE_MODEL_BINDINGS` (JSON), never credential variables.
-Header overrides still require exact registry matches; explicit tool `model`
-wins, without live endpoint-authority changes.
+`models.seedream` and `models.seedance` expose `defaultModel` and explicit
+`bindings: [{model_id, family}]`. IDs are unique, families must match the product
+and explicit lists include the selected default. Alternate defaults require
+verified bindings. Used endpoint headers still require exact registry matches;
+explicit tool `model` wins.
 
-The chart sets `app.dailyBudgetUsd=25` (unlike the application's standalone
-zero default), `app.providerMaxConcurrency=5`, `app.principalMaxConcurrency=3`
-and `app.rateLimitBurst=0`. Explicit env entries map to `DAILY_BUDGET_USD`,
-`PROVIDER_MAX_CONCURRENCY`, `PRINCIPAL_MAX_CONCURRENCY` and `RATE_LIMIT_BURST`.
-Budget is bounded to 0-1000000 USD, concurrency to 1-256 and burst to 0-10000.
-Zero budget records estimates without blocking; zero burst inherits RPM.
-Per-owner estimate limits are not provider-account spending guarantees.
-
-The StatefulSet has exactly one replica with no replica override or HPA.
-The pod runs UID/GID 1001, read-only roots, dropped capabilities, RuntimeDefault
-seccomp and no service-account token. CPU/memory requests/limits and temporary
-emptyDir volumes are bounded. TLS material mounts only into Caddy.
-HMAC key/version use explicit `secretKeyRef` entries.
-
-One volumeClaimTemplate mounts state at `/app/.artifacts`; this is not HTTP
-media persistence. The claim uses ReadWriteOnce, filesystem ext4 EBS, explicit
-zone/project and `ebs.csi.volcengine.com`. StorageClass parameters are PostPaid,
-ESSD_PL0, Retain and WaitForFirstConsumer. PVC retention is Retain on deletion
-and scale-down; the StorageClass has Helm's keep policy. Default size is 40 GiB.
-Encryption is opt-in and requires `storage.kmsPrerequisitesConfirmed=true`
-after actual KMS verification. Retention does not replace backups.
+Chart defaults are `app.dailyBudgetUsd=0`, `providerMaxConcurrency=5`,
+`principalMaxConcurrency=3` and `rateLimitBurst=0`. These are explicit env
+mappings, not arbitrary env maps or account-wide spend controls.
 
 ## Network and Shutdown
 
 ```mermaid
 flowchart LR
     Client["BYOK client"] -->|TCP 443 with TLS| CLB["Public CLB; Local traffic policy"]
-    subgraph Pod["Single StatefulSet pod"]
+    subgraph Pod["Deployment pods; default HPA 2-6"]
         Proxy["Caddy 8443; TLS termination"] -->|"127.0.0.1:3000"| App["FastMCP direct HTTP"]
-        App --> Lease["Exclusive runtime.sqlite3.lock"]
-        Lease --> DB[("Retained RWO ext4 SQLite")]
         App --> Metrics["Optional 127.0.0.1 metrics"]
     end
     CLB -->|TCP 8443| Proxy
@@ -190,51 +160,43 @@ does not cancel accepted provider work.
 
 ## State and Recovery
 
-HTTP acquires the exclusive `runtime.sqlite3.lock` before opening stores or
-submission recovery and holds it until all state users drain and close.
-Contention fails startup closed; cancellation and partial startup clean up.
-Never unlink a live lock, use a shared/network filesystem, or confuse this
-local lease and RWO attachment with distributed fencing. Stdio is unchanged.
+There is no hosted state to restore or replay. Restarting a pod does not
+cancel provider work; clients must retain IDs and poll with authorized provider
+credentials. A lost create response may hide billed work and must be reconciled,
+not resubmitted automatically.
 
-Fresh BYOK installations use new SQLite state without an old-schema migration.
-Compatible ongoing installations retain their state and matching HMAC
-key/version. Preserve provider/client scope and known task/request IDs.
-Backups must be consistent with WAL and protected off-host, with separately
-protected matching identity configuration. An older backup can lose submission
-claims; no blind restore, state reset or requeue is safe recovery.
-Reconcile the lost-write window before reopening creates.
-
-The stdlib-only `scripts/inspect_runtime_state.py` reads aggregate table/state
-counts, capacity ratios and oldest unresolved age with explicit database,
-capacity and bounded timeout arguments. It does not open application startup,
-repair, prune, recover, requeue or expose row IDs/payloads.
-The container includes it at `/app/scripts/inspect_runtime_state.py` for
-authorized private `kubectl exec` without shell or environment/Secret dumps.
-Use [the operator runbook](../docs/runtime.md#read-only-state-inspection).
-HTTP submission claims never auto-prune. Raising storage capacity alone does
-not raise the configured row cap, and deleting claims can permit duplicates.
-
-Source deletion is not cloud decommissioning. Preserve a reviewed old checkout,
-private workspaces, old Terraform state, backups and matching HMAC configuration
-for separately authorized ECS retirement. Retained cloud resources keep
-incurring charges until deliberately reconciled and removed.
+This is a fresh stateless deployment. Historical database compatibility and
+stateful-release migration tooling are not part of this repository.
 
 ## Acceptance Boundary
 
 Local acceptance uses isolated real HTTP/Caddy TLS processes, temporary
-synthetic identity/state and mocked providers, not customer credentials.
+synthetic credentials and mocked providers, without a database.
 Its bounded load results are mock measurements, not capacity certification.
-Real VKE apply, source IP, CSI, rollout/recovery, TLS/DNS and target-client/
+Real VKE apply, source IP, rollout/drain, TLS/DNS and target-client/
 provider acceptance require separate approval and evidence. Live generation
-requires an explicit spend cap. Synchronous replay, complete crash recovery
-and exactly-once billing remain deferred.
+requires an explicit spend cap. Durable replay, complete crash recovery and
+exactly-once billing are not part of this initial-phase contract.
+
+## Scaling and Durability Gates
+
+Rate, in-flight, provider and principal limits are in-memory per pod. They
+multiply with active, surge and draining replicas and reset on restart.
+Readiness proves lifespan availability only, not provider reachability.
+Use provider-side spend controls and validate live rollout, routing, latency,
+quota and cost before launch. Mock load results are not capacity certification.
+
+Clients sharing a provider key share whatever task access that provider permits.
+Client secrets scope admission only. Omit `idempotency_key`; supplied legacy
+keys are rejected. Repeated creates may bill again. These tradeoffs are defined
+in [Hosted BYOK](SPEC_HOSTED_BYOK.md#http-submission-safety).
 
 ## Sources
 
 Official URLs in frontmatter are retained from implementation research recorded
 2026-11-17, not a claim of a new live deployment or independent regional test.
 Source contracts were checked against `deploy/terraform/vke`, the Helm values/
-schema/templates/Caddyfile, `runtime.py`, `runtime_lock.py`, `__main__.py`,
-`config/env.py`, `security/http_middleware.py`, `observability/admin.py` and
-`scripts/inspect_runtime_state.py`. This spec and the linked hosted/direct
+schema/templates/Caddyfile, `runtime.py`, `__main__.py`,
+`config/env.py`, `security/http_middleware.py` and `observability/admin.py`.
+This spec and the linked hosted/direct
 contracts hold durable decisions.

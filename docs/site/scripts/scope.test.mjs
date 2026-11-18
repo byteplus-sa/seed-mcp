@@ -48,7 +48,7 @@ test("current handbook and shipped skills exclude retired tool and configuration
   }
 });
 
-test("all 15 exported tools retain direct metadata and exclude retired contracts", () => {
+test("all 16 exported tools retain direct metadata and exclude retired contracts", () => {
   const python =
     process.env.ARK_DOCS_PYTHON ||
     fileURLToPath(
@@ -66,9 +66,9 @@ test("all 15 exported tools retain direct metadata and exclude retired contracts
   );
   assert.equal(exported.status, 0, "Isolated catalog export must succeed");
   const { tools } = JSON.parse(exported.stdout);
-  assert.equal(tools.length, 15);
+  assert.equal(tools.length, 16);
   const groups = toolReferenceGroups(tools);
-  assert.equal(groups.flatMap((group) => group.items).length, 15);
+  assert.equal(groups.flatMap((group) => group.items).length, 16);
   for (const tool of tools) {
     assert.equal(tool.execution, "direct", tool.name);
     assert.equal("background" in tool, false, tool.name);
@@ -79,10 +79,10 @@ test("all 15 exported tools retain direct metadata and exclude retired contracts
     }
   }
   const http = tools.filter((tool) => tool.transports.http);
-  assert.equal(http.length, 10);
+  assert.equal(http.length, 11);
   assert.equal(
     http.filter((tool) => !tool.name.startsWith("omnihuman_")).length,
-    7,
+    8,
   );
   assert.doesNotMatch(JSON.stringify(tools), retired);
   assert.doesNotMatch(JSON.stringify(tools), /\bthree_d\b/);
@@ -179,7 +179,7 @@ test("retained skills document bindings services hosts and accurate persistence"
     "SDK",
     "SQLite",
     "owner slot first",
-    "never auto-prune",
+    "stateless",
   ]) {
     assert.ok(direct.includes(required), required);
   }

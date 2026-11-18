@@ -3,6 +3,8 @@
 import re
 from pathlib import Path
 
+import pytest
+
 ROOT = Path(__file__).resolve().parents[2] / "deploy/terraform/vke"
 
 
@@ -63,3 +65,50 @@ def test_all_terraform_runs_use_mocked_plans_only() -> None:
     assert "expect_failures = [var.fresh_state_confirmed]" in test
     assert "expect_failures = [var.node_count]" in test
     assert "expect_failures = [var.vpc_cidr]" in test
+
+
+@pytest.mark.parametrize("minor", [27, 28, 29])
+def test_terraform_mocks_reject_versions_below_chart_floor(minor: int) -> None:
+    test = (ROOT / "tests/deployment.tftest.hcl").read_text()
+    run = re.search(rf'run "reject_kubernetes_1_{minor}" \{{(.*?)\n\}}', test, re.DOTALL)
+    assert run is not None
+    assert f'kubernetes_version = "1.{minor}"' in run[1]
+    assert "expect_failures = [var.kubernetes_version]" in run[1]
+
+
+def test_terraform_version_floor_is_not_a_maintained_release_or_inventory_claim() -> None:
+    variables = (ROOT / "variables.tf").read_text()
+    version = variables.split('variable "kubernetes_version" {', 1)[1].split(
+        'variable "node_instance_type"', 1
+    )[0]
+    assert ">= 30" in version
+    assert ">=1.30" in version
+    assert "currently maintained regional VKE" in version
+    assert "operator-verified" in version.lower()
+    assert "not an availability or maintenance claim" in version
+    assert "default" not in version
+    test = (ROOT / "tests/deployment.tftest.hcl").read_text()
+    assert 'run "accept_kubernetes_compatibility_floor_only"' in test
+    assert "not regional VKE inventory" in test
+    assert 'kubernetes_version = "1.30"' in test
+
+
+def test_safe_outputs_remove_application_storage_coupling_not_cloud_resources() -> None:
+    source = (ROOT / "main.tf").read_text()
+    outputs = (ROOT / "outputs.tf").read_text()
+    variables = (ROOT / "variables.tf").read_text()
+    assert "single-writer" not in source
+    assert "exactly one replica" not in variables
+    assert "storage =" not in outputs
+    assert "var.zone_id" not in outputs
+    assert "var.project_name" not in outputs
+    assert "VKE-admin-owned CCM" in outputs
+    assert "CSI is not an application prerequisite" in outputs
+    assert "Preserve legacy volumes" not in outputs
+    assert "do not decommission cloud resources" in outputs
+    assert "surge/draining capacity" in outputs
+    assert "metrics API and existing identity/TLS Secrets" in outputs
+    assert "PostgreSQL" not in outputs
+    assert "AZ-failure resilience" in variables
+    assert re.search(r"auto_scaling = \{\s+enabled\s+= false", source)
+    assert "depends_on = [bytepluscc_vpc_route_table.private_egress]" in source

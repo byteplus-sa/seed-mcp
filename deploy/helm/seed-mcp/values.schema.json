@@ -2,11 +2,68 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "type": "object",
   "additionalProperties": false,
-  "required": ["prerequisitesConfirmed", "image", "imagePullSecrets", "publicHost", "identitySecret", "tlsSecretName", "service", "storage", "app", "models", "resources"],
+  "required": [
+    "prerequisitesConfirmed",
+    "replicaCount",
+    "autoscaling",
+    "image",
+    "imagePullSecrets",
+    "publicHost",
+    "identitySecret",
+    "tlsSecretName",
+    "temporaryUpload",
+    "service",
+    "app",
+    "models",
+    "resources"
+  ],
   "properties": {
     "prerequisitesConfirmed": {
       "const": true,
-      "description": "Manual acknowledgement of private cluster access, compatible Running csi-ebs and CCM addons, CSI rollouts, Ready nodes with capacity, existing identity/TLS Secrets and DNS/TLS checks. Not programmatic proof."
+      "description": "Operator acknowledgement: private cluster access, maintained VKE >=1.30, CCM, two Ready nodes with surge capacity, identity/TLS Secrets, DNS/TLS and metrics API if HPA enabled. No database or state migration is performed."
+    },
+    "replicaCount": {
+      "type": "integer",
+      "minimum": 2,
+      "maximum": 6,
+      "description": "Fixed pod count when HPA is disabled; ignored by the Deployment with HPA enabled."
+    },
+    "autoscaling": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": [
+        "enabled",
+        "minReplicas",
+        "maxReplicas",
+        "targetCPUUtilizationPercentage",
+        "scaleDownStabilizationSeconds"
+      ],
+      "properties": {
+        "enabled": {
+          "type": "boolean"
+        },
+        "minReplicas": {
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 6
+        },
+        "maxReplicas": {
+          "type": "integer",
+          "minimum": 2,
+          "maximum": 6
+        },
+        "targetCPUUtilizationPercentage": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 100
+        },
+        "scaleDownStabilizationSeconds": {
+          "type": "integer",
+          "minimum": 300,
+          "maximum": 3600
+        }
+      },
+      "description": "CPU HPA requires verified metrics API; fixed steps are up to two pods up/one down per 60 seconds. Default max six is a starting bound, not connection or throughput certification."
     },
     "image": {
       "type": "string",
@@ -17,7 +74,9 @@
       "type": "array",
       "maxItems": 5,
       "uniqueItems": true,
-      "items": {"$ref": "#/definitions/name"}
+      "items": {
+        "$ref": "#/definitions/name"
+      }
     },
     "publicHost": {
       "type": "string",
@@ -27,21 +86,60 @@
     "identitySecret": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["name", "hmacKey", "versionKey"],
+      "required": [
+        "name",
+        "hmacKey",
+        "versionKey"
+      ],
       "properties": {
-        "name": {"$ref": "#/definitions/name"},
-        "hmacKey": {"const": "MCP_IDENTITY_HMAC_KEY"},
-        "versionKey": {"const": "MCP_IDENTITY_KEY_VERSION"}
+        "name": {
+          "$ref": "#/definitions/name"
+        },
+        "hmacKey": {
+          "const": "MCP_IDENTITY_HMAC_KEY"
+        },
+        "versionKey": {
+          "const": "MCP_IDENTITY_KEY_VERSION"
+        }
       }
     },
-    "tlsSecretName": {"$ref": "#/definitions/name"},
+    "tlsSecretName": {
+      "$ref": "#/definitions/name"
+    },
+    "temporaryUpload": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["enabled", "existingSecret"],
+      "description": "Opt-in prepare-only TOS signing. Operator must separately verify private bucket, disabled versioning, IAM, CORS, expiry and spend controls.",
+      "properties": {
+        "enabled": {"type": "boolean"},
+        "existingSecret": {
+          "type": "string",
+          "maxLength": 63,
+          "pattern": "^$|^[a-z0-9]([a-z0-9-]*[a-z0-9])?$"
+        }
+      },
+      "if": {"properties": {"enabled": {"const": true}}},
+      "then": {"properties": {"existingSecret": {"$ref": "#/definitions/name"}}}
+    },
     "service": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["subnetId", "bandwidthMbps", "sourceRanges"],
+      "required": [
+        "subnetId",
+        "bandwidthMbps",
+        "sourceRanges"
+      ],
       "properties": {
-        "subnetId": {"type": "string", "pattern": "^subnet-[a-z0-9]+$"},
-        "bandwidthMbps": {"type": "integer", "minimum": 1, "maximum": 200},
+        "subnetId": {
+          "type": "string",
+          "pattern": "^subnet-[a-z0-9]+$"
+        },
+        "bandwidthMbps": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 200
+        },
         "sourceRanges": {
           "type": "array",
           "minItems": 1,
@@ -54,52 +152,101 @@
         }
       }
     },
-    "storage": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["zone", "project", "sizeGiB", "encrypted", "kmsPrerequisitesConfirmed"],
-      "properties": {
-        "zone": {"type": "string", "pattern": "^[a-z][a-z0-9-]{1,62}$"},
-        "project": {"type": "string", "pattern": "^[A-Za-z0-9_.-]{1,64}$"},
-        "sizeGiB": {"type": "integer", "minimum": 20, "maximum": 2048},
-        "encrypted": {"type": "boolean"},
-        "kmsPrerequisitesConfirmed": {"type": "boolean"}
-      },
-      "if": {"properties": {"encrypted": {"const": true}}},
-      "then": {"properties": {"kmsPrerequisitesConfirmed": {"const": true}}}
-    },
     "app": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["toolTimeoutSeconds", "providerTimeoutSeconds", "admissionTimeoutSeconds", "maxBodyBytes", "maxInFlight", "rateLimitRpm", "rateLimitBurst", "dailyBudgetUsd", "providerMaxConcurrency", "principalMaxConcurrency", "stateMaxRecords", "metricsEnabled", "omnihumanEnabled"],
+      "required": [
+        "toolTimeoutSeconds",
+        "providerTimeoutSeconds",
+        "admissionTimeoutSeconds",
+        "maxBodyBytes",
+        "maxInFlight",
+        "rateLimitRpm",
+        "rateLimitBurst",
+        "dailyBudgetUsd",
+        "providerMaxConcurrency",
+        "principalMaxConcurrency",
+        "metricsEnabled",
+        "omnihumanEnabled"
+      ],
       "properties": {
-        "toolTimeoutSeconds": {"type": "integer", "minimum": 1, "maximum": 3600},
-        "providerTimeoutSeconds": {"type": "integer", "minimum": 1, "maximum": 3600},
-        "admissionTimeoutSeconds": {"type": "integer", "minimum": 1, "maximum": 30},
-        "maxBodyBytes": {"type": "integer", "minimum": 1024, "maximum": 16777216},
-        "maxInFlight": {"type": "integer", "minimum": 1, "maximum": 256},
-        "rateLimitRpm": {"type": "integer", "minimum": 1, "maximum": 10000},
-        "rateLimitBurst": {"type": "integer", "minimum": 0, "maximum": 10000},
-        "dailyBudgetUsd": {"type": "number", "minimum": 0, "maximum": 1000000},
-        "providerMaxConcurrency": {"type": "integer", "minimum": 1, "maximum": 256},
-        "principalMaxConcurrency": {"type": "integer", "minimum": 1, "maximum": 256},
-        "stateMaxRecords": {"type": "integer", "minimum": 1, "maximum": 1000000},
-        "metricsEnabled": {"type": "boolean"},
-        "omnihumanEnabled": {"type": "boolean"}
+        "toolTimeoutSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3600
+        },
+        "providerTimeoutSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 3600
+        },
+        "admissionTimeoutSeconds": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 30
+        },
+        "maxBodyBytes": {
+          "type": "integer",
+          "minimum": 1024,
+          "maximum": 16777216
+        },
+        "maxInFlight": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 256
+        },
+        "rateLimitRpm": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 10000
+        },
+        "rateLimitBurst": {
+          "type": "integer",
+          "minimum": 0,
+          "maximum": 10000
+        },
+        "dailyBudgetUsd": {
+          "const": 0,
+          "description": "Stateless HTTP has no budget ledger; use provider spend controls."
+        },
+        "providerMaxConcurrency": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 256
+        },
+        "principalMaxConcurrency": {
+          "type": "integer",
+          "minimum": 1,
+          "maximum": 256
+        },
+        "metricsEnabled": {
+          "type": "boolean"
+        },
+        "omnihumanEnabled": {
+          "type": "boolean"
+        }
       }
     },
     "models": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["seedream", "seedance"],
+      "required": [
+        "seedream",
+        "seedance"
+      ],
       "description": "Operator-verified exact bindings, visible in anonymous discovery. Never provider credentials or self-declared client authority.",
       "properties": {
         "seedream": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["defaultModel", "bindings"],
+          "required": [
+            "defaultModel",
+            "bindings"
+          ],
           "properties": {
-            "defaultModel": {"$ref": "#/definitions/modelId"},
+            "defaultModel": {
+              "$ref": "#/definitions/modelId"
+            },
             "bindings": {
               "type": "array",
               "maxItems": 100,
@@ -107,10 +254,22 @@
               "items": {
                 "type": "object",
                 "additionalProperties": false,
-                "required": ["model_id", "family"],
+                "required": [
+                  "model_id",
+                  "family"
+                ],
                 "properties": {
-                  "model_id": {"$ref": "#/definitions/modelId"},
-                  "family": {"enum": ["seedream_5_5", "pro", "lite", "4x"]}
+                  "model_id": {
+                    "$ref": "#/definitions/modelId"
+                  },
+                  "family": {
+                    "enum": [
+                      "seedream_5_5",
+                      "pro",
+                      "lite",
+                      "4x"
+                    ]
+                  }
                 }
               }
             }
@@ -119,9 +278,14 @@
         "seedance": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["defaultModel", "bindings"],
+          "required": [
+            "defaultModel",
+            "bindings"
+          ],
           "properties": {
-            "defaultModel": {"$ref": "#/definitions/modelId"},
+            "defaultModel": {
+              "$ref": "#/definitions/modelId"
+            },
             "bindings": {
               "type": "array",
               "maxItems": 100,
@@ -129,10 +293,23 @@
               "items": {
                 "type": "object",
                 "additionalProperties": false,
-                "required": ["model_id", "family"],
+                "required": [
+                  "model_id",
+                  "family"
+                ],
                 "properties": {
-                  "model_id": {"$ref": "#/definitions/modelId"},
-                  "family": {"enum": ["standard", "fast", "mini", "seedance_2_5", "seedance_2_5_flash"]}
+                  "model_id": {
+                    "$ref": "#/definitions/modelId"
+                  },
+                  "family": {
+                    "enum": [
+                      "standard",
+                      "fast",
+                      "mini",
+                      "seedance_2_5",
+                      "seedance_2_5_flash"
+                    ]
+                  }
                 }
               }
             }
@@ -143,25 +320,77 @@
     "resources": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["app", "proxy"],
+      "required": [
+        "app",
+        "proxy"
+      ],
       "properties": {
-        "app": {"$ref": "#/definitions/resources"},
-        "proxy": {"$ref": "#/definitions/resources"}
+        "app": {
+          "$ref": "#/definitions/resources"
+        },
+        "proxy": {
+          "$ref": "#/definitions/resources"
+        }
       }
     }
   },
   "definitions": {
-    "modelId": {"type": "string", "minLength": 1, "maxLength": 160, "pattern": "^[A-Za-z0-9._-]+$", "not": {"pattern": "[^A-Za-z0-9._-]"}},
-    "name": {"type": "string", "maxLength": 63, "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?$"},
+    "configKey": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 253,
+      "pattern": "^[A-Za-z0-9._-]+$",
+      "not": {
+        "enum": [
+          ".",
+          ".."
+        ]
+      }
+    },
+    "modelId": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 160,
+      "pattern": "^[A-Za-z0-9._-]+$",
+      "not": {
+        "pattern": "[^A-Za-z0-9._-]"
+      }
+    },
+    "name": {
+      "type": "string",
+      "maxLength": 63,
+      "pattern": "^[a-z0-9]([a-z0-9-]*[a-z0-9])?$"
+    },
     "resources": {
       "type": "object",
       "additionalProperties": false,
-      "required": ["cpuRequestMillis", "cpuLimitMillis", "memoryRequestMiB", "memoryLimitMiB"],
+      "required": [
+        "cpuRequestMillis",
+        "cpuLimitMillis",
+        "memoryRequestMiB",
+        "memoryLimitMiB"
+      ],
       "properties": {
-        "cpuRequestMillis": {"type": "integer", "minimum": 50, "maximum": 4000},
-        "cpuLimitMillis": {"type": "integer", "minimum": 50, "maximum": 4000},
-        "memoryRequestMiB": {"type": "integer", "minimum": 32, "maximum": 8192},
-        "memoryLimitMiB": {"type": "integer", "minimum": 32, "maximum": 8192}
+        "cpuRequestMillis": {
+          "type": "integer",
+          "minimum": 50,
+          "maximum": 4000
+        },
+        "cpuLimitMillis": {
+          "type": "integer",
+          "minimum": 50,
+          "maximum": 4000
+        },
+        "memoryRequestMiB": {
+          "type": "integer",
+          "minimum": 32,
+          "maximum": 8192
+        },
+        "memoryLimitMiB": {
+          "type": "integer",
+          "minimum": 32,
+          "maximum": 8192
+        }
       }
     }
   }

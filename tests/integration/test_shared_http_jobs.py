@@ -58,7 +58,7 @@ async def test_removed_tools_unavailable_to_every_http_client_without_dispatch(
         ),
         (
             "seedance_create_task",
-            {"prompt": "scene", "idempotency_key": "native-task-rejected"},
+            {"prompt": "scene"},
             f"{MODELARK}/contents/generations/tasks",
             {"id": "must-not-submit"},
         ),

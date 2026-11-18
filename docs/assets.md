@@ -68,6 +68,8 @@ Stdio-only `media_upload` stores ordinary reference files in TOS/S3 and returns
 or return an `asset://` ID. Use `media_presign` to renew those ordinary URLs.
 
 HTTP uses the request's `X-ModelArk-Api-Key` and required `X-MCP-Client-Secret`,
-including dry runs. Discovery is anonymous/static; HTTP has no storage/artifacts
+including dry runs. Discovery is anonymous/static; HTTP has no local storage/artifacts
 or resources and keeps persistence false. It never falls back to operator keys.
+Optional [temporary TOS preparation](temporary-uploads.md) creates ordinary
+signed references, not native provider assets.
 See [security](security.md) and [direct execution](integration-guide.md).

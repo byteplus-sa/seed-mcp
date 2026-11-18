@@ -1,49 +1,34 @@
 # Architecture
 
-The static catalog contains 15 local stdio tools. HTTP exposes only seven
-discovery/provider tools, or ten when OmniHuman is enabled. The
-[BYOK specification](../specs/SPEC_HOSTED_BYOK.md) defines the forward-only
-boundary implemented by this server.
+Seed MCP is a direct-call Python/FastMCP server. The catalog contains 15 local
+tools; HTTP exposes seven discovery/provider tools, or ten with OmniHuman.
+Opt-in HTTP-only `media_prepare_upload` adds one signing capability; its client
+uploads directly to private TOS. The full catalog has 16 definitions.
+There are no MCP jobs, native tasks or inference workers.
 
 ## Request Flow
 
 ```mermaid
 flowchart TD
     Client["MCP client"] --> Transport{"Transport"}
-    Transport -->|stdio| Local["Local configured keys and artifacts"]
-    Transport -->|HTTP| Limits["Admission, rate, body and Host/Origin checks"]
-    Limits --> Headers["Ephemeral raw-header validation"]
-    Headers --> Discovery{"Discovery?"}
-    Discovery -->|Yes| Static["Anonymous static catalog"]
-    Discovery -->|No| Owner["Selected provider key plus client secret"]
-    Owner --> Input["Schema validation and endpoint defaults"]
-    Input --> Create{"Non-dry async create?"}
-    Create -->|No| Validate["Binding, media, ownership and budget validation"]
-    Create -->|Yes| Claim["Durable root claim before handler"]
-    Claim -->|New| Validate
-    Claim -->|Existing| Replay["Owned saved receipt or safe error; no upstream"]
-    Local --> Validate
-    Validate --> Admission["Bounded owner slot then provider slot"]
-    Admission --> Budget["Reserve budget after admission"]
-    Budget --> Factory["Explicit-key gateway factory"]
-    Factory --> Provider["Official BytePlus provider"]
-    Provider --> Result["URL, task ID or safe error"]
-    Result --> Record["Claimed create: journal IDs, ownership, success or unresolved"]
+    Transport -->|HTTP| Limits["Per-pod rate, body, in-flight and Host/Origin checks"]
+    Limits --> Discovery{"Discovery?"}
+    Discovery -->|Yes| Catalog["Anonymous static catalog"]
+    Discovery -->|No| Headers["Live selected BYOK key and client secret"]
+    Headers --> Validate["Exact model binding and input validation"]
+    Validate --> Slots["Per-pod generation admission"]
+    Slots --> Gateway["Explicit-key provider gateway"]
+    Transport -->|stdio| Local["Local keys, SQLite bookkeeping and artifacts"]
+    Local --> Gateway
+    Gateway --> Provider["Official BytePlus provider"]
+    Provider --> Result["Temporary media URLs, task IDs or safe error"]
+    Result --> Client
 ```
 
-`tools/_catalog.py` is the single inventory. `server.py` controls
-transport registration and execution. `security/credentials.py` validates
-raw live headers and binds provider-specific ownership; `providers/factory.py`
-constructs explicit-key gateways. `runtime.py` owns state, budgets and
-limiters. No HTTP gateway falls back to operator provider keys.
-`submissions.py` coordinates HTTP asynchronous-create claims and receipt replay;
-`submission_store.py` owns the durable SQLite journal.
-
-HTTP middleware scopes `Settings` to the receiving server for each request;
-capability lookup uses those settings instead of the process-default registry.
-Concurrent server instances therefore keep their bindings and defaults isolated.
-Anonymous `ark_list_models` lists configured bindings without environment
-provider keys. `services[].enabled` means registered, not entitled.
+HTTP has no application database: no SQLite, PostgreSQL, Redis, task ownership
+ledger, submission journal, durable replay or shared budget/rate accounting.
+The client retains task IDs and can poll through any compatible replica after
+a pod restart. Provider work remains asynchronous independently of the pods.
 
 ## Provider Domain Layer
 
@@ -51,91 +36,56 @@ provider keys. `services[].enabled` means registered, not entitled.
 | --- | --- | --- |
 | ModelArk | `https://ark.ap-southeast.bytepluses.com/api/v3` | Bearer; Seedream and Seedance |
 | Seed Speech | `https://voice.ap-southeast-1.bytepluses.com` | `X-Api-Key`; Seed Audio |
-| Vision AI | `https://openapi.cv.bytepluses.com` | Separate Bearer key; optional OmniHuman |
+| Vision AI | `https://openapi.cv.bytepluses.com` | Separate Bearer; OmniHuman |
 
-The client-facing headers differ from upstream auth:
-`X-ModelArk-Api-Key`, `X-Seed-Speech-Api-Key`, `X-OmniHuman-Api-Key`, plus
-required `X-MCP-Client-Secret` for provider calls. There is no OAuth,
-signup or server-issued key. Discovery makes no provider calls.
+Clients privately send `X-ModelArk-Api-Key`, `X-Seed-Speech-Api-Key` or
+`X-OmniHuman-Api-Key`, plus `X-MCP-Client-Secret`. Credentials live only for the
+HTTP request and never fall back to operator provider keys. The client secret
+and operator HMAC define ephemeral admission scopes, not provider task access.
+Clients sharing a provider key have the task access that provider authorizes.
 
-The registry maps exact model IDs to capabilities. Optional endpoint headers
-select only registered Seedance/Seedream defaults; explicit tool `model` wins.
-No arbitrary opaque endpoint lineage is inferred. Native Seedance assets are
-passed through without asset administration, resolution or status preflight.
+`tools/_catalog.py` owns discovery. `server.py` owns direct-call wrappers and
+transport boundaries. `security/credentials.py` validates request headers.
+`providers/factory.py` builds explicit-key gateways. `runtime.py` owns lifespan
+services and uses disabled persistence adapters on HTTP.
+
+Exact registry bindings determine capabilities. Endpoint headers select
+registered defaults; explicit tool `model` wins. There is no opaque endpoint
+lineage inference or asset administration. Native `asset://` references pass
+through to the provider.
 
 ## Execution and Delivery
 
-Both transports execute ordinary calls directly. Seedance/OmniHuman execution
-remains asynchronous at the provider: return a provider ID and poll it with
-the corresponding tool. HTTP has no Docket queue, task snapshots, native tasks,
-storage/artifact tools or MCP resources.
-Non-dry HTTP Seedance/OmniHuman creates require `idempotency_key`, with one
-durable root claim before handler entry for the entire batch. Key and input
-fingerprints use operator HMAC. Complete saved receipts replay only after
-ownership checks, before any upstream access including Draft lookup.
-Failed/partial/cancelled attempts remain unresolved, with known IDs and no
-automatic resume. Same-key calls recover delivery, not provider status.
-Seedance dry runs need no key/journal; stdio rejects supplied keys.
-Explicit per-call `io.modelcontextprotocol/tasks` opt-in is rejected, including
-on discovery, before provider dispatch, snapshot capture/save or queue creation.
+HTTP is URL-only. It rejects binary/local uploads, artifact resources, stored artifact
+references and persistence requests. Local stdio keeps explicit persistence
+and writes constrained by live MCP roots or `OUTPUT_ROOTS`.
 
-Local stdio retains storage and artifacts, not MCP jobs or native tasks.
-The wrapper starts a cooperative 600-second deadline before credential checks,
-journal and admission (`MCP_TOOL_TIMEOUT_SECONDS`, finite positive, max 3600).
-Owner-first provider admission has a separate combined 2-second wait
-(`MCP_ADMISSION_TIMEOUT_SECONDS`, finite positive, max 30). Read-only polling
-and discovery skip generation slots but still face HTTP global limits.
-Use client timeout 660 seconds. SDK/SQLite draining may exceed the deadline.
-See [Direct Execution](../specs/SPEC_DIRECT_EXECUTION.md).
+Temporary uploads use a separate enrolled client-secret authorization scope and
+operator TOS signer, with exact-key POST permissions and a GET URL. No object
+is created or inspected by MCP, no network signing call or database is needed,
+and readiness does not probe the bucket. See [temporary references](temporary-uploads.md).
 
-Seed Audio/Seedream `persist` and OmniHuman get `persist_output` default to false
-globally. HTTP rejects true; stdio permits explicit persistence and guarded
-local outputs through live MCP roots or `OUTPUT_ROOTS`.
-HTTP clients retrieve expiring URLs themselves.
+The tool deadline starts before credentials and admission (default 600s).
+Owner-first then provider admission has a combined 2s wait. Use a client timeout
+of 660s. Safe accepted IDs are retained only for live-call diagnostics; there
+is no saved response after the call ends.
 
-## Ownership and State
+Omit `idempotency_key`; non-null legacy keys are rejected before dispatch.
+Identical creates are independent operations and can bill again. Uncertain
+mutation failures are nonretryable. Keep known IDs and reconcile lost create
+responses through the provider, never automatic resubmission.
 
-Credential tenants are HMAC-derived from the selected provider, official origin,
-exact key and identity version. Owners additionally include the client secret.
-Adding another provider key does not change existing scope. The operator HMAC
-key and version are stable configuration, not customer credentials.
+## Scaling and Operations
 
-Fresh SQLite has ownership primary key `(provider, tenant_id, task_id)` and
-an immutable `principal_id`. Checks precede upstream access and fail closed
-on missing ownership or state errors. No compatibility migration exists.
-Keys are not written to state, snapshots, cache keys, logs or spans.
-The journal stores no raw prompts, media or errors. Claims never auto-prune;
-`STATE_MAX_RECORDS` limits new keys while existing keys remain readable.
-Retain state, HMAC key/version and the original provider/client credentials.
+The stateless Deployment can run multiple pods without sticky sessions or a
+shared filesystem. Rate and concurrency limits are per pod, reset at restart
+and multiply with replicas. `DAILY_BUDGET_USD=0` is required on HTTP because
+there is no ledger. Configure provider-side spend and quota controls.
 
-HTTP starts with positive rate/body/in-flight/state limits. Backend `/health`
-and `/ready` expose minimal state status and never probe providers. VKE Caddy
-exposes only `/mcp` and `/health`; private metrics are an optional loopback
-listener, off by default. See [security](security.md) and [runtime](runtime.md).
+Readiness checks lifespan availability only; it does not prove provider
+authorization or connectivity. Caddy exposes only `/mcp` and `/health`;
+`/ready` and optional loopback metrics stay private.
 
-Dedicated VKE replaces ECS/Compose. A single StatefulSet runs same-pod Caddy
-TLS and the application on loopback; CLB TCP443 reaches Caddy8443. An exclusive
-HTTP state lease is acquired before stores/recovery and released after close.
-Retained RWO ext4 EBS and one replica remain mandatory; no application HPA or
-distributed fencing is implied. Terraform uses new infrastructure state and
-Helm references existing Secrets. Both VKE addons are administrator-owned
-outside those stacks. See [VKE Deployment](../specs/SPEC_VKE_DEPLOYMENT.md)
-for the topology, source evidence and unverified live gates.
-
-## Failure Boundary
-
-Provider mutation failures with uncertain dispatch and malformed 2xx responses
-are nonretryable/ambiguous. Mutation 5xx responses are ambiguous and never automatically
-retried, even if marked `retryable=true`. Eligible 429 rejections, pre-dispatch
-failures and reads can have bounded retries. `ADMISSION_TIMEOUT` means this
-attempt did not dispatch, not the whole batch. `TOOL_DEADLINE_EXCEEDED`
-preserves uncertainty and safe accepted IDs; it does not cancel provider work.
-Preserve task/request IDs, including IDs retained alongside
-Seedance bookkeeping errors. See [runtime recovery](runtime.md#billable-call-composition-billed_provider_slot).
-
-SQLite and in-process limiters support one instance only. Synchronous product
-replay and complete crash recovery remain deferred, including the gap between
-provider acceptance and the first ID write. PostgreSQL/Redis are future scaling
-choices, not initial requirements. This foundation does not promise exactly-once
-inference or establish public-launch readiness. See the
-[submission contract](../specs/SPEC_HOSTED_BYOK.md#http-submission-safety).
+See [deployment](deployment.md), [runtime](runtime.md) and the
+[BYOK contract](../specs/SPEC_HOSTED_BYOK.md). Source validation does not prove
+live capacity, VKE rollout behavior or paid provider/client compatibility.

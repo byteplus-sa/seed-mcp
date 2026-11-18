@@ -34,6 +34,8 @@ No separate server-start command is needed.
 
 ## Before Updating
 
+Hosted HTTP is database-free: provider-key task authorization, no durable replay or shared budget accounting. Omit legacy operation keys; never automatically resubmit uncertain creates. Local stdio persistence remains available.
+
 - Finish active direct calls and save provider task/request IDs. When upgrading
   from the retired worker design, recover needed results using that old server
   before switching; the new server has no MCP job interface.
@@ -75,13 +77,11 @@ Change only the `ark-seed` launch path in your client config, preserving other
 servers and the existing private `ARK_MCP_ENV_FILE` path. Check that no one
 edited the config concurrently.
 
-After active work is finished, reconnect the client and repeat discovery.
-Keep the old installation until verification succeeds. Direct calls have no
-MCP job recovery; provider tasks and the HTTP journal retain their own state.
-Preserve SQLite and HTTP HMAC configuration. Never blindly resubmit work after
-an interrupted response; recover saved receipts or poll known provider IDs.
+See the database-free HTTP contract above; local stdio persistence is unchanged.
 
 ## Roll Back
+
+See the database-free HTTP contract above; local stdio persistence is unchanged.
 
 Restore the previous launch entry and reconnect. Keep credentials and media
 unchanged. Code rollback alone is not enough if an upgrade performed an

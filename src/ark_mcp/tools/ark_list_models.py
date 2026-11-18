@@ -347,8 +347,13 @@ def describe_services(settings: Settings) -> list[ServiceStatus]:
             ),
             ServiceStatus(
                 service="object_storage",
-                enabled=False,
-                reason="Storage tools are local stdio only; HTTP returns provider URLs.",
+                enabled=settings.temporary_upload_enabled,
+                reason=None
+                if settings.temporary_upload_enabled
+                else (
+                    "Local storage/artifacts are stdio only. For HTTP preparation, configure "
+                    "MCP_TEMPORARY_UPLOAD_ENABLED=true, TOS and operator client enrollment."
+                ),
             ),
         ]
     storage_vars = (

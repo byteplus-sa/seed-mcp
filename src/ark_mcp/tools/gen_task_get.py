@@ -100,7 +100,9 @@ async def gen_task_get(input: GenTaskGetInput, ctx: Context) -> GenTaskGetOutput
     recommended_poll_after_ms, never resubmit the create tool (that bills a second task).
     Provider output URLs expire in about 24 hours; once all_terminal is true, call again
     directly on stdio with persist_output=true to keep durable artifacts.
-    HTTP requires persist_output=false. IDs the caller does not own are listed in errors.
+    HTTP requires persist_output=false and delegates task access to the supplied
+    provider key, without an additional client-secret ownership filter.
+    Local stdio still enforces recorded ownership; denied IDs are listed in errors.
     """
     validate_http_options(ctx, persist=input.persist_output, persist_field="persist_output")
     provider_api_key(ctx, "modelark")

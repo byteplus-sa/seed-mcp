@@ -1,0 +1,11 @@
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: {{ include "seed-mcp.name" . }}
+  labels:
+    {{- include "seed-mcp.selector" . | nindent 4 }}
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      {{- include "seed-mcp.selector" . | nindent 6 }}

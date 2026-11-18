@@ -9,8 +9,9 @@ For parameters see the tool schema and
 
 ## Execution mode at a glance
 
-The table is **stdio-only**. HTTP has no upload/presign,
-job/native-task or artifact/resource surface. Host reference URLs externally.
+The table is **stdio-only**. HTTP has no local upload/presign renewal,
+job/native-task or artifact/resource surface. Host reference URLs externally
+or use optional temporary preparation below.
 
 | Tool | Mode | Needs |
 |---|---|---|
@@ -52,7 +53,7 @@ presigned GET `url` and an `object_key` per item, in request order.
 ### `media_presign`
 
 Mints fresh URLs for 1-100 `object_keys` without re-uploading. Read-only,
-foreground on stdio only. HTTP does not expose storage tools. Each
+foreground on stdio only. HTTP does not expose this URL-renewal tool. Each
 key fails on its own, so check `failed` and per-key `code`:
 
 | `code` | Meaning and fix |
@@ -72,6 +73,40 @@ bed) feed many shots, **upload once, then presign per shot**:
    each `object_key` in the project's reference registry.
 2. Right before each submission, `media_presign` the keys that shot needs, check
    per-key `code`, and submit immediately while the URLs are valid.
+
+## Temporary HTTP References
+
+`media_prepare_upload` is HTTP-only, disabled by default, and shared across
+image/audio/video references. Check tools/list; anonymous discovery is not
+upload entitlement. An operator-enrolled client secret authorizes signing
+without a generation-provider key. Preparation takes metadata only and does
+not receive bytes, access the client's files, inspect media or verify existence.
+
+1. Send `{"input":{"media_type":"image","mime_type":"image/png","size_bytes":1234}}`,
+   using the actual binary byte size and exact allowed MIME. Caps: 10 MiB
+   image/audio, 200 MiB video.
+2. An upload-capable client sends multipart POST to `upload_url`, every
+   `form_fields` value unchanged, then binary `file` LAST. Wait for success.
+3. Use the complete `reference_url` in existing generation inputs with normal
+   provider BYOK headers, promptly enough for queued provider fetches.
+
+The server selects a unique exact key; private ACL, STANDARD storage, exact
+declared MIME/byte size, forbid-overwrite and one-day object expiry are signed.
+POST expires in 15 minutes; GET in 24 hours from preparation. STS expiry can
+shorten both. Signed fields/URLs are sensitive bearer permissions, not
+guaranteed one-use tokens. Never log or publish them.
+URL expiry does not delete data; one-day object expiry is scheduled from
+Last-Modified/following midnight, not exact 24-hour deletion.
+There is no HTTP renewal/finalization tool, upload record or global storage/
+egress budget. Client attachment alone does not perform this upload.
+
+Operators enable `MCP_TEMPORARY_UPLOAD_ENABLED` with TOS and
+`MCP_UPLOAD_CLIENT_SECRET_SHA256`: 1-1000 unique lowercase digests of exact ASCII
+client-secret values (not decoded bytes), comma-separated without spaces.
+Require private dedicated bucket, versioning disabled, restricted prefix IAM,
+browser POST CORS as needed, lifecycle backstop and abuse/spend controls.
+These are separate approved operator actions. Read `docs/temporary-uploads.md`
+in the selected checkout for configuration and client-side multipart code.
 
 ## Native Seedance assets
 

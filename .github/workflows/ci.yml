@@ -27,6 +27,13 @@ env:
   HELM_SHA256: "d1c0278d46beab79582d7e50f5b3dc206944ba8e577cde618513fd07daa53983" # pragma: allowlist secret
   CADDY_VERSION: "2.11.9"
   CADDY_SHA256: "5b8cb7faf8726a2028ad96a66e54e6e81e8f361bc6175e5d22bbd997cc5177fb" # pragma: allowlist secret
+  KUBECONFORM_VERSION: "0.8.0"
+  KUBECONFORM_SHA256: "9bc2bffbf71f261128533edaf912153948b7ff238f9a531ae6d34466ec287883" # pragma: allowlist secret
+  KUBERNETES_SCHEMA_COMMIT: "6ea44f54bb5cdedb2f61fba42c9b342e97959262" # pragma: allowlist secret
+  KUBERNETES_FLOOR_VERSION: "1.30.0"
+  # Verified upstream release for source checks, NOT regional VKE availability.
+  # Before deployment, also validate the operator-selected maintained VKE release.
+  KUBERNETES_CHECK_VERSION: "1.37.2"
 
 jobs:
   quality:
@@ -66,6 +73,53 @@ jobs:
           mkdir "$RUNNER_TEMP/caddy-bin"
           tar -xzf "$RUNNER_TEMP/caddy.tar.gz" -C "$RUNNER_TEMP/caddy-bin" caddy
           printf 'CADDY_BIN=%s/caddy-bin/caddy\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+          curl --fail --silent --show-error --location \
+            --output "$RUNNER_TEMP/kubeconform.tar.gz" \
+            "https://github.com/yannh/kubeconform/releases/download/v${KUBECONFORM_VERSION}/kubeconform-linux-amd64.tar.gz"
+          printf '%s  %s\n' "$KUBECONFORM_SHA256" "$RUNNER_TEMP/kubeconform.tar.gz" | sha256sum --check
+          mkdir "$RUNNER_TEMP/kubeconform-bin"
+          tar -xzf "$RUNNER_TEMP/kubeconform.tar.gz" -C "$RUNNER_TEMP/kubeconform-bin" kubeconform
+          printf '%s\n' "$RUNNER_TEMP/kubeconform-bin" >> "$GITHUB_PATH"
+          printf 'KUBECONFORM_BIN=%s/kubeconform-bin/kubeconform\n' "$RUNNER_TEMP" >> "$GITHUB_ENV"
+
+      - name: Strict Kubernetes floor and upstream compatibility
+        run: |
+          schema_cache="$RUNNER_TEMP/kubernetes-schemas/$KUBERNETES_SCHEMA_COMMIT"
+          mkdir -p "$schema_cache"
+          schema_location="https://raw.githubusercontent.com/yannh/kubernetes-json-schema/${KUBERNETES_SCHEMA_COMMIT}/{{.NormalizedKubernetesVersion}}-standalone{{.StrictSuffix}}/{{.ResourceKind}}{{.KindSuffix}}.json"
+          for version in "$KUBERNETES_FLOOR_VERSION" "$KUBERNETES_CHECK_VERSION"; do
+            helm lint deploy/helm/seed-mcp -f deploy/helm/seed-mcp/values.ci.yaml --strict --kube-version "$version"
+            for autoscaling in true false; do
+              manifest="$RUNNER_TEMP/seed-mcp-${version}-${autoscaling}.yaml"
+              helm template seed-mcp deploy/helm/seed-mcp \
+                -f deploy/helm/seed-mcp/values.ci.yaml \
+                --kube-version "$version" --set "autoscaling.enabled=$autoscaling" > "$manifest"
+              test -s "$manifest"
+              kubeconform -strict -summary -exit-on-error \
+                -kubernetes-version "$version" -cache "$schema_cache" \
+                -schema-location "$schema_location" "$manifest"
+            done
+            # Expose the pinned validator's URL-hashed cache as local schemas for offline pytest.
+            directory="$schema_cache/v${version}-standalone-strict"
+            mkdir -p "$directory"
+            for schema in configmap-v1 deployment-apps-v1 horizontalpodautoscaler-autoscaling-v2 poddisruptionbudget-policy-v1 service-v1; do
+              url="https://raw.githubusercontent.com/yannh/kubernetes-json-schema/${KUBERNETES_SCHEMA_COMMIT}/v${version}-standalone-strict/${schema}.json"
+              key="$(printf '%s' "$url" | sha256sum | cut -d ' ' -f 1)"
+              test -s "$schema_cache/$key"
+              cp "$schema_cache/$key" "$directory/$schema.json"
+            done
+          done
+          printf 'KUBERNETES_SCHEMA_LOCATION=%s/{{.NormalizedKubernetesVersion}}-standalone{{.StrictSuffix}}/{{.ResourceKind}}{{.KindSuffix}}.json\n' "$schema_cache" >> "$GITHUB_ENV"
+          printf 'KUBERNETES_DEPLOYMENT_VERSION=%s\n' "$KUBERNETES_CHECK_VERSION" >> "$GITHUB_ENV"
+          for version in 1.27.0 1.28.0 1.29.0; do
+            if helm template seed-mcp deploy/helm/seed-mcp \
+              -f deploy/helm/seed-mcp/values.ci.yaml --kube-version "$version" \
+              > "$RUNNER_TEMP/rejected-${version}.yaml" 2> "$RUNNER_TEMP/rejected-${version}.log"; then
+              printf 'Chart unexpectedly accepted Kubernetes %s\n' "$version" >&2
+              exit 1
+            fi
+            grep -F 'requires kubeVersion' "$RUNNER_TEMP/rejected-${version}.log"
+          done
 
       - name: Lint and format check
         run: |
@@ -76,7 +130,18 @@ jobs:
         run: make typecheck
 
       - name: Offline tests with coverage
-        run: uv run pytest --disable-socket --allow-unix-socket --cov=ark_mcp --cov-report=term-missing
+        env:
+          COVERAGE_FILE: .coverage.offline
+        run: uv run pytest --disable-socket --allow-unix-socket --cov=ark_mcp --cov-branch --cov-report= --cov-fail-under=85
+
+      - name: Upload offline branch coverage
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: coverage-offline
+          path: .coverage.offline
+          include-hidden-files: true
+          if-no-files-found: error
+          retention-days: 7
 
       - name: Mock-provider HTTPS acceptance and bounded load
         run: uv run python scripts/hosted_acceptance.py --caddy-bin "$CADDY_BIN"
@@ -101,7 +166,7 @@ jobs:
 
   container:
     name: Container build and health
-    needs: quality
+    needs: [quality]
     runs-on: ubuntu-latest
     permissions:
       contents: read

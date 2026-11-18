@@ -146,10 +146,7 @@ for (const name of ["seedance_create_task", "omnihuman_create_task"]) {
       assert.equal(call.arguments.input.dry_run, true);
       assert.equal(call.arguments.input.idempotency_key, undefined);
     } else {
-      assert.match(
-        call.arguments.input.idempotency_key,
-        /^[A-Za-z0-9_-]{16,128}$/,
-      );
+      assert.equal(call.arguments.input.idempotency_key, undefined);
       assert.match(call.arguments.input.image, /^https:\/\//);
       assert.match(call.arguments.input.audio, /^https:\/\//);
     }
@@ -159,10 +156,10 @@ for (const name of ["seedance_create_task", "omnihuman_create_task"]) {
     assert.deepEqual(localCall.arguments, EXAMPLES[name]);
     assert.equal(localCall.arguments.input.idempotency_key, undefined);
     assert.equal(JSON.stringify(EXAMPLES), original);
-    assert.match(page, /UUID/);
-    assert.match(page, /recovery, not polling/);
-    assert.match(page, /never change keys to bypass/);
-    assert.match(page, /stdio rejects/);
+    assert.match(page, /stateless/);
+    assert.match(page, /legacy keys are rejected/);
+    assert.match(page, /bill again/);
+    assert.match(page, /uncertain acceptance/);
   });
 }
 
@@ -269,6 +266,37 @@ test("HTTP discovery has no credential requirement", () => {
   assert.match(page, /per-call `io\.modelcontextprotocol\/tasks` opt-in/);
 });
 
+test("temporary preparation documents HTTP-only enrollment and direct binary upload", () => {
+  const page = toolPage({
+    name: "media_prepare_upload",
+    description: "Prepare restricted permissions; no upload receipt.",
+    execution: "direct",
+    registration_gate: "Unavailable on local stdio.",
+    transports: {
+      http: {
+        execution: "direct",
+        credential_header: "X-MCP-Client-Secret",
+        registration_gate:
+          "Requires MCP_TEMPORARY_UPLOAD_ENABLED=true and enrollment.",
+      },
+    },
+    inputSchema: { properties: {} },
+    outputSchema: { properties: {} },
+  });
+  assert.match(page, /Local stdio execution \| Unavailable/);
+  assert.match(page, /an HTTP-only.*envelope/);
+  assert.match(page, /operator-enrolled/);
+  assert.match(page, /No generation-provider key is needed/);
+  assert.match(page, /file field LAST/);
+  assert.match(page, /Wait for upload success/);
+  assert.doesNotMatch(page, /Supply `X-MCP-Client-Secret` and/);
+  const http = page.split("### HTTP Call")[1].split("<details>")[0];
+  assert.equal(
+    JSON.parse(http.match(/```json\n([\s\S]*?)\n```/)[1]).name,
+    "media_prepare_upload",
+  );
+});
+
 test("Seedance generated guidance preserves accepted IDs on errors", () => {
   const page = toolPage({
     name: "seedance_create_task",
@@ -282,7 +310,12 @@ test("Seedance generated guidance preserves accepted IDs on errors", () => {
   assert.match(page, /`submitted` counts known accepted IDs/);
   assert.match(page, /`failed` counts entries with errors/);
   assert.match(page, /single-call failure remains error `ToolResult` text/);
-  assert.match(page, /MCP polling requires recorded ownership/);
+  assert.match(page, /HTTP polling uses provider-key authorization/);
+  assert.doesNotMatch(page, /MCP polling requires recorded ownership/);
+  assert.match(
+    page,
+    /There is no durable replay or automatic partial-batch resume/,
+  );
 });
 
 test("renderer rejects obsolete or missing execution metadata", () => {

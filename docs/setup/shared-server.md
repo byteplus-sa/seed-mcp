@@ -66,11 +66,13 @@ implemented. The official GetEndpoint API needs AK/SK signing, not your
 ModelArk Bearer key; do not send AK/SK to this server. See the
 [endpoint authority contract](../../specs/SPEC_HOSTED_BYOK.md#byoe-endpoint-authority).
 
-Changing your provider key or client secret changes scope and can make earlier
-tasks inaccessible through this server. Changing the operator HMAC key/version
-also changes scope. No recovery bridge exists. Two clients sharing a provider
-key can still access that provider directly; separate provider keys/projects
-are needed for stronger separation.
+Task access depends on provider authorization. Changing the client secret or
+operator HMAC changes only per-pod admission scope, not access to existing tasks.
+Clients sharing a provider key can access tasks that key authorizes through
+this server. Use separate provider keys/projects for separate authorization.
+There is no database or saved-response replay. Retain task IDs and never
+automatically repeat uncertain creates. Do not request operator secrets for
+a customer connection.
 
 ## Generate a Client Snippet
 
@@ -136,6 +138,8 @@ Do not generate or upload.
 ```
 
 HTTP lists 7 tools, or 10 with OmniHuman enabled, independently of operator keys.
+Optional temporary upload preparation adds one (8/11); its presence in
+tools/list does not prove that your client secret is enrolled.
 Anonymous discovery returns configured model bindings even without environment
 provider keys. `services[].enabled` means registered, not entitled.
 Default discovery is static/anonymous: `check_connection=false` returns
@@ -203,7 +207,14 @@ Continue with [Your First Tool Call](first-run.md).
 ## Local Files and Outputs
 
 A remote server cannot read or write files on your computer using a local
-path. HTTP has no storage/artifact tools or resources. Use supported URLs
+file attachment. Optional [temporary TOS upload preparation](../temporary-uploads.md)
+requires an operator-enrolled client secret and a multipart-capable client:
+prepare metadata, upload bytes directly to TOS, wait for success, then use
+the GET URL with normal generation headers. No generation key is needed
+for preparation itself. A chat attachment does not upload automatically.
+
+A remote server cannot read or write files on your computer using a local
+path. HTTP has no local storage/artifact tools or resources. Use supported URLs
 (small inline references remain subject to the 2 MiB body cap). Persistence
 defaults to false globally; HTTP rejects true. Download returned provider
 URLs before expiry: audio about 2 hours, image/video 24 hours, OmniHuman 1 hour.
@@ -222,26 +233,16 @@ Hosted [provider-secret sync is superseded](../secret-manager.md).
 Operators supply a stable `MCP_IDENTITY_HMAC_KEY` and version, not provider keys.
 These are operator requirements, not customer credentials.
 Dedicated VKE replaces the old ECS/Compose path. Operators need private
-control-plane connectivity, VKE-admin-owned CSI/CCM readiness and existing
-identity/TLS Secrets; customers do not. One StatefulSet with retained ext4
-RWO state is required, without application HPA. Public routes are `/mcp` and
+control-plane connectivity, CCM/node readiness, metrics API and distinct existing
+identity and TLS Secrets; customers do not. No database or database CA is required.
+The chart uses Deployment/HPA/PDB/spread, default 2-6 pods on maintained
+Kubernetes >=1.30, no state PVC/StorageClass/headless Service. CSI remains
+admin-owned but is not a new stateless app prerequisite; preserve legacy safeguards.
+Public routes are `/mcp` and
 `/health`; readiness and optional metrics remain private.
 Source deletion does not decommission old cloud resources. Preserve old
 reviewed checkouts, private workspaces, state/backups and matching HMAC
 configuration for separately approved retirement. No reset, blind restore
 or requeue is a supported repair.
 
-Non-dry HTTP Seedance/OmniHuman creates require `idempotency_key`: 16-128 ASCII
-letters, digits, `_` or `-`; generate a fresh UUID per intended call, including
-one key for all variations. Repeat identical arguments/key only for delivery
-recovery, not polling. Only fully successful saved receipts replay after
-ownership checks; failed/partial/cancelled attempts need reconciliation, never
-a new key to bypass uncertain acceptance. Seedance dry runs need no key or
-journal; local stdio rejects supplied keys.
-Keep the original provider key/client secret and the operator's same state and
-HMAC configuration. Claims never auto-prune; at `STATE_MAX_RECORDS` new keys
-fail while existing keys remain readable. See the
-[submission contract](../../specs/SPEC_HOSTED_BYOK.md#http-submission-safety).
-This remains single-instance SQLite; synchronous product replay and complete
-crash recovery are deferred. PostgreSQL/Redis are future scaling choices, not
-initial requirements. No migration, multi-replica or public-launch claim.
+Hosted HTTP is database-free: provider-key task authorization, no durable replay or shared budget accounting. Omit legacy operation keys; never automatically resubmit uncertain creates. Local stdio persistence remains available.

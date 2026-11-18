@@ -55,8 +55,10 @@ start-http: ## Run BYOK HTTP (requires MCP_IDENTITY_HMAC_KEY)
 
 # --- Quality gates ---------------------------------------------------------
 
-test: ## Run the offline test suite with coverage enforcement
-	$(UV) run pytest --cov=ark_mcp --cov-report=term-missing
+test: ## Run offline branch coverage with the 85% gate
+	COVERAGE_FILE=.coverage.offline $(UV) run pytest --disable-socket --allow-unix-socket \
+		--cov=ark_mcp --cov-branch --cov-report= --cov-fail-under=85
+
 
 test-watch: ## Run tests in watch mode
 	$(UV) run pytest-watch
@@ -73,7 +75,7 @@ typecheck: ## Type-check with mypy
 		scripts/configure_http_client.py scripts/export_tool_docs.py \
 		scripts/_smoke_context.py scripts/live_smoke_test.py \
 		scripts/live_smoke_test_variations.py scripts/smoke_seedream55.py \
-		scripts/generate_identity_secret.py scripts/inspect_runtime_state.py \
+		scripts/generate_identity_secret.py \
 		scripts/hosted_acceptance.py
 
 # --- Pre-commit ------------------------------------------------------------

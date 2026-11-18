@@ -35,7 +35,6 @@ from scripts.hosted_acceptance_support.checks import (
     credential_checks,
     credentials,
     disconnect_check,
-    disconnected_input,
     dispatches,
     edge_checks,
     inflight_checks,
@@ -56,7 +55,6 @@ from scripts.hosted_acceptance_support.runtime import (
     isolated_environment,
     loopback_config,
     require,
-    result_of,
     scan_files,
     successful,
     tls_context,
@@ -280,18 +278,8 @@ class Harness:
             child = self.server("omni")
             await wait_healthy(client, self.url, child)
             await surface(client, self.url, omni=True)
-            await self.replays(client)
-            expected_error(
-                await call(
-                    client,
-                    self.url,
-                    "seedance_create_task",
-                    disconnected_input(self.values),
-                    credentials(self.values),
-                ),
-                "SUBMISSION_UNRESOLVED",
-            )
-            self.checks.append("exact_ten_tools_restart_replay_ownership_unresolved")
+            await self.ownership_checks(client)
+            self.checks.append("exact_ten_tools_restart_provider_authorized_polling")
             self.stop_server(child)
             child = self.server("rate")
             await wait_healthy(client, self.url, child)
@@ -308,7 +296,6 @@ class Harness:
         return {
             "prompt": self.values["prompt"],
             "duration": 4,
-            "idempotency_key": self.values["operation"],
         }
 
     async def replays(self, client: httpx.AsyncClient) -> None:
@@ -323,8 +310,13 @@ class Harness:
                     credentials(self.values, other=other),
                 )
             )
-            require(replay == original, "receipt_replay_changed")
-        require(dispatches(self.directory) == before, "replay_dispatched")
+            require(
+                replay["tasks"][0]["task_id"] != original["tasks"][0]["task_id"],
+                "stateless_create_must_not_replay",
+            )
+        require(
+            dispatches(self.directory)["video"] == before["video"] + 2, "new_creates_dispatched"
+        )
         await self.ownership_checks(client)
 
     async def ownership_checks(self, client: httpx.AsyncClient) -> None:
@@ -332,17 +324,10 @@ class Harness:
             own = self.receipts[index]["tasks"][0]["task_id"]
             foreign = self.receipts[1 - index]["tasks"][0]["task_id"]
             headers = credentials(self.values, other=other)
-            before = dispatches(self.directory)
-            denied = result_of(
+            visible = successful(
                 await call(client, self.url, "gen_task_get", {"task_ids": [foreign]}, headers)
-            )["structuredContent"]
-            require(
-                denied["tasks"] == []
-                and len(denied["errors"]) == 1
-                and denied["errors"][0]["code"] == "NOT_OWNED",
-                "owner_isolation",
             )
-            require(dispatches(self.directory) == before, "foreign_poll_dispatched")
+            require(visible["tasks"][0]["task_id"] == foreign, "provider_authorized_poll")
             owned = successful(
                 await call(client, self.url, "gen_task_get", {"task_ids": [own]}, headers)
             )
@@ -390,7 +375,7 @@ class Harness:
             "distinct_owners_shared_key",
         )
         await self.replays(client)
-        self.checks.append("preflight_image_video_poll_replay_two_owners")
+        self.checks.append("preflight_image_video_poll_no_replay_two_client_secrets")
         for prompt, code in (
             ("provider-failure", "SYNTHETIC_FAILURE"),
             ("transport-failure", "ambiguous_completion=True"),
@@ -413,7 +398,7 @@ class Harness:
         await bounded_generation(client, self.url, self.values, self.directory, task_id)
         self.checks.append("admission_deadline_polling_slot_recovery")
         await disconnect_check(client, self.url, self.values, self.directory)
-        self.checks.append("disconnect_eventual_unresolved_no_redispatch")
+        self.checks.append("disconnect_no_automatic_redispatch")
         self.load = await run_load(
             client, self.url, headers, task_id, self.options.max_requests, self.options.concurrency
         )
@@ -434,6 +419,7 @@ class Harness:
             except Exception:
                 failures = True
         scan_files(self.directory, list(self.values.values()))
+        require(not (self.directory / "state").exists(), "unexpected_persistent_state")
         require(not dispatches(self.directory)["mock_violation"], "unexpected_provider_dispatch")
         require(not failures, "process_cleanup_failed")
         self.checks.append("all_logs_state_canary_scan_cleanup")

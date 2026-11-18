@@ -5,8 +5,8 @@ start with [Set Up Ark MCP](setup/install.md) and [your client guide](integratio
 Users can ask their client in plain language; the client handles tool calls.
 
 **Choose the transport first.** Both transports use direct tool calls.
-HTTP BYOK exposes 7 tools (10 with OmniHuman), direct foreground provider calls
-and anonymous static discovery. It has no jobs/native tasks/storage/artifact
+HTTP BYOK exposes 7 tools (10 with OmniHuman), plus optional temporary upload preparation, direct foreground provider calls
+and anonymous static discovery. It has no jobs/native tasks/local storage/artifact
 tools/resources. Keep persistence false and download expiring provider URLs
 on the client. See [HTTP setup](setup/shared-server.md).
 Anonymous discovery lists configured bindings without environment provider
@@ -20,14 +20,7 @@ Explicit per-call `io.modelcontextprotocol/tasks` opt-in is rejected before
 provider dispatch, snapshot capture/save or queue creation. Omit the opt-in;
 ordinary jobs are unavailable on both transports.
 
-HTTP non-dry Seedance/OmniHuman creates require `idempotency_key` (16-128 ASCII
-letters, digits, `_` or `-`; UUID recommended), one per intended whole call.
-Repeat identical arguments/key only for saved-success delivery recovery, not
-polling. Unresolved/partial attempts need reconciliation using known IDs,
-never automatic resume or a new key to bypass uncertainty. Seedance dry runs
-need no key/journal; stdio rejects supplied keys. See the
-[submission contract](../specs/SPEC_HOSTED_BYOK.md#http-submission-safety).
-All local examples below remain keyless.
+Hosted HTTP is database-free: provider-key task authorization, no durable replay or shared budget accounting. Omit legacy operation keys; never automatically resubmit uncertain creates. Local stdio persistence remains available.
 
 ## Prerequisites
 
@@ -71,8 +64,9 @@ is present. A variation can have both `task_id` and `error` after bookkeeping
 failure; `submitted` counts known IDs and `failed` counts entries with errors,
 so the counters overlap. A single-call failure remains error `ToolResult`
 text with IDs rather than structured success output. Never resubmit accepted
-work. HTTP polling requires recorded ownership; otherwise reconcile with the
-provider using those IDs. Trusted stdio permits unrecorded IDs, but still
+work. HTTP polling uses provider-key authorization without local ownership
+records. Reconcile uncertain acceptance with the provider using those IDs.
+Trusted stdio permits unrecorded IDs, but still
 rejects a recorded owner mismatch.
 
 ### Deadlines and admission
@@ -84,7 +78,7 @@ backlog occupying provider slots. Budget is reserved after admission.
 have done so. No automatic retry loop is added.
 
 `MCP_TOOL_TIMEOUT_SECONDS=600.0` (finite positive, max 3600) starts at wrapper
-entry after MCP parsing, before credentials, journal and admission.
+entry after MCP parsing, before credentials and admission.
 Use client timeout **660 seconds** and compatible proxy settings.
 SQLite/SDK cleanup may exceed this cooperative deadline.
 `TOOL_DEADLINE_EXCEEDED` is a text-only error preserving mutation uncertainty
@@ -369,8 +363,9 @@ HTTP clients send only the selected `X-ModelArk-Api-Key`,
 `X-MCP-Client-Secret` (client-generated 32 random bytes as 64 lowercase hex).
 Discovery is anonymous/static; provider calls including dry runs need headers.
 Keys are not persisted and there is no environment fallback, OAuth, signup or
-server-issued key. Fresh SQLite uses credential-tenant/client-owner scoping
-without compatibility migration. See [Self-Hosting](self-hosting.md).
+server-issued key. HTTP has no database or client-level task ledger; provider keys
+authorize task access. Local stdio retains SQLite. Preserve old state and accepted
+IDs during a separately reviewed transition. See [Self-Hosting](self-hosting.md).
 
 See [Configuration](configuration.md) for model bindings, body limits,
 concurrency, and budget settings.

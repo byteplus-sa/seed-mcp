@@ -15,7 +15,7 @@ from fastmcp import Context
 
 from ark_mcp.config.env import Settings
 from ark_mcp.domain.errors import AcceptedTaskError, NormalizedProviderError, ProviderError
-from ark_mcp.execution import before_provider_request, run_direct_call
+from ark_mcp.execution import authorize_provider_request, before_provider_request, run_direct_call
 from ark_mcp.runtime import (
     BudgetExceededError,
     BudgetReservation,
@@ -308,6 +308,7 @@ async def test_billed_slot_cancellation_cleanup_is_shielded_and_logged(
         async with billed_provider_slot(
             billed_context, provider="modelark", product="image", estimated_cost_usd=0.08
         ):
+            before_provider_request()
             await provider_call()
             ready.set()
             await asyncio.Event().wait()
@@ -388,9 +389,6 @@ async def test_record_accepted_task_retains_id_with_safe_outward_text(
     [
         ("stdio", "commit"),
         ("stdio", "ownership"),
-        ("http", "commit"),
-        ("http", "journal"),
-        ("http", "ownership"),
     ],
 )
 @pytest.mark.parametrize("external_cancel", [False, True])
@@ -414,15 +412,12 @@ async def test_accepted_receipts_survive_deadline_during_partial_batch_bookkeepi
     finished = asyncio.Event()
     if stage == "commit":
         target, method = runtime.budget_ledger, "commit"
-    elif stage == "journal":
-        assert runtime.submission_store is not None
-        target, method = runtime.submission_store, "record_task"
     else:
         target, method = runtime.ownership_store, "record"
     original = getattr(target, method)
     calls = 0
 
-    async def blocked(*args: object) -> None:
+    async def blocked(*args: object, **kwargs: object) -> None:
         nonlocal calls
         calls += 1
         if calls == 2:
@@ -430,12 +425,12 @@ async def test_accepted_receipts_survive_deadline_during_partial_batch_bookkeepi
             async def finish() -> None:
                 entered.set()
                 await release.wait()
-                await original(*args)
+                await original(*args, **kwargs)
                 finished.set()
 
             await drain_task(asyncio.create_task(finish()))
         else:
-            await original(*args)
+            await original(*args, **kwargs)
 
     monkeypatch.setattr(target, method, blocked)
 
@@ -449,21 +444,10 @@ async def test_accepted_receipts_survive_deadline_during_partial_batch_bookkeepi
             ):
                 before_provider_request()
                 capture_accepted_task(ctx, "modelark", f"accepted-{index}", f"request-{index}")
-            await record_accepted_task(ctx, "modelark", f"accepted-{index}", f"request-{index}")
+                await record_accepted_task(ctx, "modelark", f"accepted-{index}", f"request-{index}")
 
     async def call() -> None:
-        if transport == "http":
-            from ark_mcp.submissions import execute_submission
-            from ark_mcp.tools.seedance_create_task import SeedanceCreateTaskInput
-
-            request = SeedanceCreateTaskInput(
-                prompt="Synthetic task",
-                variations=2,
-                idempotency_key="synthetic-receipt-key",
-            )
-            await execute_submission(ctx, "seedance_create_task", request, create_batch)
-        else:
-            await create_batch()
+        await create_batch()
 
     try:
         with (
@@ -628,3 +612,56 @@ async def test_expired_later_slot_releases_only_its_reservation_not_prior_accept
     assert get_runtime(billed_context).budget_ledger._connection.execute(
         "SELECT status FROM budget_reservations ORDER BY id",
     ).fetchall() == [("committed",), ("released",)]
+
+
+@pytest.mark.parametrize("external_cancel", [False, True])
+@pytest.mark.parametrize("prior_dispatch", [False, True])
+async def test_cancelled_create_fence_releases_only_undispatched_reservation(
+    billed_context: Context, external_cancel: bool, prior_dispatch: bool
+) -> None:
+    guarded = asyncio.Event()
+    dispatches = 0
+
+    async def guard() -> None:
+        guarded.set()
+        await asyncio.Event().wait()
+
+    async def call() -> None:
+        nonlocal dispatches
+        if prior_dispatch:
+            async with billed_provider_slot(
+                billed_context,
+                provider="modelark",
+                product="video",
+                estimated_cost_usd=0.04,
+            ):
+                before_provider_request()
+                dispatches += 1
+        async with billed_provider_slot(
+            billed_context,
+            provider="modelark",
+            product="video",
+            estimated_cost_usd=0.04,
+        ):
+            await authorize_provider_request()
+            dispatches += 1
+
+    pending = asyncio.create_task(
+        run_direct_call(
+            call,
+            timeout_seconds=5 if external_cancel else 0.05,
+            read_only=False,
+            mutation_guard=guard,
+        )
+    )
+    await asyncio.wait_for(guarded.wait(), 1)
+    if external_cancel:
+        pending.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await pending
+    else:
+        deadline_text(await pending, ambiguous=prior_dispatch)
+    assert dispatches == int(prior_dispatch)
+    assert get_runtime(billed_context).budget_ledger._connection.execute(
+        "SELECT status FROM budget_reservations ORDER BY id",
+    ).fetchall() == ([("committed",)] if prior_dispatch else []) + [("released",)]

@@ -110,7 +110,9 @@ path only.
 
 ## Object storage (TOS or S3)
 
-Stdio only; HTTP exposes no object-storage or artifact tools.
+Local upload/presign and artifacts are stdio-only. Opt-in HTTP
+[temporary preparation](temporary-uploads.md) uses separate restricted operator
+TOS credentials and enrolled client-secret digests, not customer AK/SK.
 
 Object storage is **optional** but enables several workflows: the `media_upload` and
 `media_presign` tools and Seedance video references

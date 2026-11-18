@@ -4,10 +4,13 @@ Complete schemas, inputs, outputs, and examples for the conditional MCP tool
 surface.
 
 The static catalog has 15 local stdio tools, four always registered locally.
-HTTP exposes only tools 1-7 below, plus 8-10 when OmniHuman is enabled.
-HTTP registration does not require operator keys; discovery is anonymous/static.
+HTTP exposes tools 1-7 below, plus 8-10 when OmniHuman is enabled, and the
+16th definition `media_prepare_upload` when temporary uploads are enabled.
+Generation-tool registration does not require operator generation keys; discovery
+is anonymous/static. Temporary preparation requires operator TOS configuration
+and client enrollment.
 Provider calls run directly in the foreground with selected BYOK headers and
-required client secret. No jobs/native tasks/storage/artifact tools/resources
+required client secret. No jobs/native tasks/local storage/artifact tools/resources
 exist on HTTP. No OAuth, signup, server-issued key or provider-key fallback.
 See [HTTP setup](setup/shared-server.md). Catalog scope strings below are
 metadata, not customer-selected roles.
@@ -16,6 +19,15 @@ including discovery, before provider dispatch, snapshot capture/save or queue
 creation. Omit task opt-in; ordinary jobs are not an HTTP fallback.
 
 **Artifact and startup-key guidance below is stdio-only.**
+
+## Temporary Upload Preparation
+
+`media_prepare_upload` is HTTP-only and opt-in. It takes category, exact MIME
+and byte count, returns restricted TOS POST fields and a GET reference URL,
+and requires operator enrollment of the live client secret, not a generation
+key. The client uploads directly before using the reference. See
+[tool details](tools.md#media_prepare_upload) and
+[operator/client workflow](temporary-uploads.md).
 Seed Audio/Seedream `persist` and OmniHuman get `persist_output` default to
 false globally. HTTP rejects true, local paths and stored artifact references;
 local explicit true remains supported. HTTP clients download expiring URLs.
@@ -96,9 +108,9 @@ snapshots or execution claims exist. Provider queues and ownership remain.
 
 Use client timeout 660 seconds with `MCP_TOOL_TIMEOUT_SECONDS=600.0`
 (finite positive, max 3600). The cooperative timer starts at wrapper entry,
-before credentials, journal and admission. SDK/SQLite cleanup may exceed it.
+before credentials and admission. SDK/local SQLite cleanup may exceed it.
 `MCP_ADMISSION_TIMEOUT_SECONDS=2.0` (finite positive, max 30) bounds combined
-owner-first/provider waiting, before budget reservation. `ADMISSION_TIMEOUT`
+owner-first/provider waiting, before local stdio budget reservation. `ADMISSION_TIMEOUT`
 means this attempt did not dispatch, not the whole batch.
 `TOOL_DEADLINE_EXCEEDED` is text-only and preserves uncertainty and safe
 accepted IDs. Never blindly resubmit or assume timeout cancelled upstream work.
@@ -687,18 +699,13 @@ The `estimated_cost_usd` value above is illustrative only.
 
 ## 4. seedance_create_task
 
-**One create tool for every configured Seedance model** (2.0, 2.0 Fast, 2.0
-Mini, 2.5, and 2.5 Flash): single tasks, up to five parallel variations,
-Draft mode, and dry runs. Registered whenever `BYTEPLUS_MODELARK_API_KEY` is
-set on stdio; catalog capability label `seedance:create`. Both transports call directly.
-Poll the returned task IDs with [`gen_task_get`](#5-gen_task_get).
-HTTP calls directly; non-dry creates require `idempotency_key`, one per whole
-variation batch. Repeat identical arguments/key only for saved-success
-delivery recovery, not polling. Failed/partial/cancelled attempts remain
-unresolved with known IDs, never automatically resumed. Do not change keys to
-bypass uncertain acceptance. Seedance dry runs need no key or journal; stdio
-rejects supplied keys. See the
-[submission contract](../specs/SPEC_HOSTED_BYOK.md#http-submission-safety).
+One create tool serves all configured Seedance models: single tasks, up to five
+parallel variations, supported Draft workflows and dry runs. Poll returned IDs
+with [`gen_task_get`](#5-gen_task_get). Hosted HTTP uses provider-key task
+authorization without durable replay or shared budget accounting. Omit
+`idempotency_key`; supplied legacy keys are rejected, including dry runs.
+Never automatically resubmit uncertain creates. Local stdio persistence remains
+available.
 
 ### Model Selection
 
@@ -730,7 +737,7 @@ for the models configured on a given server):
 
 | Field | Type | Required | Default | Constraints |
 |---|---|---|---|---|
-| `idempotency_key` | string \| null | Non-dry HTTP only | `null` | 16-128 ASCII letters, digits, `_` or `-`; fresh UUID per intended whole call. Omit on stdio and dry runs |
+| `idempotency_key` | string \| null | No | `null` | Deprecated legacy input; non-null values are rejected on both transports before dispatch |
 | `prompt` | string | No* | — | 1-32,000 chars. Optional when media or `variation_prompts` are given |
 | `images` | list[SeedanceImageInput] | No | — | Schema max 30; per-model max checked at runtime. Roles `first_frame`, `last_frame`, `reference_image` |
 | `videos` | list[SeedanceVideoInput] | No | — | Schema max 10; per-model max checked at runtime |
@@ -867,7 +874,7 @@ or `{"url": "..."}`.
 
 Successful single requests, variation batches and dry runs return
 `SeedanceCreateTaskOutput`. A single-call provider or post-acceptance
-journal/ownership-record failure instead returns an error `ToolResult` with text, not this
+local ownership-record failure instead returns an error `ToolResult` with text, not this
 structured success shape. That text retains any known accepted task ID and
 diagnostic request ID; preserve them even when `isError=true`.
 
@@ -877,8 +884,8 @@ diagnostic request ID; preserve them even when `isError=true`.
 | `family` | string | Resolved model family (e.g. `seedance_2_5`) |
 | `dry_run` | boolean | `true` when nothing was submitted; see `preview` |
 | `tasks` | list[SeedanceTaskRef] | One entry per requested variation, in order; empty for a dry run |
-| `submitted` | integer | Entries with known accepted task IDs, including journal/ownership-record errors |
-| `failed` | integer | Entries with submission or journal/ownership-record errors; may overlap with `submitted`. Budget-finalization log events do not add failures |
+| `submitted` | integer | Entries with known accepted task IDs, including local ownership-record errors |
+| `failed` | integer | Entries with submission or local ownership-record errors; may overlap with `submitted`. Local budget-finalization log events do not add failures |
 | `recommended_poll_after_ms` | integer \| null | Suggested delay before the first `gen_task_get` poll; `null` for a dry run |
 | `preview` | SeedanceCreatePreview \| null | Set only for a dry run |
 
@@ -887,22 +894,13 @@ diagnostic request ID; preserve them even when `isError=true`.
 | Field | Type | Description |
 |---|---|---|
 | `index` | integer | 0-based variation index (`0` for a single request) |
-| `task_id` | string \| null | Known accepted provider task ID, retained alongside journal/ownership-record errors; null when acceptance is unknown or submission failed. HTTP polling requires recorded ownership. For `draft=true`, use as `draft_task_id` once succeeded |
+| `task_id` | string \| null | Known accepted provider task ID, retained alongside local ownership-record errors; null when acceptance is unknown or submission failed. HTTP polling uses provider-key authorization. For `draft=true`, use as `draft_task_id` once succeeded |
 | `request_id` | string \| null | Provider request ID, when returned |
-| `error` | VariationError \| null | Submission or post-acceptance journal/ownership-record failure; can coexist with `task_id`. Budget-finalization exceptions alone leave this null |
+| `error` | VariationError \| null | Submission or post-acceptance local ownership-record failure; can coexist with `task_id`. Local budget-finalization exceptions alone leave this null |
 
-`submitted` and `failed` are independent counts, not a partition of `tasks`.
-For example, two accepted IDs with one ownership-record error give `submitted=2`
-and `failed=1`. Accepted journal/ownership failures surface as `AcceptedTaskError`
-(`SUBMISSION_RECORD_FAILED` or `OWNERSHIP_RECORD_FAILED`), are ambiguous/nonretryable and never trigger
-resubmission. Retain every known ID; if ownership was not recorded, HTTP polling
-fails closed and requires provider-side reconciliation with the task/request IDs.
-On HTTP the shared helper validates safe IDs before journaling, then records
-ownership even if the journal write failed. Unsafe or secret-echoing IDs are
-not persisted or returned.
-Trusted stdio permits unrecorded IDs, but still rejects a recorded owner mismatch.
+See the database-free HTTP contract above; local stdio persistence is unchanged.
 
-Budget-finalization exceptions only log `ERROR` event `budget_finalization_failed`;
+Local stdio budget-finalization exceptions only log `ERROR` event `budget_finalization_failed`;
 they preserve the provider result/error and do not add to `failed`. Failed
 commit/release leaves conservative reserved allowance. Reservation before
 dispatch still fails closed; cancellation cleanup is shielded best effort, not
@@ -1305,20 +1303,16 @@ task's outputs are no longer retrievable through `gen_task_get`.
 
 ## 8-10. omnihuman_create_task / omnihuman_get_task / omnihuman_cancel_task
 
-Registered when `BYTEPLUS_OMNIHUMAN_ENABLED=true` and `BYTEPLUS_CV_API_KEY` is
-set. Scopes: `omnihuman:create`, `omnihuman:read`, `omnihuman:cancel`.
+Registered when `BYTEPLUS_OMNIHUMAN_ENABLED=true`; stdio also requires
+`BYTEPLUS_CV_API_KEY`, while HTTP uses the caller's `X-OmniHuman-Api-Key`.
+Scopes: `omnihuman:create`, `omnihuman:read`, `omnihuman:cancel`.
 
-`omnihuman_create_task` input: `image` and `audio` (HTTPS URL or
+`omnihuman_create_task` takes `image` and `audio` HTTPS URLs (stdio also accepts
 `seed-media://artifacts/<id>`), optional `prompt` (max 2000 characters), and
-`watermark` (default `true`). Output: `provider`, `status="accepted"`,
-`task_id`, `request_id`, `recommended_poll_after_ms`.
-HTTP creation also requires `idempotency_key` (default null in the shared
-schema): 16-128 ASCII letters, digits, `_` or `-`; fresh UUID per intended call.
-Stdio rejects supplied keys. HTTP calls directly in the foreground; repeat
-identical arguments/key only for saved-success delivery recovery, not polling.
-Failed/cancelled attempts stay unresolved, with known IDs but no automatic
-resume. Never change keys to bypass uncertain acceptance. Safe accepted IDs
-are journaled before ownership recording, as for Seedance.
+`watermark` (default `true`). It returns `provider`, `status="accepted"`,
+`task_id`, `request_id`, and `recommended_poll_after_ms`. Omit `idempotency_key`;
+non-null legacy keys are rejected on both transports. HTTP has no saved-response
+replay; retain IDs and reconcile uncertain acceptance without resubmitting.
 
 `omnihuman_get_task` input: `task_id`, `persist_output` (default `false`; true
 is stdio-only and rejected on HTTP), `output_path`, `overwrite`. Output: `status`
@@ -1720,7 +1714,7 @@ When Streamable HTTP is enabled, the ASGI application also exposes:
 | Path | Purpose |
 |---|---|
 | `/health` | Process liveness |
-| `/ready` | Minimal SQLite state readiness; no provider probes; blocked by VKE Caddy |
+| `/ready` | HTTP lifespan readiness only; no storage or provider probes; blocked by VKE Caddy |
 | `/metrics` | Absent from main app/public proxy; optional separate loopback listener |
 
 These are operational endpoints rather than MCP resources. Protect their
@@ -1728,3 +1722,5 @@ network reachability at the ingress or reverse-proxy layer. VKE Caddy exposes
 only `/mcp` and `/health`. `MCP_METRICS_PORT=0` disables private metrics;
 nonzero 1024-65535 ports bind only 127.0.0.1 for the HTTP runtime. See
 [private metrics access](observability.md#metrics-endpoint).
+Hosted HTTP readiness checks lifespan availability without storage or provider probes.
+Local stdio retains local persistence. See [runtime operations](runtime.md).

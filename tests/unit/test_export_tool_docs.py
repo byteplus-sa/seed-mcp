@@ -80,7 +80,7 @@ def profile(frame, event, arg):
         event == "call"
         and frame.f_globals.get("__name__") == "ark_mcp.tools._catalog"
         and frame.f_code.co_name in {
-            "_always", "_local", "_modelark", "_seed_audio", "_object_storage", "_omnihuman",
+            "_always", "_local", "_modelark", "_seed_audio", "_object_storage", "_omnihuman", "_temporary_upload",
         }
     ):
         raise AssertionError("Exporter evaluated a registration gate")
@@ -223,7 +223,7 @@ runpy.run_path = missing_gate
 
 def test_catalog_inventory_and_order_are_exact(exported: dict[str, Any]) -> None:
     assert [tool["name"] for tool in exported["tools"]] == [entry.name for entry in CATALOG]
-    assert len(exported["tools"]) == len(CATALOG) == 15
+    assert len(exported["tools"]) == len(CATALOG) == 16
     assert {tool["name"] for tool in exported["tools"]} == {
         "ark_list_models",
         "seed_media_get_artifact",
@@ -232,6 +232,7 @@ def test_catalog_inventory_and_order_are_exact(exported: dict[str, Any]) -> None
         "seed_audio_generate",
         "media_upload",
         "media_presign",
+        "media_prepare_upload",
         "omnihuman_create_task",
         "omnihuman_get_task",
         "omnihuman_cancel_task",
@@ -270,7 +271,7 @@ def test_create_key_schema_describes_transport_rules_and_validates_boundaries(
     field = model["properties"]["idempotency_key"]
     assert field["default"] is None
     assert "idempotency_key" not in model.get("required", [])
-    for text in ("16-128 ASCII", "UUID", "HTTP", "dry runs", "stdio", "recover"):
+    for text in ("Unsupported", "omit", "stateless", "replay", "uncertain"):
         assert text in field["description"]
     arguments = (
         {"prompt": "A paper boat on calm water.", "variations": 2}
@@ -342,7 +343,7 @@ process.stdout.write(JSON.stringify(
         Draft202012Validator(tool["inputSchema"]).validate(call["arguments"])
         if name in {"seedance_create_task", "omnihuman_create_task"}:
             request = call["arguments"]["input"]
-            assert ("idempotency_key" in request) is not request.get("dry_run", False)
+            assert "idempotency_key" not in request
             local = page.split("Exact MCP call (for developers)</summary>", 1)[1]
             local_match = re.search(r"```json\n(.*?)\n```", local, re.S)
             assert local_match is not None
@@ -459,6 +460,7 @@ def test_all_registration_gates_name_the_exact_environment_variables(
             "S3_BUCKET",
         },
         "_omnihuman": {"BYTEPLUS_OMNIHUMAN_ENABLED", "BYTEPLUS_CV_API_KEY"},
+        "_temporary_upload": set(),
     }
     tools = {tool["name"]: tool for tool in exported["tools"]}
     assert {entry.gate.__name__ for entry in CATALOG} == set(expected)
@@ -487,6 +489,13 @@ def test_transport_inventory_and_execution_match_catalog(exported: dict[str, Any
     assert len(enabled) == 10
     for tool in exported["tools"]:
         transports = tool["transports"]
+        if tool["name"] == "media_prepare_upload":
+            assert set(transports) == {"http"}
+            assert transports["http"]["execution"] == "direct"
+            assert transports["http"]["credential_header"] == "X-MCP-Client-Secret"
+            assert "MCP_TEMPORARY_UPLOAD_ENABLED=true" in transports["http"]["registration_gate"]
+            assert "MCP_UPLOAD_CLIENT_SECRET_SHA256" in transports["http"]["registration_gate"]
+            continue
         assert set(transports) == ({"stdio", "http"} if tool["name"] in enabled else {"stdio"})
         assert transports["stdio"]["execution"] == tool["execution"] == "direct"
         if "http" in transports:
@@ -530,7 +539,7 @@ def test_byok_spec_matches_header_names_and_settings_defaults() -> None:
     )
 
     root = SCRIPT.parents[1]
-    spec = (root / "specs/SPEC_HOSTED_BYOK.md").read_text(encoding="utf-8")
+    spec = " ".join((root / "specs/SPEC_HOSTED_BYOK.md").read_text(encoding="utf-8").split())
     headers = [*PROVIDER_HEADERS.values(), *ENDPOINT_HEADERS.values(), INSTALLATION_HEADER_NAME]
     for header in headers:
         assert header in spec.lower()
@@ -541,27 +550,22 @@ def test_byok_spec_matches_header_names_and_settings_defaults() -> None:
         "rate_limit_rpm": 60,
         "mcp_http_max_body_bytes": 2097152,
         "http_max_in_flight": 64,
-        "state_max_records": 100000,
     }.items():
         setting = Settings.model_fields[field]
         assert setting.default == default
         assert str(setting.validation_alias) in spec
         assert f"`{default}`" in spec
-    assert "(provider, tenant_id, task_id)" in spec
-    assert "No OAuth, signup, server-issued key" in spec
+    assert re.search(r"No OAuth, signup(?:,| or) server-issued key", spec)
     for marker in (
         "## HTTP Submission Safety",
         "idempotency_key",
-        "SUBMISSION_CONFLICT",
-        "SUBMISSION_IN_PROGRESS",
-        "SUBMISSION_UNRESOLVED",
-        "running",
-        "succeeded",
-        "unresolved",
+        "stateless",
+        "provider key",
+        "uncertain",
     ):
         assert marker in spec
     assert "idempotency and crash recovery are not implemented" not in spec
-    assert "Synchronous product replay" in spec
+    assert "no durable replay" in spec
 
 
 @pytest.mark.parametrize("client", ["codex", "claude-code"])
@@ -669,7 +673,11 @@ def test_shipped_skills_have_valid_frontmatter_and_transport_guidance(name: str)
     assert body.strip()
     assert len(content.splitlines()) < 500
     assert "HTTP" in body and "stdio" in body and "foreground" in body
-    assert "no recovery bridge" in body
+    guidance = " ".join(body.split())
+    assert "no hosted replay" in guidance
+    assert "historical database migration workflow" in guidance
+    assert "Retain accepted IDs" in guidance
+    assert "no recovery bridge" not in guidance
 
 
 def _schema_properties(schema: Any, path: str = "") -> Iterator[tuple[str, dict[str, Any]]]:

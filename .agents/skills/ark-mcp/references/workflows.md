@@ -9,36 +9,27 @@ artifact recovery are in [polling-and-artifacts.md](polling-and-artifacts.md).
 ## Direct execution
 
 **Both transports call the product tool directly, without MCP jobs or native tasks.**
-For HTTP, read provider IDs from the direct result, poll with the same selected
-provider key/client secret, keep persistence false and download URLs yourself.
+For HTTP, read provider IDs from the direct result, poll with an authorized
+provider key and required client secret, keep persistence false and download
+URLs yourself. The client secret scopes admission, not task access.
 All persistence/export instructions below describe local stdio.
 Both transports reject explicit per-call `io.modelcontextprotocol/tasks` opt-in, including
 on discovery, before provider dispatch, snapshot capture/save or queue creation.
 Omit task opt-in; ordinary jobs are not an HTTP fallback.
 
-For non-dry HTTP Seedance/OmniHuman creates, generate `idempotency_key` once
-per intended whole call (16-128 ASCII letters, digits, `_` or `-`; UUID
-recommended). Repeat identical arguments/key only for saved-success delivery
-recovery, not polling. Replay checks ownership before any provider/Draft read.
-Failed/partial/cancelled attempts are unresolved with known IDs, never
-automatically resumed; do not change keys to bypass uncertain acceptance.
-Keep the original provider/client credentials and same server state/HMAC
-configuration. Seedance dry runs need no key or journal; stdio rejects keys.
-The local examples below remain keyless.
-
-Call with `{"input": {...}}`, check `is_error`, then read `structured_content`.
-No MCP job IDs, worker snapshots or execution claims exist. Provider queues
-and HTTP journal/ownership records remain separate.
+Hosted HTTP is database-free: provider-key task authorization, no durable replay or shared budget accounting. Omit legacy operation keys; never automatically resubmit uncertain creates. Local stdio persistence remains available.
 
 - Owner-first admission waits up to `MCP_ADMISSION_TIMEOUT_SECONDS=2.0`
-  (finite positive, max 30), then reserves budget after acquiring slots.
+  (finite positive, max 30). Only local stdio reserves budget after acquiring slots.
   `ADMISSION_TIMEOUT` means this attempt did not dispatch, not the whole batch.
 - `MCP_TOOL_TIMEOUT_SECONDS=600.0` (finite positive, max 3600) starts at wrapper
-  entry before credentials, journal and admission. Use client timeout 660
+  entry before credentials and admission. Use client timeout 660
   seconds and compatible proxy settings.
 - `TOOL_DEADLINE_EXCEEDED` retains mutation uncertainty and known safe IDs.
   External cancellation propagates; SDK/SQLite cleanup can exceed the
   cooperative deadline. Timeout does not cancel provider work.
+- HTTP has no bookkeeping database or saved-response replay. Local stdio
+  drains its SQLite bookkeeping; provider deadlines and cancellation still apply.
 - Never blindly resubmit. Poll known provider IDs or reconcile with the
   provider. Local calls have no submission journal or automatic replay.
 - Local writes use live MCP roots or `OUTPUT_ROOTS`; persistence itself
@@ -72,17 +63,17 @@ For Seedance and OmniHuman:
 
 1. Call `seedance_create_task` directly. The result lists `tasks[]`
    for a successful single call or variation batch. A variation can contain
-   both `task_id` and `error` when accepted-task ownership recording fails.
+   both `task_id` and `error` when local accepted-task ownership recording fails.
    `submitted` counts known accepted IDs; `failed` counts entries with errors,
    so the counts can overlap. Single-call failures instead return error
    `ToolResult` text with any known accepted task/request IDs. Only accepted
-   journal/ownership-record failures become outward `AcceptedTaskError` failures,
+   local ownership-record failures become outward `AcceptedTaskError` failures,
    which are ambiguous/nonretryable. Budget-finalization exceptions only log
    `budget_finalization_failed`, preserving the provider result/error without
    adding to `failed`.
 2. Record every known ID, even alongside an error; never recreate accepted
-   work. HTTP polling requires recorded ownership. If recording failed, reconcile
-   directly with the provider using task/request IDs. Trusted stdio permits
+   work. HTTP polling uses provider-key authorization, without a local ledger.
+   Reconcile uncertain acceptance with the provider using task/request IDs. Trusted stdio permits
    unrecorded IDs, not recorded owner mismatches. Otherwise poll **all
    IDs in one `gen_task_get` call** in the
    foreground (`persist_output` omitted) at `recommended_poll_after_ms` until
@@ -121,7 +112,8 @@ For Seedance and OmniHuman:
 - Use only a stable hashed `safety_identifier` (5.5/Pro, 1-64 non-space ASCII);
   previews/logs redact it, while `generations` preserves the provider echo.
 - To iterate on a generated image, pass its provider URL (valid 24 h) or
-  re-upload via `media_upload` and use the presigned URL.
+  re-upload via stdio `media_upload` or an upload-capable HTTP client with
+  optional `media_prepare_upload`, then use the signed URL after upload success.
 - A fixed `seed` helps reproduce request settings, not guaranteed pixels. With
   `variations > 1`, `seed` is a base: `N` gives `N, N+1, ...`, `-1` picks a
   random recorded seed per variation, omitted leaves them unrecorded. On
@@ -177,9 +169,8 @@ not provider assets. See [media-assets.md](media-assets.md).
   raised. `error.phase` tells you what to do: `queued` (`QUEUE_TIMEOUT`) never
   started, safe to retry; `generating` may have completed, do not retry
   blindly; `persisting` means billed output was not stored.
-  An HTTP Seedance key covers the whole batch, not individual variations.
-  Partial results leave it unresolved; do not retry the batch or automatically
-  create a new key for the missing entries.
+  There is no batch journal or replay. Do not retry the whole batch or
+  automatically create missing entries after uncertain acceptance.
 - Write image/audio variations to a directory path ending in `/`.
 - `dry_run: true` (Seedance, Seedream) validates against the model's limits
   and returns request bodies plus `estimated_cost_usd`, an estimate rather than
@@ -234,18 +225,7 @@ The retry wrapper retries only errors marked `retryable` **and not ambiguous**: 
 to 3 attempts, exponential backoff from 0.25 s capped at 4 s with 20% jitter,
 honoring `Retry-After` (also capped at 4 s). After that the error reaches you.
 
-Uncertain mutation transport failures and malformed 2xx responses are
-ambiguous/nonretryable.
-Eligible 429 rejections, demonstrably pre-dispatch connection/pool failures and
-reads retain bounded retries. Mutation 5xx responses may still carry
-`retryable=true`, but `ambiguous_completion=true` prevents automatic retry.
-Diagnostics are sanitized; never add blind client-side retries.
-HTTP asynchronous-create receipt recovery is implemented; synchronous product
-replay and complete crash recovery remain deferred. Journal claims never
-auto-prune; `STATE_MAX_RECORDS` rejects new keys at capacity without blocking
-existing-key reads. PostgreSQL/Redis are future scaling choices, not initial
-requirements. See `specs/SPEC_HOSTED_BYOK.md#http-submission-safety` in the
-selected checkout.
+See the database-free HTTP contract above; local stdio persistence is unchanged.
 
 | Operation | Timeout after possible dispatch | Server retries? | You should |
 |---|---|---|---|
@@ -253,7 +233,7 @@ selected checkout.
 | Task polls (Seedance, OmniHuman) | `retryable=true`, `ambiguous_completion=false` | Yes | Poll again |
 
 - A lost response may still hide accepted work; reconcile safe task/request IDs.
-- Any `TIMEOUT` attempts to commit the budget reservation, since it may have
+- On local stdio, any `TIMEOUT` attempts to commit the budget reservation, since it may have
   been billed. Finalization failure leaves conservative reserved allowance,
   without replacing the original timeout.
 - Output downloads are retried separately (`ARTIFACT_DOWNLOAD_MAX_ATTEMPTS`,
@@ -261,20 +241,27 @@ selected checkout.
 
 ### Budget rejections
 
-With `DAILY_BUDGET_USD` above 0 the server tracks per-principal daily spend
-(UTC day), scoped by credential tenant/client owner on HTTP, and rejects
+On local stdio, `DAILY_BUDGET_USD` above 0 tracks daily estimated spend
+(UTC day), and rejects
 a request whose estimate would exceed it, before any
 provider call ("Daily budget of $X would be exceeded"). At `0` (default) usage
 is recorded without a spending-limit rejection; a successful reservation is
-still required. Wait for the UTC rollover or raise the limit after a budget rejection.
+still required. Wait for the UTC rollover or review the limit after a rejection.
+HTTP requires zero and has no budget ledger; use provider-side spend controls.
 
 Reservation failures still fail closed before provider dispatch. Later
 commit/release exceptions log `ERROR` event `budget_finalization_failed` with
 safe provider/action/reservation ID fields; they do not replace the provider
 result/error or create variation failures. Failed finalization leaves allowance
 conservatively reserved. Cancellation cleanup is shielded best effort, not a
-guarantee that no reserved rows remain. Never regenerate accepted work to
-recover from a ledger problem.
+guarantee that no reserved rows remain. Cancellation commits only when that
+reservation's slot dispatched a mutation; an undispatched slot releases its
+known reservation, even if earlier variations dispatched. Never regenerate
+accepted work to recover from a ledger problem.
+Local accepted-task ownership is recorded before the provider slot is released
+(before Seedance budget finalization). The write drains through cancellation;
+a failed write still requires reconciliation, never regeneration. HTTP only
+captures safe IDs in the live invocation.
 
 ### Common issues
 
@@ -296,12 +283,16 @@ recover from a ledger problem.
 
 ## Best practices beyond the schemas
 
-- **For ordinary Seedance URL references, upload once and presign per shot.**
+- **On stdio, upload ordinary Seedance URL references once and presign per shot.**
   Store each `object_key` from one `media_upload` call (check `failed`) in a
   project reference registry; before each shot call `media_presign` for the
   keys it needs and submit immediately. Use a long `expires_in_seconds` (for
   example 3600) for references, which are fetched asynchronously. Existing
   native `asset://` references do not need an ordinary upload or presign.
+- **On HTTP, use your own URLs or optional temporary TOS preparation.**
+  An enrolled client calls `media_prepare_upload`, uploads the file directly
+  with file last, waits for success, then submits generation promptly.
+  Temporary references have no renewal tool; never publish signed permissions.
 - **Verify saved media, not task status** (see the QA sections).
 - **Persist before cleaning up.** Provider URLs expire (2 h audio, 24 h
   ModelArk image/video, 1 h OmniHuman); `gen_task_cancel_or_delete` removes retrievable outputs.

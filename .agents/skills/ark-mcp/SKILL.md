@@ -1,6 +1,6 @@
 ---
 name: ark-mcp
-description: Generate media with Seed MCP. Use for Seedream, Seedance, Seed Audio and OmniHuman through direct HTTP BYOK or stdio calls; storage and artifacts are local only.
+description: Generate media with Seed MCP. Use for Seedream, Seedance, Seed Audio and OmniHuman through direct HTTP BYOK or stdio calls, including opt-in temporary TOS reference preparation.
 ---
 
 # Ark Seed Multimodal MCP Server
@@ -18,7 +18,8 @@ schemas** (upstream retained-tool detail: [API reference](https://byteplus-sa.gi
 
 Determine the transport before choosing a workflow. HTTP BYOK has 7 tools,
 or 10 with OmniHuman enabled, and runs provider tools directly in the foreground.
-It has no jobs, native tasks, storage/artifact tools or resources. Local stdio
+Opt-in `media_prepare_upload` adds one HTTP tool for enrolled clients (8/11).
+It has no jobs, native tasks, local storage/artifact tools or resources. Local stdio
 retains the 15-entry conditional catalog and storage/artifacts, with direct calls.
 Asset administration is unavailable on either transport. Setup and rotation:
 [environment.md](references/environment.md#transport-and-auth).
@@ -73,8 +74,8 @@ flowchart LR
    for variation tools, and `dry_run` (Seedance, Seedream) to check a request
    and its cost without billing.
 3. **Poll.** Seedance with `gen_task_get`; OmniHuman with
-   `omnihuman_get_task`. **Never resubmit a create tool to poll**; receipt
-   recovery does not refresh provider status, and a new create can bill again.
+   `omnihuman_get_task`. **Never resubmit a create tool to poll**; there is no
+   saved-response replay, and a new create can bill again.
 4. **Keep outputs.** HTTP clients download expiring provider URLs themselves.
    Stdio can explicitly persist and use `seed_media_get_artifact`,
    `seed_media_export_artifact`, `seed_media_persist_url`, and resources.
@@ -96,7 +97,7 @@ flowchart LR
   unknown IDs are not echoed. The operator must verify model/version and
   bind the exact ID. Do not guess a family or accept caller claims as proof.
 - Official GetEndpoint metadata requires AK/SK signing, not ModelArk Bearer
-  auth. This server takes no AK/SK custody and does not implement arbitrary
+  auth. This server takes no customer ModelArk AK/SK custody and does not implement arbitrary
   BYOE self-service. See `specs/SPEC_HOSTED_BYOK.md#byoe-endpoint-authority`
   in the selected checkout.
 - An explicit create-tool `model` wins over endpoint headers; preflight checks
@@ -107,46 +108,30 @@ flowchart LR
 
 ### HTTP create recovery
 
-- Require `idempotency_key` on non-dry Seedance and OmniHuman creates:
-  16-128 ASCII letters, digits, `_` or `-`; generate a fresh UUID for each
-  intended operation, one key for the entire variation batch. Seedance dry
-  runs need no key and consume no journal claim. Stdio rejects supplied keys.
-- Repeat identical arguments/key only for delivery recovery, not polling.
-  Only complete saved success replays after ownership checks, before any
-  upstream call including Draft lookup. Failed, partial or cancelled attempts
-  remain unresolved with known accepted IDs, never automatically resumed.
-  Never change keys to bypass uncertain acceptance. Poll known task IDs when
-  ownership remains recorded; otherwise reconcile with the provider.
-- Keep original provider/client credentials and the same server state and HMAC
-  key/version. Claims never auto-prune; at `STATE_MAX_RECORDS` new keys fail
-  while existing keys remain readable. Raw keys, prompts, media, credentials
-  and errors are not journaled; key/input fingerprints use HMAC.
-- Draft creation and promotion are separate intended operations, each with a
-  fresh key on HTTP. Repeat the identical promotion arguments to recover its
-  receipt; do not replace an omitted inherited model with an explicit model.
-- This first slice does not cover synchronous product replay or complete
-  crash recovery. See `specs/SPEC_HOSTED_BYOK.md#http-submission-safety` in the
-  selected checkout and [environment.md](references/environment.md).
+- Omit `idempotency_key`; non-null legacy keys are rejected on both transports,
+  including dry runs. There is no durable replay or automatic partial-batch resume.
+- Retain all accepted task/request IDs and poll. Reconcile uncertain or lost
+  responses with the provider; never automatically repeat the create.
+- HTTP task get/list/cancel and Draft lookup use the supplied provider key.
+  Client secrets scope per-pod admission, not task access. Clients sharing a
+  provider key share whatever access that provider permits.
+- HTTP is database-free with no shared budget ledger. Local stdio retains
+  SQLite-backed artifacts and bookkeeping.
 
 ### Direct execution
 
 - Call the original tool with `{"input": {...}}`; inspect `is_error` before
-  `structured_content`. Both transports reject explicit
-  `io.modelcontextprotocol/tasks` opt-in, including discovery.
-- No MCP jobs, workers, snapshots or execution claims exist. Provider video
-  queues, ownership and the HTTP create journal remain.
-- Owner-first admission uses `MCP_ADMISSION_TIMEOUT_SECONDS=2.0` (finite
-  positive, max 30). Budget reservation follows admission.
-  `ADMISSION_TIMEOUT` means this attempt did not dispatch, not the whole batch.
-- `MCP_TOOL_TIMEOUT_SECONDS=600.0` (finite positive, max 3600) starts at wrapper
-  entry before credentials, journal and admission. Use client timeout 660
-  seconds. SDK/SQLite draining may exceed the cooperative deadline.
-- `TOOL_DEADLINE_EXCEEDED` is text-only and retains mutation uncertainty and
-  safe accepted IDs. External cancellation propagates; timeout does not
-  cancel provider work. Never blindly resubmit; poll known IDs or reconcile.
-- Direct local writes use live MCP roots or `OUTPUT_ROOTS`. Persistence into
-  the artifact store itself needs no output roots. See
-  [local-output.md](references/local-output.md).
+  `structured_content`. Omit `io.modelcontextprotocol/tasks` opt-in on both
+  transports, including discovery. No MCP jobs or native tasks are exposed.
+- Owner-first admission defaults to 2 seconds; the whole-call deadline defaults
+  to 600 seconds. Use client timeout 660 seconds and compatible proxy settings.
+  Local stdio reserves budget after admission; HTTP does not.
+- `ADMISSION_TIMEOUT` means this attempt did not dispatch, not the whole batch.
+  `TOOL_DEADLINE_EXCEEDED` is text-only and retains uncertainty and safe accepted
+  IDs. External cancellation propagates; timeout does not cancel provider work.
+- SDK/local SQLite draining can exceed the cooperative deadline.
+  Direct local writes use live MCP roots or `OUTPUT_ROOTS`; artifact-store
+  persistence itself needs no roots. See [local-output.md](references/local-output.md).
 
 ### Models, variations, dry runs
 
@@ -174,32 +159,19 @@ flowchart LR
 
 ### Seedance
 
-- Keep every accepted task/request ID, even alongside an error. Accepted-task
-  ownership recording can fail: variation `task_id` and
-  `error` may coexist, and `submitted` (known IDs) overlaps with `failed`
-  (entries with errors). A single-call failure remains error `ToolResult` text
-  with known IDs. Never resubmit accepted tasks; HTTP polling requires recorded
-  ownership, otherwise reconcile with the provider. Trusted stdio permits
-  unrecorded IDs, not recorded owner mismatches.
-- Accepted journal/ownership-record failures become outward `AcceptedTaskError`
-  failures, which retain task/request IDs and are ambiguous/nonretryable.
-  On HTTP, safe IDs are journaled before ownership; a failed journal write
-  still attempts ownership. Unsafe or secret-echoing IDs are not persisted.
-  Budget-finalization exceptions log `ERROR` event `budget_finalization_failed`
-  without replacing the provider result/error or adding to `failed`; failed
-  commit/release leaves conservative reserved allowance. Reservation before
-  dispatch still fails closed. Cancellation cleanup is shielded best effort,
-  not a guarantee that no reserved rows remain.
-- **Draft (regular 2.5 only, not Flash):** `draft=true` makes a cheap 480p preview; once it
-  has `succeeded` (within 14 days of creation, or 7 if created before
-  2026-10-28 10:00 UTC+8), call again with only `draft_task_id`
-  (plus a fresh HTTP `idempotency_key`, `return_last_frame`, `watermark`,
-  `output_format` and similar) to render
-  the final video at 1080p, not 4K. The Draft's model, prompt, media, duration and ratio are
-  reused and must be omitted; `variations` must be 1.
-- Video references must be public HTTPS URLs (or `asset://`); use
-  `media_upload` for local files.
-- Refer to `asset://` references in prompts as "Image 1", "Video 1" by position.
+- Keep accepted task/request IDs even alongside an error. On local stdio,
+  ownership recording can fail after acceptance: `task_id` and `error` may
+  coexist, and `submitted` can overlap with `failed`. Never recreate accepted
+  work. HTTP does not persist ownership or submission receipts.
+- **Draft (regular 2.5 only, not Flash):** `draft=true` creates a 480p preview.
+  After it succeeds, promote within 14 days of creation (7 for creation before
+  2026-10-28 10:00 UTC+8) using `draft_task_id` and supported output options.
+  The final render is 1080p, not 4K. Omit inherited prompt/media/duration/ratio
+  and model; `variations` must be 1. Omit `idempotency_key`.
+- Use public HTTPS video references or authorized `asset://` references.
+  Local files need stdio `media_upload` or an upload-capable HTTP integration
+  using optional `media_prepare_upload`. Refer to assets in prompts as
+  "Image 1" or "Video 1" by position.
 
 ### Seedream
 
@@ -258,6 +230,17 @@ flowchart LR
 
 ### Media upload and assets
 
+- **HTTP-only `media_prepare_upload` is opt-in and prepare-only.** Requires an
+  operator-enrolled live `X-MCP-Client-Secret`, no generation-provider key.
+  Send category, exact MIME and byte size only (10 MiB image/audio, 200 MiB video).
+  The client uploads directly to TOS with signed fields unchanged and file LAST,
+  waits for success, then uses `reference_url` with normal generation headers.
+  Attaching a file in chat does not perform this upload. Never log/publish signed
+  fields or URLs. MIME is declared metadata, not inspected content.
+  POST/GET nominal TTLs are 15 minutes/24 hours; STS can shorten them.
+  One-day object expiry is scheduled, not exact 24-hour deletion or URL expiry.
+  No upload verification, URL renewal, DB or global storage budget exists.
+  See [media-assets.md](references/media-assets.md#temporary-http-references).
 - **Stdio-only `media_upload` and `media_presign` items fail independently.** Always check
   `failed` and `items[].error` (`media_presign` codes: `INVALID_KEY`,
   `NOT_OWNED`, `INTERNAL`, or a provider code). Only an over-size request
@@ -307,15 +290,13 @@ Asset reference: pass an already usable provider reference as
 | Unknown `model` | Not an exact configured ID | Use the suggested ID or one from `ark_list_models` |
 | `endpoint_not_configured` / `ENDPOINT_NOT_CONFIGURED` | Missing exact product binding | Operator must verify and bind it; unknown endpoint IDs are not echoed |
 | Timeout with `ambiguous_completion=true` | Create or cancel may have succeeded | Reconcile by task or request ID; do not resubmit |
-| `SUBMISSION_CONFLICT` | Same HTTP key with changed arguments | Restore identical arguments for receipt recovery |
-| `SUBMISSION_IN_PROGRESS` / `SUBMISSION_UNRESOLVED` | Existing running or unresolved HTTP attempt | Keep known IDs; reconcile, never change keys to bypass uncertainty |
-| `SUBMISSION_UNAVAILABLE` | Journal unavailable or full | No provider call from this attempt; ask the operator to restore availability without deleting claims |
+| Unsupported `idempotency_key` | Legacy field supplied | Omit it; no dispatch occurs from this rejected call. Do not reinterpret a prior uncertain create as safe to repeat |
 | `queued` / `running` for a long time | Normal provider queue | Keep polling `gen_task_get`; `queue.hint` explains the wait |
 | `persistence_error` on an artifact | Output billed, storage failed | `seed_media_persist_url` before the URL expires |
 | Variation `error.phase` | `queued` (`QUEUE_TIMEOUT`): not started; `generating`: may have completed; `persisting`: output not stored | Reconcile the whole HTTP create; no automatic partial-batch resume. Local retries only for confirmed unstarted work |
-| `NOT_OWNED` | Task is outside the credential tenant/client owner or ownership is missing | Use the original provider key and client secret; changing credentials or operator HMAC key/version changes scope, with no recovery bridge |
+| `NOT_OWNED` | Local artifact/object-key/task ownership mismatch | Use the owning local context. HTTP task authorization instead follows the supplied provider key |
 | OmniHuman failed `InvalidParameter ... audio` or error `50510` | Provider rejected the audio or content after submission | Fix the inputs; never retry unchanged |
-| Budget rejected | `DAILY_BUDGET_USD` exceeded | Wait for the UTC day rollover or raise it |
+| Budget rejected | Local stdio `DAILY_BUDGET_USD` exceeded | Review the local estimate limit; HTTP requires zero and has no budget ledger |
 
 Missing/unusable URL-only Seed Audio output is a nonretryable per-item
 `NO_DELIVERABLE_OUTPUT`; never regenerate automatically. Uncertain mutation
@@ -325,20 +306,10 @@ Mutation 5xx errors are ambiguous and never automatically retried, even
 if marked `retryable=true`. Eligible 429 rejections, pre-dispatch failures and
 reads can retain bounded retries.
 
-HTTP uses fresh SQLite, fixed official origins and positive 60 RPM / 2 MiB /
-64 in-flight defaults with `STATE_MAX_RECORDS=100000`. The operator HMAC key
-is not a customer credential. Readiness never probes providers; public metrics
-are unavailable. The optional HTTP `MCP_METRICS_PORT` defaults to 0 and binds
-only 127.0.0.1 when enabled. Dedicated VKE replaces ECS/Compose with one
-StatefulSet, same-pod Caddy and retained RWO ext4 SQLite; no application HPA.
-HTTP holds an exclusive state lease before stores/recovery until close.
-Do not delete live locks, reset state, blindly restore or requeue.
-Operator deployment is separate from client setup; see
-[deployment boundaries](references/environment.md#deployment-limits).
-SQLite asynchronous-create receipt recovery is implemented;
-synchronous product replay and complete crash recovery remain deferred.
-PostgreSQL/Redis are future scaling choices, not initial requirements.
-Multi-replica support and public-launch readiness are not claimed.
+HTTP rate and concurrency limits are per-pod and reset at restart. There is no
+hosted replay or historical database migration workflow. Retain accepted IDs
+and reconcile uncertain provider work. Deployment operations are separate from
+media generation; see [deployment limits](references/environment.md#deployment-limits).
 
 ## References
 

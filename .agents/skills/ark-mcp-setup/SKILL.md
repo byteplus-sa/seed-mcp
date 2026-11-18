@@ -61,9 +61,10 @@ Do not deploy a server as a side effect. Ask which transport if unresolved.
 
 Hosted operators use the selected checkout's `docs/byteplus-terraform.md`
 and `specs/SPEC_VKE_DEPLOYMENT.md`: dedicated VKE replaces ECS/Compose.
-Do not offer retired deployment helpers. One StatefulSet, retained RWO ext4
-state and same-pod Caddy are required; no application HPA or PostgreSQL/Redis.
-Terraform uses separate fresh state, never old ECS state, and stores no HMAC/
+Do not offer retired helpers. The stateless Deployment uses same-pod Caddy,
+default 2-6 pod HPA, PDB and hostname spread on maintained Kubernetes >=1.30.
+No state PVC/StorageClass/headless Service renders; Redis is not required.
+Terraform uses dedicated fresh state and stores no HMAC/
 TLS Secret/kubeconfig. Helm references existing Secrets only. Private API
 access requires operator private connectivity.
 
@@ -72,19 +73,27 @@ Helm provides `models.seedream`/`models.seedance` `defaultModel` and verified
 Alternate defaults require bindings. This does not verify lineage or permit
 arbitrary endpoint headers: explicit tool `model` wins and exact registry
 matching remains required. No arbitrary env or provider-secret map is accepted.
-Chart `app.dailyBudgetUsd=25` differs from the standalone application's zero;
-provider/owner concurrency is 5/3 and burst 0 inherits RPM. Do not describe
-these per-owner estimates as account spending protection.
+Chart `app.dailyBudgetUsd=0` is required: no HTTP budget ledger exists.
+Provider/owner concurrency is5/3 per pod; burst0 inherits RPM.
 
-Both `csi-ebs` and `cloud-controller-manager` are VKE-admin owned outside
+Optional `temporaryUpload.enabled`/`existingSecret` add HTTP-only
+`media_prepare_upload`, with restricted operator TOS signing credentials and
+an enrolled client-secret digest allowlist. The existing upload Secret must
+differ from identity/TLS. No raw secrets belong in values or Terraform.
+Bucket privacy, disabled versioning, prefix IAM, CORS, lifecycle and
+storage/egress controls need separate operator setup; do not enable as a
+side effect of client onboarding. See `docs/temporary-uploads.md` in the checkout.
+
+`cloud-controller-manager` and addon lifecycle are VKE-admin owned outside
 Terraform/Helm. Inspect existing installations; install absent compatible
-maintained versions via VKE addon management. Running addon cards, ready CSI
-driver/controller/node workloads and Ready nodes with capacity must precede
+maintained versions via VKE addon management. CCM Running and Ready nodes,
+metrics API and capacity checks must precede
 `prerequisitesConfirmed=true`; acknowledgement is not readiness proof.
+CSI is not a stateless app prerequisite; no application volumes are provisioned.
 This is operator deployment work, not part of customer connection setup.
-Preserve old reviewed checkouts, private workspaces, state/backups and matching
-HMAC identity. Source deletion is not cloud decommissioning. Never reset
-state, blindly restore, delete an active lease or requeue uncertain submissions.
+Historical database compatibility and stateful-release migrations are not
+supported. Source deletion is not cloud decommissioning. Never automatically
+requeue uncertain provider submissions.
 
 ## 2. Resolve an Installation
 
@@ -242,6 +251,7 @@ blindly resubmit. Local outputs use live MCP roots or `OUTPUT_ROOTS`.
 
 For HTTP, verify default anonymous/static `ark_list_models` with
 `{"input":{}}` and `connection=null`, and 7 tools (10 with OmniHuman enabled),
+or 8/11 when temporary upload preparation is enabled,
 no resources, no job tools/native tasks and direct foreground execution.
 Then optionally call `{"input":{"check_connection":true}}` on live HTTP:
 only ModelArk image/video header presence and exact endpoint defaults are
@@ -255,7 +265,7 @@ activation, entitlement, balance or reachability. Unknown IDs are not echoed;
 `endpoint_not_configured` means the operator must verify and bind the exact
 product ID. Explicit create-tool `model` wins over endpoint headers.
 Official GetEndpoint body and OpenAPI require AK/SK signing, not ModelArk
-Bearer auth; never ask for AK/SK or imply arbitrary BYOE self-service is done.
+Bearer auth; never ask for customer ModelArk AK/SK or imply arbitrary BYOE self-service is done.
 See `specs/SPEC_HOSTED_BYOK.md#byoe-endpoint-authority` in the selected checkout.
 Dry runs still
 require the selected provider header plus client secret and are optional;
@@ -266,35 +276,14 @@ remain pending. Isolated config inspection and mocked-network smoke do not
 prove those paths. Do not treat an unapproved Claude project configuration
 as a successful connection or change trust settings to claim validation.
 
-HTTP keys are not persisted by the server; there is no provider-key fallback.
-No OAuth, signup or server-issued key is supported. Keep persistence false.
-The operator HMAC key/version is not a customer credential and must never be
-requested from an operator for client setup. Changing provider/client/HMAC
-credentials changes ownership scope with no recovery bridge. Fresh SQLite
-has no old-schema migration.
+Upload preparation requires a privately configured operator-enrolled client
+secret, not merely any well-formed secret or provider key. No generation key
+is needed for preparation, but generation still requires it. A client attachment
+does not upload automatically: an HTTP multipart-capable integration must
+upload directly to TOS and wait for success before using the signed GET URL.
+Do not prepare/upload files for setup verification without explicit approval.
 
-Explain that non-dry HTTP Seedance/OmniHuman creates require `idempotency_key`:
-16-128 ASCII letters, digits, `_` or `-`; a fresh UUID per intended whole call.
-This is an operation identifier, not a credential or a connection-wide header.
-Repeat identical arguments/key only for delivery recovery, not polling;
-only complete saved success replays after ownership checks. Failed, partial
-or cancelled attempts remain unresolved with known IDs, never automatically
-resumed. Never change keys to bypass uncertain acceptance. Seedance dry runs
-need no key or journal; stdio rejects supplied keys.
-Retain the same provider/client credentials and server state/HMAC configuration.
-Journal claims never auto-prune; at `STATE_MAX_RECORDS` new keys fail while
-existing keys remain readable. Do not reset state to fix capacity.
-Synchronous product replay and complete crash recovery/live validation remain
-deferred. PostgreSQL/Redis are future scaling choices, not initial requirements;
-multi-replica/public launch remain outside this foundation. Consult
-`specs/SPEC_HOSTED_BYOK.md#http-submission-safety` in the selected checkout.
-
-HTTP holds `runtime.sqlite3.lock` before stores/recovery until close.
-`RATE_LIMIT_TRUSTED_PROXY_CIDRS` defaults empty; same-pod Caddy uses
-`127.0.0.1/32` with app bind `127.0.0.1:3000`. CLB TCP443 terminates TLS
-at Caddy8443, not the application. `/ready` and `/metrics` are not public.
-`MCP_METRICS_PORT=0` is off by default; enabled HTTP metrics bind only loopback.
-HTTP/Caddy shutdown uses max(tool, provider seconds) + 30; pod grace uses +60.
-Local mocked TLS/load acceptance is not capacity certification; live VKE
-apply/source-IP/CSI/rollout and real-client/provider acceptance remain
-unverified without separate evidence.
+Hosted HTTP is database-free: provider-key task authorization, no durable replay or shared budget accounting. Omit legacy operation keys; never automatically resubmit uncertain creates. Local stdio persistence remains available.
+Hosted HTTP is stateless and database-free. Rate and concurrency limits are per-pod.
+There is no hosted replay or historical database migration workflow.
+Retain accepted IDs and reconcile uncertain provider work; no automatic resubmission.

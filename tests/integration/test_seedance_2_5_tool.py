@@ -6,23 +6,15 @@ provider responses and a temp artifact store.
 
 from __future__ import annotations
 
-import asyncio
 from datetime import UTC, datetime, timedelta, timezone
-from pathlib import Path
 from typing import Any
-from unittest.mock import AsyncMock, patch
+from unittest.mock import patch
 
 import pytest
 
-from ark_mcp.config.env import Settings
 from ark_mcp.providers.modelark.generation_tasks import GenerationTaskService
 from ark_mcp.providers.modelark.schemas import GenerationTaskResponse
 from ark_mcp.providers.modelark.seedance import SeedanceService
-from ark_mcp.security.credentials import (
-    provider_api_key,
-    provider_scope,
-    request_credentials_scope,
-)
 from ark_mcp.tools.seedance_create_task import (
     SeedanceAudioInput,
     SeedanceCreateTaskInput,
@@ -564,124 +556,6 @@ class TestSeedance25DraftMode:
                 assert len(captured) == 1
                 assert captured[0].resolution == "1080p"
                 assert captured[0].content[0].draft_task == {"id": "cgt-draft"}
-
-    @pytest.mark.parametrize("retention", [14, 30])
-    @pytest.mark.parametrize(
-        "age",
-        [
-            timedelta(days=8),
-            timedelta(days=13),
-            timedelta(days=14),
-            timedelta(days=14, seconds=1),
-        ],
-        ids=["eight-days", "thirteen-days", "at-expiry", "past-expiry"],
-    )
-    async def test_authenticated_draft_promotion_after_real_ownership_sweep(
-        self,
-        seedance_2_5_env: None,
-        tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch,
-        retention: int,
-        age: timedelta,
-    ) -> None:
-        from ark_mcp.runtime import (
-            _state_sweeper,
-            close_runtime_services,
-            create_runtime_services,
-            get_principal,
-        )
-
-        settings = Settings(
-            _env_file=None,
-            MCP_TRANSPORT="http",
-            MCP_AUTH_MODE="byok",
-            MCP_IDENTITY_HMAC_KEY="a" * 64,
-            BYTEPLUS_MODELARK_BASE_URL="https://ark.ap-southeast.bytepluses.com/api/v3",
-            BYTEPLUS_SEED_AUDIO_BASE_URL="https://voice.ap-southeast-1.bytepluses.com",
-            STATE_PRUNE_MAX_AGE_DAYS=retention,
-            ARTIFACT_DIR=str(tmp_path / "artifacts"),
-        )
-        owner_headers = [
-            (b"x-modelark-api-key", b"synthetic-draft-owner-key"),
-            (b"x-mcp-client-secret", b"b" * 64),
-        ]
-        created = datetime(2026, 10, 28, 2, tzinfo=UTC)
-        provider_reads: list[str] = []
-        provider_creates: list[Any] = []
-
-        async def mock_get(
-            self: GenerationTaskService, task_id: str
-        ) -> tuple[GenerationTaskResponse, str | None]:
-            assert provider_api_key(ctx, "modelark") == "synthetic-draft-owner-key"
-            provider_reads.append(task_id)
-            return _draft_task(created_at=created.isoformat()), None
-
-        async def mock_create(self: SeedanceService, request: Any) -> tuple[str, str | None]:
-            provider_creates.append(request)
-            return "cgt-final", None
-
-        monkeypatch.setattr(GenerationTaskService, "get_task", mock_get)
-        monkeypatch.setattr(GenerationTaskService, "close", _mock_close)
-        monkeypatch.setattr(SeedanceService, "create_task", mock_create)
-        monkeypatch.setattr(SeedanceService, "close", _mock_close)
-        runtime = await create_runtime_services(settings)
-        try:
-            ctx = FakeContext(lifespan_context={"runtime": runtime}, task_id=None)
-            with request_credentials_scope(owner_headers), provider_scope(settings, "modelark"):
-                owner = get_principal(ctx)
-            assert not owner.is_local
-            with patch("ark_mcp.runtime.datetime", wraps=datetime) as clock:
-                clock.now.return_value = created
-                await runtime.ownership_store.record("modelark", "cgt-draft", owner)
-                clock.now.return_value = created + age
-                with (
-                    patch(
-                        "ark_mcp.runtime.asyncio.sleep",
-                        new=AsyncMock(side_effect=[None, asyncio.CancelledError]),
-                    ),
-                    pytest.raises(asyncio.CancelledError),
-                ):
-                    await _state_sweeper(runtime, settings)
-
-            request = SeedanceCreateTaskInput(draft_task_id="cgt-draft", dry_run=True)
-            for key, secret in [
-                (b"synthetic-draft-owner-key", b"c" * 64),
-                (b"synthetic-other-provider-key", b"b" * 64),
-            ]:
-                with (
-                    request_credentials_scope(
-                        [(b"x-modelark-api-key", key), (b"x-mcp-client-secret", secret)]
-                    ),
-                    provider_scope(settings, "modelark"),
-                    pytest.raises(PermissionError, match="not owned"),
-                ):
-                    await seedance_create_task(request, ctx)
-            assert provider_reads == []
-            with (
-                request_credentials_scope(owner_headers),
-                provider_scope(settings, "modelark"),
-                patch("ark_mcp.tools._seedance_shared.datetime", wraps=datetime) as clock,
-            ):
-                assert get_principal(ctx) == owner
-                clock.now.return_value = created + age
-                if age > timedelta(days=14):
-                    if retention == 14:
-                        with pytest.raises(PermissionError, match="not owned"):
-                            await seedance_create_task(request, ctx)
-                        assert provider_reads == []
-                    else:
-                        with pytest.raises(ValueError, match="more than 14 days ago"):
-                            await seedance_create_task(request, ctx)
-                        assert provider_reads == ["cgt-draft"]
-                else:
-                    result = await seedance_create_task(request, ctx)
-                    assert isinstance(result, SeedanceCreateTaskOutput)
-                    assert result.preview is not None
-                    assert result.preview.requests[0]["resolution"] == "1080p"
-                    assert provider_reads == ["cgt-draft"]
-            assert provider_creates == []
-        finally:
-            await close_runtime_services(runtime)
 
     @pytest.mark.parametrize(
         "created_at",

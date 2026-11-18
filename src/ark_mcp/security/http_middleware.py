@@ -159,7 +159,7 @@ class RequestBodyLimitMiddleware:
 
 
 class RateLimitMiddleware:
-    """Peer-validated rate limits from specs/SPEC_HOSTED_BYOK.md."""
+    """Peer-validated per-process limits; no shared or durable rate state."""
 
     _MAX_BUCKETS = 10_000
     _MAX_FORWARDED_BYTES = 4096

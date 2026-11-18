@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 from pathlib import Path
-from unittest.mock import AsyncMock
 
 import httpx
 import pytest
@@ -89,60 +88,6 @@ async def test_endpoint_defaults_are_validated_and_explicit_model_wins(tmp_path:
 
 
 @respx.mock
-async def test_full_ownership_store_rejects_new_calls_before_provider_dispatch(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    created = respx.post(f"{MODELARK}/contents/generations/tasks").respond(
-        200, json={"id": "only-task"}
-    )
-    settings = http_settings(tmp_path, STATE_MAX_RECORDS=2)
-    async with http_server(tmp_path, settings=settings) as (_, runtime, client):
-        record = AsyncMock(wraps=runtime.ownership_store.record)
-        capacity = AsyncMock(wraps=runtime.ownership_store.require_capacity)
-        monkeypatch.setattr(runtime.ownership_store, "record", record)
-        monkeypatch.setattr(runtime.ownership_store, "require_capacity", capacity)
-        first = successful(
-            await call_tool(
-                client,
-                "seedance_create_task",
-                {"prompt": "scene", "idempotency_key": "ownership-capacity-first"},
-                headers=credentials(),
-            )
-        )
-        assert first["submitted"] == 1
-        owner = record.await_args_list[0].args[2]
-        await runtime.ownership_store.record("modelark", "already-owned-task", owner)
-        denied = await call_tool(
-            client,
-            "seedance_create_task",
-            {"prompt": "another scene", "idempotency_key": "ownership-capacity-second"},
-            headers=credentials("different-key", "c" * 64),
-        )
-        assert_denied(denied)
-        assert capacity.await_count == 2
-    assert created.call_count == 1
-
-
-@respx.mock
-async def test_budget_row_limit_cannot_be_bypassed_by_changing_keys(tmp_path: Path) -> None:
-    generated = respx.post(f"{MODELARK}/images/generations").respond(
-        401, json={"error": {"code": "INVALID_KEY", "message": "Rejected"}}
-    )
-    settings = http_settings(tmp_path, STATE_MAX_RECORDS=1)
-    async with http_server(tmp_path, settings=settings) as (_, _, client):
-        for key in ("invalid-first", "invalid-second"):
-            assert_denied(
-                await call_tool(
-                    client,
-                    "seedream_generate_image",
-                    {"prompt": "square"},
-                    headers=credentials(key),
-                )
-            )
-    assert generated.call_count == 1
-
-
-@respx.mock
 async def test_saturated_generation_rejects_waiter_but_provider_polling_stays_direct(
     tmp_path: Path,
 ) -> None:
@@ -182,7 +127,7 @@ async def test_saturated_generation_rejects_waiter_but_provider_polling_stays_di
             await call_tool(
                 client,
                 "seedance_create_task",
-                {"prompt": "scene", "idempotency_key": "direct-poll-owned-task"},
+                {"prompt": "scene"},
                 headers=credentials(),
             )
         )
@@ -245,7 +190,7 @@ async def test_direct_http_deadline_distinguishes_reads_from_possible_billing(
                 await call_tool(
                     client,
                     "seedance_create_task",
-                    {"prompt": "scene", "idempotency_key": "direct-deadline-owned-task"},
+                    {"prompt": "scene"},
                     headers=credentials(),
                 )
             )
@@ -265,30 +210,3 @@ async def test_direct_http_deadline_distinguishes_reads_from_possible_billing(
     assert started.is_set()
     assert cancelled.is_set()
     assert len(requests) == 1
-
-
-@respx.mock
-async def test_deadline_after_acceptance_keeps_safe_ids_and_blocks_same_key_redispatch(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    created = respx.post(f"{MODELARK}/contents/generations/tasks").respond(
-        200, json={"id": "accepted-before-deadline"}, headers={"X-Request-Id": "safe-deadline-id"}
-    )
-    settings = http_settings(tmp_path, MCP_TOOL_TIMEOUT_SECONDS=0.2)
-    arguments = {"prompt": "scene", "idempotency_key": "direct-accepted-deadline"}
-
-    async def blocked_record(*args, **kwargs):
-        await asyncio.Event().wait()
-
-    async with http_server(tmp_path, settings=settings) as (_, runtime, client):
-        monkeypatch.setattr(runtime.ownership_store, "record", blocked_record)
-        first = await call_tool(client, "seedance_create_task", arguments, headers=credentials())
-        assert_denied(first)
-        assert "TOOL_DEADLINE_EXCEEDED" in str(first)
-        assert "accepted-before-deadline" in str(first)
-        assert "safe-deadline-id" in str(first)
-        replay = await call_tool(client, "seedance_create_task", arguments, headers=credentials())
-        assert_denied(replay)
-        assert "SUBMISSION_UNRESOLVED" in str(replay)
-        assert "accepted-before-deadline" in str(replay)
-    assert created.call_count == 1

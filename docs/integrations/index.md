@@ -26,8 +26,8 @@ access; ordinary chat alone cannot install software. For a team-provided
 endpoint, [connect over HTTPS](../setup/shared-server.md) instead.
 
 Local launch instructions below are stdio-only. HTTP has 7 tools (10 with
-OmniHuman), anonymous static discovery and direct foreground calls, with no
-jobs/native tasks/storage/artifact tools/resources. See the private-header
+OmniHuman), plus optional temporary upload preparation, anonymous static discovery and direct foreground calls, with no
+jobs/native tasks/local storage/artifact tools/resources. See the private-header
 examples for [Codex](codex.md#http-byok) and [Claude Code](claude-code.md#http-byok).
 
 Default to user-level registration so Ark is available across projects.

@@ -17,11 +17,17 @@ from typing import Any, cast
 import tos
 from tos.enum import HttpMethodType
 from tos.exceptions import TosClientError, TosServerError
+from tos.models2 import ContentLengthRange, PostSignatureCondition
 
 from ark_mcp.config.env import get_settings
 from ark_mcp.domain.errors import NormalizedProviderError, ProviderError, ProviderName
 from ark_mcp.observability.logger import info as log_info
 from ark_mcp.providers.base import BlockingSdkCalls
+from ark_mcp.providers.tos.constants import (
+    TEMPORARY_OBJECT_EXPIRES_DAYS,
+    TEMPORARY_REFERENCE_TTL_SECONDS,
+    TEMPORARY_UPLOAD_TTL_SECONDS,
+)
 
 PROVIDER: ProviderName = "tos"
 
@@ -45,6 +51,8 @@ class TosGateway:
     ) -> None:
         settings = get_settings()
         self._bucket = bucket if bucket is not None else settings.tos_bucket
+        self._upload_origin = f"https://{self._bucket}.tos-{settings.tos_region}.bytepluses.com/"
+        self._security_token = settings.tos_security_token
         self._presign_ttl = (
             presign_ttl if presign_ttl is not None else settings.tos_presign_ttl_seconds
         )
@@ -106,6 +114,55 @@ class TosGateway:
 
         return cast("str", await self._dispatch(_presign, operation="presign"))
 
+    async def prepare_upload(
+        self, *, key: str, mime_type: str, size_bytes: int
+    ) -> tuple[str, dict[str, str], str]:
+        """Sign one restricted POST and GET locally; no object is uploaded or inspected."""
+
+        def _prepare() -> tuple[str, dict[str, str], str]:
+            fields = {
+                "key": key,
+                "Content-Type": mime_type,
+                "x-tos-acl": "private",
+                "x-tos-storage-class": "STANDARD",
+                "x-tos-forbid-overwrite": "true",
+                "x-tos-object-expires": str(TEMPORARY_OBJECT_EXPIRES_DAYS),
+            }
+            signature = self._client.pre_signed_post_signature(
+                bucket=self._bucket,
+                key=key,
+                expires=TEMPORARY_UPLOAD_TTL_SECONDS,
+                conditions=[
+                    PostSignatureCondition(key=name, value=value)
+                    for name, value in fields.items()
+                    if name != "key"
+                ],
+                content_length_range=ContentLengthRange(size_bytes, size_bytes),
+            )
+            fields.update(
+                {
+                    "policy": signature.policy,
+                    "x-tos-algorithm": signature.algorithm,
+                    "x-tos-credential": signature.credential,
+                    "x-tos-date": signature.date,
+                    "x-tos-signature": signature.signature,
+                }
+            )
+            if self._security_token:
+                fields["x-tos-security-token"] = self._security_token
+            reference = self._client.pre_signed_url(
+                HttpMethodType.Http_Method_Get,
+                bucket=self._bucket,
+                key=key,
+                expires=TEMPORARY_REFERENCE_TTL_SECONDS,
+            )
+            return self._upload_origin, fields, str(reference.signed_url)
+
+        return cast(
+            "tuple[str, dict[str, str], str]",
+            await self._dispatch(_prepare, operation="prepare_upload"),
+        )
+
     async def close(self) -> None:
         close = getattr(self._client, "close", None)
         try:
@@ -115,7 +172,9 @@ class TosGateway:
 
     async def _dispatch(self, func: Any, *, operation: str) -> Any:
         try:
-            return await self._calls.run(func, side_effect=operation != "presign")
+            return await self._calls.run(
+                func, side_effect=operation not in {"presign", "prepare_upload"}
+            )
         except TosServerError as exc:
             raise _normalize_server_error(exc, operation) from None
         except TosClientError as exc:

@@ -31,8 +31,8 @@ separate tools. The flow is discovery → create → poll:
   `seedance_2_5_flash`) uses the same tool, supports 480p/720p and 4-30s with
   reference/edit/extend features and 10 images / 5 videos / 5 audios, but no
   Draft mode. Regular 2.5 Drafts have a 14-day window for creation at or after
-  2026-10-28 10:00 UTC+8; earlier Drafts retain seven days. Authenticated HTTP
-  with regular 2.5 enabled requires `STATE_PRUNE_MAX_AGE_DAYS >= 14`. Empty bindings
+  2026-10-28 10:00 UTC+8; earlier Drafts retain seven days. HTTP uses provider authorization and does
+  not retain ownership or run state pruning. Empty bindings
   add Flash alongside the selected default; explicit binding lists remain
   authoritative. Regular 2.5 remains the default. Retained regular 2.5 4K
   acceptance differs from current model-specific provider docs; see
@@ -46,6 +46,11 @@ separate tools. The flow is discovery → create → poll:
   `BYTEPLUS_OMNIHUMAN_ENABLED`; disabled by default.
 - **Local object storage upload** — stdio-only `media_upload` / `media_presign` take lists and
   return presigned URLs for URL-only media workflows (TOS or S3 backend).
+- **Temporary HTTP references** — opt-in `media_prepare_upload` signs exact-key
+  TOS multipart POST/GET permissions for operator-enrolled client secrets.
+  Metadata only; clients upload directly, file last, before using the GET URL.
+  Fixed 15-minute upload / 24-hour reference / one-day scheduled object expiry.
+  No database, byte inspection, upload receipt, renewal or global storage quota.
 - **Native asset references** — Seedance accepts existing authorized
   `asset://<id>` references natively with the ModelArk Bearer key. The server
   does not create, verify, administer, resolve or preflight provider assets.
@@ -56,7 +61,8 @@ separate tools. The flow is discovery → create → poll:
   expire (2h for Seed Audio, 24h for ModelArk image/video, about 1h for OmniHuman).
 - **Transports** — local stdio retains storage/artifacts.
   HTTP is forward-only BYOK: 7 provider/discovery tools, or 10 with OmniHuman,
-  direct foreground calls, no jobs/native tasks/storage/artifact tools/resources.
+  direct foreground calls, no jobs/native tasks/local storage/artifact tools/resources.
+  Temporary upload preparation adds one optional tool (8/11 total).
   `MCP_AUTH_MODE=byok` is the default; explicit `local` is stdio-only and
   `api_key` is removed. No OAuth/signup/server-issued key. HTTP requires
   operator `MCP_IDENTITY_HMAC_KEY` (64 lowercase hex) and positive
@@ -67,7 +73,7 @@ uses Seed Speech and `X-Api-Key`; OmniHuman uses Vision AI and its own
 Bearer key. These three provider gateways sit behind one normalized domain
 layer. See `docs/architecture.md` for current behavior.
 
-The local catalog contains **15 tools**, with four always registered on stdio. Enabled
+The catalog contains **16 definitions**, with **15 local tools** and four always registered on stdio. Enabled
 tools depend on the four service gates: `modelark`, `seed_audio`, `omnihuman`,
 and `object_storage`. VOD processing, 3D generation, dedicated ASR, asset
 administration and operator-account live pricing are not part of this server.
@@ -76,13 +82,23 @@ Local provider keys are startup configuration. HTTP uses only live
 selected provider plus required `X-MCP-Client-Secret` (client-generated 32
 random bytes, 64 lowercase hex), including dry runs. Discovery is anonymous/static.
 Keys are not persisted and never fall back to environment provider keys.
+Temporary upload signing alone uses operator TOS credentials, never generation
+keys. `MCP_TEMPORARY_UPLOAD_ENABLED=false` by default; enabling requires HTTP,
+TOS configuration and `MCP_UPLOAD_CLIENT_SECRET_SHA256` (1-1000 unique lowercase
+SHA-256 digests of exact ASCII client-secret header values, not decoded bytes).
+Only enrolled secrets authorize signing; no provider key is required for this
+tool. Require a dedicated private versioning-disabled bucket, restricted IAM,
+CORS where needed, lifecycle backstop and operator storage/egress controls.
+Helm `temporaryUpload.enabled`/`existingSecret` reference a distinct existing
+TOS/enrollment Secret. No automatic storage provisioning. See
+`docs/temporary-uploads.md` and the hosted contract.
 
 HTTP endpoint defaults `X-ModelArk-Seedance-Endpoint` and
 `X-ModelArk-Seedream-Endpoint` require exact registry bindings; explicit tool
 `model` wins. Never infer arbitrary opaque endpoint lineage. HTTP uses fixed
 official origins, positive 60 RPM / 2 MiB body / 64 in-flight defaults and
-`STATE_MAX_RECORDS=100000`. Readiness is minimal state-only, with no provider
-probes; public metrics are unavailable.
+local-only `STATE_MAX_RECORDS=100000`. HTTP readiness is lifespan-only,
+with no storage or provider probes; public metrics are unavailable.
 
 Unknown endpoint IDs are not echoed by preflight or endpoint lookup errors;
 the operator must verify and bind them. Official GetEndpoint documentation
@@ -98,38 +114,30 @@ and `timeout` in milliseconds. Actual model-driven client and paid provider
 validation remain pending; isolated config inspection and mocked-network
 smoke cannot establish that acceptance.
 
-Fresh SQLite ownership is keyed by `(provider, tenant_id, task_id)` with an
-immutable client owner; no compatibility migration. Global persistence defaults
-are false for Seed Audio, Seedream and OmniHuman get; HTTP rejects true while
-local explicit true remains supported.
-Uncertain mutation transport failures and malformed 2xx responses are
-ambiguous/nonretryable with safe diagnostics.
-HTTP non-dry Seedance and OmniHuman creates require `idempotency_key`:
-16-128 ASCII letters, digits, `_` or `-`; UUID recommended, one key per whole
-batch. Stdio rejects supplied keys; Seedance dry runs are keyless/no journal.
-The SQLite root claim is durable before handler entry, with HMAC key/input
-fingerprints. Only complete saved success replays after ownership checks,
-before any upstream access including Draft lookup. Repeat identical key/input
-for delivery recovery, never polling. Failed/partial/cancelled attempts remain
-unresolved with known accepted IDs, never automatically resumed. Safe IDs are
-journaled before ownership; a journal failure still attempts ownership.
-No raw prompts, media, credentials, idempotency keys or error messages are
-journaled. States are `running`, `succeeded`, `unresolved`; claims never
-auto-prune. `STATE_MAX_RECORDS` caps new keys while existing reads work.
-Preserve the same state and HMAC key/version. Synchronous product replay and
-complete crash recovery/live validation remain deferred. PostgreSQL/Redis are
-future scaling choices, not initial requirements; no multi-replica or public
-launch claim. See `specs/SPEC_HOSTED_BYOK.md#http-submission-safety`.
+Hosted HTTP uses `STATE_BACKEND=none` automatically. It never opens SQLite,
+PostgreSQL or Redis, stores task IDs, or provides durable replay, deduplication
+or a budget ledger. Local stdio retains `STATE_BACKEND=sqlite` for artifacts
+and local bookkeeping. Explicit incompatible backends fail startup.
+Non-null `idempotency_key` is a rejected legacy input on both transports.
+Never automatically resubmit uncertain creates; clients retain task/request IDs.
+Task get/list/cancel and Draft lookup rely on provider-key authorization, not
+client-secret ownership. Clients sharing a provider key share whatever access
+the provider permits. HMAC/client-secret scopes only separate per-pod admission.
+Rate and concurrency limits reset at restart and multiply with replicas.
+HTTP requires `DAILY_BUDGET_USD=0`; use provider-side spend controls.
 
 Direct-call settings: `MCP_ADMISSION_TIMEOUT_SECONDS=2.0` (finite, positive,
 max 30) bounds owner-first then provider-slot waiting;
 `MCP_TOOL_TIMEOUT_SECONDS=600.0` (finite, positive, max 3600) starts at wrapper
-entry after MCP parsing and before credentials, journal and admission.
-Reserve budget after admission. Active/waiting owner limiters remain pinned.
+entry after MCP parsing and before credentials and admission.
+Stdio reserves budget after admission. Active/waiting owner limiters remain pinned.
 `ADMISSION_TIMEOUT` means this attempt did not dispatch, not the whole batch.
 `TOOL_DEADLINE_EXCEEDED` is text-only and preserves mutation uncertainty and
 known safe accepted IDs. External cancellation propagates. SDK/SQLite draining
 may exceed the cooperative deadline; timeout is not provider cancellation.
+HTTP keeps safe accepted IDs only in the live invocation for deadline diagnostics.
+Stdio cancellation drains local bookkeeping; dispatched reservations commit,
+undispatched reservations release. No hosted submission journal exists.
 Use client timeout 660 seconds and compatible proxy settings. Never blindly
 resubmit. Local writes use live MCP roots or `OUTPUT_ROOTS`.
 The static exporter uses top-level and per-transport `execution: "direct"`,
@@ -138,46 +146,37 @@ contract.
 
 Hosted deployment follows `specs/SPEC_VKE_DEPLOYMENT.md`:
 dedicated VKE replaces ECS/Compose.
-Terraform root `deploy/terraform/vke` requires separate fresh state, never old
-ECS state. Source deletion is not cloud decommissioning; preserve reviewed old
-checkouts, private workspaces, backups and matching HMAC key/version.
-No state reset, blind restore or requeue is a supported recovery procedure.
+Terraform root `deploy/terraform/vke` requires dedicated fresh state, separate
+from unrelated deployments. No historical database inspection, compatibility
+or stateful-release migration tooling is maintained. Source deletion is not
+cloud decommissioning. Never automatically requeue uncertain provider work.
 
-One StatefulSet pod runs app `127.0.0.1:3000` and Caddy TLS `8443`; CLB uses
-TCP443 and Local traffic policy. `RATE_LIMIT_TRUSTED_PROXY_CIDRS` replaces the
-boolean setting, defaults empty and is `127.0.0.1/32` in the chart. Caddy
-overwrites forwarded headers; Uvicorn proxy rewriting is disabled.
-Only `/mcp` and `/health` are public; `/ready` is an internal exec probe.
-HTTP holds `runtime.sqlite3.lock` before stores/recovery until close. The lock
-is not distributed fencing; never unlink it while active. Retained RWO ext4
-EBS, one app replica, no HPA or network-filesystem SQLite; no PostgreSQL/Redis.
-HTTP/Caddy shutdown uses max(tool, provider seconds) + 30; pod grace uses +60.
+The chart uses a stateless Deployment with HPA (default 2-6 pods), PDB and
+hostname spreading, without a database or state volume. Kubernetes >=1.30 is
+required; verify a maintained regional release. Caddy exposes `/mcp` and
+`/health` only; `/ready` is lifespan-only and private. The chart contains no
+legacy StatefulSet or StorageClass templates. Local stdio storage remains current
+functionality, separate from hosted deployment.
 
 `MCP_METRICS_PORT=0` disables private metrics; HTTP-only nonzero 1024-65535
 ports bind 127.0.0.1. Helm enables 9000 only via `app.metricsEnabled`; no public
-metrics Service. `scripts/inspect_runtime_state.py` is standalone read-only
-aggregate inspection (`--database`, `--capacity`, `--timeout-seconds`), never
-repair/recovery. `scripts/generate_identity_secret.py` remains standalone.
-Terraform stores no HMAC/TLS Secret/kubeconfig; Helm references existing
-Secrets only. Private API access requires operator private connectivity.
+metrics Service. `scripts/generate_identity_secret.py` remains standalone.
+Terraform stores no HMAC/TLS Secret/kubeconfig; Helm references distinct
+existing identity and TLS Secrets plus a distinct optional TOS/enrollment Secret.
+Private API access requires operator private connectivity.
 
 Helm `models.seedream`/`models.seedance` expose `defaultModel` and
 `bindings: [{model_id, family}]`, with strict product families, unique IDs
 and selected-default inclusion. Alternate defaults require explicit verified
 bindings; used request headers still need exact registry matches and explicit
 tool `model` wins. No endpoint authority change or arbitrary env map.
-Chart runtime defaults are `app.dailyBudgetUsd=25` (application default is 0),
+Chart runtime defaults are `app.dailyBudgetUsd=0` (HTTP requires zero),
 `providerMaxConcurrency=5`, `principalMaxConcurrency=3`, `rateLimitBurst=0`.
-These are explicit env mappings; per-owner estimates are not account spend caps.
+These are explicit per-pod env mappings, not account spend caps.
 
-Both `csi-ebs` and `cloud-controller-manager` are explicitly VKE-admin owned
-outside Terraform/Helm. Inspect existing installations; install absent
-compatible maintained versions through VKE addon management. Verify both
-cards Running, CSI driver/controller/node ready and nodes Ready with capacity
-before `prerequisitesConfirmed=true`. The acknowledgement is not proof.
-`scripts/hosted_acceptance.py --caddy-bin PATH` runs isolated mocked TLS/load,
-not capacity certification. Live VKE apply/source-IP/CSI/rollout and real
-client/provider acceptance remain unverified without separate evidence.
+`scripts/hosted_acceptance.py --caddy-bin PATH` runs isolated mock-only TLS/load
+checks without a database or live provider calls. Live VKE routing, rollout,
+capacity and client/provider validation remain separate approved gates.
 
 ## Repository Layout
 

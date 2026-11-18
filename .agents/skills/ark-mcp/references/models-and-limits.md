@@ -174,5 +174,7 @@ return minimal process/state status without provider checks; VKE Caddy exposes
 only `/mcp` and `/health`. Public `/metrics` is unavailable; an optional
 HTTP-runtime listener is loopback-only and off by default.
 HTTP discovery is anonymous/static, with 7 tools or 10 when
-OmniHuman is enabled, independent of operator provider keys. For per-service
+OmniHuman is enabled, plus one optional temporary-upload preparation tool.
+Generation registration remains
+independent of operator provider keys. For per-service
 enablement prefer `ark_list_models.services`. Settings: [environment.md](environment.md).

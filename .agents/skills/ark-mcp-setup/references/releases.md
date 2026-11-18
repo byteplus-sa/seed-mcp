@@ -68,6 +68,8 @@ surface that discrepancy and ask before replacing it.
 
 ## Updates and Rollback
 
+Hosted HTTP is database-free: provider-key task authorization, no durable replay or shared budget accounting. Omit legacy operation keys; never automatically resubmit uncertain creates. Local stdio persistence remains available.
+
 - Preserve the private env file unchanged. Review new variable requirements
   and retired settings; ask the user to make needed credential changes in
   their local editor. Do not merge `.env.example` over populated credentials.

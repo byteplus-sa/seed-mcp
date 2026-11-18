@@ -123,6 +123,14 @@ An empty file is not successful onboarding when generation was requested.
 
 ## HTTP Client Credentials
 
+Optional HTTP `media_prepare_upload` authorizes only operator-enrolled client
+secrets. Enrollment uses SHA-256 of the exact ASCII header value, not decoded
+bytes, and does not require a generation-provider key. Do not enroll or
+provision operator TOS credentials as a client-setup side effect. Raw client
+secrets stay private; the operator receives only approved enrollment digests.
+Issued signed fields/URLs can include STS and are sensitive bearer permissions;
+never log or publish them. See `docs/temporary-uploads.md` in the checkout.
+
 Use only an operator-approved trusted HTTPS URL. The server receives live
 provider credentials but does not persist them or fall back to startup keys.
 Prepare private client environment/secret-store entries for only the desired
@@ -151,11 +159,11 @@ Optional endpoint variables require selected provider `modelark`; their values
 must be operator-verified exact bindings. Unknown endpoints require operator
 verification/binding, not customer AK/SK entry into this server.
 
-Keep the client secret and provider key stable to poll earlier work or recover
-an HTTP create receipt. The operator must retain the same state and HMAC
-key/version too. Changes
-alter ownership scope with no recovery bridge. Separate provider keys/projects
-are needed to prevent direct upstream access by others sharing a key.
+The selected provider key authorizes earlier tasks; the client secret and
+operator HMAC scope per-pod admission only. There is no local task-ownership
+ledger or saved create receipt to recover. Clients sharing a provider key share
+whatever access the provider permits. Use separate provider credentials for
+independent authorization.
 Validate configuration syntax and discovery without printing secret values;
 exact-client header handling remains unverified until tested there.
 Default discovery returns `connection=null`. Optional live HTTP
@@ -165,8 +173,4 @@ can be rejected before diagnostics. `configuration_valid=true` is not
 authentication, live lineage or entitlement proof. Never use a paid call to
 validate credentials without separate approval.
 
-`idempotency_key` is a separate per-operation tool argument, not a credential.
-Non-dry HTTP Seedance/OmniHuman creates require it; generate a fresh UUID per
-intended whole call (16-128 ASCII letters, digits, `_` or `-`). Reuse identical
-arguments/key only for delivery recovery, not polling or automatic resume.
-Seedance dry runs need no key/journal; stdio rejects supplied keys.
+Hosted HTTP is database-free: provider-key task authorization, no durable replay or shared budget accounting. Omit legacy operation keys; never automatically resubmit uncertain creates. Local stdio persistence remains available.

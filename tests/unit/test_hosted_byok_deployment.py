@@ -1,5 +1,6 @@
-"""Forward-only hosted configuration checks for specs/SPEC_HOSTED_BYOK.md."""
+"""Forward-only hosted and isolated SQLite configuration checks."""
 
+import os
 from pathlib import Path
 
 import pytest
@@ -14,15 +15,49 @@ LIMITS = {
     "MCP_HTTP_MAX_BODY_BYTES": "2097152",
     "STATE_MAX_RECORDS": "100000",
 }
+DATABASE = {
+    "STATE_BACKEND": "none",
+    "POSTGRES_DSN": (
+        "host=database.example.invalid dbname=synthetic user=synthetic sslmode=verify-full"
+    ),
+    "POSTGRES_SSL_ROOT_CERT": "/etc/seed-mcp/postgres/ca.crt",
+}
 
 
-def test_hosted_configuration_requires_only_operator_identity() -> None:
-    settings = Settings(_env_file=None, MCP_TRANSPORT="http", **IDENTITY)
+@pytest.fixture(autouse=True)
+def isolate_postgres_env(monkeypatch: pytest.MonkeyPatch) -> None:
+    for name in list(os.environ):
+        if name.startswith("POSTGRES_"):
+            monkeypatch.delenv(name, raising=False)
+
+
+def test_hosted_postgres_requires_operator_identity_and_database_not_provider_keys() -> None:
+    settings = Settings(_env_file=None, MCP_TRANSPORT="http", **IDENTITY, **DATABASE)
     assert settings.mcp_auth_mode == "byok"
     assert not settings.modelark_api_key
     assert not settings.seed_speech_api_key
     assert not settings.cv_api_key
-    assert settings.state_backend == "sqlite"
+    assert settings.state_backend == "none"
+
+
+def test_isolated_single_instance_http_retains_sqlite_default() -> None:
+    settings = Settings(_env_file=None, MCP_TRANSPORT="http", **IDENTITY)
+    assert settings.state_backend == "none"
+
+
+@pytest.mark.parametrize(("tool", "provider"), [(600, 600), (900, 30), (1, 3600)])
+def test_postgres_does_not_change_http_shutdown_sizing(tool: int, provider: int) -> None:
+    from ark_mcp.__main__ import graceful_shutdown_timeout_seconds
+
+    settings = Settings(
+        _env_file=None,
+        MCP_TRANSPORT="http",
+        **IDENTITY,
+        **DATABASE,
+        MCP_TOOL_TIMEOUT_SECONDS=tool,
+        BYTEPLUS_REQUEST_TIMEOUT_MS=provider * 1000,
+    )
+    assert graceful_shutdown_timeout_seconds(settings) == max(tool, provider) + 30
 
 
 @pytest.mark.parametrize("key", [*LIMITS, "MCP_IDENTITY_KEY_VERSION"])
@@ -66,10 +101,7 @@ def test_docker_has_byok_and_bounded_defaults() -> None:
     assert "MCP_IDENTITY_HMAC_KEY=" not in dockerfile
 
 
-def test_runtime_image_includes_only_the_private_state_inspector() -> None:
+def test_runtime_image_excludes_historical_state_inspection() -> None:
     dockerfile = (ROOT / "Dockerfile").read_text()
-    assert (
-        "COPY --chown=modelark:modelark scripts/inspect_runtime_state.py "
-        "/app/scripts/inspect_runtime_state.py"
-    ) in dockerfile
+    assert "inspect_runtime_state.py" not in dockerfile
     assert "COPY scripts/ scripts/" not in dockerfile

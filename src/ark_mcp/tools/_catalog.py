@@ -40,6 +40,10 @@ def _object_storage(settings: Settings) -> bool:
     return _local(settings) and settings.has_object_storage
 
 
+def _temporary_upload(settings: Settings) -> bool:
+    return settings.mcp_transport == "http" and settings.temporary_upload_enabled
+
+
 def _omnihuman(settings: Settings) -> bool:
     return settings.omnihuman_enabled and (
         settings.mcp_transport == "http" or settings.has_omnihuman
@@ -121,6 +125,9 @@ CATALOG: tuple[CatalogEntry, ...] = (
         gate=_object_storage,
     ),
     _entry("media_presign", "MediaPresignOutput", "media:presign", gate=_object_storage),
+    _entry(
+        "media_prepare_upload", "MediaPrepareUploadOutput", "media:upload", gate=_temporary_upload
+    ),
     _entry(
         "omnihuman_create_task",
         "OmniHumanCreateTaskOutput",

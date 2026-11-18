@@ -7,7 +7,7 @@ concurrency). Both transports await ordinary direct calls and return the
 original typed tool result. Neither exposes MCP jobs or native tasks.
 
 HTTP uses direct foreground calls and returns that tool result directly.
-It has no jobs/native tasks/storage/artifact tools/resources. HTTP persistence
+It has no jobs/native tasks/local storage/artifact tools/resources. HTTP persistence
 must be false; local explicit true remains supported, with false the global
 default. Download HTTP provider URLs yourself before expiry.
 
@@ -92,12 +92,7 @@ entry. Provider admission separately bounds owner-first/provider waiting to
 reservation. `ADMISSION_TIMEOUT` means only this attempt did not dispatch;
 other variations may already be accepted.
 
-Whole-call expiry returns text-only `TOOL_DEADLINE_EXCEEDED`, with mutation
-uncertainty and known safe accepted IDs, rather than a guaranteed complete
-variation summary. Use client timeout 660 seconds. SDK/SQLite cleanup can
-exceed the deadline; neither it nor client cancellation cancels provider work.
-Never blindly resubmit a partial batch. HTTP one-key-per-batch journal recovery
-replays only complete saved success; unresolved attempts never resume.
+Hosted HTTP is database-free: provider-key task authorization, no durable replay or shared budget accounting. Omit legacy operation keys; never automatically resubmit uncertain creates. Local stdio persistence remains available.
 
 One batch deadline is a safety net for a stuck batch:
 
@@ -162,8 +157,8 @@ a guarantee that no reserved rows remain.
 
 Preserve every accepted ID and never resubmit it because ownership recording
 failed. These `AcceptedTaskError` failures are ambiguous/nonretryable.
-HTTP polling requires recorded ownership; otherwise reconcile directly with
-the provider using task/request IDs. Trusted stdio permits unrecorded IDs,
+HTTP polling uses provider-key authorization, without local ownership records.
+Reconcile uncertain acceptance with task/request IDs. Trusted stdio permits unrecorded IDs,
 but still rejects a recorded owner mismatch. A single-call failure remains error
 `ToolResult` text containing known IDs, not structured success output.
 Poll recorded task IDs at once with

@@ -117,7 +117,9 @@ is used. Do not use `bearer_token_env_var`. `tool_timeout_sec` is in seconds
 or provider timeouts.
 
 Default discovery is anonymous/static with `connection=null`. HTTP has 7 tools (10 with OmniHuman), direct
-foreground calls and no jobs/native tasks/storage/artifacts/resources.
+foreground calls and no jobs/native tasks/local storage/artifacts/resources.
+Optional [temporary TOS preparation](../temporary-uploads.md) adds one tool
+for enrolled clients; it requires a separate multipart-capable client integration.
 Keep persistence false and retrieve expiring URLs yourself. Optional endpoint
 headers need operator-verified exact bindings; explicit create-tool `model` wins.
 Add `--seedance-endpoint-env SEED_MCP_SEEDANCE_ENDPOINT` and/or
@@ -135,14 +137,16 @@ directory. This verifies configuration parsing only. Actual exact-client,
 model-driven Codex tool execution remains unverified; provider credentials and
 paid provider validation remain pending.
 
+Hosted HTTP is database-free: provider-key task authorization, no durable replay or shared budget accounting. Omit legacy operation keys; never automatically resubmit uncertain creates. Local stdio persistence remains available.
+
 </details>
 
 ## Verify
 
 Run the [discovery-only check](index.md#verify-without-paid-calls) and confirm
 the tools you need appear. Continue with [Your First Tool Call](../setup/first-run.md).
-Finish active calls before reconnecting; a new local process does not inherit
-the previous process's in-memory queue.
+Finish active calls before reconnecting; no MCP queue exists. Preserve provider
+task IDs and poll them, never recreate work after a lost response.
 
 See [Integrations](index.md), [Claude Code](claude-code.md),
 [Getting Started](../getting-started.md), [Tools](../tools.md), and

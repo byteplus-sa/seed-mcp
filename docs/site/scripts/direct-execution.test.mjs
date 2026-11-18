@@ -16,6 +16,23 @@ const python =
       : ".venv/bin/python",
   );
 
+test("stateless HTTP preserves direct execution without replay guarantees", () => {
+  for (const path of [
+    "specs/SPEC_DIRECT_EXECUTION.md",
+    "specs/SPEC_HOSTED_BYOK.md",
+    "docs/runtime.md",
+    ".agents/skills/ark-mcp/SKILL.md",
+    ".agents/skills/ark-mcp-setup/SKILL.md",
+  ]) {
+    const content = readFileSync(join(root, path), "utf8").replace(/\s+/g, " ");
+    assert.match(content, /direct/i, path);
+    assert.match(content, /stateless|database-free/i, path);
+    assert.match(content, /per.pod/i, path);
+    assert.match(content, /uncertain|reconciliation/i, path);
+    assert.doesNotMatch(content, /HTTP.*requires.*fresh idempotency_key/, path);
+  }
+});
+
 test("documented Python discovery runs on real stdio without credentials or spending", () => {
   const document = readFileSync(
     join(root, "docs/integrations/python.md"),
