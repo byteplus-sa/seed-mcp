@@ -31,6 +31,7 @@ _REGISTRATION_GATES = {
         "with TOS_ACCESS_KEY, TOS_SECRET_KEY and TOS_BUCKET; or OBJECT_STORAGE_BACKEND=s3 "
         "with S3_ACCESS_KEY, S3_SECRET_KEY and S3_BUCKET."
     ),
+    "_temporary_upload": "Unavailable on local stdio.",
     "_omnihuman": "Requires BYTEPLUS_OMNIHUMAN_ENABLED=true and BYTEPLUS_CV_API_KEY.",
 }
 _HTTP_REGISTRATION_GATES = {
@@ -38,6 +39,10 @@ _HTTP_REGISTRATION_GATES = {
     "_modelark": "Always registered on HTTP; invocation requires the selected request key.",
     "_seed_audio": "Always registered on HTTP; invocation requires the selected request key.",
     "_omnihuman": "Requires BYTEPLUS_OMNIHUMAN_ENABLED=true; no operator provider key.",
+    "_temporary_upload": (
+        "Requires MCP_TEMPORARY_UPLOAD_ENABLED=true, TOS configuration and "
+        "MCP_UPLOAD_CLIENT_SECRET_SHA256 operator enrollment; no generation-provider key."
+    ),
 }
 _PROVIDER_HEADERS = {
     "modelark": "X-ModelArk-Api-Key",
@@ -76,11 +81,19 @@ def export_tool_docs() -> dict[str, Any]:
                 "execution": "direct",
             }
         }
+        if gate_name == "_temporary_upload":
+            transports = {}
         if gate_name in _HTTP_REGISTRATION_GATES:
             transports["http"] = {
                 "registration_gate": _HTTP_REGISTRATION_GATES[gate_name],
                 "execution": "direct",
-                "credential_header": _PROVIDER_HEADERS[entry.provider] if entry.provider else None,
+                "credential_header": (
+                    "X-MCP-Client-Secret"
+                    if gate_name == "_temporary_upload"
+                    else _PROVIDER_HEADERS[entry.provider]
+                    if entry.provider
+                    else None
+                ),
             }
         definition = resolve_tool_definition(entry)
         tool = FunctionTool.from_function(

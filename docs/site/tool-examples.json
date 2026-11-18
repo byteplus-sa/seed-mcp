@@ -2,6 +2,13 @@
   "ark_list_models": {
     "input": {}
   },
+  "media_prepare_upload": {
+    "input": {
+      "media_type": "image",
+      "mime_type": "image/png",
+      "size_bytes": 1048576
+    }
+  },
   "seedream_generate_image": {
     "input": {
       "model": "dola-seedream-5-5-261028",

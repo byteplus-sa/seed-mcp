@@ -60,6 +60,7 @@ from ark_mcp.security.credentials import (  # noqa: E402
     endpoint_default,
     provider_scope,
     redact_request_secrets,
+    upload_scope,
 )
 from ark_mcp.security.http_middleware import (  # noqa: E402
     ByokHeadersMiddleware,
@@ -67,7 +68,6 @@ from ark_mcp.security.http_middleware import (  # noqa: E402
     RateLimitMiddleware,
     RequestBodyLimitMiddleware,
 )
-from ark_mcp.submissions import execute_submission  # noqa: E402
 from ark_mcp.tools._catalog import (  # noqa: E402
     CATALOG,
     CatalogEntry,
@@ -95,11 +95,19 @@ HTTP_SERVER_INSTRUCTIONS = (
     "Configure provider keys and X-MCP-Client-Secret privately in client HTTP headers, "
     "never prompts or tool arguments. No OAuth, signup or MCP bearer key is used. "
     "Poll existing video task IDs; never resubmit a create call to poll. "
-    "Seedance non-dry and OmniHuman creates require a fresh idempotency_key per operation. "
-    "Reuse identical arguments/key only for delivery recovery; never change keys to bypass "
-    "an unresolved submission. Other provider tools do not have durable replay. "
+    "HTTP is stateless: no task ownership ledger, durable replay or budget accounting. "
+    "Task access is authorized by the provider key, not X-MCP-Client-Secret. "
+    "Omit idempotency_key; supplied legacy keys are rejected. Never automatically repeat "
+    "an uncertain create: it may submit and bill again. Retain provider task IDs. "
     "HTTP output is temporary provider URLs: persist and persist_output must be false. "
-    "Background tasks, uploads and artifact resources are not available over HTTP."
+    "Background tasks, local uploads and artifact resources are not available over HTTP."
+)
+HTTP_UPLOAD_INSTRUCTIONS = (
+    " The optional media_prepare_upload tool signs temporary direct-to-TOS uploads for "
+    "operator-enrolled X-MCP-Client-Secret values only; no generation-provider key is "
+    "needed for preparation. An upload-capable client must upload the file directly to "
+    "TOS, then use reference_url only after upload success. Signed fields and URLs are "
+    "sensitive bearer permissions. This does not inspect bytes or provide a global quota."
 )
 
 
@@ -111,6 +119,9 @@ def _direct_handler(
     read_only: bool,
 ) -> Callable[..., Awaitable[Any]]:
     async def invoke(*args: Any, **kwargs: Any) -> Any:
+        if settings.mcp_transport == "http" and entry.name == "media_prepare_upload":
+            with upload_scope(settings):
+                return await handler(*args, **kwargs)
         if settings.mcp_transport != "http" or entry.provider is None:
             return await handler(*args, **kwargs)
         with provider_scope(settings, entry.provider):
@@ -121,12 +132,7 @@ def _direct_handler(
                 bound.arguments["input"] = type(request).model_validate(
                     {**request.model_dump(), "model": default}
                 )
-            return await execute_submission(
-                bound.arguments["ctx"],
-                entry.name,
-                bound.arguments["input"],
-                lambda: handler(*bound.args, **bound.kwargs),
-            )
+            return await handler(*bound.args, **bound.kwargs)
 
     @wraps(handler)
     async def guarded(*args: Any, **kwargs: Any) -> Any:
@@ -197,10 +203,12 @@ class HardenedFastMCP(FastMCP):
         self,
         *args: Any,
         app_settings: Settings | None = None,
+        runtime_state: RuntimeState | None = None,
         **kwargs: Any,
     ) -> None:
         super().__init__(*args, **kwargs)
         self._app_settings = app_settings
+        self._runtime_state = runtime_state or RuntimeState()
 
     def http_app(self, *args: Any, **kwargs: Any) -> Any:
         if self._app_settings is None or self._app_settings.mcp_transport != "http":
@@ -242,8 +250,6 @@ def _disabled_http_guardrails(settings: Settings) -> list[str]:
     if settings.mcp_transport != "http":
         return []
     disabled = []
-    if not settings.daily_budget_usd:
-        disabled.append("DAILY_BUDGET_USD")
     if settings.rate_limit_rpm <= 0:
         disabled.append("RATE_LIMIT_RPM")
     return disabled
@@ -288,6 +294,7 @@ def create_server(
         "Ark Seed Multimodal",
         instructions=(
             HTTP_SERVER_INSTRUCTIONS
+            + (HTTP_UPLOAD_INSTRUCTIONS if resolved_settings.temporary_upload_enabled else "")
             if resolved_settings.mcp_transport == "http"
             else SERVER_INSTRUCTIONS
         ),
@@ -296,6 +303,7 @@ def create_server(
         lifespan=build_lifespan(resolved_settings, runtime_factory, runtime_state),
         middleware=[MetricsMiddleware()],
         app_settings=resolved_settings,
+        runtime_state=runtime_state,
     )
 
     async def get_artifact(artifact_id: str, ctx: Context) -> ResourceResult:
@@ -360,10 +368,11 @@ def create_server(
         if runtime is None:
             return JSONResponse({"status": "not_ready"}, status_code=503)
         try:
-            await runtime.ownership_store.ping()
-            artifact_root = Path(runtime.settings.artifact_dir).expanduser().resolve()
-            if not artifact_root.is_dir() or not os.access(artifact_root, os.W_OK):
-                raise RuntimeError("Artifact storage is not writable.")
+            if runtime.settings.mcp_transport == "stdio":
+                await runtime.ownership_store.ping()
+                artifact_root = Path(runtime.settings.artifact_dir).expanduser().resolve()
+                if not artifact_root.is_dir() or not os.access(artifact_root, os.W_OK):
+                    raise RuntimeError("Artifact storage is not writable.")
         except Exception:
             return JSONResponse({"status": "not_ready"}, status_code=503)
 

@@ -14,8 +14,9 @@ The create tool's direct result carries the provider task ID. There are no MCP j
 ## Two-phase polling
 
 The persist phase below is **stdio-only**. HTTP uses direct foreground calls,
-has no jobs/native tasks/storage/artifact tools/resources, and requires
+has no jobs/native tasks/local storage/artifact tools/resources, and requires
 persistence false. Download expiring provider URLs on the client instead.
+Optional `media_prepare_upload` prepares input references only, not output persistence.
 
 ```mermaid
 flowchart LR
@@ -43,14 +44,12 @@ flowchart LR
 
 ## Generation tasks: `gen_task_get`, `gen_task_list`, `gen_task_cancel_or_delete`
 
-One toolset serves Seedance (every model generation). Stdio uses its configured
-ModelArk key; HTTP uses `X-ModelArk-Api-Key` and `X-MCP-Client-Secret`.
-HTTP tasks are scoped by credential tenant and client owner, including cancellation.
+Hosted HTTP is database-free: provider-key task authorization, no durable replay or shared budget accounting. Omit legacy operation keys; never automatically resubmit uncertain creates. Local stdio persistence remains available.
 
 ### `gen_task_get`
 
 - **Batch every ID you are waiting on into one call** (1-50, duplicates ignored). Results come back in request order.
-- **Per-ID problems never fail the call.** They land in `errors`: `NOT_OWNED` (task created by another principal, or never created through this server), `NOT_FOUND` (the provider has no such task, for example past its retention), or a provider code. Check `errors` as well as each task's own `error`.
+- **Inspect both tool errors and per-ID `errors`.** Local recorded-owner mismatches use `NOT_OWNED`; HTTP does not filter task access by client secret. The provider can return `NOT_FOUND`, authorization failures or other errors. Also check each task's own `error`.
 - **Statuses:** `queued`, `running`, `succeeded`, `failed`, `cancelled`, `expired`; `unknown` for an unrecognised provider value. Terminal means `succeeded`, `failed`, `cancelled` or `expired`.
 - **Stop polling when `all_terminal` is true.** Otherwise wait `recommended_poll_after_ms` (5000) between calls.
 - **`queue` (video tasks, queued or running only) is derived from the task's own timestamps.** ModelArk publishes no queue position or ETA; relay `queue.hint` rather than estimating. `expires_at` is when the provider fails an unfinished task; `expires_at_estimated=true` means the 48 h default was assumed.
@@ -63,12 +62,12 @@ HTTP tasks are scoped by credential tenant and client owner, including cancellat
 
 - **Window: tasks created in the last 7 days, newest first.** Older tasks cannot be listed, but may still answer `gen_task_get`.
 - **Keep every filter identical while paging, including `page_size`.** A cursor issued for different filters is rejected with an error asking you to repeat the original filters or start without a cursor.
-- **Follow `next_cursor` until it is `null`.** A page can hold fewer than `page_size` tasks while the cursor is still non-null, because non-local (authenticated HTTP) callers are paged through their owned IDs from the ownership store in slices and tasks outside the filter are skipped.
-- Entries carry no outputs; use `gen_task_get` for those. `task_ids` filters to IDs you own (others are skipped silently).
+- **Follow `next_cursor` until it is `null`.** HTTP pages through the provider, not a local owned-ID ledger. A short page alone does not establish the end.
+- Entries carry no outputs; use `gen_task_get` for those. `task_ids` narrows the provider query; access follows the selected provider key.
 
 ### `gen_task_cancel_or_delete`
 
-**Destructive. `expected_status` must equal the task's current status** or the call is refused (re-fetch with `gen_task_get` and retry). The handler checks ownership, fetches the status, then issues the provider DELETE.
+**Destructive. `expected_status` must equal the task's current status** or the call is refused (re-fetch with `gen_task_get` and retry). The handler enforces local ownership on stdio, fetches status and then issues the provider DELETE. HTTP task access is provider-authorized.
 
 | Current status | Allowed | Effect |
 |---|---|---|

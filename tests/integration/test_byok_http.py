@@ -217,7 +217,6 @@ async def test_anonymous_catalog_and_resources_are_static(tmp_path: Path, omnihu
             {
                 "image": "https://example.com/face.png",
                 "audio": "https://example.com/voice.wav",
-                "idempotency_key": "selected-avatar-key",
             },
             "X-OmniHuman-Api-Key",
             VISION_KEY,
@@ -436,7 +435,6 @@ async def test_in_memory_http_server_cannot_reuse_restored_headers(
             {
                 "image": "seed-media://artifacts/private",
                 "audio": "https://example.com/a.wav",
-                "idempotency_key": "reject-avatar-artifact",
             },
         ),
         (
@@ -444,7 +442,6 @@ async def test_in_memory_http_server_cannot_reuse_restored_headers(
             {
                 "image": "file:///tmp/private.png",
                 "audio": "https://example.com/a.wav",
-                "idempotency_key": "reject-avatar-local-file",
             },
         ),
     ],

@@ -8,5 +8,3 @@ service:
   subnetId: subnet-synthetic
   sourceRanges:
     - 192.0.2.0/24
-storage:
-  zone: ap-southeast-1a

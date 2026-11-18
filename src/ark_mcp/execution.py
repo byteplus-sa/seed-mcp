@@ -5,23 +5,25 @@ from __future__ import annotations
 import asyncio
 import math
 import re
+from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Any
 
 from fastmcp.tools import ToolResult
 
+from ark_mcp.domain.submissions import IDENTIFIER_PATTERN
 from ark_mcp.observability.metrics import TOOL_DEADLINES
 from ark_mcp.security.credentials import redact_request_secrets
-from ark_mcp.submission_store import IDENTIFIER_PATTERN
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
+    from collections.abc import Awaitable, Callable, Iterator
 
 
 @dataclass(slots=True)
 class _DirectExecution:
     deadline: float
+    mutation_guard: Callable[[], Awaitable[None]] | None = None
     active: bool = True
     request_started: bool = False
     side_effect_started: bool = False
@@ -33,6 +35,8 @@ class _DispatchExpired(BaseException):
 
 
 _current: ContextVar[_DirectExecution | None] = ContextVar("direct_execution", default=None)
+_slot_mutations: ContextVar[list[bool] | None] = ContextVar("slot_mutations", default=None)
+_state_cleanup: ContextVar[bool] = ContextVar("state_cleanup", default=False)
 _MAX_RECEIPTS = 5
 
 
@@ -40,6 +44,9 @@ def before_provider_request(*, side_effect: bool = True) -> None:
     """Reject expired/cancelled calls and mark actual dispatch, not tool annotations."""
     current = _current.get()
     if current is None:
+        slot = _slot_mutations.get()
+        if slot is not None and side_effect:
+            slot[0] = True
         return
     task = asyncio.current_task()
     if task is not None and task.cancelling():
@@ -48,6 +55,58 @@ def before_provider_request(*, side_effect: bool = True) -> None:
         raise _DispatchExpired
     current.request_started = True
     current.side_effect_started |= side_effect
+    slot = _slot_mutations.get()
+    if slot is not None and side_effect:
+        slot[0] = True
+
+
+def state_operation_deadline() -> float | None:
+    """Expose the remaining direct-call budget to bounded database operations."""
+    if _state_cleanup.get():
+        return None
+    current = _current.get()
+    return current.deadline if current is not None else None
+
+
+def provider_mutation_started() -> bool:
+    slot = _slot_mutations.get()
+    if slot is not None:
+        return slot[0]
+    current = _current.get()
+    return current is not None and current.side_effect_started
+
+
+@contextmanager
+def provider_mutation_scope() -> Iterator[None]:
+    """Track dispatch for one reservation independently of earlier variations."""
+    token = _slot_mutations.set([False])
+    try:
+        yield
+    finally:
+        _slot_mutations.reset(token)
+
+
+@contextmanager
+def state_cleanup_scope() -> Iterator[None]:
+    """Allow bounded state-only bookkeeping after expiry, never provider dispatch."""
+    token = _state_cleanup.set(True)
+    try:
+        yield
+    finally:
+        _state_cleanup.reset(token)
+
+
+async def authorize_provider_request(*, side_effect: bool = True) -> None:
+    """Check the shared create fence immediately before each generation attempt."""
+    current = _current.get()
+    if current is not None and side_effect and current.mutation_guard is not None:
+        task = asyncio.current_task()
+        if task is not None and task.cancelling():
+            raise asyncio.CancelledError
+        if not current.active or asyncio.get_running_loop().time() >= current.deadline:
+            raise _DispatchExpired
+        await current.mutation_guard()
+    before_provider_request(side_effect=side_effect)
 
 
 def record_accepted_receipt(task_id: str, request_id: str | None) -> None:
@@ -107,12 +166,19 @@ def _deadline_result(current: _DirectExecution) -> ToolResult:
 
 
 async def run_direct_call(
-    call: Callable[[], Awaitable[Any]], *, timeout_seconds: float, read_only: bool
+    call: Callable[[], Awaitable[Any]],
+    *,
+    timeout_seconds: float,
+    read_only: bool,
+    mutation_guard: Callable[[], Awaitable[None]] | None = None,
 ) -> Any:
     """Apply our cooperative deadline; preserve external cancellation and provider errors."""
     if not math.isfinite(timeout_seconds) or timeout_seconds <= 0:
         raise ValueError("Tool timeout must be finite and positive.")
-    current = _DirectExecution(deadline=asyncio.get_running_loop().time() + timeout_seconds)
+    current = _DirectExecution(
+        deadline=asyncio.get_running_loop().time() + timeout_seconds,
+        mutation_guard=mutation_guard,
+    )
     task = asyncio.current_task()
     if task is None:
         raise RuntimeError("Direct execution requires an asyncio task.")

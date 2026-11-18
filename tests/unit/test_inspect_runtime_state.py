@@ -14,11 +14,37 @@ from pathlib import Path
 
 import pytest
 
-from ark_mcp.runtime import close_runtime_services, create_runtime_services
-from tests.unit.test_runtime_ops import http_settings
+from ark_mcp.config.env import Settings
+from ark_mcp.runtime import close_runtime_services
+from ark_mcp.runtime import create_runtime_services as create_local_runtime
 
 SCRIPT = Path(__file__).resolve().parents[2] / "scripts" / "inspect_runtime_state.py"
 CANARY = "private-key-owner-payload-canary"
+
+
+def http_settings(path: Path) -> Settings:
+    """Historical backups are fixtures, never a live hosted runtime."""
+    return Settings(_env_file=None, ARTIFACT_DIR=str(path))
+
+
+async def create_runtime_services(settings: Settings):
+    from scripts.inspect_runtime_state import _SCHEMAS
+
+    runtime = await create_local_runtime(settings)
+    with closing(sqlite3.connect(Path(settings.artifact_dir) / "runtime.sqlite3")) as connection:
+        for table in ("http_submissions", "http_submission_tasks"):
+            columns = _SCHEMAS[table]
+            declarations = [
+                f"{name} {kind}" + (" NOT NULL" if required else "")
+                for name, kind, required, _ in columns
+            ]
+            primary = [
+                name for name, _, _, order in sorted(columns, key=lambda item: item[3]) if order
+            ]
+            declarations.append("PRIMARY KEY (" + ", ".join(primary) + ")")
+            connection.execute(f"CREATE TABLE {table} (" + ", ".join(declarations) + ")")
+        connection.commit()
+    return runtime
 
 
 def inspect(database: Path, *arguments: str) -> subprocess.CompletedProcess[str]:
@@ -51,7 +77,7 @@ async def test_live_inspection_reports_aggregates_without_recovery_or_disclosure
         with closing(sqlite3.connect(database)) as connection, connection:
             for index, state in enumerate(("running", "succeeded", "unresolved")):
                 connection.execute(
-                    "INSERT INTO http_submissions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO http_submissions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         f"{CANARY}-{index}",
                         CANARY,
@@ -59,6 +85,7 @@ async def test_live_inspection_reports_aggregates_without_recovery_or_disclosure
                         CANARY,
                         CANARY,
                         f"{CANARY}-{index}",
+                        CANARY,
                         CANARY,
                         state,
                         CANARY,
@@ -191,8 +218,8 @@ async def test_invalid_state_and_unresolved_timestamp_fail_closed(tmp_path: Path
         with closing(sqlite3.connect(database)) as connection, connection:
             connection.execute("PRAGMA ignore_check_constraints=ON")
             connection.execute(
-                "INSERT INTO http_submissions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (CANARY, CANARY, CANARY, CANARY, CANARY, CANARY, CANARY, CANARY, CANARY, CANARY),
+                "INSERT INTO http_submissions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (CANARY,) * 11,
             )
         assert inspect(database).returncode == 1
         with closing(sqlite3.connect(database)) as connection, connection:

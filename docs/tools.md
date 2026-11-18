@@ -12,9 +12,13 @@ reporting and logging.
 HTTP exposes 7 discovery/provider tools, or 10 with OmniHuman enabled, without
 operator provider keys. Discovery is anonymous/static. Provider calls use the
 selected BYOK header plus `X-MCP-Client-Secret` and run directly in the foreground.
-HTTP has no jobs/native tasks/storage/artifact tools/resources. No OAuth,
+HTTP has no jobs/native tasks/local storage/artifact tools/resources. No OAuth,
 signup, server-issued key or environment-key fallback exists.
 See [HTTP setup](setup/shared-server.md) and [Security](security.md).
+
+Optional HTTP-only `media_prepare_upload` adds one tool (8/11 total).
+Operator enrollment authorizes preparation without a generation-provider key;
+the client uploads directly to TOS. See [temporary uploads](temporary-uploads.md).
 
 Startup-key/artifact guidance below is **stdio-only**. Catalog
 scope labels are metadata, not customer-selected roles. Seed Audio/Seedream
@@ -255,7 +259,6 @@ own key, separate from the ModelArk key.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `idempotency_key` | string \| null | HTTP only | 16-128 ASCII letters, digits, `_` or `-`; fresh UUID per intended call. Default null; stdio rejects supplied keys |
 | `image` | string | Yes | Public HTTPS URL or `seed-media://artifacts/<id>`. jpeg/png/webp/bmp/tiff/gif/heic/heif, under 30 MB, aspect ratio 0.4-2.5, 300-6000 px per side |
 | `audio` | string | Yes | Public HTTPS URL or `seed-media://artifacts/<id>`. wav or mp3, under 15 MB, 4-300 seconds |
 | `prompt` | string | No | Scene, movement, or camera guidance (up to 2000 characters; zh, en, ja, ko, es-MX, id) |
@@ -575,7 +578,6 @@ fallback; it is not a quote derived from the provider's token prices.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `idempotency_key` | string \| null | Non-dry HTTP only | 16-128 ASCII letters, digits, `_` or `-`; fresh UUID per intended whole call. Default null; omit on stdio and dry runs |
 | `prompt` | string | No | Text prompt (1-32,000 chars). Optional when media or `variation_prompts` are given |
 | `images` | list[SeedanceImageInput] | No | Up to 30 (per-model maximum at runtime); roles `first_frame`, `last_frame`, `reference_image`. Each entry may be a plain URL string, `asset://<asset_id>`, or `{"url": ...}` (coerced to `role=reference_image`) |
 | `videos` | list[SeedanceVideoInput] | No | Up to 10 reference videos (per-model maximum at runtime); URL string, `asset://<asset_id>`, or `{"url": ...}` |
@@ -644,14 +646,7 @@ do not.
    use the model defaults, not the Draft's values. The final video is billed
    separately at its resolution.
 
-Before submitting step 2, the tool checks that the caller owns the Draft task,
-that it succeeded, that it was created in Draft mode, and that it is within
-**14 days of creation** (**7 days** if created before **2026-10-28 10:00 UTC+8**).
-If `model` is omitted, the tool uses the Draft task's model; a
-different `model` is rejected.
-On HTTP each step requires its own fresh `idempotency_key`. Saved promotion
-receipts replay before Draft lookup with existing ownership checks; use the
-original arguments/key only for delivery recovery.
+Hosted HTTP is database-free: provider-key task authorization, no durable replay or shared budget accounting. Omit legacy operation keys; never automatically resubmit uncertain creates. Local stdio persistence remains available.
 
 ### Output
 
@@ -664,24 +659,12 @@ success shape.
 |---|---|
 | `model`, `family` | Resolved model ID and family |
 | `dry_run` | `true` when nothing was submitted; see `preview` |
-| `tasks` | One entry per requested variation, in order (empty for a dry run): `index`, `task_id`, `request_id`, and `error`. `task_id` and `error` can coexist after journal/ownership-record failure; a null ID means submission failed or acceptance is unknown |
-| `submitted`, `failed` | Independent counts of known accepted IDs and entries with errors; accepted tasks with journal/ownership-record errors count in both. Budget-finalization log events do not add failures |
+| `tasks` | One entry per requested variation, in order (empty for a dry run): `index`, `task_id`, `request_id`, and `error`. `task_id` and `error` can coexist after local ownership-record failure; a null ID means submission failed or acceptance is unknown |
+| `submitted`, `failed` | Independent counts of known accepted IDs and entries with errors; accepted tasks with local ownership-record errors count in both. Local budget-finalization log events do not add failures |
 | `recommended_poll_after_ms` | Suggested delay before the first `gen_task_get` poll; `null` for a dry run |
 | `preview` | Dry run only: `requests` (provider request bodies, one per variation, with HTTPS media URLs reduced to scheme and host, inline Base64 reduced to its size, and `asset://` references kept) and `estimated_cost_usd` (a static estimate from the server's price table, not a provider quote) |
 
-Retain every safe accepted ID, even when journal/ownership recording fails. These
-`AcceptedTaskError` failures are ambiguous/nonretryable: never recreate accepted work.
-On HTTP safe IDs are journaled before ownership; a failed journal write still
-attempts ownership. Unsafe or secret-echoing IDs are rejected before either write.
-Budget-finalization exceptions only log `ERROR` event `budget_finalization_failed`,
-preserving the provider result/error and conservative reserved allowance; they do
-not become accepted-task errors or add to `failed`. Reservation before dispatch
-still fails closed. Cancellation cleanup is shielded best effort, not a guarantee
-that no reserved rows remain.
-HTTP polling with `gen_task_get` requires recorded ownership; otherwise reconcile
-directly with the provider using task/request IDs. Trusted stdio permits
-unrecorded IDs, but still rejects a recorded owner mismatch. For `draft=true`, use the
-ID as `draft_task_id` once the Draft succeeds.
+See the database-free HTTP contract above; local stdio persistence is unchanged.
 
 ### Examples
 
@@ -984,6 +967,22 @@ set `variations` (1-5) and optionally `variation_prompts`. Each variation is a
 separate billed provider task. The direct result lists every variation in
 `tasks` (with `task_id` and/or `error`); retain all known IDs and poll them
 in one `gen_task_get` call, subject to the ownership rules above.
+
+## media_prepare_upload
+
+HTTP-only, opt-in restricted TOS signing for one image, audio or video reference.
+Input fields are `media_type`, exact allowlisted `mime_type`, and strict positive
+`size_bytes` (10 MiB image/audio, 200 MiB video). No bytes/local path or extras.
+An operator-enrolled live `X-MCP-Client-Secret` is required; no generation key.
+
+Returns `upload_url`, `method="POST"`, `form_fields`, `file_field="file"`,
+`upload_expires_at`, `reference_url`, `reference_expires_at`, `object_key`,
+`size_bytes`, `object_expires_days=1` and instructions. Upload directly with all
+fields unchanged and file LAST; wait for success before using the GET URL.
+Fixed 15-minute POST / 24-hour GET / one-day scheduled object expiry.
+Signed permissions are sensitive; declared MIME is not byte inspection.
+No upload receipt, DB, URL renewal or global quota. Full workflow and operator
+prerequisites: [temporary uploads](temporary-uploads.md).
 
 ## media_upload
 

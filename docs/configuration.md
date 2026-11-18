@@ -193,15 +193,15 @@ or credential values.
 | `MCP_ALLOWED_HOSTS` | loopback hosts | Comma-separated accepted Host headers |
 | `MCP_ALLOWED_ORIGINS` | empty | Comma-separated accepted browser Origins |
 | `MCP_HTTP_MAX_BODY_BYTES` | `2097152` (2 MiB) | Positive maximum streamed HTTP request body |
-| `MCP_HTTP_MAX_IN_FLIGHT` | `64` | Positive admission bound before body handling, including discovery |
+| `MCP_HTTP_MAX_IN_FLIGHT` | `64` | Positive per-pod admission bound before body handling, including discovery |
 | `READINESS_CHECK_PROVIDERS` | `false` | Local diagnostic setting only; HTTP readiness never probes providers |
 | `READINESS_PROVIDER_TIMEOUT_SECONDS` | `2.0` | Per-provider timeout for readiness checks |
-| `RATE_LIMIT_RPM` | `60` | Max HTTP requests per minute per client IP; positive required on HTTP |
+| `RATE_LIMIT_RPM` | `60` | Max HTTP requests per minute per client IP per pod; positive required on HTTP |
 | `RATE_LIMIT_BURST` | `0` | Token bucket burst size; 0 defaults to `RATE_LIMIT_RPM` |
 | `RATE_LIMIT_TRUSTED_PROXY_CIDRS` | empty | Comma-separated canonical IPv4/IPv6 networks; trust forwarded addresses only from an immediate peer in these networks; catch-all networks rejected |
 | `MCP_AUTH_MODE` | `byok` | HTTP requires `byok`; explicit `local` is stdio-only; `api_key` removed |
 | `MCP_IDENTITY_HMAC_KEY` | empty | Required for HTTP: operator random 32-byte secret encoded as 64 lowercase hex; not a customer credential |
-| `MCP_IDENTITY_KEY_VERSION` | `1` | Positive HMAC identity version; changes ownership namespace when changed |
+| `MCP_IDENTITY_KEY_VERSION` | `1` | Positive HMAC version for ephemeral admission scopes, not task authorization |
 
 `FASTMCP_TRANSPORT`, `FASTMCP_HOST`, and `FASTMCP_PORT` are accepted as
 aliases for the corresponding `MCP_*` transport settings.
@@ -224,23 +224,37 @@ Helm exposes `models.seedream` and `models.seedance` with `defaultModel` and
 Nonempty lists must include the default; alternate defaults require explicit
 verified bindings. Header overrides still require exact registry matches.
 See [model and runtime chart values](byteplus-terraform.md#model-and-runtime-values).
-Helm `app.dailyBudgetUsd` defaults to 25 USD rather than the standalone
-application's zero; `app.providerMaxConcurrency=5`,
-`app.principalMaxConcurrency=3` and `app.rateLimitBurst=0` map directly to the
-corresponding settings below. Per-owner budgets are not an account spending cap.
+Helm requires `app.dailyBudgetUsd=0`. HTTP has no budget ledger.
+`app.providerMaxConcurrency=5`, `app.principalMaxConcurrency=3` and
+`app.rateLimitBurst=0` map to per-pod limits.
 
 Clients send `X-MCP-Client-Secret` (client-generated 32 random bytes as
 64 lowercase hex) plus only the selected provider header:
 `X-ModelArk-Api-Key`, `X-Seed-Speech-Api-Key`, or `X-OmniHuman-Api-Key`.
 Provider operations including dry runs require these; discovery is anonymous.
 `Authorization` is rejected. There is no OAuth, signup or server-issued key.
-Keep HMAC configuration and client credentials stable for ownership continuity.
-Fresh SQLite is required, with no old-schema migration or scope recovery bridge.
+The provider key authorizes tasks; the client secret scopes admission only.
 See [HTTP client setup](setup/shared-server.md) and [security](security.md).
 
 ## Object storage (TOS or S3, optional)
 
-This section is stdio-only. HTTP exposes no upload, presign or artifact tools.
+The local upload/presign workflows below are stdio-only. HTTP exposes no local
+upload, presign renewal or artifact tools. Optional HTTP preparation uses the
+TOS signer configuration but not local state.
+
+### Temporary HTTP Upload Preparation
+
+| Variable | Default | Purpose |
+| --- | --- | --- |
+| `MCP_TEMPORARY_UPLOAD_ENABLED` | `false` | HTTP-only restricted TOS POST/GET preparation |
+| `MCP_UPLOAD_CLIENT_SECRET_SHA256` | empty | Operator enrollment: 1-1000 distinct lowercase SHA-256 digests of exact ASCII client-secret values, comma-separated without whitespace |
+
+Enabling requires `OBJECT_STORAGE_BACKEND=tos`, complete TOS signing credentials,
+valid bucket/region and the exact official `tos-{TOS_REGION}.bytepluses.com`
+endpoint (optional HTTPS scheme, no port/path). Lifetimes are fixed at
+900-second POST, 86400-second GET and one-day scheduled object expiry;
+`TOS_PRESIGN_TTL_SECONDS` does not override them. No generation-provider key
+is required to prepare. See [operator prerequisites and client upload flow](temporary-uploads.md).
 
 The `media_upload` and `media_presign` tools are registered when the selected
 object-storage backend is configured. `media_upload` uploads 1-50 files to a
@@ -284,32 +298,30 @@ S3-compatible storage.
 
 ## Persistence and runtime policy
 
+Artifact, cache and pruning settings below are local stdio only. HTTP uses
+no persistence; provider/principal concurrency remains per pod.
+
 | Variable | Default | Purpose |
 |---|---|---|
+| `STATE_BACKEND` | transport-selected | `none` for HTTP, `sqlite` for stdio; incompatible explicit values reject startup |
+| `STATE_MAX_RECORDS` | `100000` | Positive local ownership/budget record capacity; unused on HTTP |
 | `ARTIFACT_BACKEND` | `filesystem` | `filesystem` (local disk) or `object_storage` (TOS/S3) |
-| `STATE_BACKEND` | `sqlite` | Task ownership/budget/cache and HTTP submission backend; only `sqlite` (single instance) is implemented |
-| `STATE_MAX_RECORDS` | `100000` | Positive retained-state capacity, also caps HTTP journal claims; new keys fail at capacity, existing keys remain readable |
 | `ARTIFACT_DIR` | `~/.seed-mcp/artifacts` | Media, metadata, ownership, and budget state; separate from `ark-mcp` |
 | `ARTIFACT_TTL_SECONDS` | `604800` | Artifact retention, in seconds |
 | `ARTIFACT_SWEEP_INTERVAL_SECONDS` | `3600` | Interval between background artifact/state expiry sweeps |
-| `STATE_PRUNE_MAX_AGE_DAYS` | `30` | Max age for ownership/budget/cache rows before pruning; at least 14 for authenticated HTTP with regular Seedance 2.5 enabled. Never prunes submission claims |
+| `STATE_PRUNE_MAX_AGE_DAYS` | `30` | Max age for local ownership/budget/cache rows before pruning; minimum 1 day; no HTTP sweep |
 | `MCP_INLINE_MEDIA_MAX_BYTES` | `8388608` | Maximum inline MCP media size |
 | `ARTIFACT_DOWNLOAD_TIMEOUT_SECONDS` | `120` | Timeout for each attempt to download provider output into artifact storage (filesystem and object-storage backends) |
 | `ARTIFACT_DOWNLOAD_MAX_ATTEMPTS` | `3` | Attempts (1-10) for a retryable output download (timeouts, network errors, 408/429/5xx), with 1s, 2s, 4s, ... backoff. Expired, untrusted, or oversized sources are never retried |
 | `ARTIFACT_INLINE_FALLBACK_MAX_BYTES` | `8388608` (8 MiB) | When inline Base64 output (Seed Audio, Seedream `b64_json`) cannot be stored, return it inline in `ArtifactRef.fallback_data` up to this decoded size; `0` disables |
 | `PROVIDER_MAX_CONCURRENCY` | `5` | Process-wide slots per provider |
-| `PRINCIPAL_MAX_CONCURRENCY` | `3` | Slots per credential/client-derived HTTP owner; skipped for local stdio |
-| `DAILY_BUDGET_USD` | `0` | Per-owner UTC daily estimate limit; zero records only, not an account-wide spend guarantee |
+| `PRINCIPAL_MAX_CONCURRENCY` | `3` | Per-pod slots per credential/client-derived HTTP owner; skipped for local stdio |
+| `DAILY_BUDGET_USD` | `0` | Local UTC daily estimate limit; zero records only on stdio. HTTP requires zero and performs no accounting. Not an account-wide spend guarantee |
 | `PERSISTENCE_CACHE_MAX_SIZE` | `10000` | Max cached provider task IDs in artifact-resolution cache |
 | `PERSISTENCE_CACHE_TTL_SECONDS` | `86400` | TTL for cached task-to-artifact mappings (seconds) |
 
-HTTP servers with any regular
-`seedance_2_5` binding (including custom or non-default models) require
-`STATE_PRUNE_MAX_AGE_DAYS >= 14` to retain Draft ownership throughout the
-promotion window. Shorter values fail at startup; increase existing overrides
-or keep the 30-day default. Flash-only, legacy-only, local, and disabled
-ModelArk configurations retain the one-day minimum. Increasing retention does
-not recover already-pruned ownership rows; missing ownership remains denied.
+HTTP keeps no Draft ownership records and has no state-retention requirement.
+Draft eligibility still follows the model/provider creation window.
 
 Seed Audio/Seedream `persist` and OmniHuman get `persist_output` default to
 false on every transport. HTTP rejects explicit true and returns temporary
@@ -317,13 +329,14 @@ provider URLs; local callers can explicitly opt into persistence.
 A local billed output retains fallback delivery when storage fails; see
 [Artifacts](artifacts.md#persistence-failures).
 
-The filesystem backend enforces principal and tenant ownership. It is suitable
-for one process. Multiple replicas require shared artifact, task-ownership,
-budget, cache, and limiter implementations before horizontal scaling is safe.
-HTTP acquires an exclusive `runtime.sqlite3.lock` before any stores or recovery,
-holding it until close. It is a local filesystem lease, not distributed fencing;
-do not delete active locks or share SQLite on a network filesystem. See
-[runtime ownership](runtime.md#http-state-lease).
+The local filesystem backend enforces artifact ownership and is suitable for
+one process. Do not use it as shared storage for HTTP replicas.
+
+### PostgreSQL HTTP Settings
+
+Removed. There are no PostgreSQL settings, migrations or operator commands
+for the initial hosted phase. HTTP never opens SQLite, PostgreSQL or Redis.
+Use `STATE_BACKEND=none` or leave it unset for HTTP.
 
 ## Local output paths
 
@@ -351,8 +364,8 @@ Logs are structured JSON on stderr. Provider credentials and sensitive media
 fields are redacted.
 
 Both transports call tools directly. The deadline starts after MCP input
-parsing and before credential/binding checks, journal, admission and execution.
-Budget is reserved after owner-first provider admission. `ADMISSION_TIMEOUT`
+parsing and before credential/binding checks, admission and execution.
+Local stdio reserves budget after owner-first provider admission. `ADMISSION_TIMEOUT`
 means this attempt did not dispatch; other variations may already be accepted.
 `TOOL_DEADLINE_EXCEEDED` retains uncertainty and known safe task/request IDs.
 External cancellation propagates. Neither timeout nor disconnect guarantees
@@ -365,23 +378,39 @@ SQLite/SDK cancellation cleanup may exceed the nominal deadline, so these
 allowances are not hard wall-clock guarantees. See
 [Direct Execution](../specs/SPEC_DIRECT_EXECUTION.md).
 
-HTTP entrypoint shutdown grace is
+HTTP entrypoint and Caddy shutdown grace is
 `max(MCP_TOOL_TIMEOUT_SECONDS, BYTEPLUS_REQUEST_TIMEOUT_MS / 1000) + 30`
-seconds. VKE Caddy uses the same allowance; pod termination grace is the
-maximum plus 60 seconds. Defaults are 630/660 seconds. Align any custom host
-supervisor with these values; no application HPA or multiple workers are safe.
+seconds. Pod termination grace uses the same maximum plus 60 (defaults
+630/660 seconds). Align custom process supervisors with these allowances.
 
 ### Provider task ownership and recovery
 
-There are no MCP jobs, native tasks, snapshots or execution claims on either
-transport. Keep provider task IDs and poll rather than recreating accepted work.
-Local stdio calls have no submission replay guarantee. Never blindly resubmit.
-HTTP retains only minimal scoped state, never customer credentials.
-HTTP non-dry Seedance/OmniHuman creates use a durable SQLite submission journal
-and require `idempotency_key`; Seedance dry runs need no key/journal and stdio
-rejects supplied keys. Claims never auto-prune; preserve the state volume and
-matching HMAC configuration. Do not reset claims to free capacity.
-Only saved success replays with current ownership, not failed/partial work.
-See the [submission contract](../specs/SPEC_HOSTED_BYOK.md#http-submission-safety).
-Synchronous product replay and complete crash recovery remain deferred.
-PostgreSQL/Redis are future scaling choices, not initial HTTP requirements.
+There are no MCP jobs, native tasks, snapshots or execution claims.
+
+Task get/list/cancel and Draft lookup are authorized by the supplied provider
+key. `X-MCP-Client-Secret` separates per-pod admission scopes, not task access.
+Clients sharing a provider key can access whatever that key authorizes.
+Use separate provider credentials when independent authorization is required.
+
+Omit `idempotency_key`; the retained legacy field is rejected when supplied.
+An identical create is a new operation and may bill again. Save task/request IDs,
+poll existing tasks, and reconcile lost or uncertain create responses through
+the provider. Never automatically retry an uncertain mutation.
+
+Rate limits and in-flight/provider/principal concurrency are in-memory per pod;
+they multiply with replicas and reset at restart. `DAILY_BUDGET_USD` must be `0`
+on HTTP; use provider-side spend controls. Readiness is lifespan-only and makes
+no storage or provider probes. No database, migration, distributed lock, shared
+volume or sticky session is needed for the hosted deployment.
+
+There is no hosted state to restore or replay. Restarting a pod does not
+cancel provider work; clients must retain IDs and poll with authorized provider
+credentials. A lost create response may hide billed work and must be reconciled,
+not resubmitted automatically.
+
+This is a deliberate contract change, not an automatic migration. Existing
+stateful installations must preserve their old release, database/WAL backups,
+identity and accepted IDs for reconciliation. Never delete retained data to
+make the new version start. A Helm upgrade can delete removed resources; use
+separately reviewed transition steps. No cloud resources are changed by source
+removal.

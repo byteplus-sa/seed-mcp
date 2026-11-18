@@ -36,7 +36,9 @@ def test_ci_can_validate_release_prs_and_exact_release_commits() -> None:
     for job in ci["jobs"].values():
         checkout = job["steps"][0]
         assert checkout["with"]["ref"] == "${{ inputs.ref || github.sha }}"
-    assert ci["jobs"]["container"]["needs"] == "quality"
+    assert set(ci["jobs"]["container"]["needs"]) == {"quality"}
+    assert "postgres" not in ci["jobs"]
+    assert "coverage" not in ci["jobs"]
     push = ci["jobs"]["container"]["steps"][-1]
     assert "github.event_name == 'push'" in push["if"]
     assert ":edge" in push["with"]["tags"]

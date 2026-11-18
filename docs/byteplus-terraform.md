@@ -2,9 +2,9 @@
 
 The supported cloud source is a **dedicated VKE cluster** in
 `deploy/terraform/vke` and the application chart in `deploy/helm/seed-mcp`.
-It replaces the ECS/Compose workflow. One StatefulSet pod runs FastMCP and a
-Caddy TLS sidecar with retained SQLite state. There is no application HPA,
-PostgreSQL, Redis, HA or public-launch certification.
+It replaces ECS/Compose with database-free FastMCP/Caddy Deployment pods,
+default 2-6 pod HPA, PDB and hostname spread. This source support is not live
+HA, capacity or public-launch certification. SQLite remains local stdio only, not this chart; Redis is not required.
 
 The durable contract is [VKE Deployment](../specs/SPEC_VKE_DEPLOYMENT.md);
 [HTTP BYOK](../specs/SPEC_HOSTED_BYOK.md) remains authoritative for identity
@@ -16,7 +16,7 @@ identified operator read-only checks, not authorization for paid execution.
 ## Validation Status
 
 Live VKE provisioning remains **unverified**. CLB source-IP preservation,
-CSI attach/detach, same-zone rescheduling, rollout/drain behavior, DNS/TLS
+legacy CSI attach/detach, HPA/spread, rollout/drain behavior, DNS/TLS
 and backup recovery require separately authorized evidence. Real target-client
 tool execution and provider acceptance remain unverified for this deployment.
 Old partial ECS provisioning is not evidence for VKE.
@@ -38,7 +38,7 @@ Operators need:
 - A reviewed Seed MCP checkout, Terraform `>=1.17.1,<2.0.0`, locked
   `bytepluscc` 0.0.63, Helm (source validation uses 4.3.2), and a
   Kubernetes-compatible `kubectl`.
-- Operator-verified region, zone, supported Kubernetes version and available
+- Operator-verified region, zone, maintained Kubernetes >=1.30 and available
   on-demand node type. Regional quotas must cover VKE, nodes, EBS, CLB, NAT
   and EIP. Example values are not inventory or entitlement guarantees.
 - Access to the private control plane through approved **private connectivity**
@@ -48,8 +48,8 @@ Operators need:
 - A reviewed digest-pinned application image compatible with the nodes, a public
   DNS name, a valid matching TLS certificate, and protected existing Kubernetes
   Secrets. No Seed MCP image publication or certificate issuer is assumed.
-- Private deployment/state storage and tested off-host backups, with a VKE
-  administrator responsible for addon readiness.
+- Metrics API and node/provider headroom for active/surge/draining pods
+  plus maintenance, with a VKE administrator owning addon readiness.
 
 Python/uv are needed for repository checks, not remote client connections.
 ArkCLI and bytedcli are not required by this deployment source.
@@ -109,14 +109,7 @@ does not retrieve them. Helm references existing Secrets only; it does not
 create Secret resources or accept secret values. A protected operator workflow
 must create them in the intended namespace before installation:
 
-- `identitySecret.name`, with keys `MCP_IDENTITY_HMAC_KEY` (random 32 bytes,
-  64 lowercase hex) and `MCP_IDENTITY_KEY_VERSION` (positive, normally `1`).
-  These key names are fixed by the chart schema; values are not Helm inputs.
-- A different `tlsSecretName` containing `tls.crt` and `tls.key`, mounted only
-  into Caddy. Certificate issuance, renewal and reload verification are
-  operator responsibilities; Caddy automatic HTTPS is disabled.
-- Optional existing `imagePullSecrets` names. For GHCR, restrict pull tokens
-  to `read:packages`, not publication rights.
+Hosted HTTP is database-free: provider-key task authorization, no durable replay or shared budget accounting. Omit legacy operation keys; never automatically resubmit uncertain creates. Local stdio persistence remains available.
 
 The retained standalone `scripts/generate_identity_secret.py` is for private
 operator generation, not a customer connection token. Do not invoke generation
@@ -135,15 +128,15 @@ key bundle or client secret belongs in Terraform, Helm or pod environment.
 2. Review `variables.tf` and `terraform.tfvars.example`. Verify `zone_id`,
    `kubernetes_version`, `node_instance_type`, private network ranges and
    regional quotas. Defaults select `ap-southeast-1`, two fixed on-demand nodes
-   and no node autoscaling. Two nodes are for same-zone rescheduling, not
-   application replication. NAT/EIP/SNAT supply node/pod egress without public
+   and no node autoscaling. Hostname spreading needs two schedulable nodes;
+   same-zone nodes are not AZ resilience. NAT/EIP/SNAT supply egress without public
    node IPs. Infrastructure creation is a separate approved, billable step.
 3. Establish authenticated private management access. Inspect the actual VKE
    cluster and its addons before preparing Helm values.
-4. Complete every prerequisite below, privately prepare the existing identity
-   and TLS Secrets, then review the chart render with actual nonsecret inputs.
+4. Complete prerequisites, privately provision database/TLS/roles/schema/contract,
+   identity/database/TLS Secrets and CA ConfigMap, then review actual nonsecret inputs.
 5. Obtain separate approval for Helm installation. It creates a public CLB
-   and an EBS claim and can incur charges. Verify DNS/TLS and all live gates
+   and can incur charges. Verify DNS/TLS and all live gates
    before inviting clients. No one-command cloud deployment is provided.
 
 ## Addon and Node Gate
@@ -167,12 +160,14 @@ kubectl -n kube-system rollout status deployment/csi-ebs-controller --timeout=30
 kubectl -n kube-system rollout status daemonset/csi-ebs-node --timeout=300s
 ```
 
+CSI commands above apply to retained legacy storage, not a new stateless
+application prerequisite. Preserve existing addon/volume safeguards.
 Check nodes are Ready with adequate allocatable CPU/memory; check CCM is
 Running on its VKE addon card even if its workload is outside the tenant
-namespace. Both addon cards must show Running and compatible maintained
-versions; the CSI driver/controller/node checks must also pass. Record versions
+namespace. Existing addon versions/lifecycle remain administrator-owned. Record versions
 and readiness evidence privately. Verify private API access, existing HMAC
-Secret keys, valid TLS material and matching hostname without displaying data.
+Secret keys, database CA/schema/contract/runtime-role access, metrics API,
+node/connection headroom, failover fencing, TLS and hostname without displaying data.
 
 Only then set `prerequisitesConfirmed=true`. This is an **acknowledgement,
 not programmatic proof** of addon, node, TLS, identity or network readiness.
@@ -184,8 +179,9 @@ Failure of a prerequisite blocks deployment even when rendering succeeds.
 
 Start from `values.example.yaml`, not the synthetic CI file. Required inputs:
 `image` (digest pinned), `publicHost`, `identitySecret.name`, `tlsSecretName`,
-`service.subnetId`, `service.sourceRanges` and `storage.zone`. Match the actual
-cluster network, disk zone and BytePlus project; review `values.schema.json`.
+`service.subnetId` and
+`service.sourceRanges`. Match actual network references;
+review `values.schema.json`. No storage-zone pin is accepted.
 Do not guess zone availability, Kubernetes versions, image digests or subnet IDs.
 
 Custom BYOE endpoints require operator-verified exact model/family bindings.
@@ -206,9 +202,9 @@ evidence of customer entitlement.
 | `models.seedance.defaultModel` | `dreamina-seedance-2-5-260628` | `SEEDANCE_DEFAULT_MODEL` |
 | `models.seedream.bindings` | `[]` | JSON `SEEDREAM_MODEL_BINDINGS`; entries `{model_id, family}` |
 | `models.seedance.bindings` | `[]` | JSON `SEEDANCE_MODEL_BINDINGS`; entries `{model_id, family}` |
-| `app.dailyBudgetUsd` | `25` | `DAILY_BUDGET_USD`; per-owner daily estimate limit, not account spend protection |
-| `app.providerMaxConcurrency` | `5` | `PROVIDER_MAX_CONCURRENCY`; slots per provider bucket |
-| `app.principalMaxConcurrency` | `3` | `PRINCIPAL_MAX_CONCURRENCY`; slots per derived HTTP owner |
+| `app.dailyBudgetUsd` | `0` | HTTP requires zero; no budget ledger. Use provider spend controls. |
+| `app.providerMaxConcurrency` | `5` | `PROVIDER_MAX_CONCURRENCY`; per-pod slots per provider bucket |
+| `app.principalMaxConcurrency` | `3` | `PRINCIPAL_MAX_CONCURRENCY`; per-pod slots per derived HTTP owner |
 | `app.rateLimitBurst` | `0` | `RATE_LIMIT_BURST`; zero inherits RPM, default 60 |
 
 Seedream families are `seedream_5_5`, `pro`, `lite`, `4x`; Seedance families
@@ -226,22 +222,15 @@ over a request endpoint header; used header defaults must match this registry
 exactly. No AK/SK custody, automatic metadata lookup or arbitrary BYOE
 self-service is added.
 
-The chart's USD 25 budget differs from the standalone application's
-`DAILY_BUDGET_USD=0` default. A chart value of zero records estimates without
-blocking. Clients can create new isolation secrets, so this is never a
-provider-account spending ceiling. The schema bounds budget to 0-1000000 USD,
-both concurrency values to 1-256, and burst to 0-10000. Use provider-console
-spending controls and measured capacity before raising limits.
+The chart requires `DAILY_BUDGET_USD=0`: no hosted budget ledger exists. Concurrency values remain bounded to1-256 and burst to0-10000, per pod. Use provider-console spend controls and measured capacity.
 
-### Network and Storage
+### Network and Scaling
 
 ```mermaid
 flowchart LR
     Client["Client BYOK headers"] -->|TLS over TCP 443| CLB["Public CLB; Local traffic policy"]
-    subgraph Pod["One StatefulSet pod"]
+    subgraph Pod["Deployment pods; default HPA 2-6"]
         Caddy["Caddy TLS on 8443"] -->|"127.0.0.1:3000"| App["Direct FastMCP"]
-        App --> Lease["Exclusive HTTP state lease"]
-        Lease --> Disk[("Retained RWO ext4 EBS")]
         Metrics["Optional loopback metrics"]
     end
     CLB -->|TCP 8443| Caddy
@@ -272,11 +261,7 @@ CPU/memory and temporary volumes are bounded. `app.metricsEnabled=false`
 keeps the optional loopback listener off; enabling it selects port 9000,
 never a public Service. See [private operations](observability.md#metrics-endpoint).
 
-Storage is one `ReadWriteOnce` filesystem claim: ext4, `ESSD_PL0`, PostPaid,
-`ebs.csi.volcengine.com`, `WaitForFirstConsumer`, explicit zone/project and
-`Retain` policies. The StorageClass is kept on Helm uninstall. Defaults are
-40 GiB and unencrypted; enabling disk encryption requires separately verified
-KMS prerequisites. Retention is not backup or protection from manual deletion.
+See the database-free HTTP contract above; local stdio persistence is unchanged.
 
 The HTTP process and Caddy use `max(tool, provider) + 30` seconds for graceful
 shutdown; the chart uses `max(tool, provider) + 60` for pod termination
@@ -286,68 +271,23 @@ deadlines; forced termination is not provider cancellation.
 
 ## Backup, Upgrade and Recovery
 
-Start a new BYOK installation with fresh SQLite; do not adopt an older schema.
-For an existing compatible installation, preserve
-`/app/.artifacts/runtime.sqlite3`, consistent WAL state and the **matching HMAC
-key/version**. The HTTP runtime acquires `runtime.sqlite3.lock` before stores
-or recovery and releases it only after close. Never unlink a live lock.
 
-Before maintenance, stop accepting new creates through an approved procedure,
-drain foreground work, and record safe task IDs for client reconciliation.
-Back up consistently using an approved SQLite backup procedure or a quiesced
-volume; copying only a live main database can omit WAL transactions. Encrypt
-off-host backups and separately protect matching HMAC configuration. Test a
-restore in isolation with no provider access before any production recovery.
-The repository does not automate backup scheduling or safe restore.
+There is no hosted state to restore or replay. Restarting a pod does not
+cancel provider work; clients must retain IDs and poll with authorized provider
+credentials. A lost create response may hide billed work and must be reconciled,
+not resubmitted automatically.
 
-Review immutable StatefulSet/storage changes before an upgrade. Do not use
-force replacement, overlap writers or remove retention/deletion guards to
-make a rollout pass. Confirm disk identity and old writer termination before
-attachment/recovery; an unreachable node is not proof its process stopped.
-No state reset, blind restore or requeue is a supported repair. An older
-backup may lose claims and allow duplicates; reconcile the recovery window
-with provider records before reopening writes.
-
-HTTP asynchronous-create idempotency replays only saved complete success,
-under original credentials and ownership, not unresolved work. Claims never
-auto-prune; at `STATE_MAX_RECORDS` new keys fail while existing reads work.
-Use [read-only aggregate inspection](runtime.md#read-only-state-inspection),
-not row deletion, for capacity triage. Synchronous product replay and complete
-crash recovery remain deferred. There is no exactly-once billing guarantee.
+This is a deliberate contract change, not an automatic migration. Existing
+stateful installations must preserve their old release, database/WAL backups,
+identity and accepted IDs for reconciliation. Never delete retained data to
+make the new version start. A Helm upgrade can delete removed resources; use
+separately reviewed transition steps. No cloud resources are changed by source
+removal.
 
 ## Local TLS and Load Acceptance
 
-With the reviewed development dependencies installed, plus `openssl` and a
-compatible Caddy executable, the maintained harness can run without cloud or
-provider credentials:
 
-```bash
-uv run --locked --no-sync python scripts/hosted_acceptance.py --help
-uv run --locked --no-sync python scripts/hosted_acceptance.py \
-  --caddy-bin /absolute/path/to/caddy --max-requests 40 --concurrency 4
-```
-
-`--caddy-bin` is required and must identify an installed executable. Load
-defaults to 40 requests and concurrency 4; bounds are 1-1000 requests and
-1-32 workers, with concurrency no greater than requests. There is no remote
-target or paid-provider mode.
-
-The harness adapts/validates the chart's actual Caddyfile, narrowing its
-listener to loopback for isolation, then starts real HTTP/Caddy TLS processes.
-It uses ephemeral client-trusted TLS without changing system trust, synthetic
-keys, temporary HOME/state, an environment allowlist and child-installed
-strict provider mocks. It exercises inventory, credentials, two-owner
-isolation, replay/restart, spoof resistance, body/in-flight/admission bounds,
-deadlines/disconnects and public exclusion of private routes. It scans
-temporary logs/state for synthetic sensitive canaries and cleans up children.
-
-JSON reports contain check names and aggregate load counts, duration,
-concurrency, nearest-rank p50/p95/p99 latency, throughput, HTTP statuses and
-success/overload/error counts. Latency and throughput include expected overload
-outcomes. The harness uses a synthetic 20 ms provider delay, 32 KiB body cap
-and 2-second tool deadline, not production defaults. Record the actual
-revision, binary and output when run; these instructions do not claim a pass.
-Mock results are not VKE capacity, failover or real-client/provider certification.
+Run `uv run python scripts/hosted_acceptance.py --caddy-bin PATH`. This uses isolated loopback TLS and mocked providers, not a database or live credentials. It checks seven/ten tools, BYOK isolation, repeated-create behavior, polling after restart, proxy controls, bounded load and absence of local state. Live VKE/client/provider and capacity validation remain separately authorized gates.
 
 ## Decommissioning
 

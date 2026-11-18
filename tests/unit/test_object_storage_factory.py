@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from unittest.mock import Mock
+
 import pytest
 
 from ark_mcp.config.env import Settings
@@ -35,9 +37,12 @@ class TestMakeObjectStorageGateway:
         gateway = make_object_storage_gateway(_tos_settings())
         assert isinstance(gateway, TosGateway)
 
-    def test_s3_backend_returns_s3_gateway(self) -> None:
+    def test_s3_backend_returns_s3_gateway(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        client = Mock()
+        monkeypatch.setattr("ark_mcp.providers.s3.client.boto3.client", client)
         gateway = make_object_storage_gateway(_s3_settings())
         assert isinstance(gateway, S3Gateway)
+        client.assert_called_once()
 
     def test_tos_backend_without_credentials_raises(self) -> None:
         settings = Settings(_env_file=None, OBJECT_STORAGE_BACKEND="tos")

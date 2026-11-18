@@ -34,11 +34,12 @@ override_resource {
 variables {
   fresh_state_confirmed = true
   zone_id               = "ap-southeast-1a"
-  kubernetes_version    = "1.32"
-  node_instance_type    = "ecs.g3i.xlarge"
+  # Synthetic source compatibility only, not regional VKE inventory.
+  kubernetes_version = "1.37"
+  node_instance_type = "ecs.g3i.xlarge"
 }
 
-run "private_single_writer_infrastructure" {
+run "private_shared_state_infrastructure" {
   command = plan
 
   assert {
@@ -63,11 +64,11 @@ run "private_single_writer_infrastructure" {
   }
   assert {
     condition     = alltrue([for subnet in bytepluscc_vpc_subnet.private : subnet.zone_id == var.zone_id]) && length(toset([for subnet in bytepluscc_vpc_subnet.private : subnet.cidr_block])) == 3
-    error_message = "Private subnets must be distinct and in the storage zone."
+    error_message = "Private subnets must be distinct and in the selected node zone."
   }
   assert {
-    condition     = !output.helm_infrastructure_values.prerequisitesConfirmed && output.helm_infrastructure_values.service.subnetId == "subnet-edge" && output.helm_infrastructure_values.storage.zone == var.zone_id
-    error_message = "Terraform outputs must not acknowledge administrator-owned addon readiness."
+    condition     = !output.helm_infrastructure_values.prerequisitesConfirmed && output.helm_infrastructure_values.service.subnetId == "subnet-edge" && toset(keys(output.helm_infrastructure_values)) == toset(["prerequisitesConfirmed", "service"])
+    error_message = "Safe outputs must not acknowledge administrator-owned readiness or couple application pods to storage."
   }
 }
 
@@ -122,6 +123,39 @@ run "reject_wrong_region_zone" {
 run "reject_unverified_version" {
   command = plan
   variables { kubernetes_version = "" }
+  expect_failures = [var.kubernetes_version]
+}
+
+run "reject_kubernetes_1_27" {
+  command = plan
+  variables { kubernetes_version = "1.27" }
+  expect_failures = [var.kubernetes_version]
+}
+
+run "reject_kubernetes_1_28" {
+  command = plan
+  variables { kubernetes_version = "1.28" }
+  expect_failures = [var.kubernetes_version]
+}
+
+run "reject_kubernetes_1_29" {
+  command = plan
+  variables { kubernetes_version = "1.29" }
+  expect_failures = [var.kubernetes_version]
+}
+
+run "accept_kubernetes_compatibility_floor_only" {
+  command = plan
+  variables { kubernetes_version = "1.30" }
+  assert {
+    condition     = bytepluscc_vke_cluster.dedicated.kubernetes_version_create == "1.30"
+    error_message = "The source compatibility floor is 1.30; this mock does not prove maintenance or regional availability."
+  }
+}
+
+run "reject_kubernetes_patch_input" {
+  command = plan
+  variables { kubernetes_version = "1.37.2" }
   expect_failures = [var.kubernetes_version]
 }
 

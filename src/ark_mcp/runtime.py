@@ -30,19 +30,29 @@ from ark_mcp.artifacts.object_storage_store import ObjectStorageArtifactStore
 from ark_mcp.config.env import Settings
 from ark_mcp.domain.artifacts import ArtifactRef
 from ark_mcp.domain.errors import AcceptedTaskError, NormalizedProviderError, ProviderError
-from ark_mcp.execution import record_accepted_receipt
+from ark_mcp.domain.submissions import IDENTIFIER_PATTERN
+from ark_mcp.execution import (
+    provider_mutation_scope,
+    provider_mutation_started,
+    record_accepted_receipt,
+    state_cleanup_scope,
+)
 from ark_mcp.observability.admin import MetricsListener
 from ark_mcp.observability.logger import error as log_error
 from ark_mcp.observability.logger import info as log_info
 from ark_mcp.observability.logger import warning as log_warning
 from ark_mcp.observability.metrics import ADMISSION_REJECTIONS, BUDGET_REJECTIONS
 from ark_mcp.providers.base import safe_provider_text
-from ark_mcp.runtime_lock import RuntimeStateLease
 from ark_mcp.security.auth_context import AuthContext, PrincipalContext
 from ark_mcp.security.credentials import redact_request_secrets, request_principal
 from ark_mcp.security.safe_downloader import SafeDownloader
 from ark_mcp.sqlite_io import drain_task
-from ark_mcp.submission_store import IDENTIFIER_PATTERN, SQLiteSubmissionStore
+from ark_mcp.state.disabled import (
+    DisabledArtifactStore,
+    DisabledObjectKeyOwnershipStore,
+    DisabledTaskArtifactCache,
+)
+from ark_mcp.state.stateless import ProviderAuthorizedTasks
 
 if TYPE_CHECKING:
     from fastmcp import Context, FastMCP
@@ -902,6 +912,9 @@ class BudgetLedger:
     async def close(self) -> None:
         await _run_locked(self._lock, self._connection.close)
 
+    async def ping(self) -> None:
+        await _run_locked(self._lock, lambda: self._connection.execute("SELECT 1").fetchone())
+
 
 @dataclass(slots=True)
 class RuntimeServices:
@@ -910,12 +923,10 @@ class RuntimeServices:
     safe_downloader: SafeDownloader
     ownership_store: TaskOwnershipStore
     object_key_ownership_store: ObjectKeyOwnershipStore
-    budget_ledger: BudgetLedger
+    budget_ledger: BudgetLedger | None
     provider_limiters: ProviderLimiters
     task_artifact_cache: TaskArtifactCache
     task_artifact_locks: TaskArtifactPersistenceLocks
-    submission_store: SQLiteSubmissionStore | None = None
-    state_lease: RuntimeStateLease | None = None
     metrics_listener: MetricsListener | None = None
     _close_task: asyncio.Task[None] | None = field(default=None, init=False, repr=False)
 
@@ -958,22 +969,49 @@ def build_state_stores(
         return ownership, object_keys, budget, cache
 
 
-async def create_runtime_services(settings: Settings) -> RuntimeServices:
-    """Acquire HTTP ownership before stores, per specs/SPEC_VKE_DEPLOYMENT.md.
+async def _create_stateless_runtime(settings: Settings) -> RuntimeServices:
+    """HTTP has no database, task ledger, artifact directory or filesystem lease."""
+    async with AsyncExitStack() as cleanup:
+        downloader = SafeDownloader(
+            timeout=settings.artifact_download_timeout_seconds,
+            connect_timeout=settings.connect_timeout_ms / 1000,
+            max_attempts=settings.artifact_download_max_attempts,
+        )
+        cleanup.push_async_callback(downloader.close)
+        listener = None
+        if settings.metrics_port:
+            listener = MetricsListener(settings.metrics_port)
+            cleanup.push_async_callback(listener.close)
+        runtime = RuntimeServices(
+            settings=settings,
+            artifact_store=DisabledArtifactStore(),
+            safe_downloader=downloader,
+            ownership_store=ProviderAuthorizedTasks(),
+            object_key_ownership_store=DisabledObjectKeyOwnershipStore(),
+            budget_ledger=None,
+            provider_limiters=ProviderLimiters(
+                provider_limit=settings.provider_max_concurrency,
+                principal_limit=settings.principal_max_concurrency,
+                admission_timeout_seconds=settings.admission_timeout_seconds,
+            ),
+            task_artifact_cache=DisabledTaskArtifactCache(),
+            task_artifact_locks=TaskArtifactPersistenceLocks(),
+            metrics_listener=listener,
+        )
+        cleanup.pop_all()
+        return runtime
 
-    specs/SPEC_HOSTED_BYOK.md defines the durable single-instance boundary.
-    Resource acquisition results are registered before cancellation can escape.
-    """
+
+async def create_runtime_services(settings: Settings) -> RuntimeServices:
+    """Create stateless HTTP services or local stdio persistence."""
+    if settings.mcp_transport == "http":
+        return await _create_stateless_runtime(settings)
     artifact_dir = Path(settings.artifact_dir).expanduser().resolve()
     artifact_dir.mkdir(parents=True, exist_ok=True)
     database_path = artifact_dir / "runtime.sqlite3"
     cleanup = AsyncExitStack()
     state_cleanup_failed = False
     try:
-        lease = None
-        if settings.mcp_transport == "http":
-            lease = RuntimeStateLease(database_path)
-            await lease.acquire()
         downloader = SafeDownloader(
             timeout=settings.artifact_download_timeout_seconds,
             connect_timeout=settings.connect_timeout_ms / 1000,
@@ -1013,20 +1051,6 @@ async def create_runtime_services(settings: Settings) -> RuntimeServices:
             task_artifact_cache,
         ) = await drain_task(asyncio.create_task(open_stores()))
 
-        async def open_submissions() -> SQLiteSubmissionStore:
-            store = await asyncio.to_thread(
-                SQLiteSubmissionStore, database_path, max_records=settings.state_max_records
-            )
-            cleanup.push_async_callback(store.close)
-            return store
-
-        submission_store = None
-        listener = None
-        if settings.mcp_transport == "http":
-            submission_store = await drain_task(asyncio.create_task(open_submissions()))
-            if settings.metrics_port:
-                listener = MetricsListener(settings.metrics_port)
-                cleanup.push_async_callback(listener.close)
         runtime = RuntimeServices(
             settings=settings,
             artifact_store=artifact_store,
@@ -1041,9 +1065,6 @@ async def create_runtime_services(settings: Settings) -> RuntimeServices:
             ),
             task_artifact_cache=task_artifact_cache,
             task_artifact_locks=TaskArtifactPersistenceLocks(),
-            submission_store=submission_store,
-            state_lease=lease,
-            metrics_listener=listener,
         )
     except BaseException:
 
@@ -1051,8 +1072,6 @@ async def create_runtime_services(settings: Settings) -> RuntimeServices:
             await cleanup.aclose()
             if state_cleanup_failed:
                 raise _StateCleanupFailed("Runtime state initialization cleanup failed.")
-            if lease is not None:
-                await lease.close()
 
         cleanup_task = asyncio.create_task(close_partial())
         try:
@@ -1066,22 +1085,19 @@ async def create_runtime_services(settings: Settings) -> RuntimeServices:
 
 
 async def close_runtime_services(runtime: RuntimeServices) -> None:
-    """Drain all cleanup, including repeated cancellation, before releasing HTTP ownership."""
+    """Drain lifespan cleanup, including repeated cancellation."""
 
     async def close() -> None:
         async with AsyncExitStack() as cleanup:
             cleanup.push_async_callback(runtime.safe_downloader.close)
-            if runtime.submission_store is not None:
-                cleanup.push_async_callback(runtime.submission_store.close)
             cleanup.push_async_callback(runtime.task_artifact_cache.close)
-            cleanup.push_async_callback(runtime.budget_ledger.close)
+            if runtime.budget_ledger is not None:
+                cleanup.push_async_callback(runtime.budget_ledger.close)
             cleanup.push_async_callback(runtime.object_key_ownership_store.close)
             cleanup.push_async_callback(runtime.ownership_store.close)
             cleanup.push_async_callback(runtime.artifact_store.close)
             if runtime.metrics_listener is not None:
                 cleanup.push_async_callback(runtime.metrics_listener.close)
-        if runtime.state_lease is not None:
-            await runtime.state_lease.close()
 
     if runtime._close_task is None:
         runtime._close_task = asyncio.create_task(close())
@@ -1132,7 +1148,7 @@ def capture_accepted_task(
     request_id: str | None,
 ) -> None:
     """Capture safe transient receipts synchronously, before leaving the provider slot."""
-    from ark_mcp.submissions import validate_receipt_identifiers
+    from ark_mcp.domain.submissions import validate_receipt_identifiers
 
     validate_receipt_identifiers(ctx, provider, task_id, request_id)
     settings = get_runtime(ctx).settings
@@ -1149,53 +1165,36 @@ async def record_accepted_task(
     request_id: str | None,
 ) -> None:
     """Never report an accepted but unrecorded task as safe to resubmit."""
-    from ark_mcp.submissions import record_submission_task
-
     capture_accepted_task(ctx, provider, task_id, request_id)
-    submission_record_failed = False
     if get_runtime(ctx).settings.mcp_transport == "http":
+        return
+
+    async def persist() -> None:
         try:
-            await record_submission_task(ctx, provider, task_id, request_id)
+            await get_runtime(ctx).ownership_store.record(provider, task_id, get_principal(ctx))
         except Exception:
-            log_error("submission_record_failed", provider=provider, action="record")
-            submission_record_failed = True
-    try:
-        await get_runtime(ctx).ownership_store.record(provider, task_id, get_principal(ctx))
-    except Exception:
-        log_error("ownership_record_failed", provider=provider, action="record")
-        raise AcceptedTaskError(
-            NormalizedProviderError(
-                provider="modelark" if provider == "modelark" else "byteplus-vision-cv",
-                operation="create_task",
-                code="OWNERSHIP_RECORD_FAILED",
-                message=(
-                    f"The provider accepted task_id={safe_provider_text(task_id)}, "
-                    "but its ownership could not be recorded. Do not resubmit. "
-                    "Reconcile through the provider using the accepted task ID and any "
-                    "diagnostic request ID; polling through MCP requires recorded ownership."
+            log_error("ownership_record_failed", provider=provider, action="record")
+            raise AcceptedTaskError(
+                NormalizedProviderError(
+                    provider="modelark" if provider == "modelark" else "byteplus-vision-cv",
+                    operation="create_task",
+                    code="OWNERSHIP_RECORD_FAILED",
+                    message=(
+                        f"The provider accepted task_id={safe_provider_text(task_id)}, "
+                        "but its ownership could not be recorded. Do not resubmit. "
+                        "Reconcile through the provider using the accepted task ID and any "
+                        "diagnostic request ID; polling through MCP requires recorded ownership."
+                    ),
+                    request_id=safe_provider_text(request_id) or None,
+                    retryable=False,
+                    ambiguous_completion=True,
                 ),
-                request_id=safe_provider_text(request_id) or None,
-                retryable=False,
-                ambiguous_completion=True,
-            ),
-            task_id=task_id,
-        ) from None
-    if submission_record_failed:
-        raise AcceptedTaskError(
-            NormalizedProviderError(
-                provider="modelark" if provider == "modelark" else "byteplus-vision-cv",
-                operation="create_task",
-                code="SUBMISSION_RECORD_FAILED",
-                message=(
-                    f"The provider accepted task_id={task_id}, but its submission receipt "
-                    "could not be saved. Do not resubmit; reconcile using the accepted ID."
-                ),
-                request_id=request_id,
-                retryable=False,
-                ambiguous_completion=True,
-            ),
-            task_id=task_id,
-        )
+                task_id=task_id,
+            ) from None
+
+    # Keep the receipt and ownership sequence together across caller cancellation.
+    with state_cleanup_scope():
+        await drain_task(asyncio.create_task(persist(), name="seed-mcp-accepted-task"))
 
 
 @asynccontextmanager
@@ -1213,21 +1212,30 @@ async def billed_provider_slot(
     error is ambiguous, or when it is a ``TIMEOUT`` (a timed-out completion may
     still have consumed billable tokens). It is released for other errors.
     Cancellation during reservation drains and recovers a known reservation,
-    then releases it without dispatch. After handler entry cancellation is
-    conservatively committed. Finalization and SDK draining hold admission
+    then releases it without dispatch. Cancellation commits only if this slot
+    dispatched a provider mutation; waiting on the create fence releases it.
+    Finalization and SDK draining hold admission
     through repeated cancellation; failures never replace a provider outcome.
     """
     runtime = get_runtime(ctx)
     owner = get_principal(ctx)
+    if runtime.settings.mcp_transport == "http":
+        async with runtime.provider_limiters.acquire(provider, owner):
+            yield
+        return
+    ledger = runtime.budget_ledger
+    if ledger is None:
+        raise RuntimeError("Local budget ledger is unavailable.")
 
     async def finalize(
         reservation: BudgetReservation, action: Literal["commit", "release"]
     ) -> None:
         try:
-            if action == "commit":
-                await runtime.budget_ledger.commit(reservation)
-            else:
-                await runtime.budget_ledger.release(reservation)
+            with state_cleanup_scope():
+                if action == "commit":
+                    await ledger.commit(reservation)
+                else:
+                    await ledger.release(reservation)
         except Exception:
             log_error(
                 "budget_finalization_failed",
@@ -1238,9 +1246,7 @@ async def billed_provider_slot(
 
     async with runtime.provider_limiters.acquire(provider, owner):
         reserve_task = asyncio.create_task(
-            runtime.budget_ledger.reserve(
-                owner, CostEstimate(product=product, amount_usd=estimated_cost_usd)
-            )
+            ledger.reserve(owner, CostEstimate(product=product, amount_usd=estimated_cost_usd))
         )
         try:
             reservation = await asyncio.shield(reserve_task)
@@ -1264,22 +1270,23 @@ async def billed_provider_slot(
             with suppress(asyncio.CancelledError):
                 await finish("release")
             raise asyncio.CancelledError
-        try:
-            yield
-        except ProviderError as exc:
-            await finish(
-                "commit" if exc.ambiguous_completion or exc.code == "TIMEOUT" else "release"
-            )
-            raise
-        except asyncio.CancelledError:
-            with suppress(asyncio.CancelledError):
+        with provider_mutation_scope():
+            try:
+                yield
+            except ProviderError as exc:
+                await finish(
+                    "commit" if exc.ambiguous_completion or exc.code == "TIMEOUT" else "release"
+                )
+                raise
+            except asyncio.CancelledError:
+                with suppress(asyncio.CancelledError):
+                    await finish("commit" if provider_mutation_started() else "release")
+                raise
+            except BaseException:
+                await finish("commit" if provider_mutation_started() else "release")
+                raise
+            else:
                 await finish("commit")
-            raise
-        except BaseException:
-            await finish("release")
-            raise
-        else:
-            await finish("commit")
 
 
 async def _state_sweeper(runtime: RuntimeServices, settings: Settings) -> None:
@@ -1304,7 +1311,11 @@ async def _state_sweeper(runtime: RuntimeServices, settings: Settings) -> None:
         except Exception as exc:
             log_warning("state_sweep_object_keys_error", error=str(exc))
         try:
-            pruned = await runtime.budget_ledger.prune(settings.state_prune_max_age_days)
+            pruned = (
+                await runtime.budget_ledger.prune(settings.state_prune_max_age_days)
+                if runtime.budget_ledger is not None
+                else 0
+            )
             log_info("state_sweep_budget", pruned=pruned)
         except Exception as exc:
             log_warning("state_sweep_budget_error", error=str(exc))
@@ -1330,7 +1341,11 @@ def build_lifespan(
         runtime = await runtime_factory(settings)
         if state is not None:
             state.runtime = runtime
-        sweeper = asyncio.create_task(_state_sweeper(runtime, settings))
+        sweeper = (
+            asyncio.create_task(_state_sweeper(runtime, settings))
+            if settings.mcp_transport == "stdio"
+            else None
+        )
         try:
             yield {"runtime": runtime}
         finally:
@@ -1339,9 +1354,10 @@ def build_lifespan(
 
             async def shutdown() -> None:
                 try:
-                    sweeper.cancel()
-                    with suppress(asyncio.CancelledError):
-                        await sweeper
+                    if sweeper is not None:
+                        sweeper.cancel()
+                        with suppress(asyncio.CancelledError):
+                            await sweeper
                 finally:
                     await close_runtime_services(runtime)
 

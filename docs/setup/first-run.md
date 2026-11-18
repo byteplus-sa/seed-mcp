@@ -75,7 +75,9 @@ depend on your client. If a preview is unavailable, use the returned download
 link. Local stdio can explicitly opt into [Artifacts](../artifacts.md);
 persistence defaults to false. HTTP returns temporary URLs and rejects server
 persistence. Neither transport supports native tasks. HTTP has no
-storage/artifact tools or resources.
+local storage/artifact tools or resources. Optional
+[temporary upload preparation](../temporary-uploads.md) is for input references,
+not retaining generated outputs.
 
 ## Discover Before Spending
 

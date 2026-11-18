@@ -79,7 +79,7 @@ resource "bytepluscc_vpc_route_table" "private_egress" {
 
 resource "bytepluscc_vke_cluster" "dedicated" {
   name                      = var.name
-  description               = "Dedicated single-writer Seed MCP cluster"
+  description               = "Dedicated Seed MCP cluster with stateless application pods"
   project_name              = var.project_name
   kubernetes_version_create = var.kubernetes_version
   delete_protection_enabled = true
@@ -103,6 +103,7 @@ resource "bytepluscc_vke_cluster" "dedicated" {
 }
 
 resource "bytepluscc_vke_node_pool" "application" {
+  # Fixed same-zone capacity is not AZ resilience or an application HPA sizing proof.
   name       = "${var.name}-workers"
   cluster_id = bytepluscc_vke_cluster.dedicated.cluster_id
   auto_scaling = {

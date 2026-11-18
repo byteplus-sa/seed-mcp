@@ -50,7 +50,7 @@ class _RequestCredentials:
 
 @dataclass(frozen=True, slots=True)
 class _ProviderContext:
-    provider: CredentialProvider
+    provider: CredentialProvider | Literal["tos-upload"]
     principal: PrincipalContext
     request: _RequestCredentials = field(repr=False)
 
@@ -123,21 +123,9 @@ def _digest(settings: Settings, domain: str, *parts: str) -> str:
     ).hexdigest()
 
 
-def submission_fingerprints(
-    settings: Settings, tool_name: str, key: str, canonical_input: str
-) -> tuple[str, str]:
-    """Hash operation keys and inputs within the current provider/client identity."""
-    owner = request_principal()
-    scope = (owner.tenant_id, owner.principal_id, tool_name)
-    return (
-        _digest(settings, "seed-mcp:submission-key:v1", *scope, key),
-        _digest(settings, "seed-mcp:submission-input:v1", *scope, canonical_input),
-    )
-
-
 @contextmanager
 def provider_scope(settings: Settings, provider: CredentialProvider) -> Iterator[None]:
-    """Bind ownership to one provider credential and one installation secret."""
+    """Scope ephemeral admission to a provider credential and installation secret."""
     if settings.mcp_transport == "stdio":
         yield
         return
@@ -167,12 +155,50 @@ def provider_scope(settings: Settings, provider: CredentialProvider) -> Iterator
         _provider.reset(token)
 
 
+@contextmanager
+def upload_scope(settings: Settings) -> Iterator[None]:
+    """Authorize an enrolled live client for operator-funded TOS upload preparation."""
+    request = _live_request()
+    secret = request.values.get(INSTALLATION_HEADER_NAME)
+    if not settings.temporary_upload_enabled or secret is None:
+        raise PermissionError(
+            "Temporary upload access requires operator enrollment and X-MCP-Client-Secret."
+        )
+    digest = hashlib.sha256(secret.encode("ascii")).hexdigest()
+    enrolled = False
+    for candidate in settings.upload_client_digests:
+        enrolled |= hmac.compare_digest(digest, candidate)
+    if not enrolled:
+        raise PermissionError("Temporary upload access requires operator enrollment.")
+    tenant = _digest(settings, "seed-mcp:upload-tenant", settings.tos_bucket)
+    owner = _digest(settings, "seed-mcp:upload-owner", tenant, secret)
+    context = _ProviderContext(
+        provider="tos-upload",
+        principal=PrincipalContext(principal_id=owner, tenant_id=tenant, transport="http"),
+        request=request,
+    )
+    token = _provider.set(context)
+    try:
+        yield
+    finally:
+        _provider.reset(token)
+
+
+def require_upload_scope() -> PrincipalContext:
+    """Reject direct handler calls outside the live, authorized upload invocation."""
+    principal = request_principal()
+    bound = _provider.get()
+    if bound is None or bound.provider != "tos-upload":
+        raise PermissionError("Temporary upload requires its live authorized invocation.")
+    return principal
+
+
 def request_principal() -> PrincipalContext:
     """Return only the principal bound to the current live provider invocation."""
     request = _live_request()
     provider = _provider.get()
     if provider is None or provider.request is not request:
-        raise PermissionError("Provider ownership is unavailable outside a live tool invocation.")
+        raise PermissionError("Provider scope is unavailable outside a live tool invocation.")
     return provider.principal
 
 

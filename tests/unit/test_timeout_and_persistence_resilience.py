@@ -16,6 +16,7 @@ from ark_mcp.config.env import get_settings
 from ark_mcp.domain.artifacts import ArtifactRef, MediaType
 from ark_mcp.domain.errors import NormalizedProviderError, ProviderError
 from ark_mcp.domain.models import VariationResult
+from ark_mcp.execution import before_provider_request
 from ark_mcp.providers.modelark.client import ModelArkGateway
 from ark_mcp.providers.retry import RetryPolicy, call_with_retry
 from ark_mcp.runtime import billed_provider_slot, close_runtime_services, create_runtime_services
@@ -174,6 +175,7 @@ async def test_cancellation_after_dispatch_commits_reservation(ledger_ctx: Any) 
         async with billed_provider_slot(
             ctx, provider="modelark", product="image", estimated_cost_usd=0.01
         ):
+            before_provider_request()
             started.set()
             await asyncio.sleep(60)
 

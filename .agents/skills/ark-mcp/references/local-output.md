@@ -1,6 +1,6 @@
 # Direct-call output handling
 
-**Local stdio only.** HTTP has no jobs/native tasks/storage/artifact tools or
+**Local stdio only.** HTTP has no jobs/native tasks/local storage/artifact tools or
 resources and rejects persistence true. HTTP clients retrieve expiring URLs
 themselves; provider calls run directly in the foreground.
 

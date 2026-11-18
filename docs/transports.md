@@ -6,7 +6,7 @@ forward-only BYOK surface, including on loopback.
 | Transport | Tools | Execution |
 | --- | --- | --- |
 | stdio | 15 catalog tools, conditional on local credentials/flags; four always available | Direct calls; storage and artifacts retained |
-| HTTP | 7, or 10 with OmniHuman enabled | Direct foreground provider calls; no jobs, native tasks, storage/artifact tools or resources |
+| HTTP | 7, or 10 with OmniHuman enabled; temporary upload adds one | Direct foreground calls; no jobs, native tasks, local storage/artifact tools or resources |
 
 ## stdio
 
@@ -19,11 +19,9 @@ come from private local configuration referenced by `ARK_MCP_ENV_FILE`.
 uv run --locked --no-sync python -m ark_mcp
 ```
 
-Call the original tool directly, without native task opt-in. No MCP jobs,
-workers, snapshots or execution claims exist. Local storage/artifacts remain.
-See [direct execution](integration-guide.md#direct-execution).
-Local Seedance/OmniHuman calls must omit `idempotency_key`; supplied keys are
-rejected, including on Seedance dry runs.
+Call the original tool directly, without native task opt-in. Local SQLite
+supports storage/artifacts and bookkeeping, not saved-response replay.
+Seedance/OmniHuman calls must omit the unsupported legacy `idempotency_key`.
 
 ## Streamable HTTP
 
@@ -32,17 +30,18 @@ HTTP requires `MCP_AUTH_MODE=byok` (default) and the operator's private
 `MCP_IDENTITY_KEY_VERSION` defaults to `1`. Neither is a customer credential.
 Local-auth HTTP and the former shared-key auth mode are not supported.
 
-After securely loading operator configuration, a developer can launch:
+After securely loading operator configuration, launch an isolated loopback
+server with no database and no hosted budget ledger:
 
 ```bash
-MCP_TRANSPORT=http MCP_HOST=127.0.0.1 \
+STATE_BACKEND=none DAILY_BUDGET_USD=0 MCP_TRANSPORT=http MCP_HOST=127.0.0.1 \
   uv run --locked --no-sync python -m ark_mcp
 ```
 
 For non-loopback access use trusted TLS ingress and explicit
 `MCP_ALLOWED_HOSTS`/`MCP_ALLOWED_ORIGINS`. Stateless HTTP and Host/Origin
-protection are enforced by `HardenedFastMCP.http_app()` as well as the normal
-CLI route. Building an HTTP app from stdio-configured settings is rejected.
+protection are enforced by `HardenedFastMCP.http_app()` and the normal CLI.
+Building an HTTP app from stdio-configured settings is rejected.
 
 Clients supply `X-MCP-Client-Secret` and only the selected provider header:
 `X-ModelArk-Api-Key`, `X-Seed-Speech-Api-Key`, or `X-OmniHuman-Api-Key`.
@@ -64,7 +63,8 @@ Use client timeout 660 seconds with the default 600-second cooperative tool
 deadline and compatible proxy settings on both transports. SDK/SQLite cleanup
 may exceed the nominal deadline. Owner-first provider admission defaults to
 2 seconds (max 30); the tool deadline max is 3600 seconds. Both settings
-require finite positive values. Admission precedes budget reservation.
+require finite positive values. Local stdio reserves budget after admission;
+HTTP has no budget ledger.
 `ADMISSION_TIMEOUT` means this attempt did not dispatch, not the whole batch.
 `TOOL_DEADLINE_EXCEEDED` preserves uncertainty and safe accepted IDs; never
 blindly resubmit or assume timeout cancelled upstream work.
@@ -73,16 +73,13 @@ with `gen_task_get` or `omnihuman_get_task`. Never resubmit to poll.
 
 ### Create Delivery Recovery
 
-Non-dry HTTP `seedance_create_task` and `omnihuman_create_task` require
-`idempotency_key`: 16-128 ASCII letters, digits, `_` or `-`; use a fresh UUID
-per intended operation, including one key for a whole variation batch.
-Seedance dry runs need no key and do not consume a journal claim.
-Repeat identical arguments and the original key only to recover delivery of a
-saved successful receipt, not to poll. Replay checks existing ownership before
-any upstream call, including Draft lookup. Failed, partial or cancelled
-attempts remain unresolved with known IDs; no automatic resume occurs.
-Never change keys to bypass uncertain acceptance. See the
-[submission contract](../specs/SPEC_HOSTED_BYOK.md#http-submission-safety).
+There is no durable replay or deduplication. Omit `idempotency_key`; supplied
+legacy keys are rejected on both transports, including dry runs. Repeated
+creates are independent operations and may bill again. Reconcile uncertain
+or lost create responses with the provider instead of automatically retrying.
+
+Task get/list/cancel and Draft lookup use the supplied provider credential.
+Client secrets separate admission scopes only; they do not filter task access.
 
 Explicit per-call `io.modelcontextprotocol/tasks` opt-in is rejected before
 provider dispatch, task-snapshot capture/save or queue creation, including
@@ -90,16 +87,18 @@ discovery. Omit task opt-in; ordinary jobs are unavailable on HTTP.
 
 ## HTTP Limits and Routes
 
-HTTP defaults to 60 requests/minute per IP, a 2 MiB body cap, 64 in-flight
-requests and `STATE_MAX_RECORDS=100000`. Positive limits are enforced; global
-admission includes anonymous discovery. Proxy headers are untrusted by default.
+HTTP defaults to 60 requests/minute per IP per pod, a 2 MiB body cap and
+64 in-flight requests per pod. Positive limits are enforced and include
+anonymous discovery. Rate/concurrency limits reset on restart and multiply
+with replicas. `STATE_MAX_RECORDS` applies only to local stdio.
+Proxy headers are untrusted by default.
 See [configuration](configuration.md#transport-and-authentication).
 
 | Route | Backend access | Meaning |
 | --- | --- | --- |
 | `/mcp` | Anonymous discovery; request BYOK for provider tools | Stateless Streamable HTTP |
 | `/health` | Anonymous | Minimal process liveness |
-| `/ready` | Anonymous on backend; blocked by VKE Caddy | Minimal local state readiness; no provider probes |
+| `/ready` | Anonymous on backend; blocked by VKE Caddy | Minimal lifespan readiness; no storage or provider probes |
 | `/metrics` | Absent from main app and public proxy | Optional separate loopback-only operator listener |
 
 `RATE_LIMIT_TRUSTED_PROXY_CIDRS` replaces the removed boolean trust setting;
@@ -112,27 +111,24 @@ public. `MCP_METRICS_PORT=0` disables private metrics by default; enabled ports
 1024-65535 bind only 127.0.0.1. See [private monitoring](observability.md#metrics-endpoint).
 
 `seed-health://status` and `seed-media://` resources are stdio-only.
-No HTTP local file access, persistence, artifact downloads or uploads are
-offered. Output URLs expire; clients retrieve media themselves.
+No HTTP local file access, persistence or artifact downloads are offered.
+Optional `media_prepare_upload` gives enrolled clients restricted TOS POST/GET
+permissions; the client uploads bytes directly, not through MCP.
+See [temporary references](temporary-uploads.md). Output URLs expire;
+clients retrieve media themselves.
 
 ## Deployment Boundary
 
-Use fresh SQLite state for one application instance. Preserve the same state,
-HMAC key/version and original provider/client credentials for replay.
-Journal claims never auto-prune: at `STATE_MAX_RECORDS`, new keys fail but
-existing keys remain readable. There is no old-schema migration or
-multi-replica coordination. Synchronous product replay and complete crash
-recovery remain deferred; PostgreSQL/Redis are future scaling choices, not
-initial requirements. This foundation is not public-launch certification.
-See [self-hosting](self-hosting.md), [security](security.md), and the
-[BYOK contract](../specs/SPEC_HOSTED_BYOK.md).
+HTTP uses `STATE_BACKEND=none` automatically and rejects explicit database
+backends. `DAILY_BUDGET_USD` must be zero; use provider-side spend controls.
+The VKE chart supports stateless Deployment/HPA/PDB/hostname spread without
+a state volume or sticky sessions. Local stdio remains single-process SQLite.
 
-HTTP holds an exclusive state lease before stores/recovery until close.
-Dedicated VKE uses one StatefulSet with retained RWO ext4 storage; no
-application HPA or network-filesystem SQLite is supported. HTTP/Caddy grace is
-max(tool, provider seconds) + 30; pod termination uses the maximum + 60.
-Keep live source-IP/CSI/rollout/client/provider acceptance separate from
-mocked TLS/load checks. Source deletion does not decommission old cloud state.
+Preserve previous stateful releases, databases, volumes, identity and accepted
+IDs for separately reviewed reconciliation. Source removal is not cloud
+decommissioning, and Helm upgrades may delete removed resources. Live routing,
+scaling, capacity and client/provider validation remain separate gates.
+See [deployment](deployment.md) and the [BYOK contract](../specs/SPEC_HOSTED_BYOK.md).
 
 ## MCP Inspector
 

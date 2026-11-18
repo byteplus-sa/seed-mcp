@@ -129,7 +129,9 @@ Do not put real keys in CLI flags, chat or committed JSON.
 
 HTTP exposes 7 tools (10 with OmniHuman), default anonymous static discovery
 with `connection=null`, and direct
-foreground calls. Jobs/native tasks/storage/artifact tools/resources are absent.
+foreground calls. Jobs/native tasks/local storage/artifact tools/resources are absent.
+Optional [temporary TOS preparation](../temporary-uploads.md) adds one tool for
+enrolled clients; it requires a separate multipart-capable client integration.
 `timeout` is milliseconds: `--tool-timeout-seconds` accepts 1-3600 seconds
 and defaults to 660 (660000 ms). It does not extend proxy/provider timeouts.
 Keep persistence false and retrieve expiring URLs yourself.
@@ -151,6 +153,8 @@ recognized the generated project `.mcp.json` with isolated `CLAUDE_CONFIG_DIR`,
 access. This verifies configuration parsing only, not a working connection.
 Actual exact-client, model-driven Claude tool execution remains unverified;
 provider credentials and paid provider validation remain pending.
+
+Hosted HTTP is database-free: provider-key task authorization, no durable replay or shared budget accounting. Omit legacy operation keys; never automatically resubmit uncertain creates. Local stdio persistence remains available.
 
 </details>
 

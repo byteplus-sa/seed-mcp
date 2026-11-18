@@ -273,18 +273,6 @@ class TestSettings:
         assert not any(alias.startswith("MCP_JWT_") for alias in aliases)
         assert aliases.isdisjoint({"MCP_API_KEY_SHA256", "MCP_TENANT_CLAIM", "MCP_PUBLIC_BASE_URL"})
 
-    @pytest.mark.parametrize("retention", [1, 7, 13])
-    @pytest.mark.parametrize("model", ["dreamina-seedance-2-5-260628", "ep-draft"])
-    def test_authenticated_draft_models_reject_short_ownership_retention(
-        self, retention: int, model: str
-    ) -> None:
-        with pytest.raises(ValueError, match="STATE_PRUNE_MAX_AGE_DAYS must be at least 14"):
-            _http_settings(
-                SEEDANCE_DEFAULT_MODEL=model,
-                SEEDANCE_MODEL_FAMILY="seedance_2_5",
-                STATE_PRUNE_MAX_AGE_DAYS=retention,
-            )
-
     @pytest.mark.parametrize("retention", [14, 30])
     @pytest.mark.parametrize("model", ["dreamina-seedance-2-5-260628", "ep-draft"])
     def test_authenticated_draft_models_accept_full_ownership_retention(
@@ -296,17 +284,6 @@ class TestSettings:
             STATE_PRUNE_MAX_AGE_DAYS=retention,
         )
         assert settings.state_prune_max_age_days == retention
-
-    def test_nondefault_draft_binding_requires_full_ownership_retention(self) -> None:
-        with pytest.raises(ValueError, match="STATE_PRUNE_MAX_AGE_DAYS must be at least 14"):
-            _http_settings(
-                SEEDANCE_DEFAULT_MODEL="ep-flash",
-                SEEDANCE_MODEL_BINDINGS=[
-                    {"model_id": "ep-flash", "family": "seedance_2_5_flash"},
-                    {"model_id": "ep-draft", "family": "seedance_2_5"},
-                ],
-                STATE_PRUNE_MAX_AGE_DAYS=7,
-            )
 
     @pytest.mark.parametrize(
         "transport,auth_mode,provider_key,model,family",

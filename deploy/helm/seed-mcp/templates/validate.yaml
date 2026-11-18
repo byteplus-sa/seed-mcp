@@ -1,14 +1,25 @@
 {{- if contains "API_KEY" (toJson .Values) -}}
 {{- fail "provider API_KEY configuration is not accepted in this BYOK chart" -}}
 {{- end -}}
+{{- if not (semverCompare ">=1.30.0-0" .Capabilities.KubeVersion.Version) -}}
+{{- fail "Kubernetes >=1.30 is required; verify a currently maintained regional VKE release" -}}
+{{- end -}}
 {{- if not .Values.prerequisitesConfirmed -}}
-{{- fail "prerequisitesConfirmed=true requires manual addon, node, private access, identity and TLS readiness checks" -}}
+{{- fail "prerequisitesConfirmed=true requires CCM, two Ready nodes with surge capacity, identity/TLS Secrets, DNS/TLS and HPA metrics API checks" -}}
 {{- end -}}
 {{- if eq .Values.identitySecret.name .Values.tlsSecretName -}}
 {{- fail "identity and TLS must use different existing Secrets" -}}
 {{- end -}}
+{{- if .Values.temporaryUpload.enabled -}}
+{{- if or (empty .Values.temporaryUpload.existingSecret) (eq .Values.temporaryUpload.existingSecret .Values.identitySecret.name) (eq .Values.temporaryUpload.existingSecret .Values.tlsSecretName) -}}
+{{- fail "temporary uploads require a distinct existing TOS/enrollment Secret" -}}
+{{- end -}}
+{{- end -}}
 {{- if eq .Values.identitySecret.hmacKey .Values.identitySecret.versionKey -}}
 {{- fail "identity HMAC and version must use distinct Secret keys" -}}
+{{- end -}}
+{{- if gt .Values.autoscaling.minReplicas .Values.autoscaling.maxReplicas -}}
+{{- fail "autoscaling minimum must not exceed maximum replicas" -}}
 {{- end -}}
 {{- range $resources := .Values.resources -}}
 {{- if or (gt $resources.cpuRequestMillis $resources.cpuLimitMillis) (gt $resources.memoryRequestMiB $resources.memoryLimitMiB) -}}

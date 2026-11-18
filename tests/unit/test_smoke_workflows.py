@@ -216,7 +216,6 @@ async def test_video_workflows_persist_after_status_and_never_resubmit(
             return SimpleNamespace(artifacts=[artifact])
         if name == "seedance_create_task":
             assert params.model_dump(mode="json") == {
-                "idempotency_key": None,
                 "prompt": (
                     None
                     if variation
@@ -247,6 +246,7 @@ async def test_video_workflows_persist_after_status_and_never_resubmit(
                 "safety_identifier": None,
                 "draft": None,
                 "draft_task_id": None,
+                "idempotency_key": None,
                 "variations": 2 if variation else 1,
                 "variation_prompts": (
                     [

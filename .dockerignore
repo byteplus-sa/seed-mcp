@@ -22,6 +22,7 @@ tests
 .pre-commit-config.yaml
 .artifacts
 .coverage
+.coverage.*
 .DS_Store
 .secrets.baseline
 sample/

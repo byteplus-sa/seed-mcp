@@ -1,0 +1,238 @@
+{{- $deadline := max .Values.app.toolTimeoutSeconds .Values.app.providerTimeoutSeconds -}}
+{{- $readinessTimeout := 3 -}}
+# Stateless hosted HTTP; no database or local persistent volume.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: {{ include "seed-mcp.name" . }}
+  labels:
+    {{- include "seed-mcp.selector" . | nindent 4 }}
+spec:
+  {{- if not .Values.autoscaling.enabled }}
+  replicas: {{ .Values.replicaCount }}
+  {{- end }}
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 0
+      maxSurge: 1
+  selector:
+    matchLabels:
+      {{- include "seed-mcp.selector" . | nindent 6 }}
+  template:
+    metadata:
+      labels:
+        {{- include "seed-mcp.selector" . | nindent 8 }}
+      annotations:
+        checksum/proxy: {{ .Files.Get "files/Caddyfile" | sha256sum }}
+        checksum/runtime: {{ omit .Values "image" "imagePullSecrets" "resources" "autoscaling" "replicaCount" "prerequisitesConfirmed" | toJson | sha256sum }}
+    spec:
+      automountServiceAccountToken: false
+      enableServiceLinks: false
+      terminationGracePeriodSeconds: {{ add $deadline 60 }}
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 1001
+        runAsGroup: 1001
+        fsGroup: 1001
+        fsGroupChangePolicy: OnRootMismatch
+        seccompProfile:
+          type: RuntimeDefault
+      topologySpreadConstraints:
+        - maxSkew: 1
+          minDomains: 2
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              {{- include "seed-mcp.selector" . | nindent 14 }}
+      {{- with .Values.imagePullSecrets }}
+      imagePullSecrets:
+        {{- range . }}
+        - name: {{ . | quote }}
+        {{- end }}
+      {{- end }}
+      containers:
+        - name: app
+          image: {{ .Values.image | quote }}
+          imagePullPolicy: IfNotPresent
+          command: ["/app/.venv/bin/python", "-m", "ark_mcp"]
+          securityContext:
+            {{- include "seed-mcp.containerSecurity" . | nindent 12 }}
+          resources:
+            {{- include "seed-mcp.resources" .Values.resources.app | nindent 12 }}
+          env:
+            - name: MCP_TRANSPORT
+              value: http
+            - name: MCP_HOST
+              value: "127.0.0.1"
+            - name: MCP_PORT
+              value: "3000"
+            - name: MCP_AUTH_MODE
+              value: byok
+            - name: ARK_MCP_ENV_FILE
+              value: /dev/null
+            - name: STATE_BACKEND
+              value: none
+            - name: READINESS_CHECK_PROVIDERS
+              value: "false"
+            - name: RATE_LIMIT_TRUSTED_PROXY_CIDRS
+              value: "127.0.0.1/32"
+            - name: MCP_ALLOWED_HOSTS
+              value: {{ printf "%s,127.0.0.1,localhost" .Values.publicHost | quote }}
+            - name: MCP_ALLOWED_ORIGINS
+              value: {{ printf "https://%s" .Values.publicHost | quote }}
+            - name: MCP_IDENTITY_HMAC_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.identitySecret.name | quote }}
+                  key: {{ .Values.identitySecret.hmacKey | quote }}
+            - name: MCP_IDENTITY_KEY_VERSION
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.identitySecret.name | quote }}
+                  key: {{ .Values.identitySecret.versionKey | quote }}
+            - name: MCP_TOOL_TIMEOUT_SECONDS
+              value: {{ .Values.app.toolTimeoutSeconds | int | quote }}
+            - name: BYTEPLUS_REQUEST_TIMEOUT_MS
+              value: {{ mul .Values.app.providerTimeoutSeconds 1000 | quote }}
+            - name: MCP_ADMISSION_TIMEOUT_SECONDS
+              value: {{ .Values.app.admissionTimeoutSeconds | int | quote }}
+            - name: MCP_HTTP_MAX_BODY_BYTES
+              value: {{ .Values.app.maxBodyBytes | int | quote }}
+            - name: MCP_HTTP_MAX_IN_FLIGHT
+              value: {{ .Values.app.maxInFlight | int | quote }}
+            - name: RATE_LIMIT_RPM
+              value: {{ .Values.app.rateLimitRpm | int | quote }}
+            - name: RATE_LIMIT_BURST
+              value: {{ .Values.app.rateLimitBurst | int | quote }}
+            - name: DAILY_BUDGET_USD
+              value: {{ .Values.app.dailyBudgetUsd | quote }}
+            - name: PROVIDER_MAX_CONCURRENCY
+              value: {{ .Values.app.providerMaxConcurrency | int | quote }}
+            - name: PRINCIPAL_MAX_CONCURRENCY
+              value: {{ .Values.app.principalMaxConcurrency | int | quote }}
+            - name: SEEDREAM_DEFAULT_MODEL
+              value: {{ .Values.models.seedream.defaultModel | quote }}
+            - name: SEEDANCE_DEFAULT_MODEL
+              value: {{ .Values.models.seedance.defaultModel | quote }}
+            - name: SEEDREAM_MODEL_BINDINGS
+              value: {{ .Values.models.seedream.bindings | toJson | quote }}
+            - name: SEEDANCE_MODEL_BINDINGS
+              value: {{ .Values.models.seedance.bindings | toJson | quote }}
+            - name: MCP_METRICS_PORT
+              value: {{ ternary "9000" "0" .Values.app.metricsEnabled | quote }}
+            - name: BYTEPLUS_OMNIHUMAN_ENABLED
+              value: {{ .Values.app.omnihumanEnabled | quote }}
+            - name: MCP_TEMPORARY_UPLOAD_ENABLED
+              value: {{ .Values.temporaryUpload.enabled | quote }}
+            {{- if .Values.temporaryUpload.enabled }}
+            - name: OBJECT_STORAGE_BACKEND
+              value: tos
+            {{- range $key := list "TOS_ACCESS_KEY" "TOS_SECRET_KEY" "TOS_BUCKET" "TOS_REGION" "TOS_ENDPOINT" "MCP_UPLOAD_CLIENT_SECRET_SHA256" }}
+            - name: {{ $key }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $.Values.temporaryUpload.existingSecret | quote }}
+                  key: {{ $key }}
+            {{- end }}
+            - name: TOS_SECURITY_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.temporaryUpload.existingSecret | quote }}
+                  key: TOS_SECURITY_TOKEN
+                  optional: true
+            {{- end }}
+          startupProbe:
+            exec:
+              command: ["/app/.venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3000/health', timeout=2).read()"]
+            periodSeconds: 5
+            timeoutSeconds: 3
+            failureThreshold: 60
+          livenessProbe:
+            exec:
+              command: ["/app/.venv/bin/python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3000/health', timeout=2).read()"]
+            periodSeconds: 30
+            timeoutSeconds: 3
+            failureThreshold: 3
+          readinessProbe:
+            exec:
+              command: ["/app/.venv/bin/python", "-c", {{ printf "import urllib.request; urllib.request.urlopen('http://127.0.0.1:3000/ready', timeout=%d).read()" (int $readinessTimeout) | quote }}]
+            periodSeconds: 10
+            timeoutSeconds: {{ add $readinessTimeout 1 }}
+            failureThreshold: 3
+          volumeMounts:
+            - name: app-tmp
+              mountPath: /tmp
+        - name: proxy
+          image: caddy:2.11.9-alpine
+          imagePullPolicy: IfNotPresent
+          command: ["caddy", "run", "--config", "/etc/caddy/Caddyfile", "--adapter", "caddyfile"]
+          securityContext:
+            {{- include "seed-mcp.containerSecurity" . | nindent 12 }}
+          resources:
+            {{- include "seed-mcp.resources" .Values.resources.proxy | nindent 12 }}
+          ports:
+            - name: https
+              containerPort: 8443
+              protocol: TCP
+          env:
+            - name: MCP_PUBLIC_HOST
+              value: {{ .Values.publicHost | quote }}
+            - name: MCP_PROXY_PORT
+              value: "8443"
+            - name: MCP_PORT
+              value: "3000"
+            - name: MCP_TLS_CERT_FILE
+              value: /tls/tls.crt
+            - name: MCP_TLS_KEY_FILE
+              value: /tls/tls.key
+            - name: MCP_HTTP_MAX_BODY_BYTES
+              value: {{ .Values.app.maxBodyBytes | int | quote }}
+            - name: MCP_PROXY_GRACE_PERIOD
+              value: {{ printf "%ds" (add $deadline 30) | quote }}
+            - name: XDG_CONFIG_HOME
+              value: /tmp/config
+            - name: XDG_DATA_HOME
+              value: /tmp/data
+          startupProbe:
+            tcpSocket:
+              port: https
+            periodSeconds: 5
+            failureThreshold: 30
+          readinessProbe:
+            tcpSocket:
+              port: https
+            periodSeconds: 10
+          livenessProbe:
+            tcpSocket:
+              port: https
+            periodSeconds: 30
+          volumeMounts:
+            - name: proxy-config
+              mountPath: /etc/caddy
+              readOnly: true
+            - name: tls
+              mountPath: /tls
+              readOnly: true
+            - name: proxy-tmp
+              mountPath: /tmp
+      volumes:
+        - name: proxy-config
+          configMap:
+            name: {{ include "seed-mcp.name" . }}-proxy
+        - name: tls
+          secret:
+            secretName: {{ .Values.tlsSecretName | quote }}
+            defaultMode: 0440
+            items:
+              - key: tls.crt
+                path: tls.crt
+              - key: tls.key
+                path: tls.key
+        - name: app-tmp
+          emptyDir:
+            sizeLimit: 128Mi
+        - name: proxy-tmp
+          emptyDir:
+            sizeLimit: 128Mi

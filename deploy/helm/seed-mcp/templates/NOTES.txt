@@ -1,43 +1,19 @@
-This is one SQLite writer, not an HA application. Two VKE nodes provide
-same-zone rescheduling capacity only. Never scale the StatefulSet or force-delete
-a pod on an unreachable node without proving the old writer is stopped.
-Preserve the state PVC and the original HMAC key/version across restarts.
-StorageClass and PVC retention do not replace tested backups.
+This chart runs database-free BYOK HTTP with at least two application pods.
+No PostgreSQL, Redis, SQLite, state volume, schema or database Secret is required.
+Source rendering is not release approval or capacity certification.
+NEVER upgrade a live SQLite release without a separately reviewed transition:
+an upgrade can delete removed resources. Preserve old release metadata, disks,
+WAL/database backups, identity and accepted IDs for reconciliation.
+CSI is not a new application prerequisite; retain existing addons and volumes.
 
-prerequisitesConfirmed is a MANUAL acknowledgement, not readiness evidence:
-1. The operator has authenticated private API access to the intended cluster.
-2. A VKE administrator owns csi-ebs and cloud-controller-manager EXCLUSIVELY
-   through VKE addon management, outside Terraform and Helm. Keep healthy
-   existing installations. Install compatible maintained versions if absent.
-   Never import, auto-upgrade or delete these addons with this deployment.
-3. Both addon cards show Running with region/Kubernetes-compatible versions.
-   Confirm `kubectl get csidriver ebs.csi.volcengine.com`, successful rollouts
-   of deployment/csi-ebs-controller and daemonset/csi-ebs-node in kube-system,
-   Ready nodes, allocatable resources and same-zone EBS attachment capacity.
-   CCM may run outside tenant namespaces; check its VKE addon card.
-4. Existing identity and TLS Secrets are in this namespace. Identity has a
-   64-lowercase-hex HMAC key and a positive integer version. TLS has valid
-   tls.crt/tls.key, matching public DNS and a trusted certificate chain.
-   Never place secret contents or provider keys in Helm values.
-5. If encryption is enabled, KMS is activated with a usable default key and
-   the region, disk type and every schedulable node support encryption.
-
-Record version/readiness evidence privately. values.ci.yaml is synthetic and
-cannot certify these prerequisites or pull a deployable application image.
-Private metrics (when enabled) bind only to app loopback :9000. Use authorized
-pod port-forward or exec; there is no metrics Service.
-
-TCP CLB :443 forwards to Caddy :8443. Only /mcp and /health are public.
-Caddy access logging is disabled and all runtime logs are discarded to prevent
-custom provider headers leaking on proxy errors. Use safe app metrics for
-operations; do not enable request logging as a troubleshooting shortcut.
-DNS/TLS, regional quotas, addons, source-range enforcement, actual source-IP
-preservation, NAT egress, volume rescheduling and shutdown need live acceptance.
-Service source ranges are a requested Kubernetes policy, not proof of CLB ACLs.
-Deleting the LoadBalancer Service may delete its managed CLB/EIP.
-
-Contract: specs/SPEC_VKE_DEPLOYMENT.md
-Official CLB annotations:
-https://docs.byteplus.com/en/docs/vke/Configuring-a-LoadBalancer-Service-using-annotations
-Official EBS parameters and limits:
-https://docs.byteplus.com/docs/vke/Using-dynamic-EBS-Volumes
+Verify CCM, two Ready nodes with surge/draining capacity, private API access,
+DNS/TLS, identity/TLS Secrets and metrics API before acknowledging prerequisites.
+HPA is 2-6 pods by default. All rate and concurrency limits are PER POD.
+There is no daily budget ledger or durable deduplication/replay. Configure
+provider-side spend limits and save task IDs on clients. Never repeat uncertain creates.
+Only /mcp and /health are public. /ready and metrics remain private.
+Temporary upload preparation is disabled by default. If enabled, verify the
+distinct existing TOS/enrollment Secret and private versioning-disabled bucket,
+prefix IAM, browser POST CORS, lifecycle and storage/egress controls separately.
+The client uploads bytes directly; MCP only signs. See docs/temporary-uploads.md.
+Roll pods after external Secret changes; no Secret-content checksum is available.

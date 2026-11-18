@@ -149,12 +149,7 @@ deadline. SDK/SQLite cleanup can exceed it. `keep_alive=False` closes the
 subprocess at context exit; finish needed calls before exiting. Do not
 automatically retry submission after a timeout or cancellation.
 
-After an authorized billable async create, retain safe provider task/request
-IDs even alongside errors. Poll with `gen_task_get` or `omnihuman_get_task`,
-respecting polling hints; never repeat create to poll. HTTP receipt recovery
-uses identical arguments and the original idempotency key, not a new create.
-Direct local persistence uses live MCP roots or `OUTPUT_ROOTS`.
-See the [deadline and admission contract](../integration-guide.md#direct-execution).
+Hosted HTTP is database-free: provider-key task authorization, no durable replay or shared budget accounting. Omit legacy operation keys; never automatically resubmit uncertain creates. Local stdio persistence remains available.
 
 See [Integrations](index.md), [OpenCode](opencode.md),
 [Getting Started](../getting-started.md), [Tools](../tools.md), and

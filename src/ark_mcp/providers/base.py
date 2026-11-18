@@ -20,7 +20,7 @@ from fastmcp.telemetry import get_tracer, record_span_error
 from pydantic import BaseModel
 
 from ark_mcp.domain.errors import NormalizedProviderError, ProviderError, ProviderName
-from ark_mcp.execution import before_provider_request
+from ark_mcp.execution import authorize_provider_request
 from ark_mcp.observability.logger import error as log_error
 from ark_mcp.observability.logger import info as log_info
 from ark_mcp.observability.metrics import PROVIDER_DURATION, PROVIDER_REQUESTS
@@ -74,7 +74,7 @@ class BlockingSdkCalls:
         if self._close_task is not None:
             raise RuntimeError("SDK client is closed or closing.")
         if side_effect:
-            before_provider_request(side_effect=True)
+            await authorize_provider_request(side_effect=True)
         task = asyncio.create_task(asyncio.to_thread(call))
         self._pending.add(task)
         try:
@@ -156,8 +156,8 @@ class BaseHttpGateway(ABC):
         ) as span:
             span.set_attribute("provider.name", self.PROVIDER)
             span.set_attribute("http.request.method", method)
+            await authorize_provider_request(side_effect=side_effect)
             try:
-                before_provider_request(side_effect=side_effect)
                 response = await client.request(method, url, headers=headers, **kwargs)
             except Exception as exc:
                 record_span_error(span, RuntimeError("Provider request failed."))

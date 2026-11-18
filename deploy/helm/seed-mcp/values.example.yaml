@@ -1,12 +1,14 @@
 prerequisitesConfirmed: false
+# Existing references only; never put DSNs, passwords or provider keys here.
 image: ""
 publicHost: ""
 identitySecret:
   name: ""
 tlsSecretName: ""
+temporaryUpload:
+  enabled: false
+  # After separately verifying TOS/IAM/CORS/expiry prerequisites; credentials stay in Secret.
+  existingSecret: ""
 service:
   subnetId: ""
   sourceRanges: []
-storage:
-  zone: ""
-  project: default

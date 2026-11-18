@@ -1,3 +1,9 @@
+{{/*
+Legacy SQLite source, deliberately NOT rendered. See specs/SPEC_VKE_DEPLOYMENT.md.
+Preserve existing StatefulSet/PVC/PV/disks, backups and matching HMAC key/version.
+This source change is not a migration or permission to upgrade/delete a live release.
+Use a separate release after approved cutover; retain the reviewed old chart.
+
 {{- $deadline := max .Values.app.toolTimeoutSeconds .Values.app.providerTimeoutSeconds -}}
 apiVersion: apps/v1
 kind: StatefulSet
@@ -224,3 +230,4 @@ spec:
         resources:
           requests:
             storage: {{ printf "%vGi" .Values.storage.sizeGiB | quote }}
+*/}}

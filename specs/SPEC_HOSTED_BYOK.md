@@ -4,7 +4,7 @@ type: spec
 status: accepted
 horizon: current
 created: 2026-11-16
-updated: 2026-11-17
+updated: 2026-11-18
 tags: [byok, http, security, ownership]
 related:
   - specs/SPEC_DIRECT_EXECUTION.md
@@ -15,16 +15,17 @@ related:
 
 # Hosted BYOK Foundation
 
-This is a forward-only, single-instance foundation, not a public-launch or
-multi-replica certification. No OAuth, signup, server-issued key, customer
-credential database, or compatibility migration is provided.
+Hosted HTTP is a database-free BYOK proxy with provider-key task authorization.
+It provides no durable replay, deduplication or shared budget accounting.
+Local stdio persistence remains available. Source support for multiple pods
+is not public-launch or deployed-capacity certification.
 
 ## Transport Surface
 
 | Transport | Inventory | Execution and storage |
 | --- | --- | --- |
 | Local stdio | 15 catalog tools, conditionally registered; four always available | Direct calls, local provider settings, optional storage and artifacts |
-| HTTP | 7 tools, or 10 with `BYTEPLUS_OMNIHUMAN_ENABLED=true` | Direct foreground calls; provider-managed video tasks; no jobs, native tasks, storage/artifact tools or resources |
+| HTTP | 7 tools, or 10 with `BYTEPLUS_OMNIHUMAN_ENABLED=true`; optional temporary upload adds one | Direct foreground calls; provider-managed video tasks; no jobs, native tasks, local storage/artifact tools or resources |
 
 HTTP exposes `ark_list_models`, `seed_audio_generate`, `seedream_generate_image`,
 `seedance_create_task`, `gen_task_get`, `gen_task_list`,
@@ -67,6 +68,55 @@ is supported. HTTP uses these fixed official origins:
 - ModelArk: `https://ark.ap-southeast.bytepluses.com/api/v3`
 - Seed Speech: `https://voice.ap-southeast-1.bytepluses.com`
 - Vision AI: `https://openapi.cv.bytepluses.com`
+
+## Temporary Upload Preparation
+
+`media_prepare_upload` is one opt-in HTTP-only tool; the catalog has 16
+definitions, while stdio remains at 15 and baseline HTTP remains 7/10.
+HTTP `services[]` availability for the entry with `service="object_storage"`
+reflects this gate, not enrollment or bucket validity.
+`MCP_TEMPORARY_UPLOAD_ENABLED=false` is the default. Enabling requires TOS
+configuration, `OBJECT_STORAGE_BACKEND=tos`, valid bucket/region syntax, the
+exact official regional HTTPS origin and a nonempty
+`MCP_UPLOAD_CLIENT_SECRET_SHA256` allowlist. Digests are SHA-256 of exact ASCII
+client-secret values, not hex-decoded bytes: 1-1000 unique lowercase 64-hex
+digests, comma-separated without whitespace.
+
+The tool requires a live enrolled `X-MCP-Client-Secret` but no generation-provider
+key. A self-generated secret or provider-key presence is not entitlement.
+Constant-time digest comparisons and separate HMAC upload tenant/owner domains
+scope per-pod admission; no ownership record, database or global quota exists.
+Enrollment removal stops future signing once all pods reload, not previously
+issued bearer permissions.
+
+Input is metadata only: image/audio/video category, exact allowlisted MIME and
+strict positive byte count, at most 10/10/200 MiB. Extra fields are rejected.
+No local path, Base64, binary payload, caller-selected key/bucket/ACL/lifetime or
+credential is accepted. SDK signing makes no network call and creates no object.
+Each invocation selects `temporary-references/{HMAC principal}/{media_type}/{uuid4}`.
+It signs multipart POST with exact key/MIME/size, private ACL, STANDARD storage,
+forbid-overwrite and `x-tos-object-expires=1`; permission TTL is 900 seconds.
+The GET URL TTL is 86400 seconds, minted before upload.
+
+The client must upload directly to TOS with every signed field unchanged and
+the binary `file` field last, then await upload success before using
+`reference_url` in an existing generation tool. The server does not inspect
+bytes, verify existence/completion, finalize uploads, create assets, renew URLs
+or maintain upload records. Declared MIME does not prove valid media.
+Every output field/URL is potentially sensitive bearer authority; do not log
+or publish it. Permissions are not guaranteed one-use and STS expiry can
+shorten nominal validity.
+
+URL expiry is not deletion. One-day TOS object expiry is whole-day/scheduled
+from Last-Modified, with deletion beginning at the following midnight, not
+exactly 24 hours later. No one-hour cleanup worker exists. Operators must verify
+a private dedicated bucket, versioning disabled (not suspended), prefix-scoped
+PutObject/GetObject IAM, browser POST CORS where applicable, lifecycle backstop,
+signer lifetime/rotation, storage/egress abuse controls and provider fetch timing.
+Versioning can preserve historical data and defeat forbid-overwrite.
+These are separate live setup/acceptance gates, not readiness probes or
+guarantees established by offline signing tests. See
+[temporary-upload operations](../docs/temporary-uploads.md).
 
 ## BYOE Endpoint Authority
 
@@ -174,30 +224,25 @@ and private client environment setup.
 
 ## Identity and Ownership
 
-`MCP_AUTH_MODE=byok` is the default. Explicit `local` is stdio-only; the
-`api_key` auth mode is removed. HTTP requires the operator's
-`MCP_IDENTITY_HMAC_KEY`, a random 32-byte secret encoded as 64 lowercase hex,
-and `MCP_IDENTITY_KEY_VERSION`, a positive integer defaulting to `1`.
-These are operator identity configuration, not customer credentials.
+`MCP_AUTH_MODE=byok` is the default; explicit `local` is stdio-only and the
+`api_key` mode is removed. HTTP requires operator `MCP_IDENTITY_HMAC_KEY`
+(32 random bytes, 64 lowercase hex characters) and positive
+`MCP_IDENTITY_KEY_VERSION` (default 1). These are operator configuration,
+not customer credentials. No OAuth, signup or server-issued key is added.
 
-Domain-separated HMAC derives a credential tenant from the version, selected
-provider, fixed base URL and exact provider key. The owner derives from that
-tenant and the client secret. Unrelated provider keys do not affect scope.
-The same key with a different client secret has a different owner; changing
-the provider key, client secret, HMAC key or version changes ownership scope.
-Stable settings and credentials preserve identity across restarts, but there
-is no recovery bridge or human/organization identity verification.
+Domain-separated HMAC derives an ephemeral admission tenant from the version,
+selected provider, fixed base URL and exact provider key. The principal derives
+from that tenant and the client secret. Unrelated provider keys do not change
+the scope. Changing these inputs changes admission scope, not task access.
 
-Fresh SQLite state is required. Task ownership has primary key
-`(provider, tenant_id, task_id)` and an immutable `principal_id` owner.
-Reads, claims and lists use this namespace. Conflicts cannot reassign owners.
-Missing ownership and unavailable/capacity-exhausted state fail closed.
-There is no old-schema migration. Retain the original provider IDs and scope
-for polling; do not recreate accepted work to bypass an ownership failure.
+Task get/list/cancel and Draft lookup are authorized by the supplied provider
+key. `X-MCP-Client-Secret` separates per-pod admission scopes, not task access.
+Clients sharing a provider key can access whatever that key authorizes.
+Use separate provider credentials when independent authorization is required.
 
-Sharing a provider key still permits direct upstream access outside this MCP
-boundary. Use separate provider keys/projects for stronger separation.
-Budgets are per derived owner and approximate, not an account-wide spend ceiling.
+There is no local task-ID ledger or client-secret ownership filtering on HTTP.
+Authorization remains the provider's responsibility; the server does not
+assert authorization before the provider response.
 
 ## Credential Lifetime
 
@@ -239,77 +284,42 @@ Seedance `asset://` references remain supported without asset administration.
 
 ## Admission and Diagnostics
 
-| Setting | Default | HTTP rule |
+| Setting | Default | Meaning |
 | --- | --- | --- |
-| `RATE_LIMIT_RPM` | `60` | Positive per-IP rate; bounded limiter map |
+| `MCP_IDENTITY_KEY_VERSION` | `1` | HMAC version for ephemeral admission scopes |
+| `RATE_LIMIT_RPM` | `60` | Requests per IP per pod |
 | `RATE_LIMIT_BURST` | `0` | Uses RPM when zero |
-| `MCP_HTTP_MAX_BODY_BYTES` | `2097152` (2 MiB) | Positive streamed request limit |
-| `MCP_HTTP_MAX_IN_FLIGHT` | `64` | Positive admission bound before body processing, including discovery |
-| `STATE_MAX_RECORDS` | `100000` | Positive retained-state bound, also the submission-journal capacity; no eviction of live owners or submission claims |
-| `STATE_PRUNE_MAX_AGE_DAYS` | `30` | At least 14 when regular Seedance 2.5 is bound on HTTP; never prunes submission claims |
-| `MCP_ADMISSION_TIMEOUT_SECONDS` | `2.0` | Finite positive seconds, max 30; owner-first then provider-slot wait |
+| `MCP_HTTP_MAX_BODY_BYTES` | `2097152` | Streamed request body cap |
+| `MCP_HTTP_MAX_IN_FLIGHT` | `64` | Per-pod in-flight requests |
+| `MCP_ADMISSION_TIMEOUT_SECONDS` | `2.0` | Finite positive seconds, max 30; owner-first/provider-slot wait |
 | `MCP_TOOL_TIMEOUT_SECONDS` | `600.0` | Finite positive seconds, max 3600; cooperative whole-tool deadline |
+| `DAILY_BUDGET_USD` | `0` | Required zero on HTTP; no budget ledger |
 
-Both transports execute directly, without MCP jobs, native tasks, snapshots
-or execution claims. The whole-tool timer starts at wrapper entry after MCP
-parsing, before credentials, binding, journal and admission. Admission precedes
-budget reservation. Active/waiting owner limiters are pinned; partial
-acquisitions are released on failure. `ADMISSION_TIMEOUT` is retryable and
-nonambiguous for this attempt only; other variations may already be accepted.
+Rate limits and in-flight/provider/principal concurrency are in-memory per pod;
+they multiply with replicas and reset at restart. `DAILY_BUDGET_USD` must be `0`
+on HTTP; use provider-side spend controls. Readiness is lifespan-only and makes
+no storage or provider probes. No database, migration, distributed lock, shared
+volume or sticky session is needed for the hosted deployment.
+
+The whole-tool timer starts at wrapper entry after MCP parsing, before
+credentials, binding and admission. Active/waiting principal limiters stay
+pinned; partial acquisitions release on failure. `ADMISSION_TIMEOUT` means
+this attempt did not dispatch, not that other variations were unsubmitted.
 No automatic admission retry is added.
 
-Use client timeout 660 seconds with the default tool deadline and compatible
-proxy timeouts. SQLite/SDK draining may exceed the cooperative deadline.
-`TOOL_DEADLINE_EXCEEDED` is text-only and retains mutation uncertainty and
-known safe accepted IDs, captured before the next await after provider
-acceptance. External cancellation propagates. Neither deadline nor disconnect
-guarantees provider cancellation; never blindly resubmit.
-See [Direct Execution](SPEC_DIRECT_EXECUTION.md).
+Use client timeout 660 seconds with the default 600-second tool and provider
+timeouts and compatible proxy settings. SDK drain may exceed the cooperative
+deadline. `TOOL_DEADLINE_EXCEEDED` is text-only and preserves mutation
+uncertainty and known safe accepted IDs. External cancellation propagates;
+neither expiry nor disconnect guarantees provider cancellation.
 
-Stateless HTTP forces Host/Origin protection. Proxy headers are untrusted by
-default. Backend `/health` and `/ready` return minimal liveness/state readiness
-without provider probes or configuration disclosure. Public HTTP has no
-`/metrics` endpoint or configuration-detail resource; VKE also blocks `/ready`
-at Caddy and uses it only for loopback exec probes.
-
-Uncertain mutation transport failures and malformed 2xx responses are
-nonretryable/ambiguous with sanitized diagnostics. Response loss,
-read/write/protocol errors and malformed mutation 2xx responses do not permit
-automatic replay. Mutation 5xx errors remain `retryable=true` in HTTP normalization but are
-ambiguous and never retried automatically. Eligible 429 rejections,
-demonstrably pre-dispatch connection/pool failures and reads retain bounded
-retries.
-Errors retain safe codes/request IDs, not raw exception text or credential URLs.
-Clients must reconcile instead of blindly retrying.
-
-Budget reservation before dispatch still fails closed. In `billed_provider_slot`,
-commit/release exceptions log `ERROR` event `budget_finalization_failed` with
-safe `provider`, `action` and `reservation_id` fields, never raw exception text.
-They do not replace the provider result/error, raise `AcceptedTaskError`, or
-add to Seedance's `failed` count. Failed finalization leaves conservative
-reserved allowance. Cancellation cleanup is shielded best effort, not a
-guarantee that no reserved rows remain.
-
-Seedance proceeds to the shared `record_accepted_task` helper even after a
-budget-finalization log event; OmniHuman uses the same helper. On HTTP it
-validates task/request IDs against `[A-Za-z0-9._:-]{1,256}` and rejects secret
-echoes before either persistence write. Unsafe IDs produce `UNSAFE_TASK_RECEIPT`
-without persisting or echoing them. Safe accepted IDs are journaled before
-ownership recording. A failed journal write still attempts ownership.
-Accepted journal/ownership failures become outward `AcceptedTaskError`
-(`SUBMISSION_RECORD_FAILED` / `OWNERSHIP_RECORD_FAILED`), retaining safe
-accepted task IDs and available request IDs.
-These failures are ambiguous/nonretryable and never cause internal
-resubmission. In Seedance variation results, `task_id` and `error` can coexist:
-`submitted` counts known accepted IDs, while `failed` counts entries with
-errors, so accepted journal/ownership errors can count in both. Single-call
-failures remain error `ToolResult` text carrying known IDs, not structured
-success output. HTTP polling requires recorded ownership; otherwise use
-task/request IDs for provider-side reconciliation. Trusted stdio permits
-unrecorded IDs, but still rejects a recorded owner mismatch.
-
-Internal tool metrics use catalog names or a fixed `unknown` label,
-not arbitrary caller-supplied tool names. There are no job-admission metrics.
+Mutation read/write/protocol transport failures and malformed mutation 2xx
+responses are ambiguous/nonretryable. Mutation 5xx responses remain marked
+retryable by normalization but are ambiguous and never automatically retried.
+Eligible 429 rejections, demonstrably pre-dispatch connection/pool failures
+and reads retain bounded retries. Diagnostics exclude raw exceptions,
+credentials and credential-bearing URLs. Tool metrics use catalog names or a
+fixed `unknown` label, not arbitrary caller-supplied names.
 
 ## Trusted Proxy and Private Operations
 
@@ -325,7 +335,7 @@ Walk right-to-left through trusted hops to the first untrusted address.
 Malformed or duplicate chains fail with fixed text and no header echo.
 Rate/body events use bounded route labels, not arbitrary paths or raw headers.
 
-VKE runs Caddy in the same single pod as the loopback-bound application
+VKE runs Caddy in each pod alongside the loopback-bound application
 (`127.0.0.1:3000`), trusting only `127.0.0.1/32`. Caddy overwrites forwarded
 addresses and host/proto, removes `Forwarded`, and exposes only `/mcp` and
 `/health` behind CLB TCP 443. Actual VKE source-IP preservation is unverified.
@@ -341,143 +351,50 @@ loopback-bound pod port-forward/exec is supported for access.
 
 ## HTTP State Ownership
 
-`RuntimeStateLease` holds a nonblocking hard filesystem lock on
-`runtime.sqlite3.lock` before opening any stores or submission recovery.
-Contention fails HTTP startup closed with fixed text. The lease remains owned
-until state users close; acquisition/cleanup drain on partial startup failure
-and cancellation. Never unlink or replace an active lock. File presence alone
-is not lock ownership. Stdio does not acquire this HTTP lease and must not
-share the active HTTP state directory.
+`STATE_BACKEND` resolves to `none` for HTTP and `sqlite` for local stdio.
+Incompatible explicit backends reject startup. HTTP never opens SQLite,
+PostgreSQL, Redis, local artifact/cache stores, a submission journal or a
+filesystem lease. Local stdio retains its artifact and bookkeeping features.
+The chart uses a stateless Deployment with HPA/PDB/hostname spread and no
+application state volume. See [VKE Deployment](SPEC_VKE_DEPLOYMENT.md).
 
-This is local block-storage protection, not network-filesystem support or
-distributed fencing. The VKE deployment uses one StatefulSet, retained ext4
-ReadWriteOnce EBS and no application HPA. Dedicated VKE replaces ECS/Compose;
-PostgreSQL and Redis remain unnecessary for this single-instance design.
-See [VKE Deployment](SPEC_VKE_DEPLOYMENT.md).
+There is no hosted state to restore or replay. Restarting a pod does not
+cancel provider work; clients must retain IDs and poll with authorized provider
+credentials. A lost create response may hide billed work and must be reconciled,
+not resubmitted automatically.
 
-The entrypoint grace is `max(tool timeout, provider timeout in seconds) + 30`;
-Caddy uses the same allowance and chart pod termination uses the maximum
-plus 60 (630/660 seconds by default). Draining is cooperative, not a guarantee
-that accepted upstream work stops on shutdown.
+This is a deliberate contract change, not an automatic migration. Existing
+stateful installations must preserve their old release, database/WAL backups,
+identity and accepted IDs for reconciliation. Never delete retained data to
+make the new version start. A Helm upgrade can delete removed resources; use
+separately reviewed transition steps. No cloud resources are changed by source
+removal.
 
-`scripts/inspect_runtime_state.py` is stdlib-only, read-only aggregate
-inspection using an explicit database path, capacity and bounded timeout.
-It never opens application startup/recovery, emits IDs/payloads or repairs
-state. Missing/corrupt/schema-mismatched state fails without creating a DB.
-Preserve consistent SQLite/WAL backups and matching HMAC key/version; no
-state reset, blind restore or requeue is an accepted recovery procedure.
+Shutdown allows `max(tool timeout, provider timeout in seconds) + 30`;
+pod termination grace uses the same maximum plus 60 (defaults 630/660 seconds).
+Draining is cooperative, not a guarantee that upstream work stops.
 
 ## HTTP Submission Safety
 
-This first slice covers only `seedance_create_task` and
-`omnihuman_create_task`, not synchronous generation.
-The shared input schemas expose nullable `idempotency_key` with default null.
-Non-null keys must contain 16-128 ASCII letters, digits, `_` or `-`;
-a fresh UUID is recommended for each intended create operation.
-HTTP requires a non-null key for non-dry creates, including Draft creation and
-promotion. Seedance dry runs need no key and bypass the journal without
-consuming one. Stdio rejects supplied non-null keys, including on dry runs.
+The shared Seedance and OmniHuman input schemas retain nullable legacy
+`idempotency_key` fields so old clients receive an explicit rejection.
+Non-null values are rejected before dispatch on both transports, including
+Seedance dry runs. Omit the field.
 
-One root claim covers the whole call, including every Seedance variation.
-After live BYOK binding, schema validation and endpoint-default application,
-the coordinator atomically commits that claim **before entering the handler**.
-The scope is `(provider, tenant_id, principal_id, tool_name, key_digest)`.
-Both the key and canonical validated input use domain-separated operator HMAC
-fingerprints. Input defaults and effective endpoint/model are included;
-the key itself is excluded from the input fingerprint.
-An omitted ordinary Seedance model resolves to the registered default.
-An omitted Draft-promotion model instead fingerprints an inherited-model
-marker plus `draft_task_id`, without an upstream Draft lookup. Explicit and
-inherited model forms may conservatively conflict; repeat identical arguments.
+Identical creates are independent operations and may bill again. No root claim,
+saved-success replay, failed-batch resume or exactly-once billing is provided.
+Do not repeat a create for delivery recovery or polling. Retain known
+task/request IDs, poll through the provider-authorized task tools, and reconcile
+uncertain or lost responses with the provider.
 
-Repeating the same key and arguments is **delivery recovery, not polling**.
-Only a fully successful saved receipt replays in the unchanged output schema.
-Every recorded task must still pass ownership checks before replay, with no
-handler entry, provider call, Draft lookup or automatic ownership repair.
-Missing/expired ownership fails closed. Poll recovered task IDs through
-`gen_task_get` or `omnihuman_get_task` to learn current provider status.
-Reuse requires the original provider key/client secret, stable operator HMAC
-key/version, and the same retained SQLite state.
+Safe accepted IDs are captured only in the live invocation, before the next
+await, for partial/deadline diagnostics. HTTP task/request IDs must match
+`[A-Za-z0-9._:-]{1,256}` and must not echo request/operator secrets. Unsafe
+receipts fail with ambiguous, nonretryable `UNSAFE_TASK_RECEIPT` without echo.
+A crash or lost response can lose an accepted ID; the server cannot recover it.
+No raw prompts, media, credentials or error messages are journaled.
 
-| Error code | Meaning and client action |
-| --- | --- |
-| `IDEMPOTENCY_KEY_REQUIRED` | Non-dry HTTP create has no key; nothing dispatched |
-| `SUBMISSION_CONFLICT` | Existing scoped key with changed input; restore the original arguments to recover that operation |
-| `SUBMISSION_IN_PROGRESS` | Claim is still running; no second handler entry or automatic resume |
-| `SUBMISSION_UNRESOLVED` | Failed, interrupted, partial or cancelled attempt, or unusable receipt/ownership; reconcile known task/request IDs |
-| `SUBMISSION_UNAVAILABLE` | Journal unavailable or full; this call made no provider request |
-
-Errors remain text-only `ToolResult` errors, not structured success. First
-attempts retain existing diagnostics; repeats contain fixed safe guidance and
-durably known accepted IDs, never saved raw errors. Do not change keys to
-bypass uncertain acceptance. No failed variation is automatically resumed.
-
-### Journal and Retention
-
-`SQLiteSubmissionStore` in `submission_store.py` uses `http_submissions` and
-`http_submission_tasks` in `runtime.sqlite3`, with WAL, `synchronous=FULL`,
-a 5-second busy timeout and cancellation-safe serialized worker-thread I/O.
-States are `running`, `succeeded` and `unresolved`; reopening this
-single-instance store marks leftover running claims unresolved.
-Failures, partial results and cancellation attempt the same transition.
-A saved success is never demoted. A final receipt-write failure preserves the
-first provider result but leaves repeated calls fail-closed.
-
-Persist only scope digests, state/timestamps, up to five safe accepted
-task/request-ID pairs, and an allowlisted success receipt of at most 32 KiB.
-Seedance success requires exactly the requested ordered entries, no errors or
-duplicate task IDs, consistent counters and exact journal ID matches.
-OmniHuman success must also match its journal IDs. No raw idempotency keys,
-prompts, media references, credentials, provider bodies or error messages are
-persisted in the journal.
-
-Claims are **never automatically pruned**, including by
-`STATE_PRUNE_MAX_AGE_DAYS`. `STATE_MAX_RECORDS` limits journal rows; at capacity
-new keys fail before dispatch, while existing keys remain readable and owned
-task polling continues. Do not delete claims or reset state to admit more work:
-forgetting a claim can permit duplicates. Read-only aggregate inspection
-supports capacity triage; capacity planning and remediation still require
-operator decisions. Ownership has separate retention; a surviving
-receipt does not restore an expired owner.
-
-```mermaid
-flowchart TD
-    Client["Client request"] --> Limit["Admission, rate and body limits"]
-    Limit --> Headers["Validate live headers"]
-    Headers --> Discovery{"Discovery?"}
-    Discovery -->|Yes| Static["Static bindings; no provider call"]
-    Discovery -->|No| Identity["Selected key and client secret; derive owner"]
-    Identity --> Input["Schema validation and endpoint defaults"]
-    Input --> Create{"Non-dry async create?"}
-    Create -->|No| Validate["Handler validation: binding, media, ownership"]
-    Create -->|Yes| Claim["Require key; durable whole-call claim"]
-    Claim -->|New| Validate
-    Claim -->|Saved success| Check["Validate receipt and existing ownership"]
-    Check -->|Valid| Receipt["Return saved receipt; no upstream call"]
-    Check -->|Unavailable| Reject["Safe error and known IDs; no resume"]
-    Claim -->|Conflict, running, unresolved or unavailable| Reject
-    Validate --> Admission["Bounded owner-first then provider admission"]
-    Admission --> Budget["Reserve budget after admission"]
-    Budget --> Gateway["Explicit request-key gateway"]
-    Gateway --> Provider["Official provider"]
-    Provider --> Result["Result; journal accepted IDs before ownership"]
-    Result --> Finalize["Claimed create: save success or mark unresolved"]
-    Finalize --> Release["Release live credential context"]
-    Receipt --> Release
-    Reject --> Release
-```
-
-## Next Phase
-
-Synchronous product replay and complete crash recovery remain deferred.
-A crash between provider acceptance and the first accepted-ID write can lose
-that ID; the root claim prevents same-key re-dispatch but cannot discover
-unknown tasks. Automatic reconciliation and exactly-once billing are not
-promised. PostgreSQL/Redis are future scaling choices, not initial requirements;
-SQLite remains the single-instance backend. Public launch still requires
-operational capacity/recovery work, load/security validation and live provider
-and exact-client interoperability checks. Offline protocol tests are not live
-provider or desktop-client evidence.
+## Remaining Acceptance
 
 Actual model-driven Codex/Claude tool execution and paid provider validation remain pending.
 Isolated `codex mcp get --json` / `claude mcp get` configuration inspection
@@ -491,15 +408,21 @@ credentials or trust settings.
 The maintained `scripts/hosted_acceptance.py --caddy-bin PATH` checks isolated
 real HTTP/Caddy TLS with mocked providers and bounded synthetic load.
 Mock measurements are not capacity certification. Live VKE apply, source IP,
-CSI, rollout/restore and real-client/provider acceptance remain unverified.
+rollout/drain and real-client/provider acceptance remain unverified.
 Terraform state is separate from old ECS state; source deletion is not cloud
 decommissioning. Preserve old reviewed checkouts, private workspaces and backups.
+
+## Shared PostgreSQL Contract
+
+PostgreSQL support and its operator/schema tooling have been removed from this
+initial phase. This retained heading is a compatibility anchor, not an active
+backend contract. The stateless behavior above supersedes that design.
 
 ## Sources
 
 - Current implementation: `server.py`, `security/http_middleware.py`,
   `config/env.py`, `config/model_capabilities.py`, `tools/ark_list_models.py`,
-  `tools/_seedance_shared.py`, `submissions.py`, `submission_store.py`,
+  `tools/_seedance_shared.py`, `domain/submissions.py`, `state/stateless.py`,
   `runtime.py`, `execution.py`, and provider gateway adapters.
 - [FastMCP background tasks](https://gofastmcp.com/servers/tasks), accessed
   2026-11-16: per-call extension opt-in and execution modes. The application

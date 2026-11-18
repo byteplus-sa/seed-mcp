@@ -190,11 +190,11 @@ client retries.
 Seedance may return a known `task_id` alongside a bookkeeping error. Keep it:
 `submitted` counts known IDs, while `failed` counts entries with errors, so
 those counts can overlap. Single-call failures keep IDs in error `ToolResult`
-text. Never recreate accepted work. HTTP polling needs recorded ownership;
-if ownership recording failed, reconcile with the provider using task/request IDs.
+text. Never recreate accepted work. HTTP polling uses provider-key authorization,
+without local ownership records. Reconcile uncertain acceptance with task/request IDs.
 Trusted stdio permits unrecorded IDs, but still rejects recorded owner mismatches.
 
-Budget reservations are committed for every `TIMEOUT`, since a timed-out
+Local stdio budget reservations are committed for every `TIMEOUT`, since a timed-out
 call may still have been billed.
 
 ## Client Timeouts vs Provider Latency
@@ -204,7 +204,7 @@ Seedance provider submissions can take 60–150 s (longer under cold start or
 provider queue). Both transports execute directly. Use client timeout 660
 seconds for the default cooperative `MCP_TOOL_TIMEOUT_SECONDS=600.0`
 (finite positive, max 3600) and compatible proxy settings.
-The timer starts after MCP parsing, before credentials, journal and admission.
+The timer starts after MCP parsing, before credentials and admission.
 SDK/SQLite cleanup may exceed it; timeout does not cancel accepted upstream
 work. Reconcile lost responses without automatic resubmission.
 
@@ -215,21 +215,7 @@ means this attempt did not dispatch, not the whole variation batch.
 safe accepted IDs. External cancellation propagates. ModelArk polling and
 discovery avoid generation slots but remain subject to HTTP global overload.
 
-Non-dry HTTP Seedance/OmniHuman creates require `idempotency_key` (16-128 ASCII
-letters, digits, `_` or `-`; UUID recommended). Repeat identical arguments/key
-only for saved-success delivery recovery, not polling. `SUBMISSION_IN_PROGRESS`
-or `SUBMISSION_UNRESOLVED` never resumes work: retain known IDs, poll only
-where ownership remains recorded, otherwise reconcile with the provider.
-`SUBMISSION_CONFLICT` requires the original arguments for recovery.
-Never change keys to bypass uncertain acceptance. `SUBMISSION_UNAVAILABLE`
-means no dispatch from that call; ask the operator to restore journal
-availability/capacity without deleting claims. Seedance dry runs need no
-key/journal; stdio rejects supplied keys. See the
-[submission contract](../specs/SPEC_HOSTED_BYOK.md#http-submission-safety).
-Poll known IDs with `gen_task_get` or `omnihuman_get_task`. On stdio, explicitly
-set `persist_output=true` in a direct poll to keep outputs; HTTP clients
-download expiring URLs. No MCP jobs/native tasks exist; omit task opt-in.
-See [Direct Execution](../specs/SPEC_DIRECT_EXECUTION.md).
+Hosted HTTP is database-free: provider-key task authorization, no durable replay or shared budget accounting. Omit legacy operation keys; never automatically resubmit uncertain creates. Local stdio persistence remains available.
 
 ## Artifacts Not Persisting
 
@@ -247,12 +233,11 @@ Run `make check-env` to validate configuration.
 
 ## HTTP Server Refuses to Start
 
-All HTTP binds require `MCP_AUTH_MODE=byok` (default), operator
-`MCP_IDENTITY_HMAC_KEY` (32 random bytes as 64 lowercase hex) and positive
-identity version (default `1`). Check positive rate/body/in-flight/state limits,
-fixed official origins and fresh SQLite state. Explicit local auth is
-stdio-only. No compatibility migration exists. Do not delete older state to
-work around startup failure. See [self-hosting](self-hosting.md).
+Check that `MCP_AUTH_MODE=byok`, `STATE_BACKEND` is unset or `none`,
+`DAILY_BUDGET_USD=0`, and operator HMAC key/version are valid. HTTP requires
+positive body/rate/in-flight limits and fixed official provider origins.
+Do not create or delete a database to resolve startup errors. Old stateful
+installations require separately reviewed transition and reconciliation.
 
 ## HTTP Authentication Fails
 
@@ -261,8 +246,9 @@ including dry runs. The client secret is 32 random bytes as 64 lowercase hex.
 Duplicate, empty or malformed values fail; `Authorization` is rejected.
 There is no OAuth, signup or server-issued key. Discovery is anonymous/static
 and does not validate provider keys. Never print secrets while troubleshooting.
-Changing provider/client/HMAC credentials changes ownership scope with no
-recovery bridge; use the original authorized scope for older tasks.
+Task access depends on provider authorization. Client-secret/HMAC changes affect
+ephemeral admission, not task access. Keep authorized provider credentials and
+task IDs; there is no durable replay or recovery bridge for lost create responses.
 
 ## HTTP Configuration Check
 
@@ -295,8 +281,10 @@ actions are in [shared-server setup](setup/shared-server.md#generate-a-client-sn
 ## Unknown Tool over HTTP
 
 Check `ark_list_models.services`. HTTP has 7 tools, or 10 when OmniHuman is
-enabled, and no jobs/native tasks/storage/artifact tools/resources. Missing
-operator provider keys do not hide HTTP tools. Asset administration is
+enabled; optional `media_prepare_upload` adds one (8/11). It requires the
+operator's enable flag, TOS configuration and client enrollment. There are no
+jobs/native tasks/local storage/artifact tools/resources. Missing
+operator generation-provider keys do not hide HTTP tools. Asset administration is
 unavailable on either transport. Call HTTP provider tools directly in the
 foreground; configure timeouts rather than resubmitting uncertain work.
 

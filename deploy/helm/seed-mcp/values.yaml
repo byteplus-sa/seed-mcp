@@ -1,4 +1,12 @@
 prerequisitesConfirmed: false
+# Source only: never upgrade a live SQLite release before approved state cutover.
+replicaCount: 2
+autoscaling:
+  enabled: true
+  minReplicas: 2
+  maxReplicas: 6
+  targetCPUUtilizationPercentage: 70
+  scaleDownStabilizationSeconds: 300
 image: ""
 imagePullSecrets: []
 publicHost: ""
@@ -7,16 +15,14 @@ identitySecret:
   hmacKey: MCP_IDENTITY_HMAC_KEY
   versionKey: MCP_IDENTITY_KEY_VERSION
 tlsSecretName: ""
+temporaryUpload:
+  enabled: false
+  # Dedicated existing Secret; never put TOS credentials or client digests in values.
+  existingSecret: ""
 service:
   subnetId: ""
   bandwidthMbps: 25
   sourceRanges: []
-storage:
-  zone: ""
-  project: default
-  sizeGiB: 40
-  encrypted: false
-  kmsPrerequisitesConfirmed: false
 app:
   toolTimeoutSeconds: 600
   providerTimeoutSeconds: 600
@@ -25,10 +31,9 @@ app:
   maxInFlight: 64
   rateLimitRpm: 60
   rateLimitBurst: 0
-  dailyBudgetUsd: 25
+  dailyBudgetUsd: 0
   providerMaxConcurrency: 5
   principalMaxConcurrency: 3
-  stateMaxRecords: 100000
   metricsEnabled: false
   omnihumanEnabled: false
 models:

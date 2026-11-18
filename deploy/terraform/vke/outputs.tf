@@ -20,15 +20,11 @@ output "network_ids" {
 }
 
 output "helm_infrastructure_values" {
-  description = "Safe partial Helm inputs. Admin must verify private access, Running csi-ebs/CCM, CSI rollouts, Ready nodes, TLS/DNS and existing Secrets before setting prerequisitesConfirmed=true."
+  description = "Safe partial Helm inputs, not deployment approval. Admin must verify private access, Running VKE-admin-owned CCM, Ready nodes with surge/draining capacity, metrics API and existing identity/TLS Secrets before setting prerequisitesConfirmed=true. Preserve legacy volumes and VKE-admin-owned CSI; source changes do not decommission cloud resources."
   value = {
     prerequisitesConfirmed = false
     service = {
       subnetId = bytepluscc_vpc_subnet.private["edge"].subnet_id
-    }
-    storage = {
-      zone    = var.zone_id
-      project = var.project_name
     }
   }
 }

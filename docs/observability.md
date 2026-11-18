@@ -66,7 +66,8 @@ Redacted keys (case-insensitive): `authorization`, `x-api-key`, `api_key`,
 
 The BYOK provider headers, client secret and operator HMAC key are sensitive
 too. Live request secret echoes, including URL-encoded forms, are redacted.
-Do not log raw exceptions, request headers or provider URLs.
+Do not log raw exceptions, request headers, provider URLs, PostgreSQL DSNs/
+driver diagnostics or private submission writer tokens.
 
 Policy (per the module docstring): never log prompt text, full media URLs,
 Base64, subtitles, or credentials. Redaction is a safety net; call sites
@@ -91,19 +92,7 @@ allowance; monitor the event and ledger rather than treating it as a new
 provider failure. Reservation before dispatch still fails closed. Cancellation
 cleanup is shielded best effort, not a guarantee that no reserved rows remain.
 
-Seedance and OmniHuman share `record_accepted_task`. An accepted task's
-ownership-record failure logs `ownership_record_failed` and surfaces an
-ambiguous/nonretryable `AcceptedTaskError` retaining task/request IDs.
-On HTTP, safe IDs are journaled before ownership. A journal-write failure
-logs `submission_record_failed`, still attempts ownership, and surfaces
-`SUBMISSION_RECORD_FAILED` with safe accepted IDs. Unsafe IDs are rejected
-before either write without echoing them.
-Seedance's `submitted` and `failed` counts can overlap for these journal/ownership
-errors, not for budget-finalization log events.
-`submission_finalization_failed` records only a safe action (`save_receipt`
-or `mark_unresolved`), never raw errors or input. A receipt-write failure
-preserves the first provider result but leaves repeat calls fail-closed.
-See [HTTP submission recovery](runtime.md#http-submission-journal).
+Hosted HTTP is database-free: provider-key task authorization, no durable replay or shared budget accounting. Omit legacy operation keys; never automatically resubmit uncertain creates. Local stdio persistence remains available.
 
 ## Prometheus metrics (`observability/metrics.py`)
 
@@ -175,20 +164,16 @@ After separately authorized deployment, with private API connectivity and
 pod port-forward RBAC, an operator can forward only onto workstation loopback:
 
 ```bash
-kubectl -n seed-mcp port-forward --address 127.0.0.1 pod/seed-mcp-seed-mcp-0 19000:9000
+kubectl -n seed-mcp port-forward --address 127.0.0.1 deployment/seed-mcp-seed-mcp 19000:9000
 ```
 
-Use the actual namespace and pod name; the example assumes release `seed-mcp`.
+Use the actual namespace/release; the command selects one Deployment pod, not
+an aggregate cluster metrics endpoint.
 In a second terminal, inspect `http://127.0.0.1:19000/metrics`, then stop the
 forward when finished. Never use `--address 0.0.0.0`, a public ingress, or
 customer credentials for monitoring.
 
-For state pressure and unresolved ages, use the
-[read-only aggregate inspector](runtime.md#read-only-state-inspection).
-Neither counters nor inspection are a repair/requeue mechanism. Admission/
-deadline labels contain no tenant/owner IDs, prompts, URLs or keys. HTTP
-rate/body-limit events use bounded route labels, never arbitrary paths or
-raw forwarding headers.
+See the database-free HTTP contract above; local stdio persistence is unchanged.
 
 ## OpenTelemetry / tracing
 
@@ -224,14 +209,7 @@ with get_tracer().start_as_current_span(
 
 ## Gaps worth knowing
 
-- No application Gauges: in-flight requests, current daily spend, stored
-  artifact count, and concurrency depth are not metricated (spend is only
-  observable via the SQLite ledger; in-flight only via the process metrics).
-- `ARTIFACT_OPERATIONS` has a `status` label, but call sites only ever emit
-  `success` (failures raise before the counter is touched).
-- Public `/metrics` is unavailable. Private listener access requires explicit
-  enablement and operator access. Backend `/health` and `/ready` return minimal
-  process/state status, not credentials or provider readiness.
+See the database-free HTTP contract above; local stdio persistence is unchanged.
 
 See [configuration.md](configuration.md) for the related env vars and
 [deployment.md](deployment.md) for probe/monitoring guidance.

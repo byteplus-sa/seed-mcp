@@ -1,14 +1,8 @@
 # Deployment
 
-HTTP deployments implement the [BYOK foundation](../specs/SPEC_HOSTED_BYOK.md).
-The cloud path is dedicated VKE, replacing ECS/Compose: Terraform provisions
-infrastructure; Helm runs one StatefulSet pod with Caddy and retained ext4
-ReadWriteOnce EBS. No application HPA is supported. Start new installations
-with fresh SQLite state. HTTP asynchronous-create idempotency
-is implemented; synchronous product replay and complete crash recovery remain
-deferred. PostgreSQL/Redis are future scaling choices, not initial requirements.
-This is not a multi-replica or public-launch claim. Local stdio retains
-storage and artifacts separately.
+Hosted HTTP is a database-free BYOK proxy with provider-key task authorization.
+It supports multiple application pods without durable replay or shared budget
+accounting. Local stdio persistence remains available separately.
 
 ## Build the Container
 
@@ -23,47 +17,59 @@ See [releases](releases.md) and the
 [breaking capability migration](migration-0.2.md#breaking-capability-migration).
 Old database schemas are not migrated. Retain old state separately.
 
-## Run One Instance
+## Run Shared HTTP
 
 Follow the [staged VKE runbook](byteplus-terraform.md#staged-vke-deployment).
-Use a separate fresh Terraform state, never old ECS state. The private control
-plane needs operator private connectivity. Both `csi-ebs` and
-`cloud-controller-manager` are VKE-admin owned outside Terraform/Helm:
-inspect existing installations, install only absent compatible maintained
-versions through VKE, and verify CSI readiness, Ready nodes and CCM Running.
-`prerequisitesConfirmed=true` acknowledges checks, not proof of their success.
+Use separate fresh Terraform state, never the old ECS state.
 
-Helm references existing Secrets only: operator `MCP_IDENTITY_HMAC_KEY`
-(random 32 bytes, 64 lowercase hex) and positive `MCP_IDENTITY_KEY_VERSION`,
-plus a distinct TLS Secret. Terraform never retrieves or stores these or a
-kubeconfig. No provider keys or client secrets belong in the pod environment.
-The HMAC key is not a customer credential. Keep the same state and matching
-identity across updates.
+Task get/list/cancel and Draft lookup are authorized by the supplied provider
+key. `X-MCP-Client-Secret` separates per-pod admission scopes, not task access.
+Clients sharing a provider key can access whatever that key authorizes.
+Use separate provider credentials when independent authorization is required.
 
-These local commands render synthetic manifests only; they do not install
-anything or prove live readiness:
+Omit `idempotency_key`; the retained legacy field is rejected when supplied.
+An identical create is a new operation and may bill again. Save task/request IDs,
+poll existing tasks, and reconcile lost or uncertain create responses through
+the provider. Never automatically retry an uncertain mutation.
+
+Rate limits and in-flight/provider/principal concurrency are in-memory per pod;
+they multiply with replicas and reset at restart. `DAILY_BUDGET_USD` must be `0`
+on HTTP; use provider-side spend controls. Readiness is lifespan-only and makes
+no storage or provider probes. No database, migration, distributed lock, shared
+volume or sticky session is needed for the hosted deployment.
+
+The chart renders a stateless `Deployment`, HPA (default 2-6 pods, CPU 70%),
+`PodDisruptionBudget` with `minAvailable: 1` and hostname topology spread with
+`minDomains: 2`. Kubernetes must be >=1.30 and a maintained regional release.
+Same-zone nodes are not zone-failure resilience.
+
+Every pod runs FastMCP on `127.0.0.1:3000` and Caddy TLS on 8443. CLB TCP 443 uses
+Local traffic policy; Caddy overwrites forwarding headers and Uvicorn does not
+rewrite them. Only `/mcp` and `/health` are public. `/ready` is an internal exec
+probe. Private metrics remain opt-in on loopback.
+
+Helm references existing identity and TLS Secrets only. `STATE_BACKEND=none` and
+`DAILY_BUDGET_USD=0`; database inputs are rejected. No PVC, StorageClass, database
+CA, PostgreSQL driver or shared state service is required. Bounded scratch uses
+`emptyDir`. Model bindings remain exact and operator-verified. The operator HMAC
+key is 32 random bytes encoded as 64 lowercase hex characters; its positive
+version defaults to 1. It is not a customer credential. Provider keys and client
+secrets must not be configured in the pod environment.
+
+Verify private API access, CCM, two Ready nodes and surge/draining headroom,
+DNS/TLS, source restrictions and HPA metrics API before `prerequisitesConfirmed`.
+CSI is not a new application prerequisite; preserve existing addons and old
+volumes. Addons remain administrator-owned outside Terraform/Helm.
+
+These commands render synthetic manifests only, without deploying anything:
 
 ```bash
 helm lint deploy/helm/seed-mcp -f deploy/helm/seed-mcp/values.ci.yaml
 helm template seed-mcp deploy/helm/seed-mcp -f deploy/helm/seed-mcp/values.ci.yaml
 ```
 
-The CLB forwards TCP 443 to Caddy 8443 in the same pod; only `/mcp` and
-`/health` are public. FastMCP binds `127.0.0.1:3000`, trusts
-`RATE_LIMIT_TRUSTED_PROXY_CIDRS=127.0.0.1/32`, and disables Uvicorn proxy
-rewriting. Caddy overwrites forwarding headers. The old boolean trust setting
-is removed. Default limits remain 60 RPM, 2 MiB bodies, 64 in-flight requests
-and `STATE_MAX_RECORDS=100000`. See [configuration](configuration.md).
-
-Use client timeout 660 seconds with `MCP_TOOL_TIMEOUT_SECONDS=600.0`
-(finite positive, max 3600). Provider admission defaults to 2 seconds
-(`MCP_ADMISSION_TIMEOUT_SECONDS`, finite positive, max 30), owner-first before
-budget reservation. SDK/SQLite draining may exceed the cooperative deadline.
-Do not treat an admission error for one attempt as proof that a whole batch
-was unsubmitted; preserve known accepted IDs and never blindly resubmit.
-Request headers carry only the selected provider key and
-`X-MCP-Client-Secret`; [client setup](setup/shared-server.md) explains them.
-Do not configure OAuth, signup or a server-issued connection key.
+CPU HPA is a starting policy, not a capacity guarantee. Measure live rollout,
+CLB source-IP preservation, latency, provider quotas and cost before launch.
 
 ## Probes and Monitoring
 
@@ -72,17 +78,17 @@ the backend using the Python executable already in the app container. The
 example assumes namespace/release `seed-mcp`; select the actual pod:
 
 ```bash
-kubectl -n seed-mcp exec seed-mcp-seed-mcp-0 -c app -- \
+kubectl -n seed-mcp exec deployment/seed-mcp-seed-mcp -c app -- \
   /app/.venv/bin/python -c \
   "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:3000/health', timeout=2).status)"
-kubectl -n seed-mcp exec seed-mcp-seed-mcp-0 -c app -- \
+kubectl -n seed-mcp exec deployment/seed-mcp-seed-mcp -c app -- \
   /app/.venv/bin/python -c \
-  "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:3000/ready', timeout=2).status)"
+  "import urllib.request; print(urllib.request.urlopen('http://127.0.0.1:3000/ready', timeout=7).status)"
 ```
 
 These use the chart's loopback exec probe targets and print HTTP status only.
-The routes return minimal process/state status; HTTP readiness never probes
-providers. `/ready` is blocked by Caddy; do not use it as a public probe.
+The routes return minimal process/lifespan status; HTTP readiness never probes
+storage or providers. `/ready` is blocked by Caddy; do not use it as a public probe.
 `/metrics` is absent from the main app and public proxy. Optional
 `MCP_METRICS_PORT` defaults to `0` (off) and otherwise binds only 127.0.0.1;
 the chart's `app.metricsEnabled=true` selects port 9000. Use authorized
@@ -94,53 +100,43 @@ prove the caller's provider key works.
 
 ## State and Shutdown
 
-Keep the SQLite volume and stable HMAC configuration together. Task records
-are credential-tenant and client-owner scoped, not a common team namespace.
-`STATE_PRUNE_MAX_AGE_DAYS` defaults to 30 and must be at least 14 for HTTP
-regular Seedance 2.5 Draft ownership. Capacity failures deny new work rather
-than evict live owners.
-Submission claims never auto-prune, even when ownership expires.
-`STATE_MAX_RECORDS` caps journal claims; at capacity existing keys remain
-readable but new keys fail before dispatch. Do not erase claims to admit work.
+There is no hosted state to restore or replay. Restarting a pod does not
+cancel provider work; clients must retain IDs and poll with authorized provider
+credentials. A lost create response may hide billed work and must be reconciled,
+not resubmitted automatically.
 
-HTTP transport sessions are stateless, but ownership/budgets/journal are durable.
-There are no ordinary jobs, native tasks, storage/artifact tools
-or media resources. Do not provision Redis snapshots for hosted requests.
-Clients download expiring provider outputs; server persistence is rejected.
+This is a deliberate contract change, not an automatic migration. Existing
+stateful installations must preserve their old release, database/WAL backups,
+identity and accepted IDs for reconciliation. Never delete retained data to
+make the new version start. A Helm upgrade can delete removed resources; use
+separately reviewed transition steps. No cloud resources are changed by source
+removal.
 
-The HTTP runtime holds an exclusive `runtime.sqlite3.lock` from before stores/
-recovery until all state users close. Contention fails startup closed; never
-unlink an active lock or share SQLite over a network filesystem. This lease
-is not distributed fencing or permission to run multiple pods.
+Drain foreground work before restart. Application and Caddy shutdown allow
+`max(tool timeout, provider timeout in seconds) + 30`; pod termination grace
+uses the same maximum plus 60 (defaults 630/660 seconds). These are cooperative
+allowances, not guarantees that accepted provider work stops.
 
-Drain in-flight foreground work before restart. The entrypoint grace is
-`max(MCP_TOOL_TIMEOUT_SECONDS, BYTEPLUS_REQUEST_TIMEOUT_MS / 1000) + 30`
-seconds; Caddy uses the same allowance and the chart adds 60 instead of 30
-for pod termination. Defaults are 630/660 seconds, not a hard cleanup bound.
-A forced stop or lost submission response can leave
-an unknown provider outcome. Reconcile using saved task/request IDs, never
-blindly recreate work. Non-dry HTTP Seedance/OmniHuman calls require
-`idempotency_key`, one per whole call. Repeat identical arguments/key only for
-saved-success delivery recovery, not polling; unresolved attempts never
-automatically resume. Seedance dry runs need no key or journal; stdio rejects
-supplied keys. See the
-[submission contract](../specs/SPEC_HOSTED_BYOK.md#http-submission-safety).
+Use a client timeout of 660 seconds with the default 600-second tool deadline.
+Admission defaults to 2 seconds. An admission failure applies to that attempt;
+other variations may already have been accepted. Save known task/request IDs
+and never automatically resubmit an uncertain create.
 
 ## Deployment Checklist
 
-- Keep one application replica and a fresh private state directory.
+- Verify Deployment/HPA/PDB/spread, metrics API and node surge/draining headroom.
 - Protect operator HMAC configuration and backups; never distribute it.
-- Preserve consistent SQLite/WAL state and matching HMAC; no blind restore,
+- Preserve original backend state and matching HMAC; no blind restore,
   reset, claim deletion or requeue. See [recovery](byteplus-terraform.md#backup-upgrade-and-recovery).
 - Verify fixed official provider origins and no environment-key fallback.
-- Keep positive admission/body/rate/state limits and explicit Host/Origin policy.
+- Keep positive admission/body/rate limits and explicit Host/Origin policy.
 - Verify anonymous discovery and denial of missing credentials on provider calls.
 - Verify no HTTP job/task/resource surface and no public metrics.
-- Validate exact-client headers, TLS, load and restore behavior separately.
+- Validate exact-client headers, TLS, load and graceful rollout separately.
 
 The [BytePlus guide](byteplus-terraform.md) describes infrastructure
 prerequisites. Source deletion is not cloud decommissioning: retain the
 reviewed old checkout, private workspaces, old state and backups for explicit
 retirement. No command here authorizes cloud provisioning or paid generation.
-Live VKE apply, source-IP, CSI, rollout and real-client/provider acceptance
+Live VKE apply, source-IP, rollout and real-client/provider acceptance
 remain unverified. Mocked TLS/load checks are not capacity certification.

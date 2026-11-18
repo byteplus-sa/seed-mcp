@@ -5,19 +5,13 @@ Here are common scenarios and how to achieve them.
 
 **The persistence examples below are local stdio workflows.** HTTP BYOK
 calls provider tools directly with `{"input": {...}}`, uses persistence false
-and has no jobs/native tasks/storage/artifact tools/resources. Provider keys
+and has no jobs/native tasks/local storage/artifact tools/resources. Optional
+[temporary upload preparation](temporary-uploads.md) lets enrolled clients upload
+references directly to TOS. Generation-provider keys
 and the client secret go in private request headers, never tool arguments.
 Retrieve expiring output URLs on the client. See [HTTP setup](setup/shared-server.md).
 
-The JSON blocks below show inner tool payloads. Call the named tool directly
-with `{"input": <payload>}` on either transport. No MCP jobs or native tasks
-exist. For provider retrieval, poll with `persist_output=false`, then on stdio
-call directly with `persist_output=true` to store completed output.
-Use client timeout 660 seconds with the default 600-second cooperative
-deadline; SDK/SQLite cleanup may exceed it. Never blindly resubmit after a
-timeout. HTTP non-dry Seedance/OmniHuman creates additionally require one
-fresh `idempotency_key` per intended call, including the whole variation batch.
-Identical key/input recovers saved success only, not polling or partial resume.
+Hosted HTTP is database-free: provider-key task authorization, no durable replay or shared budget accounting. Omit legacy operation keys; never automatically resubmit uncertain creates. Local stdio persistence remains available.
 
 ## 1. Text-to-Image Generation
 

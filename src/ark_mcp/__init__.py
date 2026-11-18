@@ -12,7 +12,19 @@ generation through a small, typed, safe tool surface:
 
 from __future__ import annotations
 
-from ark_mcp.server import create_server, mcp
+from typing import TYPE_CHECKING, Any
+
+if TYPE_CHECKING:
+    from ark_mcp.server import create_server, mcp
 
 __all__ = ["create_server", "mcp"]
 __version__ = "0.3.0"
+
+
+def __getattr__(name: str) -> Any:
+    """Keep state/operator imports independent of application startup and .env."""
+    if name in __all__:
+        from ark_mcp import server
+
+        return getattr(server, name)
+    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")

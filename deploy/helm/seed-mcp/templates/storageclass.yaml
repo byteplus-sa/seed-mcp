@@ -1,3 +1,8 @@
+{{/*
+Legacy retained storage source, deliberately NOT rendered.
+Never remove existing PVC/PV/StorageClass/cloud disks as part of this transition.
+Preserve old release metadata and reviewed source for separately approved cutover.
+
 apiVersion: storage.k8s.io/v1
 kind: StorageClass
 metadata:
@@ -17,3 +22,4 @@ parameters:
 reclaimPolicy: Retain
 volumeBindingMode: WaitForFirstConsumer
 allowVolumeExpansion: true
+*/}}

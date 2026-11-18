@@ -5,7 +5,7 @@ description: Find the right Ark MCP capability and learn its credentials, execut
 
 Ark MCP has one tool per capability. Models, variations, edits and previews
 are parameters, not separate tool names. Start with `ark_list_models`.
-HTTP has 7 tools, or 10 with OmniHuman enabled, anonymous static discovery
+HTTP has 7 tools, or 10 with OmniHuman enabled, plus optional upload preparation; anonymous static discovery
 and direct foreground provider calls. Local stdio has a 15-tool conditional
 catalog, four always registered. It also calls directly, with local
 storage/artifacts retained. Neither transport exposes MCP jobs/native tasks.
@@ -54,8 +54,9 @@ OmniHuman has its own poller and cancel tool. Avatars are disabled by default.
 
 ## Uploads and Outputs
 
-These tools are stdio-only. HTTP has no storage/artifact tools or resources;
-clients host references externally and retrieve expiring provider URLs.
+Local upload/artifact tools are stdio-only. HTTP has no local storage/artifact
+tools or resources; clients host references externally or use optional
+[temporary TOS preparation](temporary-uploads.md), and retrieve expiring provider URLs.
 Persistence defaults to false globally; HTTP rejects true.
 
 | Task | Tool |

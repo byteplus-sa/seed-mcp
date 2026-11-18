@@ -54,18 +54,20 @@ async def test_health_and_readiness_never_probe_providers(
     assert len(respx.calls) == 0
 
 
-async def test_readiness_checks_state_and_returns_no_diagnostics(
+async def test_readiness_does_not_access_storage(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     async with http_server(tmp_path) as (_, runtime, client):
+        ping = AsyncMock(side_effect=RuntimeError("private database details"))
         monkeypatch.setattr(
             runtime.ownership_store,
             "ping",
-            AsyncMock(side_effect=RuntimeError("private database details")),
+            ping,
         )
         ready = await client.get("/ready")
-        assert ready.status_code == 503
-        assert ready.json() == {"status": "not_ready"}
+        assert ready.status_code == 200
+        assert ready.json() == {"status": "ready"}
+        ping.assert_not_awaited()
         assert (await client.get("/health")).status_code == 200
 
 

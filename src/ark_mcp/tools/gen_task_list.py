@@ -54,7 +54,7 @@ class GenTaskListInput(BaseModel):
     task_ids: list[str] | None = Field(
         None,
         max_length=100,
-        description="Only return these task IDs (up to 100); IDs the caller does not own are skipped.",
+        description="Only return these task IDs (up to 100), subject to provider authorization.",
     )
 
 
@@ -98,6 +98,8 @@ async def gen_task_list(input: GenTaskListInput, ctx: Context) -> GenTaskPage | 
     Covers tasks created in the last 7 days, the provider's list window. Filter
     by status, model, or task_ids, and follow next_cursor until it is null;
     keep the same filters while paging. Use gen_task_get for outputs.
+    HTTP lists tasks visible to the supplied provider key; there is no additional
+    client-secret ownership filter or server-side task history.
     """
     provider_api_key(ctx, "modelark")
     await context_log(ctx, "info", "Listing generation tasks")
@@ -105,7 +107,7 @@ async def gen_task_list(input: GenTaskListInput, ctx: Context) -> GenTaskPage | 
     filter_hash = _filter_hash(input)
     service = GenerationTaskService(gateway=modelark_gateway(ctx))
     try:
-        if owner.is_local:
+        if owner.is_local or get_runtime(ctx).settings.mcp_transport == "http":
             page = await _list_local(service, input, filter_hash)
         else:
             page = await _list_owned(service, input, filter_hash, ctx)

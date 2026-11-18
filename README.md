@@ -20,7 +20,7 @@ The source guides cover [installation](docs/setup/install.md),
 [site maintenance](docs/site-maintenance.md) for local development and deployment.
 
 > **Breaking capability removal:** the current server narrows the catalog to
-> 15 tools (four always registered locally). MCP jobs/native tasks, media
+> 15 local tools (four always registered) plus optional HTTP upload preparation. MCP jobs/native tasks, media
 > understanding, VOD, 3D, dedicated ASR, asset administration/resolution/preflight
 > and operator live-pricing discovery are removed. Saved 3D artifacts are no
 > longer served by the narrowed schema: **export needed 3D outputs using the
@@ -43,8 +43,10 @@ products plus artifact access and an optional media upload helper. The catalog
 contains **15 local stdio tools**; four are always registered locally.
 HTTP BYOK exposes **7 tools, or 10 with OmniHuman enabled**, independently of
 operator provider keys. Discovery is anonymous/static; provider tools run
-directly in the foreground. HTTP has no jobs, native tasks, storage/artifact
-tools or resources. Both transports execute directly; persistence is stdio-only.
+directly in the foreground. Opt-in `media_prepare_upload` adds one HTTP tool
+(8/11 total) for enrolled clients to upload references directly to private TOS.
+HTTP has no jobs, native tasks, local storage/artifact tools or resources.
+Both transports execute directly; persistence is stdio-only.
 
 HTTP clients send only the selected `X-ModelArk-Api-Key`,
 `X-Seed-Speech-Api-Key`, or `X-OmniHuman-Api-Key`, plus required
@@ -63,70 +65,38 @@ Keys are not persisted and there is no provider-key fallback. See
 | **OmniHuman 2.0** | `omnihuman_create_task`, `omnihuman_get_task`, `omnihuman_cancel_task` | Image + audio to talking-avatar video through BytePlus Vision AI; direct submission, polling with durable video persistence, and queue cancel (gated by `BYTEPLUS_OMNIHUMAN_ENABLED` and `BYTEPLUS_CV_API_KEY`, disabled by default) |
 | **Artifacts** | `seed_media_get_artifact`, `seed_media_export_artifact`, `seed_media_persist_url` | Retrieve persisted media inline by artifact ID, locate/copy it to a local path without Base64 round-trips, or durably persist a provider URL whose storage failed |
 | **Object storage** (optional) | `media_upload`, `media_presign` | Direct upload of 1-50 Base64 or local-file media items to TOS or S3 with per-item results; foreground URL renewal for 1-100 object keys without re-uploading |
+| **Temporary HTTP references** (opt-in) | `media_prepare_upload` | Restricted 15-minute POST instructions and 24-hour GET URL; enrolled client uploads directly to TOS, with one-day scheduled object expiry and no application database |
 
 Key features:
 
-- **Model discovery** - `ark_list_models` reports configured models and the
-  tools serving them. Image/video bindings use exact IDs. Default discovery stays static and
-  anonymous with `connection=null`. Opt-in HTTP `check_connection=true` checks
-  ModelArk/client-secret header presence and exact image/video bindings only,
-  not authentication, live lineage or entitlement.
-- **Client configuration** - the optional
+- **Model discovery and validation** - exact configured image/video bindings,
+  typed inputs and static cost previews before paid calls. Opt-in HTTP
+  preflight checks header presence and bindings, not provider authentication.
+- **Client configuration** - a
   [stdout snippet generator](docs/setup/shared-server.md#generate-a-client-snippet)
-  emits Codex TOML or Claude Code JSON with environment-name references.
-  It reads no files or environment secret values, writes no configuration
-  and makes no network calls.
-- **Static cost previews** - built-in image, audio and video
-  estimates support budgeting, not account billing or live pricing discovery.
-- **Native Seedance assets** - pass existing authorized `asset://<id>`
-  references with the ModelArk key. Asset creation, liveness verification,
-  administration, URL resolution and pre-submit status checks are outside this server.
-- **HTTP foundation** - [self-hosting](docs/self-hosting.md) uses one instance,
-  request-only BYOK and fresh scoped SQLite state. Hosted provider-secret sync
-  is superseded; no operator provider keys belong on the HTTP server.
-- **Local durable artifacts** — explicitly requested media is persisted so MCP
-  resources remain usable after known provider URL lifetimes (2h audio, 24h
-  ModelArk image/video, about 1h OmniHuman)
-- **Billed outputs are never dropped** — downloads are retried; if storage
-  still fails, the result returns the provider URL (or inline bytes) with a
-  `persistence_error` instead of an error, recoverable with
-  `seed_media_persist_url`
-- **Local output paths** — on stdio, `output_path` / `output_dir`
-  write results straight into the client's MCP roots (or `OUTPUT_ROOTS`) with
-  symlink-safe, no-silent-overwrite writes
-- **Parallel variations** — generate N independent variations in a single
-  call, partial failures captured per variation with the failure phase
-- **Seedream provenance and byte checks** — single calls and variations record
-  request IDs, submitted seeds, final-prompt hashes and allowlisted options.
-  Advisory PNG/JPEG inspection measures dimensions, format and actual alpha
-  separately from provider reports; it preserves billed output without rerolls.
-  Base64 delivery requires persistence. See the bounded
-  [review/edit workflow](docs/integration-guide.md#seedream-review-and-edit)
-- **Per-variation seeds** — with `variations > 1`, Seedream `seed` is the base
-  seed and variation *i* uses `seed + i` (wrapped); identical pixels are not guaranteed.
-  Seedream 5.5 does not document this compatibility field; omit it unless verified
-- **Typed inputs** — Pydantic models validate all inputs before spending
-  quota; unsupported combinations are rejected at the MCP layer
-- **Draft ownership retention** — authenticated HTTP with regular Seedance 2.5
-  enabled requires `STATE_PRUNE_MAX_AGE_DAYS >= 14`; the default is 30 days
-- **Direct operations** — both transports await tool results with bounded
-  owner-first provider admission and a cooperative deadline. Provider video
-  tasks remain asynchronous; no MCP worker queue or native tasks are exposed
-- **Model capability registry** — logical model families map to
-  operator-configured model IDs; validates resolutions, formats, and
-  batch support per model
-- **Security** — DNS-pinned local downloads, credential-tenant/client-owner
-  HTTP ownership, Host/Origin protection, and positive admission/body/rate limits
-- **Runtime controls** — shared provider/principal concurrency, daily budget
-  reservations, safe retries, task ownership and tracing. HTTP readiness exposes
-  minimal state without provider probes; public HTTP metrics are unavailable
-- **Dedicated VKE deployment** — one StatefulSet with same-pod Caddy TLS,
-  retained RWO ext4 EBS and an exclusive HTTP state lease; no application HPA,
-  PostgreSQL or Redis. Optional metrics are loopback-only and disabled by default.
-  See the [staged VKE runbook](docs/byteplus-terraform.md) and
-  [durable deployment contract](specs/SPEC_VKE_DEPLOYMENT.md)
-- **Offline regression coverage** — unit, contract, integration, HTTP security,
-  E2E, and MCP conformance tests, plus documentation build/link checks
+  emits Codex/Claude configuration with environment-name references, without
+  reading credentials, changing files or making network calls.
+- **Stateless HTTP** - database-free BYOK with provider-key task authorization,
+  no durable replay or shared budget accounting. Omit legacy operation keys;
+  never automatically resubmit uncertain creates.
+- **Local durable artifacts** - explicitly preserve media beyond provider URL
+  expiry, recover failed persistence using returned output, and write to
+  authorized MCP roots or `OUTPUT_ROOTS`.
+- **Parallel variations** - independent results and partial errors per
+  variation, with bounded concurrency and no automatic batch resubmission.
+- **Seedream provenance** - request IDs, submitted seeds, final-prompt hashes
+  and advisory byte inspection, without rerolling billed outputs. See the
+  [review/edit workflow](docs/integration-guide.md#seedream-review-and-edit).
+- **Native Seedance assets** - use existing authorized `asset://` references;
+  asset administration and preflight verification remain outside this server.
+- **Direct operations and safety** - bounded admission, cooperative deadlines,
+  uncertainty-aware retries, live credential isolation and Host/Origin checks.
+- **Multi-pod deployment** - stateless Deployment/HPA/PDB/hostname spread with
+  same-pod Caddy TLS and optional loopback-only metrics. See the
+  [VKE runbook](docs/byteplus-terraform.md) and
+  [deployment contract](specs/SPEC_VKE_DEPLOYMENT.md).
+- **Offline regression coverage** - unit, contract, integration, HTTP security
+  and MCP conformance tests, plus documentation build/link checks.
 
 ## Supported Input Modalities
 
@@ -161,8 +131,10 @@ accepts as reference input:
 > option. On stdio call `media_upload` directly to upload Base64 or a local
 > file path to object storage (TOS or S3). Retrieve its presigned HTTPS GET
 > URL from the direct result, then call `seedance_create_task` directly.
-> HTTP has no upload tools: host the video on
-> your own accessible HTTPS endpoint. The URL must resolve to
+> On HTTP, host the video on your own accessible HTTPS endpoint or use
+> [temporary TOS upload preparation](docs/temporary-uploads.md) when enabled.
+> An upload-capable client must upload the bytes before using its reference URL.
+> The URL must resolve to
 > a public IP (private/loopback/link-local addresses are rejected by the SSRF
 > policy). `media_upload` requires TOS or S3 credentials; see [Configuration](docs/configuration.md).
 
@@ -308,26 +280,17 @@ only when object storage credentials (TOS or S3) are configured, and
 `omnihuman_get_task`, and `omnihuman_cancel_task` appear only when
 `BYTEPLUS_OMNIHUMAN_ENABLED=true` and `BYTEPLUS_CV_API_KEY` is set.
 
-HTTP defaults to `MCP_AUTH_MODE=byok` and requires the operator's
-`MCP_IDENTITY_HMAC_KEY` (64 lowercase hex) and positive identity version
-`MCP_IDENTITY_KEY_VERSION` (default `1`). This is not a customer credential.
-Defaults: 60 RPM, 2 MiB body, 64 in-flight requests, `STATE_MAX_RECORDS=100000`.
-Non-dry HTTP Seedance and OmniHuman creates require `idempotency_key`:
-16-128 ASCII letters, digits, `_` or `-`; use a fresh UUID per intended
-operation, one for the whole batch. Repeat identical arguments/key only to
-recover a saved successful receipt, not to poll or resume failed/partial work.
-Keep known task IDs and never change keys to bypass uncertain acceptance.
-Seedance dry runs need no key or journal; stdio rejects supplied keys.
-See the [submission contract](specs/SPEC_HOSTED_BYOK.md#http-submission-safety).
-Endpoint headers `X-ModelArk-Seedance-Endpoint` and
-`X-ModelArk-Seedream-Endpoint` accept exact registry bindings only; explicit
-tool `model` wins. No opaque endpoint lineage inference is supported.
-Unknown endpoint IDs are not echoed; the operator must verify and bind them.
-Official GetEndpoint metadata uses AK/SK signing, not the ModelArk Bearer key.
-This server takes no AK/SK custody and does not provide arbitrary BYOE
-self-service. See the [endpoint authority contract](specs/SPEC_HOSTED_BYOK.md#byoe-endpoint-authority).
-Seed Audio/Seedream persistence and OmniHuman get persistence default to false
-globally. HTTP rejects true; local stdio accepts explicit true.
+HTTP requires operator `MCP_IDENTITY_HMAC_KEY` (64 lowercase hex) and positive
+`MCP_IDENTITY_KEY_VERSION` (default 1), not operator provider keys.
+`STATE_BACKEND` automatically selects `none`; `DAILY_BUDGET_USD` must be zero.
+Rate and concurrency limits are per pod and reset at restart.
+
+Task access follows the selected provider key, not the client secret.
+Non-null `idempotency_key` is rejected on both transports. Repeated creates may
+bill again; retain task IDs and poll. See the
+[submission contract](specs/SPEC_HOSTED_BYOK.md#http-submission-safety).
+Endpoint headers accept exact registry bindings only and explicit tool
+`model` wins. Unknown IDs require operator verification, not guessed lineage.
 
 See [Configuration](docs/configuration.md) for the full environment
 variable reference.
@@ -337,17 +300,15 @@ variable reference.
 Both transports use ordinary direct tool calls; explicit native task opt-in is
 rejected. `MCP_ADMISSION_TIMEOUT_SECONDS=2.0` (finite positive, max 30) bounds
 the combined owner-first/provider wait. `MCP_TOOL_TIMEOUT_SECONDS=600.0`
-(finite positive, max 3600) starts at wrapper entry, before credential checks,
-journal and admission. Budget is reserved after admission.
+(finite positive, max 3600) starts at wrapper entry, before credential checks
+and admission. Local stdio reserves budget after admission; HTTP has no ledger.
 
-Use a **660-second client timeout** and compatible proxy timeouts.
-The deadline is cooperative: SDK/SQLite draining may exceed it.
-`ADMISSION_TIMEOUT` means this attempt did not dispatch, not the entire
-variation batch. `TOOL_DEADLINE_EXCEEDED` preserves uncertainty and safe
-accepted IDs; timeout does not cancel upstream work. Never blindly resubmit:
-poll known provider IDs or reconcile acceptance. HTTP journal recovery remains
-separate from polling. See [Direct Execution](specs/SPEC_DIRECT_EXECUTION.md)
-and [workflows](docs/integration-guide.md#direct-execution).
+Use a **660-second client timeout** and compatible proxy settings. Deadlines
+are cooperative; SDK/local SQLite draining may exceed them.
+`ADMISSION_TIMEOUT` means this attempt did not dispatch, not the entire batch.
+`TOOL_DEADLINE_EXCEEDED` preserves uncertainty and known safe accepted IDs.
+Timeout does not cancel provider work. Poll known IDs or reconcile uncertain
+acceptance; never automatically resubmit.
 
 The desktop/IDE snippets remain connection templates, not exact-client
 certification.
@@ -426,7 +387,6 @@ make check-env     # Validate environment configuration
 | [Artifacts](docs/artifacts.md) | Durable artifact lifecycle and store |
 | [Transports](docs/transports.md) | stdio vs HTTP deployment |
 | [Deployment](docs/deployment.md) | Container, Kubernetes, and remote HTTP deployment |
-| [BytePlus VKE](docs/byteplus-terraform.md) | Dedicated cluster, existing Secrets, addon readiness, retained disk and recovery |
 | [Secret Handling](docs/secret-manager.md) | Operator HMAC/client credentials; hosted provider-secret sync superseded |
 | [Troubleshooting](docs/troubleshooting.md) | Common errors and fixes |
 
@@ -438,10 +398,11 @@ ark-mcp/
 │   ├── server.py              # Deterministic FastMCP factory and registration
 │   ├── __main__.py            # Entry point (truststore injection)
 │   ├── runtime.py             # Lifespan-owned stores, limits, budgets, ownership
+│   ├── state/                 # Disabled HTTP persistence and provider-authorized task adapters
 │   ├── config/                # Pydantic Settings, model capability registry
 │   ├── domain/                # ArtifactRef, errors, media, models
 │   ├── providers/             # ModelArk + Seed Speech + Vision AI adapters
-│   ├── tools/                 # 15 catalog tools + shared helpers + cost estimation
+│   ├── tools/                 # 16 definitions (15 local + HTTP-only upload preparation)
 │   ├── artifacts/             # Tenant-aware filesystem artifact store
 │   ├── observability/         # Structured logging and Prometheus metrics
 │   └── security/              # Request BYOK, URL/media policy, safe downloader, HTTP limits
@@ -478,20 +439,20 @@ See the project configuration for license details.
 
 ## Status
 
-The provider surfaces and both transports are implemented. CI enforces offline
-regression tests and coverage, formatting/lint, strict typing, security scans,
-package builds, dependency auditing, and container health. HTTP is a
-forward-only BYOK foundation with fresh SQLite, credential-tenant/client-owner
-isolation and no compatibility migration. Local stdio retains storage and artifacts.
-SQLite journals HTTP asynchronous creates before dispatch and replays only
-saved success after ownership checks. Claims never auto-prune; at capacity
-new keys fail while existing keys remain readable. Preserve state and HMAC
-configuration. Synchronous product replay and complete crash recovery remain
-deferred. PostgreSQL/Redis are future scaling choices, not initial requirements.
-No multi-replica, exactly-once inference or public-launch readiness is claimed.
-Actual model-driven Codex/Claude tool execution and paid provider validation
-remain pending and require separate approval. Isolated configuration inspection
-and mocked-network smoke are not live-client/provider acceptance evidence.
+The provider tools, direct transports and database-free hosted runtime are
+implemented. Local stdio retains SQLite-backed artifacts and bookkeeping.
+CI checks offline coverage, lint/types, security, packaging and documentation.
+The chart supports multiple pods, but live VKE routing, scaling, capacity and
+actual model-driven client/provider acceptance remain separately approved
+gates. Mocked tests do not establish public-launch readiness.
+
+Switching an existing stateful service changes its authorization and replay
+guarantees. Preserve its old release, database/volume backups, identity and
+accepted IDs for reviewed reconciliation. Source removal does not delete cloud
+resources or authorize deployment.
 
 Seedream's [live smoke matrix](docs/integration-guide.md#opt-in-seedream-smoke-matrix)
 is opt-in; editing/alpha and visual acceptance still require authorized checks.
+
+HTTP preflight: `ark_list_models(check_connection=true)` checks live header presence
+and exact configured bindings only; it never verifies provider authentication.

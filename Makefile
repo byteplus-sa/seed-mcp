@@ -55,8 +55,10 @@ start-http: ## Run BYOK HTTP (requires MCP_IDENTITY_HMAC_KEY)
 
 # --- Quality gates ---------------------------------------------------------
 
-test: ## Run the offline test suite with coverage enforcement
-	$(UV) run pytest --cov=ark_mcp --cov-report=term-missing
+test: ## Run offline branch coverage with the 85% gate
+	COVERAGE_FILE=.coverage.offline $(UV) run pytest --disable-socket --allow-unix-socket \
+		--cov=ark_mcp --cov-branch --cov-report= --cov-fail-under=85
+
 
 test-watch: ## Run tests in watch mode
 	$(UV) run pytest-watch
