@@ -15,15 +15,24 @@ test("hosted chart is database-free and preserves bounded pod scaling", () => {
   assert.match(pod, /maxSurge: 1/);
   assert.match(pod, /minDomains: 2/);
   assert.match(pod, /terminationGracePeriodSeconds:.*add \$deadline 60/);
-  assert.doesNotMatch(pod, /POSTGRES_|database-ca|persistentVolumeClaim|volumeClaimTemplates/);
+  assert.doesNotMatch(
+    pod,
+    /POSTGRES_|database-ca|persistentVolumeClaim|volumeClaimTemplates/,
+  );
   assert.match(values, /dailyBudgetUsd: 0/);
   assert.equal(schema.properties.app.properties.dailyBudgetUsd.const, 0);
   assert.equal(schema.additionalProperties, false);
   for (const key of ["databaseSecret", "databaseCA", "postgres"]) {
     assert.equal(schema.properties[key], undefined);
   }
-  assert.match(source("deploy/helm/seed-mcp/templates/horizontalpodautoscaler.yaml"), /autoscaling\/v2/);
-  assert.match(source("deploy/helm/seed-mcp/templates/poddisruptionbudget.yaml"), /minAvailable: 1/);
+  assert.match(
+    source("deploy/helm/seed-mcp/templates/horizontalpodautoscaler.yaml"),
+    /autoscaling\/v2/,
+  );
+  assert.match(
+    source("deploy/helm/seed-mcp/templates/poddisruptionbudget.yaml"),
+    /minAvailable: 1/,
+  );
   assert.match(source("deploy/helm/seed-mcp/Chart.yaml"), />=1\.30\.0-0/);
 });
 
@@ -42,7 +51,11 @@ test("stateless deployment keeps proxy and private-operation boundaries", () => 
 });
 
 test("hosted guidance explains database-free limits and preserves legacy state", () => {
-  for (const path of ["docs/deployment.md", "docs/self-hosting.md", "specs/SPEC_HOSTED_BYOK.md"]) {
+  for (const path of [
+    "docs/deployment.md",
+    "docs/self-hosting.md",
+    "specs/SPEC_HOSTED_BYOK.md",
+  ]) {
     const text = source(path).replace(/\s+/g, " ");
     assert.match(text, /stateless|database-free/i, path);
     assert.match(text, /provider.key|provider key/i, path);
@@ -50,20 +63,38 @@ test("hosted guidance explains database-free limits and preserves legacy state",
     assert.match(text, /uncertain/i, path);
     assert.match(text, /preserve/i, path);
   }
-  assert.match(source("docs/byteplus-terraform.md"), /terraform -chdir=deploy\/terraform\/vke validate/);
-  assert.match(source("docs/byteplus-terraform.md"), /helm lint deploy\/helm\/seed-mcp/);
+  assert.match(
+    source("docs/byteplus-terraform.md"),
+    /terraform -chdir=deploy\/terraform\/vke validate/,
+  );
+  assert.match(
+    source("docs/byteplus-terraform.md"),
+    /helm lint deploy\/helm\/seed-mcp/,
+  );
   assert.match(source("specs/SPEC_VKE_DEPLOYMENT.md"), /Source|source/);
 });
 
 test("launch examples and landing page do not restore retired hosted guarantees", () => {
   const transport = source("docs/transports.md");
-  assert.match(transport, /STATE_BACKEND=none DAILY_BUDGET_USD=0 MCP_TRANSPORT=http/);
+  assert.match(
+    transport,
+    /STATE_BACKEND=none DAILY_BUDGET_USD=0 MCP_TRANSPORT=http/,
+  );
   assert.doesNotMatch(transport, /STATE_BACKEND=sqlite MCP_TRANSPORT=http/);
   assert.match(source("docs/index.mdx"), /Omit `idempotency_key`/);
-  assert.doesNotMatch(source("docs/index.mdx"), /single-instance foundation|saved-success receipt recovery/);
+  assert.doesNotMatch(
+    source("docs/index.mdx"),
+    /single-instance foundation|saved-success receipt recovery/,
+  );
   assert.doesNotMatch(source("docs/deployment.md"), /DB connection headroom/);
-  assert.doesNotMatch(source("docs/configuration.md"), /at least 14 for authenticated HTTP/);
-  assert.doesNotMatch(source("specs/SPEC_DIRECT_EXECUTION.md"), /durable root claim|Journal IDs/);
+  assert.doesNotMatch(
+    source("docs/configuration.md"),
+    /at least 14 for authenticated HTTP/,
+  );
+  assert.doesNotMatch(
+    source("specs/SPEC_DIRECT_EXECUTION.md"),
+    /durable root claim|Journal IDs/,
+  );
 });
 
 test("task and skill guidance delegates HTTP authorization to the provider", () => {
@@ -80,9 +111,17 @@ test("task and skill guidance delegates HTTP authorization to the provider", () 
     ".agents/skills/ark-mcp-setup/references/credentials.md",
   ]) {
     const text = source(path).replace(/\s+/g, " ");
-    assert.doesNotMatch(text, /HTTP polling (?:requires|needs) recorded ownership/, path);
+    assert.doesNotMatch(
+      text,
+      /HTTP polling (?:requires|needs) recorded ownership/,
+      path,
+    );
     assert.doesNotMatch(text, /HTTP.*safe accepted IDs are journaled/, path);
-    assert.doesNotMatch(text, /HTTP.*key covers the whole (?:variation |Seedance )?batch/, path);
+    assert.doesNotMatch(
+      text,
+      /HTTP.*key covers the whole (?:variation |Seedance )?batch/,
+      path,
+    );
     assert.doesNotMatch(text, /recover an HTTP create receipt/, path);
     assert.doesNotMatch(text, /SUBMISSION_UNAVAILABLE/, path);
   }

@@ -17,8 +17,13 @@ const python =
   );
 
 test("stateless HTTP preserves direct execution without replay guarantees", () => {
-  for (const path of ["specs/SPEC_DIRECT_EXECUTION.md", "specs/SPEC_HOSTED_BYOK.md",
-    "docs/runtime.md", ".agents/skills/ark-mcp/SKILL.md", ".agents/skills/ark-mcp-setup/SKILL.md"]) {
+  for (const path of [
+    "specs/SPEC_DIRECT_EXECUTION.md",
+    "specs/SPEC_HOSTED_BYOK.md",
+    "docs/runtime.md",
+    ".agents/skills/ark-mcp/SKILL.md",
+    ".agents/skills/ark-mcp-setup/SKILL.md",
+  ]) {
     const content = readFileSync(join(root, path), "utf8").replace(/\s+/g, " ");
     assert.match(content, /direct/i, path);
     assert.match(content, /stateless|database-free/i, path);

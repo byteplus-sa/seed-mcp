@@ -276,7 +276,8 @@ test("temporary preparation documents HTTP-only enrollment and direct binary upl
       http: {
         execution: "direct",
         credential_header: "X-MCP-Client-Secret",
-        registration_gate: "Requires MCP_TEMPORARY_UPLOAD_ENABLED=true and enrollment.",
+        registration_gate:
+          "Requires MCP_TEMPORARY_UPLOAD_ENABLED=true and enrollment.",
       },
     },
     inputSchema: { properties: {} },
@@ -290,7 +291,10 @@ test("temporary preparation documents HTTP-only enrollment and direct binary upl
   assert.match(page, /Wait for upload success/);
   assert.doesNotMatch(page, /Supply `X-MCP-Client-Secret` and/);
   const http = page.split("### HTTP Call")[1].split("<details>")[0];
-  assert.equal(JSON.parse(http.match(/```json\n([\s\S]*?)\n```/)[1]).name, "media_prepare_upload");
+  assert.equal(
+    JSON.parse(http.match(/```json\n([\s\S]*?)\n```/)[1]).name,
+    "media_prepare_upload",
+  );
 });
 
 test("Seedance generated guidance preserves accepted IDs on errors", () => {
@@ -308,7 +312,10 @@ test("Seedance generated guidance preserves accepted IDs on errors", () => {
   assert.match(page, /single-call failure remains error `ToolResult` text/);
   assert.match(page, /HTTP polling uses provider-key authorization/);
   assert.doesNotMatch(page, /MCP polling requires recorded ownership/);
-  assert.match(page, /There is no durable replay or automatic partial-batch resume/);
+  assert.match(
+    page,
+    /There is no durable replay or automatic partial-batch resume/,
+  );
 });
 
 test("renderer rejects obsolete or missing execution metadata", () => {
