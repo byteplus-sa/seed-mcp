@@ -34,12 +34,14 @@ customer connection key and must not be distributed to clients.
 Keep operator configuration outside Git in an owner-only file. Set
 `MCP_TRANSPORT=http`, the bind address, and explicit Host/Origin allowlists.
 Load configuration through `ARK_MCP_ENV_FILE` or a protected runtime injector.
-Do not configure hosted provider keys, storage credentials or a Redis task
-backend. HTTP ignores startup generation keys and has no fallback to them.
+Do not configure hosted generation-provider keys or a Redis task backend.
+Operator TOS credentials are required only for opt-in temporary upload preparation.
+HTTP ignores startup generation keys and has no fallback to them.
 Hosted [provider-secret sync is superseded](secret-manager.md).
 
-For VKE, Helm references distinct existing identity/database/TLS Secrets and
-database CA ConfigMap by name/key only;
+For VKE, Helm references distinct existing identity and TLS Secrets by name/key
+only, plus a separate TOS/enrollment Secret when temporary uploads are enabled.
+No database Secret or database CA ConfigMap is required;
 Terraform does not fetch kubeconfig or store HMAC/TLS values. The retained
 `scripts/generate_identity_secret.py` utility supports private operator
 generation, not agent-visible secret output or identity resets.
@@ -56,11 +58,10 @@ generation, not agent-visible secret output or identity resets.
 | `MCP_TOOL_TIMEOUT_SECONDS` | `600.0`, finite positive, max 3600; cooperative whole-tool deadline |
 | `MCP_METRICS_PORT` | `0`, disabled; optional HTTP listener only on 127.0.0.1, ports 1024-65535 |
 | `RATE_LIMIT_TRUSTED_PROXY_CIDRS` | empty; VKE explicitly trusts only `127.0.0.1/32` |
-| `DAILY_BUDGET_USD` | `0`, records estimates without blocking |
+| `DAILY_BUDGET_USD` | `0`, required on HTTP; no hosted budget ledger |
 
-A positive daily budget is useful but is an estimate-based owner limit, not a
-provider-account spending guarantee. A client can create another isolation
-secret; use provider-console spending controls as well.
+Positive daily budgets are local stdio only. HTTP has no budget ledger and
+rejects nonzero values; use provider-console spending controls.
 
 The table describes standalone application defaults. VKE Helm sets
 `app.dailyBudgetUsd=0`, while provider/owner concurrency remains 5/3 and
@@ -108,7 +109,8 @@ Local traffic policy; Caddy overwrites forwarding headers and Uvicorn does not
 rewrite them. Only `/mcp` and `/health` are public. `/ready` is an internal exec
 probe. Private metrics remain opt-in on loopback.
 
-Helm references existing identity and TLS Secrets only. `STATE_BACKEND=none` and
+Helm references existing identity and TLS Secrets, with an optional distinct
+TOS/enrollment Secret for upload preparation. `STATE_BACKEND=none` and
 `DAILY_BUDGET_USD=0`; database inputs are rejected. No PVC, StorageClass, database
 CA, PostgreSQL driver or shared state service is required. Bounded scratch uses
 emptyDir. Model bindings remain exact and operator-verified.

@@ -109,6 +109,12 @@ does not retrieve them. Helm references existing Secrets only; it does not
 create Secret resources or accept secret values. A protected operator workflow
 must create them in the intended namespace before installation:
 
+- A distinct identity Secret containing `MCP_IDENTITY_HMAC_KEY` and
+  `MCP_IDENTITY_KEY_VERSION`, and a TLS Secret matching `publicHost`.
+- Only when enabling temporary uploads, a distinct existing TOS/enrollment
+  Secret after completing the [upload prerequisites](temporary-uploads.md#operator-setup).
+  No database Secret or database CA ConfigMap is required.
+
 Hosted HTTP is database-free: provider-key task authorization, no durable replay or shared budget accounting. Omit legacy operation keys; never automatically resubmit uncertain creates. Local stdio persistence remains available.
 
 The retained standalone `scripts/generate_identity_secret.py` is for private
@@ -133,8 +139,10 @@ key bundle or client secret belongs in Terraform, Helm or pod environment.
    node IPs. Infrastructure creation is a separate approved, billable step.
 3. Establish authenticated private management access. Inspect the actual VKE
    cluster and its addons before preparing Helm values.
-4. Complete prerequisites, privately provision database/TLS/roles/schema/contract,
-   identity/database/TLS Secrets and CA ConfigMap, then review actual nonsecret inputs.
+4. Complete the private API, CCM, node/headroom and HPA metrics prerequisites.
+   Privately provision distinct identity and TLS Secrets, plus the optional
+   TOS/enrollment Secret only when enabling temporary uploads, then review
+   actual nonsecret inputs. No database provisioning or migration is required.
 5. Obtain separate approval for Helm installation. It creates a public CLB
    and can incur charges. Verify DNS/TLS and all live gates
    before inviting clients. No one-command cloud deployment is provided.
@@ -166,8 +174,9 @@ Check nodes are Ready with adequate allocatable CPU/memory; check CCM is
 Running on its VKE addon card even if its workload is outside the tenant
 namespace. Existing addon versions/lifecycle remain administrator-owned. Record versions
 and readiness evidence privately. Verify private API access, existing HMAC
-Secret keys, database CA/schema/contract/runtime-role access, metrics API,
-node/connection headroom, failover fencing, TLS and hostname without displaying data.
+Secret keys, matching TLS/hostname, source restrictions, HPA metrics API
+and node/provider headroom for active, surge and draining pods without
+displaying sensitive data. Optional upload prerequisites remain a separate gate.
 
 Only then set `prerequisitesConfirmed=true`. This is an **acknowledgement,
 not programmatic proof** of addon, node, TLS, identity or network readiness.

@@ -28,21 +28,36 @@ def http_settings(path: Path) -> Settings:
 
 
 async def create_runtime_services(settings: Settings):
-    from scripts.inspect_runtime_state import _SCHEMAS
-
     runtime = await create_local_runtime(settings)
     with closing(sqlite3.connect(Path(settings.artifact_dir) / "runtime.sqlite3")) as connection:
-        for table in ("http_submissions", "http_submission_tasks"):
-            columns = _SCHEMAS[table]
-            declarations = [
-                f"{name} {kind}" + (" NOT NULL" if required else "")
-                for name, kind, required, _ in columns
-            ]
-            primary = [
-                name for name, _, _, order in sorted(columns, key=lambda item: item[3]) if order
-            ]
-            declarations.append("PRIMARY KEY (" + ", ".join(primary) + ")")
-            connection.execute(f"CREATE TABLE {table} (" + ", ".join(declarations) + ")")
+        # Match the retired SQLiteSubmissionStore schema independently of the inspector.
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS http_submissions (
+                submission_id TEXT PRIMARY KEY NOT NULL,
+                provider TEXT NOT NULL,
+                tenant_id TEXT NOT NULL,
+                principal_id TEXT NOT NULL,
+                tool_name TEXT NOT NULL,
+                key_digest TEXT NOT NULL,
+                request_digest TEXT NOT NULL,
+                state TEXT NOT NULL CHECK(state IN ('running', 'succeeded', 'unresolved')),
+                response_json TEXT,
+                created_at TEXT NOT NULL,
+                UNIQUE(provider, tenant_id, principal_id, tool_name, key_digest)
+            )
+            """
+        )
+        connection.execute(
+            """
+            CREATE TABLE IF NOT EXISTS http_submission_tasks (
+                submission_id TEXT NOT NULL REFERENCES http_submissions(submission_id),
+                task_id TEXT NOT NULL,
+                request_id TEXT,
+                PRIMARY KEY(submission_id, task_id)
+            )
+            """
+        )
         connection.commit()
     return runtime
 
@@ -77,7 +92,7 @@ async def test_live_inspection_reports_aggregates_without_recovery_or_disclosure
         with closing(sqlite3.connect(database)) as connection, connection:
             for index, state in enumerate(("running", "succeeded", "unresolved")):
                 connection.execute(
-                    "INSERT INTO http_submissions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                    "INSERT INTO http_submissions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
                     (
                         f"{CANARY}-{index}",
                         CANARY,
@@ -85,7 +100,6 @@ async def test_live_inspection_reports_aggregates_without_recovery_or_disclosure
                         CANARY,
                         CANARY,
                         f"{CANARY}-{index}",
-                        CANARY,
                         CANARY,
                         state,
                         CANARY,
@@ -166,6 +180,20 @@ async def test_empty_stopped_runtime_and_uri_metacharacters(tmp_path: Path) -> N
     assert all(table["rows"] == 0 for table in report["tables"].values())
 
 
+async def test_unexpected_submission_column_fails_closed_without_changes(tmp_path: Path) -> None:
+    runtime = await create_runtime_services(http_settings(tmp_path))
+    await close_runtime_services(runtime)
+    database = tmp_path / "runtime.sqlite3"
+    with closing(sqlite3.connect(database)) as connection, connection:
+        connection.execute("ALTER TABLE http_submissions ADD COLUMN writer_token TEXT")
+    before = database.read_bytes()
+    result = inspect(database)
+    assert result.returncode == 1
+    assert json.loads(result.stdout) == {"error": "Runtime state inspection failed."}
+    assert result.stderr == ""
+    assert database.read_bytes() == before
+
+
 async def test_large_payloads_and_capacity_overflow_have_fixed_size_output(tmp_path: Path) -> None:
     runtime = await create_runtime_services(http_settings(tmp_path))
     database = tmp_path / "runtime.sqlite3"
@@ -218,8 +246,8 @@ async def test_invalid_state_and_unresolved_timestamp_fail_closed(tmp_path: Path
         with closing(sqlite3.connect(database)) as connection, connection:
             connection.execute("PRAGMA ignore_check_constraints=ON")
             connection.execute(
-                "INSERT INTO http_submissions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-                (CANARY,) * 11,
+                "INSERT INTO http_submissions VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                (CANARY,) * 10,
             )
         assert inspect(database).returncode == 1
         with closing(sqlite3.connect(database)) as connection, connection:

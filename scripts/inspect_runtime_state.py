@@ -55,7 +55,6 @@ _SCHEMAS = {
         ("tool_name", "TEXT", 1, 0),
         ("key_digest", "TEXT", 1, 0),
         ("request_digest", "TEXT", 1, 0),
-        ("writer_token", "TEXT", 1, 0),
         ("state", "TEXT", 1, 0),
         ("response_json", "TEXT", 0, 0),
         ("created_at", "TEXT", 1, 0),

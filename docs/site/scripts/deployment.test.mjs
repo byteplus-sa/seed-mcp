@@ -74,6 +74,33 @@ test("hosted guidance explains database-free limits and preserves legacy state",
   assert.match(source("specs/SPEC_VKE_DEPLOYMENT.md"), /Source|source/);
 });
 
+test("fresh stateless deployment has no database provisioning or credential gates", () => {
+  for (const path of ["docs/byteplus-terraform.md", "docs/self-hosting.md"]) {
+    const text = source(path).replace(/\s+/g, " ");
+    assert.match(text, /identity and TLS Secrets/, path);
+    assert.match(text, /TOS\/enrollment Secret/, path);
+    assert.match(
+      text,
+      /No database Secret or database CA ConfigMap is required/,
+      path,
+    );
+    assert.doesNotMatch(
+      text,
+      /privately provision database|identity\/database\/TLS|database CA\/schema\/contract\/runtime-role|node\/connection headroom|failover fencing|A positive daily budget is useful/,
+      path,
+    );
+    assert.match(
+      text,
+      /stateful installations must preserve.*database\/WAL backups/,
+      path,
+    );
+  }
+  assert.match(
+    source("docs/self-hosting.md").replace(/\s+/g, " "),
+    /HTTP has no budget ledger and rejects nonzero values/,
+  );
+});
+
 test("launch examples and landing page do not restore retired hosted guarantees", () => {
   const transport = source("docs/transports.md");
   assert.match(
