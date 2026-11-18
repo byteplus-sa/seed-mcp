@@ -149,12 +149,8 @@ cancel provider work; clients must retain IDs and poll with authorized provider
 credentials. A lost create response may hide billed work and must be reconciled,
 not resubmitted automatically.
 
-This is a deliberate contract change, not an automatic migration. Existing
-stateful installations must preserve their old release, database/WAL backups,
-identity and accepted IDs for reconciliation. Never delete retained data to
-make the new version start. A Helm upgrade can delete removed resources; use
-separately reviewed transition steps. No cloud resources are changed by source
-removal.
+This is a fresh stateless deployment. Historical database compatibility and
+stateful-release migration tooling are not part of this repository.
 
 Use client timeout 660 seconds and compatible proxy settings. Both transports
 await foreground MCP calls; HTTP outputs remain URL-only.

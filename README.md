@@ -446,10 +446,9 @@ The chart supports multiple pods, but live VKE routing, scaling, capacity and
 actual model-driven client/provider acceptance remain separately approved
 gates. Mocked tests do not establish public-launch readiness.
 
-Switching an existing stateful service changes its authorization and replay
-guarantees. Preserve its old release, database/volume backups, identity and
-accepted IDs for reviewed reconciliation. Source removal does not delete cloud
-resources or authorize deployment.
+Hosted deployment starts fresh without historical database compatibility or
+stateful-release migration tooling. Source changes do not authorize deployment
+or delete cloud resources.
 
 Seedream's [live smoke matrix](docs/integration-guide.md#opt-in-seedream-smoke-matrix)
 is opt-in; editing/alpha and visual acceptance still require authorized checks.

@@ -1,4 +1,4 @@
-"""Offline Task 5 checks for plans/PLAN_HORIZONTAL_SCALING.md."""
+"""Offline stateless deployment checks for specs/SPEC_VKE_DEPLOYMENT.md."""
 
 import json
 import os
@@ -249,14 +249,9 @@ def test_schema_requires_complete_existing_references(group: str) -> None:
         assert any(error.validator == "required" for error in errors)
 
 
-def test_legacy_storage_source_is_retained_but_not_rendered(tmp_path: Path) -> None:
-    legacy = (CHART / "templates/statefulset.yaml").read_text()
-    storage = (CHART / "templates/storageclass.yaml").read_text()
-    assert legacy.startswith("{{/*")
-    assert "whenDeleted: Retain" in legacy and "whenScaled: Retain" in legacy
-    assert storage.startswith("{{/*")
-    assert "helm.sh/resource-policy: keep" in storage
-    assert "reclaimPolicy: Retain" in storage
+def test_chart_has_no_legacy_storage_source_or_resources(tmp_path: Path) -> None:
+    assert not (CHART / "templates/statefulset.yaml").exists()
+    assert not (CHART / "templates/storageclass.yaml").exists()
     rendered = documents(render(tmp_path))
     assert not any(
         item["kind"]
@@ -264,8 +259,8 @@ def test_legacy_storage_source_is_retained_but_not_rendered(tmp_path: Path) -> N
         for item in rendered
     )
     notes = (CHART / "templates/NOTES.txt").read_text()
-    assert "an upgrade can delete removed resources" in notes
-    assert "NEVER upgrade a live SQLite release" in notes
+    assert "historical database compatibility" in notes
+    assert "WAL/database backups" not in notes
     assert "CSI is not a new application prerequisite" in notes
 
 

@@ -150,10 +150,10 @@ and is `127.0.0.1/32` in the chart. Caddy overwrites forwarding headers;
 Uvicorn proxy rewriting is disabled. Never trust all proxies.
 
 HTTP/Caddy shutdown uses `max(tool, provider seconds) + 30`; pod grace uses
-the maximum plus 60 (default 630/660 seconds). The historical SQLite inspector
-is read-only and does not apply to stateless chart pods.
+the maximum plus 60 (default 630/660 seconds). Historical database inspection
+and stateful-release migration tooling are not supported.
 
-Terraform uses separate fresh VKE state, never old ECS state, and stores no
+Terraform uses dedicated fresh VKE state and stores no
 HMAC/TLS Secret/kubeconfig. Helm references existing Secrets only. Private
 control-plane access requires operator private connectivity.
 Chart `models.seedream` and `models.seedance` accept `defaultModel` and
@@ -166,18 +166,18 @@ Only explicit env mappings exist, not arbitrary env or secret maps.
 `app.providerMaxConcurrency=5`, `app.principalMaxConcurrency=3` and
 `app.rateLimitBurst=0` retain their defaults. These limits are per pod, not account-wide spend protection.
 
-Both `csi-ebs` and `cloud-controller-manager` are VKE-admin owned outside
+`cloud-controller-manager` and addon lifecycle are VKE-admin owned outside
 Terraform/Helm. Inspect existing addons; install absent compatible maintained
 versions via VKE addon management. Require CCM Running and Ready nodes with capacity before
 `prerequisitesConfirmed=true`. This acknowledgement is not readiness proof.
-CSI is not a new stateless app prerequisite; preserve legacy volume safeguards.
+CSI is not a stateless app prerequisite; the chart has no persistent volumes.
 
 Verify two eligible Ready nodes with surge/draining capacity, identity/TLS
 Secrets, DNS/TLS and HPA metrics API before deployment.
 
-Source deletion is not cloud decommissioning. Retain reviewed old checkouts,
-private workspaces, backups and matching HMAC key/version for separately
-approved retirement/recovery. No state reset, blind restore or requeue.
+Source deletion is not cloud decommissioning; infrastructure retirement
+requires separate approval. Retain task/request IDs and never automatically
+requeue uncertain provider work.
 Keep deployment operations out of media generation and client setup.
 See `docs/byteplus-terraform.md` and `specs/SPEC_VKE_DEPLOYMENT.md` in the
 selected checkout for the complete operator runbook.

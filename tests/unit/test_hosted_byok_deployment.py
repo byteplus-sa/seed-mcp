@@ -101,10 +101,7 @@ def test_docker_has_byok_and_bounded_defaults() -> None:
     assert "MCP_IDENTITY_HMAC_KEY=" not in dockerfile
 
 
-def test_runtime_image_includes_only_the_private_state_inspector() -> None:
+def test_runtime_image_excludes_historical_state_inspection() -> None:
     dockerfile = (ROOT / "Dockerfile").read_text()
-    assert (
-        "COPY --chown=modelark:modelark scripts/inspect_runtime_state.py "
-        "/app/scripts/inspect_runtime_state.py"
-    ) in dockerfile
+    assert "inspect_runtime_state.py" not in dockerfile
     assert "COPY scripts/ scripts/" not in dockerfile

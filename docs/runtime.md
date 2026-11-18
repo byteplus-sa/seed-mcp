@@ -469,54 +469,5 @@ cancel provider work; clients must retain IDs and poll with authorized provider
 credentials. A lost create response may hide billed work and must be reconciled,
 not resubmitted automatically.
 
-This is a deliberate contract change, not an automatic migration. Existing
-stateful installations must preserve their old release, database/WAL backups,
-identity and accepted IDs for reconciliation. Never delete retained data to
-make the new version start. A Helm upgrade can delete removed resources; use
-separately reviewed transition steps. No cloud resources are changed by source
-removal.
-
-## Read-Only State Inspection
-
-The standalone stdlib-only `scripts/inspect_runtime_state.py` accepts explicit
-`--database` (alias `--path`), `--capacity` and optional `--timeout-seconds`.
-It does not import Settings, load `.env`, start the app or trigger recovery.
-Run against an authorized database path or a consistent isolated backup:
-
-```bash
-python scripts/inspect_runtime_state.py --help
-python scripts/inspect_runtime_state.py \
-  --database /absolute/private/runtime.sqlite3 --capacity 100000 --timeout-seconds 2
-```
-
-This inspector is for historical SQLite backups only, not stateless chart pods.
-The standalone script remains available for reviewing retained state. No shell, environment dump or Secret read is required.
-
-Supply the deployment's actual `STATE_MAX_RECORDS`, not a guessed capacity.
-The timeout defaults to 2 seconds and must be finite, positive and at most 30.
-Missing/corrupt/schema-mismatched databases fail with fixed JSON errors and
-are never created. Queries use SQLite read-only/query-only mode, a bounded
-busy/query timeout and one consistent transaction.
-
-Output contains only `schema_version`, `capacity`, table row counts and
-capacity ratios, `submission_states`, `budget_states`, and
-`oldest_unresolved_age_seconds` (null when none). Age is measured from the
-oldest unresolved claim's creation, not when its state changed. Capacity
-ratios apply independently to task ownership, budget reservations and HTTP
-submission claims. No IDs, tenant/owner hashes, receipts, prompts, URLs,
-credentials or raw errors are emitted. This does not report in-flight worker
-counts; there is no MCP worker queue.
-
-At high utilization, review claim growth, disk headroom and future row-cap
-requirements before admitting new work. Claims never auto-prune. Raising a
-cap needs a reviewed capacity decision; adding nodes does not raise SQLite
-capacity or permit replicas. Never reset state, delete claims, requeue,
-mark running submissions unresolved or blindly restore an older backup.
-Unresolved work requires provider-side reconciliation, not database edits.
-See [backup and recovery](byteplus-terraform.md#backup-upgrade-and-recovery).
-
-## PostgreSQL Operator Commands
-
-Removed. There is no hosted database, schema management or shared-state
-operator workflow. Preserve any previous database and identity for the
-separately reviewed transition described above.
+This is a fresh stateless deployment. Historical database compatibility and
+stateful-release migration tooling are not part of this repository.

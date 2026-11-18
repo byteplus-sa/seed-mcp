@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { test } from "node:test";
 
 const source = (path) =>
@@ -44,13 +44,14 @@ test("stateless deployment keeps proxy and private-operation boundaries", () => 
   assert.match(service, /externalTrafficPolicy: Local/);
   assert.match(service, /port: 443/);
   const notes = source("deploy/helm/seed-mcp/templates/NOTES.txt");
-  assert.match(notes, /an upgrade can delete removed resources/);
+  assert.match(notes, /fresh stateless deployment/);
+  assert.doesNotMatch(notes, /WAL\/database backups|live SQLite release/);
   assert.match(notes, /PER POD/);
   assert.match(notes, /Never repeat uncertain creates/);
   assert.match(notes, /CSI is not a new application prerequisite/);
 });
 
-test("hosted guidance explains database-free limits and preserves legacy state", () => {
+test("hosted guidance explains fresh database-free deployment limits", () => {
   for (const path of [
     "docs/deployment.md",
     "docs/self-hosting.md",
@@ -61,7 +62,7 @@ test("hosted guidance explains database-free limits and preserves legacy state",
     assert.match(text, /provider.key|provider key/i, path);
     assert.match(text, /per.pod/i, path);
     assert.match(text, /uncertain/i, path);
-    assert.match(text, /preserve/i, path);
+    assert.match(text, /fresh stateless deployment/i, path);
   }
   assert.match(
     source("docs/byteplus-terraform.md"),
@@ -86,12 +87,7 @@ test("fresh stateless deployment has no database provisioning or credential gate
     );
     assert.doesNotMatch(
       text,
-      /privately provision database|identity\/database\/TLS|database CA\/schema\/contract\/runtime-role|node\/connection headroom|failover fencing|A positive daily budget is useful/,
-      path,
-    );
-    assert.match(
-      text,
-      /stateful installations must preserve.*database\/WAL backups/,
+      /privately provision database|identity\/database\/TLS|database CA\/schema\/contract\/runtime-role|node\/connection headroom|failover fencing|A positive daily budget is useful|stateful installations must preserve|database\/WAL backups|inspect_runtime_state|kubectl get csidriver/,
       path,
     );
   }
@@ -99,6 +95,39 @@ test("fresh stateless deployment has no database provisioning or credential gate
     source("docs/self-hosting.md").replace(/\s+/g, " "),
     /HTTP has no budget ledger and rejects nonzero values/,
   );
+});
+
+test("fresh repo ships no historical inspector or legacy storage templates", () => {
+  for (const path of [
+    "scripts/inspect_runtime_state.py",
+    "tests/unit/test_inspect_runtime_state.py",
+    "deploy/helm/seed-mcp/templates/statefulset.yaml",
+    "deploy/helm/seed-mcp/templates/storageclass.yaml",
+  ]) {
+    assert.equal(
+      existsSync(new URL(`../../../${path}`, import.meta.url)),
+      false,
+      path,
+    );
+  }
+  for (const path of [
+    "Dockerfile",
+    "Makefile",
+    "AGENTS.md",
+    "README.md",
+    "docs/runtime.md",
+    "docs/byteplus-terraform.md",
+    "specs/SPEC_VKE_DEPLOYMENT.md",
+    ".agents/skills/ark-mcp/SKILL.md",
+    ".agents/skills/ark-mcp-setup/SKILL.md",
+    ".agents/skills/ark-mcp/references/environment.md",
+  ]) {
+    assert.doesNotMatch(
+      source(path),
+      /inspect_runtime_state\.py|database\/WAL backups|preserve legacy volume/i,
+      path,
+    );
+  }
 });
 
 test("launch examples and landing page do not restore retired hosted guarantees", () => {

@@ -75,7 +75,7 @@ typecheck: ## Type-check with mypy
 		scripts/configure_http_client.py scripts/export_tool_docs.py \
 		scripts/_smoke_context.py scripts/live_smoke_test.py \
 		scripts/live_smoke_test_variations.py scripts/smoke_seedream55.py \
-		scripts/generate_identity_secret.py scripts/inspect_runtime_state.py \
+		scripts/generate_identity_secret.py \
 		scripts/hosted_acceptance.py
 
 # --- Pre-commit ------------------------------------------------------------

@@ -1,4 +1,4 @@
-"""CI preserves direct HTTP gates and requires real PostgreSQL branch coverage."""
+"""CI enforces direct HTTP gates and offline quality checks."""
 
 import re
 from pathlib import Path
@@ -36,10 +36,11 @@ def test_readiness_ci_checks_maintained_scripts_and_real_proxy() -> None:
         "live_smoke_test.py",
         "live_smoke_test_variations.py",
         "generate_identity_secret.py",
-        "inspect_runtime_state.py",
         "hosted_acceptance.py",
     ):
         assert f"scripts/{name}" in types
+    assert "inspect_runtime_state.py" not in types
+    assert not (ROOT / "scripts/inspect_runtime_state.py").exists()
     assert "$(UV) run mypy src" in types
     acceptance = steps["Mock-provider HTTPS acceptance and bounded load"]["run"]
     assert 'scripts/hosted_acceptance.py --caddy-bin "$CADDY_BIN"' in acceptance
@@ -77,7 +78,7 @@ def test_hooks_keep_plain_yaml_checks_and_use_shared_typecheck() -> None:
     configuration = yaml.safe_load((ROOT / ".pre-commit-config.yaml").read_text())
     hooks = {hook["id"]: hook for repo in configuration["repos"] for hook in repo["hooks"]}
     template_exclusion = re.compile(hooks["check-yaml"]["exclude"])
-    assert template_exclusion.search("deploy/helm/seed-mcp/templates/statefulset.yaml")
+    assert template_exclusion.search("deploy/helm/seed-mcp/templates/deployment.yaml")
     assert not template_exclusion.search("deploy/helm/seed-mcp/values.yaml")
     assert not template_exclusion.search(".github/workflows/ci.yml")
     assert hooks["mypy"]["entry"] == "make typecheck"

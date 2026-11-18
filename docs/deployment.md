@@ -13,14 +13,12 @@ compatible digest-pinned image. No fork image publication is assumed.
 docker build --tag seed-mcp:reviewed .
 ```
 
-See [releases](releases.md) and the
-[breaking capability migration](migration-0.2.md#breaking-capability-migration).
-Old database schemas are not migrated. Retain old state separately.
+See [releases](releases.md) for selecting a reviewed revision.
 
 ## Run Shared HTTP
 
 Follow the [staged VKE runbook](byteplus-terraform.md#staged-vke-deployment).
-Use separate fresh Terraform state, never the old ECS state.
+Use dedicated fresh Terraform state, separate from unrelated deployments.
 
 Task get/list/cancel and Draft lookup are authorized by the supplied provider
 key. `X-MCP-Client-Secret` separates per-pod admission scopes, not task access.
@@ -58,8 +56,8 @@ secrets must not be configured in the pod environment.
 
 Verify private API access, CCM, two Ready nodes and surge/draining headroom,
 DNS/TLS, source restrictions and HPA metrics API before `prerequisitesConfirmed`.
-CSI is not a new application prerequisite; preserve existing addons and old
-volumes. Addons remain administrator-owned outside Terraform/Helm.
+CSI is not an application prerequisite. Addon readiness and lifecycle remain
+administrator-owned outside Terraform/Helm.
 
 These commands render synthetic manifests only, without deploying anything:
 
@@ -105,12 +103,8 @@ cancel provider work; clients must retain IDs and poll with authorized provider
 credentials. A lost create response may hide billed work and must be reconciled,
 not resubmitted automatically.
 
-This is a deliberate contract change, not an automatic migration. Existing
-stateful installations must preserve their old release, database/WAL backups,
-identity and accepted IDs for reconciliation. Never delete retained data to
-make the new version start. A Helm upgrade can delete removed resources; use
-separately reviewed transition steps. No cloud resources are changed by source
-removal.
+This is a fresh stateless deployment. Historical database compatibility and
+stateful-release migration tooling are not part of this repository.
 
 Drain foreground work before restart. Application and Caddy shutdown allow
 `max(tool timeout, provider timeout in seconds) + 30`; pod termination grace
@@ -126,8 +120,8 @@ and never automatically resubmit an uncertain create.
 
 - Verify Deployment/HPA/PDB/spread, metrics API and node surge/draining headroom.
 - Protect operator HMAC configuration and backups; never distribute it.
-- Preserve original backend state and matching HMAC; no blind restore,
-  reset, claim deletion or requeue. See [recovery](byteplus-terraform.md#backup-upgrade-and-recovery).
+- Retain task/request IDs and never requeue uncertain provider work.
+  See [recovery](byteplus-terraform.md#restart-and-recovery).
 - Verify fixed official provider origins and no environment-key fallback.
 - Keep positive admission/body/rate limits and explicit Host/Origin policy.
 - Verify anonymous discovery and denial of missing credentials on provider calls.
@@ -135,8 +129,8 @@ and never automatically resubmit an uncertain create.
 - Validate exact-client headers, TLS, load and graceful rollout separately.
 
 The [BytePlus guide](byteplus-terraform.md) describes infrastructure
-prerequisites. Source deletion is not cloud decommissioning: retain the
-reviewed old checkout, private workspaces, old state and backups for explicit
-retirement. No command here authorizes cloud provisioning or paid generation.
+prerequisites. Source deletion is not cloud decommissioning; infrastructure
+retirement requires separate review. No command here authorizes cloud
+provisioning or paid generation.
 Live VKE apply, source-IP, rollout and real-client/provider acceptance
 remain unverified. Mocked TLS/load checks are not capacity certification.

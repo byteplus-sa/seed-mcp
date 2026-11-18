@@ -20,7 +20,7 @@ output "network_ids" {
 }
 
 output "helm_infrastructure_values" {
-  description = "Safe partial Helm inputs, not deployment approval. Admin must verify private access, Running VKE-admin-owned CCM, Ready nodes with surge/draining capacity, metrics API and existing identity/TLS Secrets before setting prerequisitesConfirmed=true. Preserve legacy volumes and VKE-admin-owned CSI; source changes do not decommission cloud resources."
+  description = "Safe partial Helm inputs, not deployment approval. Admin must verify private access, Running VKE-admin-owned CCM, Ready nodes with surge/draining capacity, metrics API and existing identity/TLS Secrets before setting prerequisitesConfirmed=true. CSI is not an application prerequisite; source changes do not decommission cloud resources."
   value = {
     prerequisitesConfirmed = false
     service = {

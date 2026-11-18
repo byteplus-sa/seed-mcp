@@ -1,10 +1,9 @@
 This chart runs database-free BYOK HTTP with at least two application pods.
 No PostgreSQL, Redis, SQLite, state volume, schema or database Secret is required.
 Source rendering is not release approval or capacity certification.
-NEVER upgrade a live SQLite release without a separately reviewed transition:
-an upgrade can delete removed resources. Preserve old release metadata, disks,
-WAL/database backups, identity and accepted IDs for reconciliation.
-CSI is not a new application prerequisite; retain existing addons and volumes.
+This is a fresh stateless deployment, with no historical database compatibility
+or stateful-release migration tooling. Local stdio storage is separate.
+CSI is not a new application prerequisite; addons remain administrator-owned.
 
 Verify CCM, two Ready nodes with surge/draining capacity, private API access,
 DNS/TLS, identity/TLS Secrets and metrics API before acknowledging prerequisites.

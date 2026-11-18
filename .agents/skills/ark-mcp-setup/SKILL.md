@@ -64,7 +64,7 @@ and `specs/SPEC_VKE_DEPLOYMENT.md`: dedicated VKE replaces ECS/Compose.
 Do not offer retired helpers. The stateless Deployment uses same-pod Caddy,
 default 2-6 pod HPA, PDB and hostname spread on maintained Kubernetes >=1.30.
 No state PVC/StorageClass/headless Service renders; Redis is not required.
-Terraform uses separate fresh state, never old ECS state, and stores no HMAC/
+Terraform uses dedicated fresh state and stores no HMAC/
 TLS Secret/kubeconfig. Helm references existing Secrets only. Private API
 access requires operator private connectivity.
 
@@ -84,16 +84,16 @@ Bucket privacy, disabled versioning, prefix IAM, CORS, lifecycle and
 storage/egress controls need separate operator setup; do not enable as a
 side effect of client onboarding. See `docs/temporary-uploads.md` in the checkout.
 
-Both `csi-ebs` and `cloud-controller-manager` are VKE-admin owned outside
+`cloud-controller-manager` and addon lifecycle are VKE-admin owned outside
 Terraform/Helm. Inspect existing installations; install absent compatible
 maintained versions via VKE addon management. CCM Running and Ready nodes,
 metrics API and capacity checks must precede
 `prerequisitesConfirmed=true`; acknowledgement is not readiness proof.
-CSI is not a new stateless app prerequisite; preserve legacy volume safeguards.
+CSI is not a stateless app prerequisite; no application volumes are provisioned.
 This is operator deployment work, not part of customer connection setup.
-Preserve old reviewed checkouts, private workspaces, state/backups and matching
-HMAC identity. Source deletion is not cloud decommissioning. Never reset
-state, blindly restore, delete an active lease or requeue uncertain submissions.
+Historical database compatibility and stateful-release migrations are not
+supported. Source deletion is not cloud decommissioning. Never automatically
+requeue uncertain provider submissions.
 
 ## 2. Resolve an Installation
 
@@ -285,5 +285,5 @@ Do not prepare/upload files for setup verification without explicit approval.
 
 Hosted HTTP is database-free: provider-key task authorization, no durable replay or shared budget accounting. Omit legacy operation keys; never automatically resubmit uncertain creates. Local stdio persistence remains available.
 Hosted HTTP is stateless and database-free. Rate and concurrency limits are per-pod.
-There is no recovery bridge from a retired durable journal to stateless replay;
-preserve old state and accepted IDs for reconciliation. No automatic resubmission.
+There is no hosted replay or historical database migration workflow.
+Retain accepted IDs and reconcile uncertain provider work; no automatic resubmission.

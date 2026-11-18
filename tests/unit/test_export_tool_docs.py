@@ -673,7 +673,11 @@ def test_shipped_skills_have_valid_frontmatter_and_transport_guidance(name: str)
     assert body.strip()
     assert len(content.splitlines()) < 500
     assert "HTTP" in body and "stdio" in body and "foreground" in body
-    assert "no recovery bridge" in " ".join(body.split())
+    guidance = " ".join(body.split())
+    assert "no hosted replay" in guidance
+    assert "historical database migration workflow" in guidance
+    assert "Retain accepted IDs" in guidance
+    assert "no recovery bridge" not in guidance
 
 
 def _schema_properties(schema: Any, path: str = "") -> Iterator[tuple[str, dict[str, Any]]]:

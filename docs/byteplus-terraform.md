@@ -16,10 +16,9 @@ identified operator read-only checks, not authorization for paid execution.
 ## Validation Status
 
 Live VKE provisioning remains **unverified**. CLB source-IP preservation,
-legacy CSI attach/detach, HPA/spread, rollout/drain behavior, DNS/TLS
-and backup recovery require separately authorized evidence. Real target-client
+HPA/spread, rollout/drain behavior and DNS/TLS
+require separately authorized evidence. Real target-client
 tool execution and provider acceptance remain unverified for this deployment.
-Old partial ECS provisioning is not evidence for VKE.
 
 Local mocked Terraform plans, Helm renders and isolated mocked TLS/load
 acceptance check source contracts only. A mock benchmark is **not capacity
@@ -74,7 +73,6 @@ terraform -chdir=deploy/terraform/vke test
 helm lint deploy/helm/seed-mcp -f deploy/helm/seed-mcp/values.ci.yaml
 helm template seed-mcp deploy/helm/seed-mcp -f deploy/helm/seed-mcp/values.ci.yaml
 python scripts/generate_identity_secret.py --help
-python scripts/inspect_runtime_state.py --help
 ```
 
 Provider initialization may download the locked provider; never bypass checksum
@@ -128,8 +126,8 @@ key bundle or client secret belongs in Terraform, Helm or pod environment.
 ## Staged VKE Deployment
 
 1. Select a **separate fresh VKE Terraform state** and independently reviewed
-   backend/workspace. Never apply this root over old ECS state or migrate that
-   state into this stack. `fresh_state_confirmed=true` acknowledges separation;
+   backend/workspace. Do not reuse state owned by another deployment.
+   `fresh_state_confirmed=true` acknowledges separation;
    it does not inspect or prove the backend is safe.
 2. Review `variables.tf` and `terraform.tfvars.example`. Verify `zone_id`,
    `kubernetes_version`, `node_instance_type`, private network ranges and
@@ -149,7 +147,7 @@ key bundle or client secret belongs in Terraform, Helm or pod environment.
 
 ## Addon and Node Gate
 
-The **VKE administrator owns both `csi-ebs` and `cloud-controller-manager`,
+The **VKE administrator owns `cloud-controller-manager`,
 outside Terraform and Helm**. Inspect existing installations first; retain
 healthy compatible versions, and install only absent addons using compatible,
 maintained versions through **VKE addon management**. Do not assume automatic
@@ -163,13 +161,9 @@ can run these read-only checks against the deliberately selected context:
 kubectl config current-context
 kubectl get nodes -o wide
 kubectl wait --for=condition=Ready nodes --all --timeout=300s
-kubectl get csidriver ebs.csi.volcengine.com
-kubectl -n kube-system rollout status deployment/csi-ebs-controller --timeout=300s
-kubectl -n kube-system rollout status daemonset/csi-ebs-node --timeout=300s
 ```
 
-CSI commands above apply to retained legacy storage, not a new stateless
-application prerequisite. Preserve existing addon/volume safeguards.
+CSI is not an application prerequisite; this chart has no persistent volumes.
 Check nodes are Ready with adequate allocatable CPU/memory; check CCM is
 Running on its VKE addon card even if its workload is outside the tenant
 namespace. Existing addon versions/lifecycle remain administrator-owned. Record versions
@@ -278,7 +272,7 @@ shutdown; the chart uses `max(tool, provider) + 60` for pod termination
 seconds by default. Cooperative SDK/SQLite draining can exceed nominal
 deadlines; forced termination is not provider cancellation.
 
-## Backup, Upgrade and Recovery
+## Restart and Recovery
 
 
 There is no hosted state to restore or replay. Restarting a pod does not
@@ -286,12 +280,8 @@ cancel provider work; clients must retain IDs and poll with authorized provider
 credentials. A lost create response may hide billed work and must be reconciled,
 not resubmitted automatically.
 
-This is a deliberate contract change, not an automatic migration. Existing
-stateful installations must preserve their old release, database/WAL backups,
-identity and accepted IDs for reconciliation. Never delete retained data to
-make the new version start. A Helm upgrade can delete removed resources; use
-separately reviewed transition steps. No cloud resources are changed by source
-removal.
+This is a fresh stateless deployment. Historical database compatibility and
+stateful-release migration tooling are not part of this repository.
 
 ## Local TLS and Load Acceptance
 
@@ -300,15 +290,11 @@ Run `uv run python scripts/hosted_acceptance.py --caddy-bin PATH`. This uses iso
 
 ## Decommissioning
 
-**Source deletion is not cloud decommissioning.** Preserve a reviewed old
-checkout, private workspaces, old Terraform state and backups for separately
-approved ECS retirement. Do not reconstruct old state with this VKE root or
-assume removed automation deleted cloud resources.
-
-For VKE retirement, reconcile active provider work, archive state and HMAC
-configuration, then separately review application, cluster and retained-disk
-disposition. Both addons remain VKE-admin owned. Retained PVC/PV/EBS,
-StorageClass, snapshots, CLB, NAT and EIP resources can continue to cost money.
+**Source deletion is not cloud decommissioning.** VKE retirement requires
+separate approval. Reconcile active provider work, protect Terraform state and
+operator identity, then review application, cluster and infrastructure
+disposition. Addons remain VKE-admin owned. Node disks, CLB, NAT and EIP
+resources can continue to cost money.
 Verify actual cloud absence and billing after approved retirement; empty
 Terraform state or a Helm uninstall alone is not proof.
 

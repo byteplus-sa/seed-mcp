@@ -30,7 +30,7 @@ persistence is separate from this deployment.
 | Owner | Resources and responsibilities |
 | --- | --- |
 | Terraform `deploy/terraform/vke` | Dedicated VPC/subnets, NAT/EIP/SNAT/routes, private VKE cluster and fixed on-demand node pool |
-| VKE administrator, outside Terraform and Helm | Both `csi-ebs` and `cloud-controller-manager` addons; compatible versions, installation when absent, readiness and lifecycle |
+| VKE administrator, outside Terraform and Helm | `cloud-controller-manager`, node readiness and addon lifecycle; CSI is not an application prerequisite |
 | Helm `deploy/helm/seed-mcp` | Application Deployment, HPA, PDB, proxy ConfigMap and CLB Service; no state PVC/StorageClass/headless Service |
 
 Terraform does not retrieve kubeconfig or place HMAC keys, TLS Secrets,
@@ -79,15 +79,15 @@ route behavior and image pulls remain live gates.
 Use a **separate fresh VKE Terraform state**. The default local backend file
 is `seed-mcp-vke.tfstate`; operators must protect it and review any backend
 selection independently. `fresh_state_confirmed=true` is an acknowledgement,
-not state inspection. Never apply over or migrate old ECS state into this root.
+not state inspection. Do not reuse state belonging to an unrelated deployment.
 
 ## Prerequisite Gate
 
 Verify private API access, CCM, two Ready nodes and surge/draining headroom,
 existing identity/TLS Secrets, DNS/TLS, source restrictions and HPA metrics API
 before `prerequisitesConfirmed=true`. This is acknowledgement, not proof.
-CSI is not a new application prerequisite; preserve existing addons and old
-volumes. Addons remain administrator-owned outside Terraform/Helm.
+CSI is not an application prerequisite. Addon readiness and lifecycle remain
+administrator-owned outside Terraform/Helm.
 
 Node capacity must accommodate active, surge and draining pods. Application
 HPA does not provision that capacity or establish provider quota headroom.
@@ -165,12 +165,8 @@ cancel provider work; clients must retain IDs and poll with authorized provider
 credentials. A lost create response may hide billed work and must be reconciled,
 not resubmitted automatically.
 
-This is a deliberate contract change, not an automatic migration. Existing
-stateful installations must preserve their old release, database/WAL backups,
-identity and accepted IDs for reconciliation. Never delete retained data to
-make the new version start. A Helm upgrade can delete removed resources; use
-separately reviewed transition steps. No cloud resources are changed by source
-removal.
+This is a fresh stateless deployment. Historical database compatibility and
+stateful-release migration tooling are not part of this repository.
 
 ## Acceptance Boundary
 
@@ -201,6 +197,6 @@ Official URLs in frontmatter are retained from implementation research recorded
 2026-11-17, not a claim of a new live deployment or independent regional test.
 Source contracts were checked against `deploy/terraform/vke`, the Helm values/
 schema/templates/Caddyfile, `runtime.py`, `__main__.py`,
-`config/env.py`, `security/http_middleware.py`, `observability/admin.py` and
-`scripts/inspect_runtime_state.py`. This spec and the linked hosted/direct
+`config/env.py`, `security/http_middleware.py` and `observability/admin.py`.
+This spec and the linked hosted/direct
 contracts hold durable decisions.

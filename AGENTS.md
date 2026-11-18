@@ -146,26 +146,23 @@ contract.
 
 Hosted deployment follows `specs/SPEC_VKE_DEPLOYMENT.md`:
 dedicated VKE replaces ECS/Compose.
-Terraform root `deploy/terraform/vke` requires separate fresh state, never old
-ECS state. Source deletion is not cloud decommissioning; preserve reviewed old
-checkouts, private workspaces, backups and matching HMAC key/version.
-No state reset, blind restore or requeue is a supported recovery procedure.
+Terraform root `deploy/terraform/vke` requires dedicated fresh state, separate
+from unrelated deployments. No historical database inspection, compatibility
+or stateful-release migration tooling is maintained. Source deletion is not
+cloud decommissioning. Never automatically requeue uncertain provider work.
 
 The chart uses a stateless Deployment with HPA (default 2-6 pods), PDB and
 hostname spreading, without a database or state volume. Kubernetes >=1.30 is
 required; verify a maintained regional release. Caddy exposes `/mcp` and
-`/health` only; `/ready` is lifespan-only and private. Source removal does not
-preserve old Helm resources automatically. Preserve previous database/WAL
-backups, identity, accepted IDs and release resources for reviewed reconciliation.
+`/health` only; `/ready` is lifespan-only and private. The chart contains no
+legacy StatefulSet or StorageClass templates. Local stdio storage remains current
+functionality, separate from hosted deployment.
 
 `MCP_METRICS_PORT=0` disables private metrics; HTTP-only nonzero 1024-65535
 ports bind 127.0.0.1. Helm enables 9000 only via `app.metricsEnabled`; no public
-metrics Service. `scripts/inspect_runtime_state.py` is standalone read-only
-aggregate inspection (`--database`, `--capacity`, `--timeout-seconds`), never
-repair/recovery. `scripts/generate_identity_secret.py` remains standalone.
+metrics Service. `scripts/generate_identity_secret.py` remains standalone.
 Terraform stores no HMAC/TLS Secret/kubeconfig; Helm references distinct
-existing identity and TLS Secrets only. The read-only inspector is for
-historical SQLite backups, not the stateless HTTP runtime.
+existing identity and TLS Secrets plus a distinct optional TOS/enrollment Secret.
 Private API access requires operator private connectivity.
 
 Helm `models.seedream`/`models.seedance` expose `defaultModel` and

@@ -117,8 +117,8 @@ emptyDir. Model bindings remain exact and operator-verified.
 
 Verify private API access, CCM, two Ready nodes and surge/draining headroom,
 DNS/TLS, source restrictions and HPA metrics API before `prerequisitesConfirmed`.
-CSI is not a new application prerequisite; preserve existing addons and old
-volumes. Addons remain administrator-owned outside Terraform/Helm.
+CSI is not an application prerequisite. Addon readiness and lifecycle remain
+administrator-owned outside Terraform/Helm.
 
 Shutdown allows max(tool, provider seconds)+30; pod grace uses+60. CPU HPA is a
 starting policy, not a capacity guarantee. Measure live rollout, CLB source-IP,
@@ -137,8 +137,6 @@ An explicit tool `model` overrides `X-ModelArk-Seedance-Endpoint` or
 `X-ModelArk-Seedream-Endpoint`; a used header default must be an exact registry
 binding. Arbitrary opaque endpoint lineage is never inferred.
 
-<span id="breaking-change-migration"></span>
-
 ## Rotation and Recovery
 
 
@@ -147,12 +145,8 @@ cancel provider work; clients must retain IDs and poll with authorized provider
 credentials. A lost create response may hide billed work and must be reconciled,
 not resubmitted automatically.
 
-This is a deliberate contract change, not an automatic migration. Existing
-stateful installations must preserve their old release, database/WAL backups,
-identity and accepted IDs for reconciliation. Never delete retained data to
-make the new version start. A Helm upgrade can delete removed resources; use
-separately reviewed transition steps. No cloud resources are changed by source
-removal.
+This is a fresh stateless deployment. Historical database compatibility and
+stateful-release migration tooling are not part of this repository.
 
 ## Validation Status
 
@@ -162,5 +156,5 @@ and minimal backend `/health`/`/ready`. Caddy exposes only `/mcp` and `/health`;
 `/ready` and `/metrics` are private. Optional metrics use authorized pod
 port-forward, never a public Service. Readiness never probes providers.
 Dry runs do not validate provider authentication. Live VKE apply, source-IP,
-CSI, rollout, real-client/provider acceptance and restore drills remain
+rollout and real-client/provider acceptance remain
 unverified. Isolated mocked TLS/load acceptance is not capacity certification.

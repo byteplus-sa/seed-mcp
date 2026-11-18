@@ -10,13 +10,13 @@ variable "name" {
 }
 
 variable "fresh_state_confirmed" {
-  description = "Acknowledge this is a separate fresh VKE state, never old ECS state. Preserve old state/backups for separately authorized retirement."
+  description = "Acknowledge this is a dedicated fresh VKE backend/workspace, separate from unrelated deployments."
   type        = bool
   default     = false
   nullable    = false
   validation {
     condition     = var.fresh_state_confirmed
-    error_message = "Confirm a separate fresh VKE backend/workspace. Never reuse or migrate old ECS state into this root."
+    error_message = "Confirm a dedicated fresh VKE backend/workspace. Do not reuse state belonging to another deployment."
   }
 }
 

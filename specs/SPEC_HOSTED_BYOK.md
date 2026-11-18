@@ -363,12 +363,8 @@ cancel provider work; clients must retain IDs and poll with authorized provider
 credentials. A lost create response may hide billed work and must be reconciled,
 not resubmitted automatically.
 
-This is a deliberate contract change, not an automatic migration. Existing
-stateful installations must preserve their old release, database/WAL backups,
-identity and accepted IDs for reconciliation. Never delete retained data to
-make the new version start. A Helm upgrade can delete removed resources; use
-separately reviewed transition steps. No cloud resources are changed by source
-removal.
+This is a fresh stateless deployment. Historical database compatibility and
+stateful-release migration tooling are not part of this repository.
 
 Shutdown allows `max(tool timeout, provider timeout in seconds) + 30`;
 pod termination grace uses the same maximum plus 60 (defaults 630/660 seconds).
@@ -409,14 +405,8 @@ The maintained `scripts/hosted_acceptance.py --caddy-bin PATH` checks isolated
 real HTTP/Caddy TLS with mocked providers and bounded synthetic load.
 Mock measurements are not capacity certification. Live VKE apply, source IP,
 rollout/drain and real-client/provider acceptance remain unverified.
-Terraform state is separate from old ECS state; source deletion is not cloud
-decommissioning. Preserve old reviewed checkouts, private workspaces and backups.
-
-## Shared PostgreSQL Contract
-
-PostgreSQL support and its operator/schema tooling have been removed from this
-initial phase. This retained heading is a compatibility anchor, not an active
-backend contract. The stateless behavior above supersedes that design.
+Terraform uses dedicated fresh state. Source deletion is not cloud
+decommissioning; any infrastructure retirement requires separate approval.
 
 ## Sources
 

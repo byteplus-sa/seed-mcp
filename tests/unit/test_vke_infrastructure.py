@@ -103,8 +103,8 @@ def test_safe_outputs_remove_application_storage_coupling_not_cloud_resources() 
     assert "var.zone_id" not in outputs
     assert "var.project_name" not in outputs
     assert "VKE-admin-owned CCM" in outputs
-    assert "VKE-admin-owned CSI" in outputs
-    assert "Preserve legacy volumes" in outputs
+    assert "CSI is not an application prerequisite" in outputs
+    assert "Preserve legacy volumes" not in outputs
     assert "do not decommission cloud resources" in outputs
     assert "surge/draining capacity" in outputs
     assert "metrics API and existing identity/TLS Secrets" in outputs

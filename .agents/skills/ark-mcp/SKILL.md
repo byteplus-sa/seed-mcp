@@ -307,8 +307,8 @@ if marked `retryable=true`. Eligible 429 rejections, pre-dispatch failures and
 reads can retain bounded retries.
 
 HTTP rate and concurrency limits are per-pod and reset at restart. There is no
-recovery bridge from a retired journal to stateless replay. Preserve old state
-and accepted IDs for reconciliation. Deployment operations are separate from
+hosted replay or historical database migration workflow. Retain accepted IDs
+and reconcile uncertain provider work. Deployment operations are separate from
 media generation; see [deployment limits](references/environment.md#deployment-limits).
 
 ## References
