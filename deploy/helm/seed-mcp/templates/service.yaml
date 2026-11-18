@@ -26,23 +26,3 @@ spec:
       port: 443
       targetPort: https
       protocol: TCP
-{{/*
-Legacy headless Service source, deliberately NOT rendered.
-Do not upgrade/delete an existing SQLite release without approved state cutover.
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: {{ include "seed-mcp.name" . }}-internal
-  labels:
-    {{- include "seed-mcp.selector" . | nindent 4 }}
-spec:
-  clusterIP: None
-  selector:
-    {{- include "seed-mcp.selector" . | nindent 4 }}
-  ports:
-    - name: https
-      port: 443
-      targetPort: https
-      protocol: TCP
-*/}}

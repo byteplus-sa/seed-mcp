@@ -252,6 +252,10 @@ def test_schema_requires_complete_existing_references(group: str) -> None:
 def test_chart_has_no_legacy_storage_source_or_resources(tmp_path: Path) -> None:
     assert not (CHART / "templates/statefulset.yaml").exists()
     assert not (CHART / "templates/storageclass.yaml").exists()
+    service_source = (CHART / "templates/service.yaml").read_text()
+    assert "Legacy headless Service" not in service_source
+    assert "clusterIP: None" not in service_source
+    assert "state cutover" not in (CHART / "values.yaml").read_text()
     rendered = documents(render(tmp_path))
     assert not any(
         item["kind"]

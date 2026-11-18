@@ -1,5 +1,5 @@
 prerequisitesConfirmed: false
-# Source only: never upgrade a live SQLite release before approved state cutover.
+# Source rendering is not deployment approval; verify the operator prerequisites.
 replicaCount: 2
 autoscaling:
   enabled: true
