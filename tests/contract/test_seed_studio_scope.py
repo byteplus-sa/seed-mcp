@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 
 import pytest
-from pydantic import ValidationError
+from pydantic import AliasChoices, ValidationError
 
 from ark_mcp.config.env import Settings, get_settings
 from ark_mcp.config.model_capabilities import refresh_capability_registry
@@ -31,9 +31,6 @@ SUPPORTED_TOOLS = {
     "seed_audio_generate",
     "media_upload",
     "media_presign",
-    "omnihuman_create_task",
-    "omnihuman_get_task",
-    "omnihuman_cancel_task",
     "seedream_generate_image",
     "seedance_create_task",
     "gen_task_get",
@@ -50,46 +47,40 @@ HTTP_PROVIDER_TOOLS = {
     "gen_task_list",
     "gen_task_cancel_or_delete",
 }
-OMNIHUMAN_TOOLS = {"omnihuman_create_task", "omnihuman_get_task", "omnihuman_cancel_task"}
 
 
 def test_catalog_exposes_only_seed_studio_services() -> None:
-    assert len(CATALOG) == 16
+    assert len(CATALOG) == 13
     assert {entry.name for entry in CATALOG} == SUPPORTED_TOOLS | {"media_prepare_upload"}
 
 
-async def test_omnihuman_and_supported_services_register(all_services_enabled: None) -> None:
+async def test_supported_services_register(all_services_enabled: None) -> None:
     server = create_server(get_settings())
     assert {tool.name for tool in await server.list_tools()} == SUPPORTED_TOOLS
 
 
-@pytest.mark.parametrize("omnihuman_enabled", [False, True])
 @pytest.mark.parametrize("operator_configured", [False, True])
-async def test_http_catalog_is_static_and_provider_only(
-    omnihuman_enabled: bool, operator_configured: bool
-) -> None:
+async def test_http_catalog_is_static_and_provider_only(operator_configured: bool) -> None:
     settings = Settings(
         _env_file=None,
         MCP_TRANSPORT="http",
         MCP_AUTH_MODE="byok",
         MCP_IDENTITY_HMAC_KEY="a" * 64,
-        BYTEPLUS_OMNIHUMAN_ENABLED=omnihuman_enabled,
         BYTEPLUS_MODELARK_API_KEY=(
             "sk-test-modelark" if operator_configured else ""  # pragma: allowlist secret
         ),
         BYTEPLUS_SEED_SPEECH_API_KEY=(
             "sk-test-speech" if operator_configured else ""  # pragma: allowlist secret
         ),
-        BYTEPLUS_CV_API_KEY="sk-test-cv" if operator_configured else "",  # pragma: allowlist secret
         TOS_ACCESS_KEY="synthetic-tos-access" if operator_configured else "",
         TOS_SECRET_KEY="sk-test-tos" if operator_configured else "",  # pragma: allowlist secret
         TOS_BUCKET="synthetic-bucket" if operator_configured else "",
     )
     server = create_server(settings)
     names = {tool.name for tool in await server.list_tools()}
-    expected = HTTP_PROVIDER_TOOLS | (OMNIHUMAN_TOOLS if omnihuman_enabled else set())
+    expected = HTTP_PROVIDER_TOOLS
     assert names == expected
-    assert len(names) == (10 if omnihuman_enabled else 7)
+    assert len(names) == 7
     assert await server.list_resources() == []
     assert await server.list_resource_templates() == []
 
@@ -120,6 +111,8 @@ def test_removed_service_settings_are_not_part_of_configuration() -> None:
                 "seed_understanding_",
                 "seed_audio_understanding_",
                 "modelark_files_",
+                "omnihuman_",
+                "cv_",
             )
         )
         or name
@@ -141,9 +134,60 @@ def test_removed_service_settings_are_not_part_of_configuration() -> None:
     assert removed == set()
 
 
+@pytest.mark.parametrize("transport", ["stdio", "http"])
+async def test_retired_avatar_configuration_cannot_restore_support(transport: str) -> None:
+    settings = Settings(
+        _env_file=None,
+        MCP_TRANSPORT=transport,
+        MCP_AUTH_MODE="byok" if transport == "http" else "local",
+        MCP_IDENTITY_HMAC_KEY="a" * 64,
+        BYTEPLUS_MODELARK_API_KEY="",
+        BYTEPLUS_SEED_SPEECH_API_KEY="",
+        BYTEPLUS_OMNIHUMAN_ENABLED=True,
+        BYTEPLUS_CV_API_KEY="synthetic-retired-key",
+        BYTEPLUS_CV_BASE_URL="not-a-provider-origin",
+        BYTEPLUS_OMNIHUMAN_REQ_KEY="retired-service",
+    )
+    names = {tool.name for tool in await create_server(settings).list_tools()}
+    assert names == (
+        HTTP_PROVIDER_TOOLS
+        if transport == "http"
+        else {
+            "ark_list_models",
+            "seed_media_get_artifact",
+            "seed_media_export_artifact",
+            "seed_media_persist_url",
+        }
+    )
+    assert {service.service for service in describe_services(settings)} == {
+        "modelark",
+        "seed_audio",
+        "object_storage",
+    }
+    assert "synthetic-retired-key" not in settings.model_dump_json()
+    aliases = {
+        alias
+        for field in Settings.model_fields.values()
+        for alias in (
+            field.validation_alias.choices
+            if isinstance(field.validation_alias, AliasChoices)
+            else [field.validation_alias]
+        )
+        if isinstance(alias, str)
+    }
+    assert aliases.isdisjoint(
+        {
+            "BYTEPLUS_OMNIHUMAN_ENABLED",
+            "BYTEPLUS_CV_API_KEY",
+            "BYTEPLUS_CV_BASE_URL",
+            "BYTEPLUS_OMNIHUMAN_REQ_KEY",
+        }
+    )
+
+
 def test_discovery_does_not_offer_removed_services() -> None:
     names = {service.service for service in describe_services(get_settings())}
-    assert names == {"modelark", "seed_audio", "omnihuman", "object_storage"}
+    assert names == {"modelark", "seed_audio", "object_storage"}
 
 
 @pytest.mark.parametrize("kind", ["3d", "audio", "vod", "asr", "understanding"])

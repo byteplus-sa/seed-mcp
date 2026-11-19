@@ -134,7 +134,7 @@ mechanism instead of inlining keys.
 
 ## HTTP BYOK
 
-Optional `media_prepare_upload` adds one tool to the baseline 7/10 inventory.
+Optional `media_prepare_upload` adds one tool to the baseline 7-tool inventory.
 It needs an operator-enrolled secret and multipart-capable client, not an
 automatic attachment handoff. Preparation signs only; the client uploads
 directly to TOS and waits for success before generation. Use the checkout's
@@ -193,13 +193,13 @@ Claude Code uses `${VAR}` references and a timeout in milliseconds:
 ```
 
 These are placeholder-only templates, not live client certification. Only the
-selected provider key is required. Use `X-Seed-Speech-Api-Key` or
-`X-OmniHuman-Api-Key` with separate private variables as needed.
-Repeated `--provider` selects `modelark`, `seed-speech` or `vision-cv`; default
+selected provider key is required. Use `X-Seed-Speech-Api-Key` with a
+separate private variable for Seed Audio.
+Repeated `--provider` selects `modelark` or `seed-speech`; default
 is `modelark`. Defaults are `SEED_MCP_MODELARK_KEY`,
-`SEED_MCP_SEED_SPEECH_KEY`, `SEED_MCP_OMNIHUMAN_KEY` and
-`SEED_MCP_CLIENT_SECRET`. `--modelark-key-env`, `--seed-speech-key-env`,
-`--omnihuman-key-env` and `--client-secret-env` override names only.
+`SEED_MCP_SEED_SPEECH_KEY` and
+`SEED_MCP_CLIENT_SECRET`. `--modelark-key-env`, `--seed-speech-key-env` and
+`--client-secret-env` override names only.
 Names must match `[A-Za-z_][A-Za-z0-9_]{0,127}` and be distinct across selected
 headers. Supply independent values privately in the actual client process
 environment; the generator never reads or validates them.

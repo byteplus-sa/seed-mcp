@@ -14,7 +14,7 @@ Never invent an asset ID or assume an ID proves consent or ownership.
 | Tool | Asset reference behavior |
 |---|---|
 | `seedance_create_task` | Passes native references in `images`, `videos` and `audios` to ModelArk |
-| Seedream, Seed Audio and OmniHuman | Native provider asset references are not supported; use their documented HTTPS/Base64/artifact input forms |
+| Seedream and Seed Audio | Native provider asset references are not supported; use their documented HTTPS/Base64/artifact input forms |
 
 The server validates the reference syntax and the selected model's request
 limits. **It does not look up asset status, authorization, project membership

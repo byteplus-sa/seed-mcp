@@ -68,8 +68,7 @@ def _is_trusted_host(hostname: str) -> bool:
 def trusted_host_policy(extra_suffixes: tuple[str, ...] = ()) -> Callable[[str], bool]:
     """Return the host predicate: the global allowlist plus per-call ``extra_suffixes``.
 
-    Extra suffixes let one caller (for example OmniHuman output downloads) trust a
-    provider CDN without widening the policy for every other tool.
+    Extra suffixes let an internal caller trust an additional provider CDN without widening the policy for every other tool.
     """
     if not extra_suffixes:
         return _is_trusted_host

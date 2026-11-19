@@ -20,7 +20,6 @@ from ark_mcp.providers.modelark.seedance import SeedanceService
     [
         ("modelark_gateway", "modelark", "Authorization", "Bearer ", "modelark_base_url"),
         ("seed_speech_gateway", "seed-speech", "X-Api-Key", "", "seed_audio_base_url"),
-        ("vision_cv_gateway", "vision-cv", "Authorization", "Bearer ", "cv_base_url"),
     ],
 )
 async def test_factories_use_selected_request_key_and_runtime_settings(
@@ -41,7 +40,7 @@ async def test_factories_use_selected_request_key_and_runtime_settings(
     credentials = Mock(return_value="synthetic-request-key")
     monkeypatch.setattr(factory, "get_runtime", runtime)
     monkeypatch.setattr(factory, "provider_api_key", credentials)
-    for module in ("modelark", "seed_speech", "vision_cv"):
+    for module in ("modelark", "seed_speech"):
         monkeypatch.setattr(
             f"ark_mcp.providers.{module}.client.get_settings",
             Mock(side_effect=AssertionError("Factory must use runtime settings.")),
@@ -71,9 +70,7 @@ async def test_factories_use_selected_request_key_and_runtime_settings(
         await gateway.close()
 
 
-@pytest.mark.parametrize(
-    "factory_name", ["modelark_gateway", "seed_speech_gateway", "vision_cv_gateway"]
-)
+@pytest.mark.parametrize("factory_name", ["modelark_gateway", "seed_speech_gateway"])
 def test_factory_refuses_to_fall_back_when_request_key_is_missing(
     monkeypatch: pytest.MonkeyPatch, factory_name: str
 ) -> None:
@@ -83,7 +80,6 @@ def test_factory_refuses_to_fall_back_when_request_key_is_missing(
         _env_file=None,
         BYTEPLUS_MODELARK_API_KEY="synthetic-startup-key",  # pragma: allowlist secret
         BYTEPLUS_SEED_SPEECH_API_KEY="synthetic-startup-key",  # pragma: allowlist secret
-        BYTEPLUS_CV_API_KEY="synthetic-startup-key",  # pragma: allowlist secret
     )
     monkeypatch.setattr(factory, "get_runtime", lambda _ctx: SimpleNamespace(settings=settings))
     monkeypatch.setattr(

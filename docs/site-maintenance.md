@@ -88,7 +88,7 @@ so standalone copies do not depend on an Ark source checkout.
 resolvable local references, as well as the guide's paths and setup boundary.
 Documentation CI also runs for changes to this skill.
 
-Audio and Avatars have separate navigation groups and
+Audio has a dedicated navigation group and
 capability sections. Navigation tests ensure category membership and stable
 tool routes; uncategorized or duplicate catalog entries fail the build.
 The BytePlus logo uses the original light/dark SVGs from the reference site
@@ -110,8 +110,8 @@ every available entry in `transports` also has `execution: "direct"`.
 There is **no `background` key**, top-level or transport-level. Registration
 gates and selected credential headers remain transport-specific; top-level
 `registration_gate` describes stdio, including unavailability for HTTP-only
-preparation. The catalog contains 16 definitions: 15 conditional local tools,
-four always registered; HTTP has 7 or 10 with OmniHuman, plus optional
+preparation. The catalog contains 13 definitions: 12 conditional local tools,
+four always registered; HTTP has 7, plus optional
 `media_prepare_upload`. Its export has no invented stdio transport.
 The renderer rejects obsolete execution metadata and shows direct call
 envelopes on both transports, never job wrappers. `scope.test.mjs`

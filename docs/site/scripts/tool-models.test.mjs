@@ -17,7 +17,6 @@ test("model-backed tool pages each show one supported-model table", () => {
     "seedream_generate_image",
     "seedance_create_task",
     "seed_audio_generate",
-    "omnihuman_create_task",
   ]) {
     const page = toolPage(tool(name));
     assert.equal(page.match(/^## Supported Models$/gm)?.length, 1, name);
@@ -78,14 +77,10 @@ test("image and video tables distinguish defaults, custom IDs and gated models",
 });
 
 test("fixed-service tools do not advertise a per-call model selector", () => {
-  for (const name of ["seed_audio_generate", "omnihuman_create_task"]) {
+  for (const name of ["seed_audio_generate"]) {
     assert.match(toolPage(tool(name)), /no per-call `model` argument/i);
   }
   assert.match(toolPage(tool("seed_audio_generate")), /seed-audio-1\.0/);
-  assert.match(
-    toolPage(tool("omnihuman_create_task")),
-    /realman_avatar_picture_omni20_cv/,
-  );
 });
 
 test("utility and unknown tools do not inherit unrelated model tables", () => {
@@ -97,6 +92,7 @@ test("utility and unknown tools do not inherit unrelated model tables", () => {
     "speech_to_text",
     "hyper3d_create_task",
     "hitem3d_create_task",
+    "omnihuman_create_task",
     "unknown_tool",
     "",
   ]) {

@@ -3,7 +3,7 @@
 ``ArtifactRef`` describes temporary provider URLs and explicit stdio persistence.
 HTTP returns URL-only references; durable ``seed-media://artifacts/{id}``
 resources are stdio-only. Provider URLs expire (2h for audio, 24h for
-ModelArk image/video, about 1h for OmniHuman).
+ModelArk image/video).
 """
 
 from __future__ import annotations

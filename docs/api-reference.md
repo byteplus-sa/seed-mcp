@@ -3,9 +3,9 @@
 Complete schemas, inputs, outputs, and examples for the conditional MCP tool
 surface.
 
-The static catalog has 15 local stdio tools, four always registered locally.
-HTTP exposes tools 1-7 below, plus 8-10 when OmniHuman is enabled, and the
-16th definition `media_prepare_upload` when temporary uploads are enabled.
+The static catalog has 12 local stdio tools, four always registered locally.
+HTTP exposes tools 1-7 below, and the
+13th definition `media_prepare_upload` when temporary uploads are enabled.
 Generation-tool registration does not require operator generation keys; discovery
 is anonymous/static. Temporary preparation requires operator TOS configuration
 and client enrollment.
@@ -28,7 +28,7 @@ and requires operator enrollment of the live client secret, not a generation
 key. The client uploads directly before using the reference. See
 [tool details](tools.md#media_prepare_upload) and
 [operator/client workflow](temporary-uploads.md).
-Seed Audio/Seedream `persist` and OmniHuman get `persist_output` default to
+Seed Audio/Seedream `persist` default to
 false globally. HTTP rejects true, local paths and stored artifact references;
 local explicit true remains supported. HTTP clients download expiring URLs.
 Generated per-tool pages show both transports and exact current schemas.
@@ -44,14 +44,11 @@ Generated per-tool pages show both transports and exact current schemas.
 | 5 | `gen_task_get` | Seedance tasks | Direct retrieval | ModelArk |
 | 6 | `gen_task_list` | Seedance tasks | Read-only | ModelArk |
 | 7 | `gen_task_cancel_or_delete` | Seedance tasks | Destructive | ModelArk |
-| 8 | `omnihuman_create_task` | OmniHuman 2.0 (flag-gated) | Direct provider submission | Vision AI Bearer |
-| 9 | `omnihuman_get_task` | OmniHuman 2.0 (flag-gated) | Direct retrieval | Vision AI Bearer |
-| 10 | `omnihuman_cancel_task` | OmniHuman 2.0 (flag-gated) | Destructive | Vision AI Bearer |
-| 11 | `seed_media_get_artifact` | Artifacts | Read-only | Local stdio only |
-| 12 | `seed_media_export_artifact` | Artifacts | Locate (read-only) or copy (stdio only) | Local stdio |
-| 13 | `seed_media_persist_url` | Artifacts | Direct call | Local stdio only |
-| 14 | `media_upload` | Object storage (optional) | Direct call (1-50 files) | TOS / S3 |
-| 15 | `media_presign` | Object storage (optional) | Read-only (1-100 keys) | TOS / S3 |
+| 8 | `seed_media_get_artifact` | Artifacts | Read-only | Local stdio only |
+| 9 | `seed_media_export_artifact` | Artifacts | Locate (read-only) or copy (stdio only) | Local stdio |
+| 10 | `seed_media_persist_url` | Artifacts | Direct call | Local stdio only |
+| 11 | `media_upload` | Object storage (optional) | Direct call (1-50 files) | TOS / S3 |
+| 12 | `media_presign` | Object storage (optional) | Read-only (1-100 keys) | TOS / S3 |
 
 Read the [breaking-capability migration](migration-0.2.md#breaking-capability-migration)
 before upgrading; the 0.2 consolidation tables on that page are historical.
@@ -91,13 +88,9 @@ See [security.md](security.md) for the full scope list.
 | `media_presign` | true | false | true | false |
 | `seed_media_get_artifact` | true | false | true | false |
 | `seed_media_export_artifact` | false | false | true | false |
-| `omnihuman_create_task` | false | false | false | true |
-| `omnihuman_get_task` | false | false | true | true |
-| `omnihuman_cancel_task` | false | true | false | true |
 | `seed_media_persist_url` | false | false | false | true |
 
-The task pollers (`gen_task_get` and `omnihuman_get_task`) are
-not read-only because `output_dir`/`output_path` write local files.
+The task poller `gen_task_get` is not read-only because `output_dir` writes local files.
 
 ## Direct Execution
 
@@ -116,7 +109,7 @@ means this attempt did not dispatch, not the whole batch.
 accepted IDs. Never blindly resubmit or assume timeout cancelled upstream work.
 See [Direct Execution](../specs/SPEC_DIRECT_EXECUTION.md).
 
-Poll provider task IDs with `gen_task_get` or `omnihuman_get_task`, default
+Poll provider task IDs with `gen_task_get`, default
 `persist_output=false`. Local stdio can directly call with explicit true to
 persist successful outputs. `seed_media_persist_url` always downloads and
 stores; it has no status-only mode. HTTP remains URL-only.
@@ -124,8 +117,7 @@ stores; it has no status-only mode. HTTP remains URL-only.
 ## Local Output Paths
 
 On stdio transport, these fields write output straight to a local file:
-`output_path` on `seedream_generate_image`, `seed_audio_generate`, and
-`omnihuman_get_task`; `output_dir` on `gen_task_get`; and `destination_path` on
+`output_path` on `seedream_generate_image` and `seed_audio_generate`; `output_dir` on `gen_task_get`; and `destination_path` on
 `seed_media_export_artifact`. Each comes with an `overwrite` boolean (default
 `false`).
 
@@ -190,7 +182,7 @@ A durable reference to persisted media.
 | `sha256` | string | SHA-256 hex digest |
 | `created_at` | string | ISO-8601 timestamp |
 | `expires_at` | string | Local artifact expiry |
-| `source_expires_at` | string | Provider URL expiry (2h audio, 24h ModelArk image/video; about 1h OmniHuman) |
+| `source_expires_at` | string | Provider URL expiry (2h audio, 24h ModelArk image/video) |
 | `persistence_error` | ArtifactPersistenceIssue \| null | Set when the output was generated (and billed) but could not be stored durably |
 | `fallback_data` | string \| null | Base64 output bytes, only for `id="inline-fallback"` (up to `ARTIFACT_INLINE_FALLBACK_MAX_BYTES`) |
 | `local_path` | string \| null | Absolute local path written for `output_path`/`output_dir` |
@@ -292,7 +284,7 @@ not account-specific rates. See [Runtime](runtime.md#cost-estimation-tools_costp
 
 **ServiceStatus:** `service`, `enabled`, and `reason` (the env var or flag that
 enables a disabled service; never a secret value). Services: `modelark`,
-`seed_audio`, `omnihuman`, `object_storage`.
+`seed_audio`, `object_storage`.
 
 ### HTTP Connection Fields
 
@@ -1306,37 +1298,6 @@ task's outputs are no longer retrievable through `gen_task_get`.
 
 ---
 
-<span id="1921-omnihuman_create_task--omnihuman_get_task--omnihuman_cancel_task"></span>
-
-<span id="10-12-omnihuman_create_task--omnihuman_get_task--omnihuman_cancel_task"></span>
-
-## 8-10. omnihuman_create_task / omnihuman_get_task / omnihuman_cancel_task
-
-Registered when `BYTEPLUS_OMNIHUMAN_ENABLED=true`; stdio also requires
-`BYTEPLUS_CV_API_KEY`, while HTTP uses the caller's `X-OmniHuman-Api-Key`.
-Scopes: `omnihuman:create`, `omnihuman:read`, `omnihuman:cancel`.
-
-`omnihuman_create_task` takes `image` and `audio` HTTPS URLs (stdio also accepts
-`seed-media://artifacts/<id>`), optional `prompt` (max 2000 characters), and
-`watermark` (default `true`). It returns `provider`, `status="accepted"`,
-`task_id`, `request_id`, and `recommended_poll_after_ms`. Omit `idempotency_key`;
-non-null legacy keys are rejected on both transports. HTTP has no saved-response
-replay; retain IDs and reconcile uncertain acceptance without resubmitting.
-
-`omnihuman_get_task` input: `task_id`, `persist_output` (default `false`; true
-is stdio-only and rejected on HTTP), `output_path`, `overwrite`. Output: `status`
-(`queued`, `running`, `succeeded`, `failed`, `canceled`, `expired`,
-`not_found`), `video` (durable `ArtifactRef`), `source_url` and
-`source_expires_at` (one-hour provider URL), `persistence`,
-`persistence_issue`, `error` (`code`, `message`, failed tasks only).
-
-`omnihuman_cancel_task` input: `task_id`. Output: `canceled`, `message`
-(explains why a started task cannot be canceled), `request_id`. See
-[tools.md](tools.md#omnihuman_create_task--omnihuman_get_task--omnihuman_cancel_task)
-for limits and artifact-reference behavior.
-
----
-
 ## Resources
 
 Stdio only. HTTP lists no resources or resource templates.
@@ -1374,7 +1335,7 @@ These diagnostics do not check provider authorization or filesystem readiness;
 
 <span id="13-seed_media_get_artifact"></span>
 
-## 11. seed_media_get_artifact
+## 8. seed_media_get_artifact
 
 Retrieve persisted media by artifact ID. Returns the raw media bytes
 (Base64-encoded) with MIME type, SHA-256 hash, and byte count. Use this to
@@ -1422,7 +1383,7 @@ Always registered; catalog capability label `artifacts:read`.
 
 <span id="14-seed_media_export_artifact"></span>
 
-## 12. seed_media_export_artifact
+## 9. seed_media_export_artifact
 
 Locate or copy a persisted media artifact on the local filesystem. Returns the
 absolute on-disk path instead of streaming Base64 through the MCP context.
@@ -1477,7 +1438,7 @@ file is never silently overwritten (identical content is accepted).
 
 <span id="15-seed_media_persist_url"></span>
 
-## 13. seed_media_persist_url
+## 10. seed_media_persist_url
 
 Persist a temporary provider output URL as a durable artifact. Use it to
 recover an `ArtifactRef` with `id="provider-url"` and a `persistence_error`
@@ -1511,7 +1472,7 @@ retryable.
 
 <span id="16-media_upload"></span>
 
-## 14. media_upload
+## 11. media_upload
 
 Upload **1-50 files** to object storage (TOS or S3) in one call and return a
 presigned HTTPS GET URL per file. Registered when the selected object-storage
@@ -1637,7 +1598,7 @@ recorded for `media_presign` ownership checks. Both storage tools are stdio-only
 
 <span id="17-media_presign"></span>
 
-## 15. media_presign
+## 12. media_presign
 
 Mint fresh presigned HTTPS GET URLs for **1-100 objects** already in storage
 (TOS or S3), without re-uploading. Use it when a reference URL from

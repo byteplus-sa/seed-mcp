@@ -24,14 +24,13 @@ is not public-launch or deployed-capacity certification.
 
 | Transport | Inventory | Execution and storage |
 | --- | --- | --- |
-| Local stdio | 15 catalog tools, conditionally registered; four always available | Direct calls, local provider settings, optional storage and artifacts |
-| HTTP | 7 tools, or 10 with `BYTEPLUS_OMNIHUMAN_ENABLED=true`; optional temporary upload adds one | Direct foreground calls; provider-managed video tasks; no jobs, native tasks, local storage/artifact tools or resources |
+| Local stdio | 12 catalog tools, conditionally registered; four always available | Direct calls, local provider settings, optional storage and artifacts |
+| HTTP | 7 tools; optional temporary upload adds one | Direct foreground calls; provider-managed video tasks; no jobs, native tasks, local storage/artifact tools or resources |
 
 HTTP exposes `ark_list_models`, `seed_audio_generate`, `seedream_generate_image`,
 `seedance_create_task`, `gen_task_get`, `gen_task_list`,
 `gen_task_cancel_or_delete`.
-The optional tools are `omnihuman_create_task`, `omnihuman_get_task`, and
-`omnihuman_cancel_task`. Registration does not depend on operator provider keys.
+Registration does not depend on operator provider keys.
 Discovery is anonymous, static, and makes no provider calls; it does not
 establish entitlement or return account pricing.
 Default `check_connection=false` returns `connection=null` without inspecting
@@ -49,7 +48,6 @@ not auth grants or customer-selected roles.
 | --- | --- |
 | `X-ModelArk-Api-Key` | Seedream and Seedance tools |
 | `X-Seed-Speech-Api-Key` | Seed Audio generation |
-| `X-OmniHuman-Api-Key` | Enabled OmniHuman tools |
 | `X-MCP-Client-Secret` | Every provider operation, including dry runs; client-generated 32 random bytes encoded as 64 lowercase hex characters |
 | `X-ModelArk-Seedance-Endpoint` | Optional exact registered video binding default |
 | `X-ModelArk-Seedream-Endpoint` | Optional exact registered image binding default |
@@ -79,12 +77,11 @@ is supported. HTTP uses these fixed official origins:
 
 - ModelArk: `https://ark.ap-southeast.bytepluses.com/api/v3`
 - Seed Speech: `https://voice.ap-southeast-1.bytepluses.com`
-- Vision AI: `https://openapi.cv.bytepluses.com`
 
 ## Temporary Upload Preparation
 
-`media_prepare_upload` is one opt-in HTTP-only tool; the catalog has 16
-definitions, while stdio remains at 15 and baseline HTTP remains 7/10.
+`media_prepare_upload` is one opt-in HTTP-only tool; the catalog has 13
+definitions, while stdio has 12 and baseline HTTP has 7.
 HTTP `services[]` availability for the entry with `service="object_storage"`
 reflects this gate, not enrollment or bucket validity.
 `MCP_TEMPORARY_UPLOAD_ENABLED=false` is the default. Enabling requires TOS
@@ -176,7 +173,7 @@ Call `ark_list_models` with `{"input":{"check_connection":true}}` only through
 a live HTTP request. Omitted/null `kind` checks both video and image routes;
 `kind="video"` or `"image"` checks just that route. Other kinds, stdio calls,
 and calls without a live HTTP request context are rejected.
-Seed Speech and OmniHuman are not checked.
+Seed Speech is not checked.
 
 No provider key or client secret is required to request diagnostics: missing
 headers become issues. The HTTP boundary still rejects malformed headers.
@@ -224,12 +221,12 @@ changes a client. Applying a snippet and private credential entry are separate
 user-authorized setup steps.
 
 - `--name`: defaults to `seed-mcp`, 1-64 ASCII letters/digits/underscore/hyphen.
-- Repeated `--provider`: `modelark`, `seed-speech`, `vision-cv`; defaults to
+- Repeated `--provider`: `modelark`, `seed-speech`; defaults to
   `modelark` when omitted. Only selected providers get headers.
 - Environment-name defaults: `SEED_MCP_MODELARK_KEY`,
-  `SEED_MCP_SEED_SPEECH_KEY`, `SEED_MCP_OMNIHUMAN_KEY`,
+  `SEED_MCP_SEED_SPEECH_KEY`,
   `SEED_MCP_CLIENT_SECRET`. Override names with `--modelark-key-env`,
-  `--seed-speech-key-env`, `--omnihuman-key-env`, `--client-secret-env`.
+  `--seed-speech-key-env`, `--client-secret-env`.
 - Optional `--seedance-endpoint-env` and `--seedream-endpoint-env` add endpoint
   headers and require selected provider `modelark`; values must resolve to
   exact registered bindings when the client sends them.
@@ -298,8 +295,7 @@ that FastMCP's `task=forbidden` mode alone rejects client opt-in.
 
 ## Media and Delivery
 
-`seed_audio_generate.persist`, `seedream_generate_image.persist` and
-`omnihuman_get_task.persist_output` default to `false` on every transport.
+`seed_audio_generate.persist` and `seedream_generate_image.persist` default to `false` on every transport.
 HTTP rejects explicit `true`, local paths and stored artifact references
 before dispatch. Explicit local persistence remains supported.
 Seedream `b64_json` needs persistence and therefore is not an HTTP output mode.
@@ -308,7 +304,7 @@ Missing/unusable URL-only Seed Audio output is a nonretryable per-item
 `NO_DELIVERABLE_OUTPUT`, never an empty success or automatic regeneration.
 
 Clients must retrieve outputs before expiry: about 2 hours for Seed Audio,
-24 hours for Seedream/Seedance and 1 hour for OmniHuman. Native authorized
+24 hours for Seedream/Seedance. Native authorized
 Seedance `asset://` references remain supported without asset administration.
 
 ## Admission and Diagnostics
@@ -401,7 +397,7 @@ Draining is cooperative, not a guarantee that upstream work stops.
 
 ## HTTP Submission Safety
 
-The shared Seedance and OmniHuman input schemas retain nullable legacy
+The Seedance input schema retains nullable legacy
 `idempotency_key` fields so old clients receive an explicit rejection.
 Non-null values are rejected before dispatch on both transports, including
 Seedance dry runs. Omit the field.

@@ -16,7 +16,7 @@ website is not an MCP server. Without an existing managed endpoint, use
 Ask your administrator for:
 
 - The exact HTTPS MCP endpoint, including its path.
-- The supported model bindings and whether OmniHuman is enabled.
+- The supported model bindings.
 - Private custom-header instructions for your client. You supply your own
   provider key and generate your own client isolation secret.
 
@@ -39,7 +39,6 @@ Use only the selected provider header plus the client secret:
 | --- | --- |
 | `X-ModelArk-Api-Key` | Images and video |
 | `X-Seed-Speech-Api-Key` | Seed Audio generation |
-| `X-OmniHuman-Api-Key` | OmniHuman when enabled by the operator |
 | `X-MCP-Client-Secret` | Required for every provider call, including dry runs |
 
 Only the selected key is needed; discovery needs none. The client secret must
@@ -104,8 +103,8 @@ must be available to the actual client process, not just the setup terminal.
 | Option | Use |
 | --- | --- |
 | `--name` | Server name; default `seed-mcp`. Use `--name ark-seed` to match the client guides |
-| `--provider` | Repeat for `modelark`, `seed-speech`, `vision-cv`; omitted means `modelark` |
-| `--modelark-key-env`, `--seed-speech-key-env`, `--omnihuman-key-env` | Variable names, defaulting to `SEED_MCP_MODELARK_KEY`, `SEED_MCP_SEED_SPEECH_KEY`, `SEED_MCP_OMNIHUMAN_KEY` |
+| `--provider` | Repeat for `modelark`, `seed-speech`; omitted means `modelark` |
+| `--modelark-key-env`, `--seed-speech-key-env` | Variable names, defaulting to `SEED_MCP_MODELARK_KEY`, `SEED_MCP_SEED_SPEECH_KEY` |
 | `--client-secret-env` | Independent variable name, default `SEED_MCP_CLIENT_SECRET` |
 | `--seedance-endpoint-env`, `--seedream-endpoint-env` | Optional endpoint variable names; require `modelark` among selected providers |
 | `--tool-timeout-seconds` | 1-3600 seconds; default 660. Codex `tool_timeout_sec`; Claude `timeout` in milliseconds |
@@ -145,8 +144,8 @@ and confirm connection is null.
 Do not generate or upload.
 ```
 
-HTTP lists 7 tools, or 10 with OmniHuman enabled, independently of operator keys.
-Optional temporary upload preparation adds one (8/11); its presence in
+HTTP lists 7 tools, independently of operator keys.
+Optional temporary upload preparation adds one (8); its presence in
 tools/list does not prove that your client secret is enrolled.
 Anonymous discovery returns configured model bindings even without environment
 provider keys. `services[].enabled` means registered, not entitled.
@@ -171,7 +170,7 @@ Do not generate or upload.
 Omit `kind` to check both image and video, or use `"kind":"image"` /
 `"kind":"video"` for just that route. This needs a live HTTP request context;
 stdio checks and other kinds are rejected. It checks no
-Seed Speech or OmniHuman credentials.
+Seed Speech credentials.
 
 | Result | Meaning / action |
 | --- | --- |
@@ -225,7 +224,7 @@ A remote server cannot read or write files on your computer using a local
 path. HTTP has no local storage/artifact tools or resources. Use supported URLs
 (small inline references remain subject to the 2 MiB body cap). Persistence
 defaults to false globally; HTTP rejects true. Download returned provider
-URLs before expiry: audio about 2 hours, image/video 24 hours, OmniHuman 1 hour.
+URLs before expiry: audio about 2 hours, image/video 24 hours.
 Do not send private media without approval.
 
 ## For Administrators

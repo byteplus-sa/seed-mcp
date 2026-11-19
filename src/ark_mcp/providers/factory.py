@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING
 
 from ark_mcp.providers.modelark.client import ModelArkGateway
 from ark_mcp.providers.seed_speech.client import SeedSpeechGateway
-from ark_mcp.providers.vision_cv.client import VisionCvGateway
 from ark_mcp.runtime import get_runtime
 from ark_mcp.security.credentials import provider_api_key
 
@@ -33,18 +32,6 @@ def seed_speech_gateway(ctx: Context) -> SeedSpeechGateway:
     return SeedSpeechGateway(
         api_key=api_key,
         base_url=settings.seed_audio_base_url,
-        timeout=settings.request_timeout_ms / 1000,
-        connect_timeout=settings.connect_timeout_ms / 1000,
-    )
-
-
-def vision_cv_gateway(ctx: Context) -> VisionCvGateway:
-    """Create an invocation-owned Vision AI gateway."""
-    api_key = provider_api_key(ctx, "vision-cv")
-    settings = get_runtime(ctx).settings
-    return VisionCvGateway(
-        api_key=api_key,
-        base_url=settings.cv_base_url,
         timeout=settings.request_timeout_ms / 1000,
         connect_timeout=settings.connect_timeout_ms / 1000,
     )

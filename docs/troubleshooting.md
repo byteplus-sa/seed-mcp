@@ -42,8 +42,7 @@ tools — it does not register a broken tool.
 ## Missing Provider Tools
 
 Check `ark_list_models.services` and the actual tool list. Locally, provider
-credentials or feature flags may be missing. HTTP registers seven tools or
-ten with OmniHuman, independently of operator provider keys.
+credentials or feature flags may be missing. HTTP registers seven tools, independently of operator provider keys.
 
 1. **Finish active calls, then reconnect `ark-seed` in the client you are using.**
    Configuration is read at startup. Another editor's running server does not
@@ -108,8 +107,7 @@ Check `persistence_error.code` and `retryable`: `output_too_large` and
 `ARTIFACT_DOWNLOAD_TIMEOUT_SECONDS` or `ARTIFACT_DOWNLOAD_MAX_ATTEMPTS`.
 
 Seedance instead reports `outputs[].persistence_issue` with
-`outputs[].persistence="failed"`; OmniHuman uses top-level `persistence_issue`
-and `persistence="failed"`. Keep `source_url` and retry persistence through a
+`outputs[].persistence="failed"`. Keep `source_url` and retry persistence through a
 direct local poll or `seed_media_persist_url` before expiry. An artifact need not
 exist on failure.
 
@@ -175,7 +173,7 @@ If you experience timeouts:
 | Call | `retryable` | `ambiguous_completion` | Server retries? | What to do |
 |---|---|---|---|---|
 | Create / generate / cancel / delete | `false` | `true` | No | It may have succeeded upstream. Do not retry blindly; reconcile by task ID or request ID |
-| Task polls (Seedance, OmniHuman) | `true` | `false` | Yes | Safe to poll again |
+| Task polls (Seedance) | `true` | `false` | Yes | Safe to poll again |
 | Variation batch deadline | see `error.phase` | | No | `queued` (`QUEUE_TIMEOUT`) is safe to retry; `generating` is ambiguous |
 
 This table describes timeouts after possible dispatch. Uncertain
@@ -287,8 +285,7 @@ actions are in [shared-server setup](setup/shared-server.md#generate-a-client-sn
 
 ## Unknown Tool over HTTP
 
-Check `ark_list_models.services`. HTTP has 7 tools, or 10 when OmniHuman is
-enabled; optional `media_prepare_upload` adds one (8/11). It requires the
+Check `ark_list_models.services`. HTTP has 7 tools; optional `media_prepare_upload` adds one (8). It requires the
 operator's enable flag, TOS configuration and client enrollment. There are no
 jobs/native tasks/local storage/artifact tools/resources. Missing
 operator generation-provider keys do not hide HTTP tools. Asset administration is

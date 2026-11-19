@@ -38,7 +38,6 @@ PUBLIC_TOOLS = {
     "gen_task_list",
     "gen_task_cancel_or_delete",
 }
-AVATAR_TOOLS = {"omnihuman_create_task", "omnihuman_get_task", "omnihuman_cancel_task"}
 IMAGE_MODEL = "ep-acceptance-image"
 VIDEO_MODEL = "ep-acceptance-video"
 MODELARK = "https://ark.ap-southeast.bytepluses.com/api/v3"
@@ -97,7 +96,6 @@ def fixtures() -> dict[str, str]:
         "key": "synthetic-" + secrets.token_hex(24),
         "invalid_key": "synthetic-rejected-" + secrets.token_hex(24),
         "speech_key": "synthetic-speech-" + secrets.token_hex(24),
-        "vision_key": "synthetic-vision-" + secrets.token_hex(24),
         "secret": secrets.token_hex(32),
         "other_secret": secrets.token_hex(32),
         "hmac": secrets.token_hex(32),

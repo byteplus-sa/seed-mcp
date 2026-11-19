@@ -169,7 +169,6 @@ export function toolPage(tool) {
   const args = EXAMPLES[name];
   const asyncCreate = [
     "seedance_create_task",
-    "omnihuman_create_task",
   ].includes(name);
   const httpArgs = args;
   const call = args && { name, arguments: args };
@@ -182,7 +181,7 @@ export function toolPage(tool) {
       : http.credential_header
         ? `**HTTP: direct foreground calls only.** Supply \`${http.credential_header}\` and \`X-MCP-Client-Secret\` privately in request headers, including dry runs. The client secret is client-generated 32 random bytes encoded as 64 lowercase hex. Only the selected provider key is needed. Keep persistence false; HTTP rejects true, local paths and stored artifact references. No jobs, native tasks, local storage/artifact tools or resources exist on HTTP. Optional temporary upload preparation is separate.`
         : "**HTTP: anonymous static discovery.** No provider key or client secret is required; it lists configured model bindings even without environment provider keys. `services[].enabled` reports registration, not entitlement. No provider calls are made.";
-  const providerTasks = ["seedance_", "omnihuman_", "gen_task_"].some(
+  const providerTasks = ["seedance_", "gen_task_"].some(
     (prefix) => name.startsWith(prefix),
   );
   return `---
@@ -203,7 +202,7 @@ ${tool.description}
 | HTTP execution | ${http ? "Direct foreground only; no native tasks." : "Unavailable."} |
 | Catalog capability label | ${tool.scope ? `\`${tool.scope}\`` : "None"} |
 
-This site lists 16 catalog entries: 15 conditional local tools (four always registered) plus HTTP-only upload preparation. HTTP exposes 7 tools, or 10 with OmniHuman enabled, plus one when temporary uploads are enabled. Generation registration is independent of operator provider keys. Use [model discovery](${SITE_BASE}/tool-reference/ark-list-models/) and tools/list for your connection. Credentials never belong in tool arguments. HTTP has no OAuth, signup or server-issued key and never falls back to operator generation-provider keys.
+This site lists 13 catalog entries: 12 conditional local tools (four always registered) plus HTTP-only upload preparation. HTTP exposes 7 tools, plus one when temporary uploads are enabled. Generation registration is independent of operator provider keys. Use [model discovery](${SITE_BASE}/tool-reference/ark-list-models/) and tools/list for your connection. Credentials never belong in tool arguments. HTTP has no OAuth, signup or server-issued key and never falls back to operator generation-provider keys.
 
 Catalog capability labels are metadata, not auth grants. See the [scope taxonomy](${SITE_BASE}/security/#scope-taxonomy).
 
@@ -255,7 +254,7 @@ ${JSON.stringify(call, null, 2)}
     : `Match the input fields below and the full JSON Schema. See the [worked examples](${SITE_BASE}/tools/) and [Direct Execution](${SITE_BASE}/integration-guide/#direct-execution) for result handling.`
 }
 
-${providerTasks ? `Seedance video tasks use [gen_task_get](${SITE_BASE}/tool-reference/gen-task-get/), and OmniHuman avatars use [omnihuman_get_task](${SITE_BASE}/tool-reference/omnihuman-get-task/). These are provider-managed queues, not MCP jobs. Status checks default to \`persist_output=false\`; only stdio can explicitly persist in a direct call. HTTP clients download expiring provider URLs themselves. Save accepted provider task IDs and resume polling instead of submitting a second generation.` : ""}
+${providerTasks ? `Seedance video tasks use [gen_task_get](${SITE_BASE}/tool-reference/gen-task-get/). These are provider-managed queues, not MCP jobs. Status checks default to \`persist_output=false\`; only stdio can explicitly persist in a direct call. HTTP clients download expiring provider URLs themselves. Save accepted provider task IDs and resume polling instead of submitting a second generation.` : ""}
 
 ${toolNotes.get(name) || ""}
 
@@ -302,7 +301,7 @@ ${JSON.stringify(tool.outputSchema, null, 2)}
 
 ## Troubleshooting
 
-- Missing tool: check transport first; local storage/artifacts are stdio-only. Temporary upload preparation needs its operator enable flag and enrollment. HTTP generation-provider tools are credential-independent at registration; OmniHuman needs its enable flag. Local tools depend on [provider credentials](${SITE_BASE}/api-keys/).
+- Missing tool: check transport first; local storage/artifacts are stdio-only. Temporary upload preparation needs its operator enable flag and enrollment. HTTP generation-provider tools are credential-independent at registration. Local tools depend on [provider credentials](${SITE_BASE}/api-keys/).
 - Invalid arguments: keep the correct wrapper and follow current model limits from discovery. A valid schema alone does not prove the chosen model supports the combination.
 - A direct call returns an error: inspect safe task/request IDs, including partial acceptance. Never automatically resubmit potentially billable work on either transport.
 - Local output writes require live MCP roots or server-configured \`OUTPUT_ROOTS\`; HTTP cannot write to a client's local disk.

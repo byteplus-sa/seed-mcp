@@ -39,7 +39,7 @@ Hosted HTTP is database-free: provider-key task authorization, no durable replay
 
 ### Resumable async generation
 
-For Seedance and OmniHuman:
+For Seedance:
 
 1. Check limits with `ark_list_models`; for Seedance and Seedream also run a
    `dry_run: true` call to confirm the request and `estimated_cost_usd`.
@@ -230,7 +230,7 @@ See the database-free HTTP contract above; local stdio persistence is unchanged.
 | Operation | Timeout after possible dispatch | Server retries? | You should |
 |---|---|---|---|
 | Create / generate / cancel / delete | `retryable=false`, `ambiguous_completion=true` | No | Reconcile by task or request ID; do not resubmit |
-| Task polls (Seedance, OmniHuman) | `retryable=true`, `ambiguous_completion=false` | Yes | Poll again |
+| Task polls (Seedance) | `retryable=true`, `ambiguous_completion=false` | Yes | Poll again |
 
 - A lost response may still hide accepted work; reconcile safe task/request IDs.
 - On local stdio, any `TIMEOUT` attempts to commit the budget reservation, since it may have
@@ -267,7 +267,7 @@ captures safe IDs in the live invocation.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Tool missing from the tool list | Missing provider key, OmniHuman flag, or selected TOS/S3 configuration | Check `ark_list_models.services` and [environment.md](environment.md); restart after approved configuration changes |
+| Tool missing from the tool list | Missing provider key or selected TOS/S3 configuration | Check `ark_list_models.services` and [environment.md](environment.md); restart after approved configuration changes |
 | `Request is not valid for model ...` (Seedance, Seedream) | Request breaks that model's limits; every violation is listed | Fix each item or pick another model from `ark_list_models`; re-check with `dry_run: true` |
 | Model not found | Unknown ID (exact IDs only) | Use the did-you-mean hint or `ark_list_models` |
 | Artifact has `persistence_error` | Billed output, storage failed after retries | `id="provider-url"`: `seed_media_persist_url` before `source_url_expires_at`; `id="inline-fallback"`: bytes are in `fallback_data` |
@@ -275,9 +275,6 @@ captures safe IDs in the live invocation.
 | `media_upload` rejected for `MEDIA_UPLOAD_BATCH_MAX_BYTES` | Total size over the cap; nothing uploaded | Split into smaller calls |
 | `media_upload` succeeds with `failed > 0` | Some items failed (validation, missing file, uninferable `mime_type`, provider) | Read `items[].error`; re-upload only those, retrying when `retryable=true` |
 | Presigned URL expired / `NOT_OWNED` | TTL elapsed (default 30 min) / key not uploaded by this caller | `media_presign` with the `object_keys`; re-upload foreign keys |
-| `omnihuman_create_task` rejects a `seed-media://` input | Filesystem artifact backend cannot mint provider-readable URLs | `ARTIFACT_BACKEND=object_storage`, or `media_upload` and pass the presigned URL |
-| `omnihuman_get_task` fails with `InvalidParameter ... audio` | Audio is validated only after submission (4-300 s, wav/mp3, under 15 MB; 300 s WAV is 26-58 MB) | Fix the audio (MP3 or shorter) and resubmit; never unchanged |
-| OmniHuman error `50510` | Provider content pre-filter rejected the image or audio | Use different compliant inputs; never retry unchanged |
 | HTTP credential rejection | Missing or malformed selected provider key/client secret | Configure private BYOK headers; never use `Authorization` or paste values into chat |
 | Asset administration unavailable | Not part of this server | Use an authorized provider console or external workflow |
 
@@ -295,7 +292,7 @@ captures safe IDs in the live invocation.
   Temporary references have no renewal tool; never publish signed permissions.
 - **Verify saved media, not task status** (see the QA sections).
 - **Persist before cleaning up.** Provider URLs expire (2 h audio, 24 h
-  ModelArk image/video, 1 h OmniHuman); `gen_task_cancel_or_delete` removes retrievable outputs.
+  ModelArk image/video); `gen_task_cancel_or_delete` removes retrievable outputs.
 - **Write straight to the project on stdio** with `output_path`,
   `output_dir` instead of a follow-up export, and check
   `local_path` / `export_error`. See [local-output.md](local-output.md).

@@ -41,13 +41,10 @@ requested products. This is a template, not a populated credential file:
 ```dotenv
 BYTEPLUS_MODELARK_API_KEY=
 BYTEPLUS_SEED_SPEECH_API_KEY=
-BYTEPLUS_CV_API_KEY=
 ```
 
 Omit unneeded fields. ModelArk covers image/video generation;
-Seed Speech covers audio generation; Vision AI has its own
-key. OmniHuman also needs
-an explicitly requested `BYTEPLUS_OMNIHUMAN_ENABLED=true`. Derive additional storage
+Seed Speech covers audio generation. Derive additional storage
 credential names from the selected release's `.env.example` and docs.
 Never enable optional services or object storage just because settings exist.
 Native Seedance asset references require no separate management credentials.
@@ -144,8 +141,8 @@ Never run it where agent tools, shared terminals, screenshots or logs capture
 the output. The user enters the generated value directly into protected client
 configuration. Do not read it back or substitute an example/test value.
 
-Map the selected `X-ModelArk-Api-Key`, `X-Seed-Speech-Api-Key` or
-`X-OmniHuman-Api-Key` and `X-MCP-Client-Secret` to private environment entries
+Map the selected `X-ModelArk-Api-Key` or `X-Seed-Speech-Api-Key`, plus
+the required `X-MCP-Client-Secret`, to private environment entries
 as supported by the target client. Only the selected key is required, including
 dry runs; discovery is anonymous. No OAuth, signup, server-issued key or
 `Authorization` is used. Protect plaintext env files as described above and

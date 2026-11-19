@@ -148,15 +148,15 @@ class TestScopedTrustedHosts:
             "https://out.example.com/v.mp4",
             MediaType.VIDEO,
             "video/mp4",
-            extra_trusted_host_suffixes=(".tiktokcdn.com",),
+            extra_trusted_host_suffixes=(".media.example.com",),
             auth=OWNER,
         )
         predicate = downloader.trusted_hosts
         assert callable(predicate)
-        assert predicate("v16m-default.tiktokcdn.com") is True
-        assert predicate("tiktokcdn.com.attacker.example") is False
+        assert predicate("v16m-default.media.example.com") is True
+        assert predicate("media.example.com.attacker.example") is False
 
         await store.copy_from_trusted_url(
             "https://out.example.com/v.mp4", MediaType.VIDEO, "video/mp4", auth=OWNER
         )
-        assert downloader.trusted_hosts("v16m-default.tiktokcdn.com") is False  # type: ignore[operator]
+        assert downloader.trusted_hosts("v16m-default.media.example.com") is False  # type: ignore[operator]

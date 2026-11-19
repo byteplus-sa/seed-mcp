@@ -168,12 +168,6 @@ class Settings(BaseSettings):
         description="Seed Speech API key for full-scene Seed Audio generation.",
     )
 
-    cv_api_key: str = Field(
-        default="",
-        validation_alias="BYTEPLUS_CV_API_KEY",
-        description="BytePlus Vision AI Bearer API key for OmniHuman.",
-    )
-
     # --- Provider base URLs --------------------------------------------------
 
     modelark_base_url: str = Field(
@@ -184,29 +178,6 @@ class Settings(BaseSettings):
         default="https://voice.ap-southeast-1.bytepluses.com",
         validation_alias="BYTEPLUS_SEED_AUDIO_BASE_URL",
     )
-    cv_base_url: str = Field(
-        default="https://openapi.cv.bytepluses.com",
-        validation_alias="BYTEPLUS_CV_BASE_URL",
-        description="BytePlus Vision AI HTTPS API base URL.",
-    )
-
-    # --- OmniHuman feature flag ----------------------------------------------
-
-    omnihuman_enabled: bool = Field(
-        default=False,
-        validation_alias="BYTEPLUS_OMNIHUMAN_ENABLED",
-        description=(
-            "Feature flag for OmniHuman 2.0 tools. Disabled by default. When false, no "
-            "OmniHuman tools are registered even if BYTEPLUS_CV_API_KEY is configured."
-        ),
-    )
-    omnihuman_req_key: str = Field(
-        default="realman_avatar_picture_omni20_cv",
-        min_length=1,
-        validation_alias="BYTEPLUS_OMNIHUMAN_REQ_KEY",
-        description="Vision AI service identifier sent as req_key for OmniHuman requests.",
-    )
-
     # --- Model bindings ------------------------------------------------------
 
     seedream_prompt_optimization_mode: Literal["standard", "fast"] = Field(
@@ -610,11 +581,6 @@ class Settings(BaseSettings):
         return bool(self.seed_speech_api_key)
 
     @property
-    def has_omnihuman(self) -> bool:
-        """Whether OmniHuman 2.0 is enabled and a Vision AI API key is configured."""
-        return self.omnihuman_enabled and bool(self.cv_api_key)
-
-    @property
     def has_tos(self) -> bool:
         """Whether TOS object storage credentials are configured."""
         if self.tos_credential_mode == "irsa":
@@ -688,7 +654,6 @@ class Settings(BaseSettings):
     @field_validator(
         "modelark_base_url",
         "seed_audio_base_url",
-        "cv_base_url",
     )
     @classmethod
     def validate_provider_url(cls, value: str, info: ValidationInfo) -> str:
@@ -697,7 +662,6 @@ class Settings(BaseSettings):
             env_var_map = {
                 "modelark_base_url": "BYTEPLUS_MODELARK_BASE_URL",
                 "seed_audio_base_url": "BYTEPLUS_SEED_AUDIO_BASE_URL",
-                "cv_base_url": "BYTEPLUS_CV_BASE_URL",
             }
             variable = env_var_map.get(info.field_name or "", "BYTEPLUS_PROVIDER_BASE_URL")
             raise ValueError(f"{variable} must use HTTPS and include a host")
@@ -806,7 +770,6 @@ class Settings(BaseSettings):
             official_urls = (
                 (self.modelark_base_url, "https://ark.ap-southeast.bytepluses.com/api/v3"),
                 (self.seed_audio_base_url, "https://voice.ap-southeast-1.bytepluses.com"),
-                (self.cv_base_url, "https://openapi.cv.bytepluses.com"),
             )
             if any(actual != expected for actual, expected in official_urls):
                 raise ValueError("HTTP BYOK requires the fixed official provider base URLs.")

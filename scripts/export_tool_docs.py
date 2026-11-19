@@ -32,13 +32,11 @@ _REGISTRATION_GATES = {
         "with S3_ACCESS_KEY, S3_SECRET_KEY and S3_BUCKET."
     ),
     "_temporary_upload": "Unavailable on local stdio.",
-    "_omnihuman": "Requires BYTEPLUS_OMNIHUMAN_ENABLED=true and BYTEPLUS_CV_API_KEY.",
 }
 _HTTP_REGISTRATION_GATES = {
     "_always": "Anonymous static discovery; no provider credentials required.",
     "_modelark": "Always registered on HTTP; invocation requires the selected request key.",
     "_seed_audio": "Always registered on HTTP; invocation requires the selected request key.",
-    "_omnihuman": "Requires BYTEPLUS_OMNIHUMAN_ENABLED=true; no operator provider key.",
     "_temporary_upload": (
         "Requires MCP_TEMPORARY_UPLOAD_ENABLED=true, TOS configuration and "
         "MCP_UPLOAD_CLIENT_SECRET_SHA256 operator enrollment; no generation-provider key."
@@ -47,7 +45,6 @@ _HTTP_REGISTRATION_GATES = {
 _PROVIDER_HEADERS = {
     "modelark": "X-ModelArk-Api-Key",
     "seed-speech": "X-Seed-Speech-Api-Key",
-    "vision-cv": "X-OmniHuman-Api-Key",
 }
 
 

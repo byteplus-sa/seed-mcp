@@ -1,9 +1,9 @@
 # Architecture
 
-Seed MCP is a direct-call Python/FastMCP server. The catalog contains 15 local
-tools; HTTP exposes seven discovery/provider tools, or ten with OmniHuman.
+Seed MCP is a direct-call Python/FastMCP server. The catalog contains 12 local
+tools; HTTP exposes seven discovery/provider tools.
 Opt-in HTTP-only `media_prepare_upload` adds one signing capability; its client
-uploads directly to private TOS. The full catalog has 16 definitions.
+uploads directly to private TOS. The full catalog has 13 definitions.
 There are no MCP jobs, native tasks or inference workers.
 
 ## Request Flow
@@ -36,10 +36,9 @@ a pod restart. Provider work remains asynchronous independently of the pods.
 | --- | --- | --- |
 | ModelArk | `https://ark.ap-southeast.bytepluses.com/api/v3` | Bearer; Seedream and Seedance |
 | Seed Speech | `https://voice.ap-southeast-1.bytepluses.com` | `X-Api-Key`; Seed Audio |
-| Vision AI | `https://openapi.cv.bytepluses.com` | Separate Bearer; OmniHuman |
 
-Clients privately send `X-ModelArk-Api-Key`, `X-Seed-Speech-Api-Key` or
-`X-OmniHuman-Api-Key`, plus `X-MCP-Client-Secret`. Credentials live only for the
+Clients privately send `X-ModelArk-Api-Key` or `X-Seed-Speech-Api-Key`,
+plus `X-MCP-Client-Secret`. Credentials live only for the
 HTTP request and never fall back to operator provider keys. The client secret
 and operator HMAC define ephemeral admission scopes, not provider task access.
 Clients sharing a provider key have the task access that provider authorizes.

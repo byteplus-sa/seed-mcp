@@ -29,17 +29,15 @@ from ark_mcp.server import create_server
 
 MODELARK = "https://ark.ap-southeast.bytepluses.com/api/v3"
 SPEECH = "https://voice.ap-southeast-1.bytepluses.com"
-VISION = "https://openapi.cv.bytepluses.com"
 VIDEO_MODEL = "dreamina-seedance-2-5-260628"
 IMAGE_MODEL = "dola-seedream-5-0-pro-260628"
 MODELARK_KEY = "synthetic-modelark-canary!+/="
 SPEECH_KEY = "synthetic-speech-canary!+/="
-VISION_KEY = "synthetic-vision-canary!+/="
 CLIENT_SECRET = "b1" * 32  # pragma: allowlist secret
 OTHER_SECRET = "c2" * 32  # pragma: allowlist secret
 HMAC_KEY = "d3" * 32
 OPERATOR_KEY = "synthetic-operator-never-dispatch"
-CANARIES = (MODELARK_KEY, SPEECH_KEY, VISION_KEY, CLIENT_SECRET, HMAC_KEY, OPERATOR_KEY)
+CANARIES = (MODELARK_KEY, SPEECH_KEY, CLIENT_SECRET, HMAC_KEY, OPERATOR_KEY)
 PUBLIC_TOOLS = {
     "ark_list_models",
     "seedream_generate_image",
@@ -49,7 +47,6 @@ PUBLIC_TOOLS = {
     "gen_task_cancel_or_delete",
     "seed_audio_generate",
 }
-OMNIHUMAN_TOOLS = {"omnihuman_create_task", "omnihuman_get_task", "omnihuman_cancel_task"}
 
 
 def http_settings(tmp_path: Path, **overrides: Any) -> Settings:
@@ -64,7 +61,6 @@ def http_settings(tmp_path: Path, **overrides: Any) -> Settings:
             "ARTIFACT_DIR": str(tmp_path / "artifacts"),
             "BYTEPLUS_MODELARK_BASE_URL": MODELARK,
             "BYTEPLUS_SEED_AUDIO_BASE_URL": SPEECH,
-            "BYTEPLUS_CV_BASE_URL": VISION,
             "SEEDANCE_DEFAULT_MODEL": VIDEO_MODEL,
             "SEEDREAM_DEFAULT_MODEL": IMAGE_MODEL,
             "RATE_LIMIT_RPM": 600,
@@ -187,9 +183,7 @@ def assert_no_canaries(text: str) -> None:
         assert quote(canary, safe="") not in text
 
 
-@pytest.mark.parametrize(
-    "header", ["X-ModelArk-Api-Key", "X-Seed-Speech-Api-Key", "X-OmniHuman-Api-Key"]
-)
+@pytest.mark.parametrize("header", ["X-ModelArk-Api-Key", "X-Seed-Speech-Api-Key"])
 @pytest.mark.parametrize(
     ("name", "input_data"),
     [
@@ -257,18 +251,17 @@ async def test_credential_reuse_returns_safe_http_error_before_tool_execution(
     assert not (tmp_path / "artifacts").exists()
 
 
-@pytest.mark.parametrize("omnihuman", [False, True])
 @respx.mock
-async def test_anonymous_catalog_and_resources_are_static(tmp_path: Path, omnihuman: bool) -> None:
-    settings = http_settings(tmp_path, BYTEPLUS_OMNIHUMAN_ENABLED=omnihuman)
+async def test_anonymous_catalog_and_resources_are_static(tmp_path: Path) -> None:
+    settings = http_settings(tmp_path)
     async with http_server(tmp_path, settings=settings) as (_, _, client):
         anonymous = await rpc(client, "tools/list")
         authenticated = await rpc(client, "tools/list", headers=credentials())
         assert anonymous == authenticated
         tools = anonymous["result"]["tools"]
-        expected = PUBLIC_TOOLS | (OMNIHUMAN_TOOLS if omnihuman else set())
+        expected = PUBLIC_TOOLS
         assert {tool["name"] for tool in tools} == expected
-        assert len(tools) == (10 if omnihuman else 7)
+        assert len(tools) == 7
         assert (await rpc(client, "resources/list"))["result"]["resources"] == []
         assert (await rpc(client, "resources/templates/list"))["result"]["resourceTemplates"] == []
         discovery = successful(await call_tool(client, "ark_list_models", {}))
@@ -282,15 +275,6 @@ async def test_anonymous_catalog_and_resources_are_static(tmp_path: Path, omnihu
     [
         ("seedream_generate_image", {"prompt": "square"}, "X-ModelArk-Api-Key", MODELARK_KEY),
         ("seed_audio_generate", {"text_prompt": "tone"}, "X-Seed-Speech-Api-Key", SPEECH_KEY),
-        (
-            "omnihuman_create_task",
-            {
-                "image": "https://example.com/face.png",
-                "audio": "https://example.com/voice.wav",
-            },
-            "X-OmniHuman-Api-Key",
-            VISION_KEY,
-        ),
     ],
 )
 @respx.mock
@@ -306,19 +290,13 @@ async def test_only_selected_customer_key_is_sent_to_official_origin(
             f"{SPEECH}/api/v3/tts/create",
             {"code": 0, "url": "https://example.com/audio.wav"},
         ),
-        "omnihuman_create_task": (
-            f"{VISION}/api/common/v3/submit_task_v2",
-            {"code": 10000, "data": {"task_id": "avatar-owned"}},
-        ),
     }
     url, body = routes[name]
     route = respx.post(url).respond(200, json=body)
     settings = http_settings(
         tmp_path,
-        BYTEPLUS_OMNIHUMAN_ENABLED=True,
         BYTEPLUS_MODELARK_API_KEY=OPERATOR_KEY,
         BYTEPLUS_SEED_SPEECH_API_KEY=OPERATOR_KEY,
-        BYTEPLUS_CV_API_KEY=OPERATOR_KEY,
     )
     async with http_server(tmp_path, settings=settings) as (_, _, client):
         result = successful(
@@ -383,39 +361,6 @@ async def test_http_audio_format_metadata_and_controls(
     assert not (tmp_path / "artifacts").exists()
 
 
-@pytest.mark.parametrize("http_status", [200, 400])
-@respx.mock
-async def test_http_completed_avatar_cancel_returns_typed_refusal(
-    tmp_path: Path, http_status: int
-) -> None:
-    route = respx.post(f"{VISION}/api/common/v3/cancel_task").respond(
-        http_status,
-        json={
-            "code": 50217,
-            "message": "Cancel not allow: task already been executed",
-            "request_id": "synthetic-cancel-refusal",
-        },
-    )
-    settings = http_settings(tmp_path, BYTEPLUS_OMNIHUMAN_ENABLED=True)
-    async with http_server(tmp_path, settings=settings) as (_, _, client):
-        result = successful(
-            await call_tool(
-                client,
-                "omnihuman_cancel_task",
-                {"task_id": "completed-avatar"},
-                headers=credentials(VISION_KEY, header="X-OmniHuman-Api-Key"),
-            )
-        )
-    assert result["canceled"] is False
-    assert result["task_id"] == "completed-avatar"
-    assert result["request_id"] == "synthetic-cancel-refusal"
-    assert "already started or finished" in result["message"]
-    assert route.call_count == len(respx.calls) == 1
-    assert route.calls[0].request.headers["Authorization"] == f"Bearer {VISION_KEY}"
-    assert_no_canaries(json.dumps(result))
-    assert not (tmp_path / "artifacts").exists()
-
-
 @pytest.mark.parametrize(
     ("name", "input_data"),
     [
@@ -423,7 +368,6 @@ async def test_http_completed_avatar_cancel_returns_typed_refusal(
         ("seedream_generate_image", {"prompt": "square", "dry_run": True}),
         ("seedance_create_task", {"prompt": "scene", "dry_run": True}),
         ("seed_audio_generate", {"text_prompt": "tone"}),
-        ("omnihuman_get_task", {"task_id": "unknown"}),
     ],
 )
 @pytest.mark.parametrize("supplied", ["none", "key_only", "secret_only", "wrong_provider"])
@@ -431,13 +375,7 @@ async def test_http_completed_avatar_cancel_returns_typed_refusal(
 async def test_missing_credentials_never_fall_back_to_operator(
     tmp_path: Path, name: str, input_data: dict[str, Any], supplied: str
 ) -> None:
-    selected = (
-        "X-Seed-Speech-Api-Key"
-        if name == "seed_audio_generate"
-        else "X-OmniHuman-Api-Key"
-        if name.startswith("omnihuman")
-        else "X-ModelArk-Api-Key"
-    )
+    selected = "X-Seed-Speech-Api-Key" if name == "seed_audio_generate" else "X-ModelArk-Api-Key"
     headers = {
         "none": {},
         "key_only": {selected: MODELARK_KEY},
@@ -451,10 +389,8 @@ async def test_missing_credentials_never_fall_back_to_operator(
     }[supplied]
     settings = http_settings(
         tmp_path,
-        BYTEPLUS_OMNIHUMAN_ENABLED=True,
         BYTEPLUS_MODELARK_API_KEY=OPERATOR_KEY,
         BYTEPLUS_SEED_SPEECH_API_KEY=OPERATOR_KEY,
-        BYTEPLUS_CV_API_KEY=OPERATOR_KEY,
     )
     async with http_server(tmp_path, settings=settings) as (_, _, client):
         result = await call_tool(client, name, input_data, headers=headers)
@@ -576,22 +512,7 @@ async def test_in_memory_http_server_cannot_reuse_restored_headers(
         ("seedream_generate_image", {"prompt": "square", "persist": True}),
         ("seed_audio_generate", {"text_prompt": "tone", "persist": True}),
         ("gen_task_get", {"task_ids": ["private"], "persist_output": True}),
-        ("omnihuman_get_task", {"task_id": "private", "persist_output": True}),
         ("seedream_generate_image", {"prompt": "square", "output_path": "/tmp/private.png"}),
-        (
-            "omnihuman_create_task",
-            {
-                "image": "seed-media://artifacts/private",
-                "audio": "https://example.com/a.wav",
-            },
-        ),
-        (
-            "omnihuman_create_task",
-            {
-                "image": "file:///tmp/private.png",
-                "audio": "https://example.com/a.wav",
-            },
-        ),
     ],
 )
 @respx.mock
@@ -601,11 +522,8 @@ async def test_http_persistence_and_server_files_are_denied_before_dispatch(
     headers = {
         **credentials(),
         "X-Seed-Speech-Api-Key": SPEECH_KEY,
-        "X-OmniHuman-Api-Key": VISION_KEY,
     }
-    async with http_server(
-        tmp_path, settings=http_settings(tmp_path, BYTEPLUS_OMNIHUMAN_ENABLED=True)
-    ) as (_, _, client):
+    async with http_server(tmp_path) as (_, _, client):
         assert_denied(await call_tool(client, name, input_data, headers=headers))
     assert len(respx.calls) == 0
 
@@ -671,7 +589,7 @@ async def test_canary_credentials_stay_out_of_results_logs_spans_and_state(
     tracer.start_as_current_span.side_effect = span_context
     monkeypatch.setattr("fastmcp.telemetry.otel_get_tracer", lambda *args, **kwargs: tracer)
     caplog.set_level(logging.DEBUG)
-    detail = " ".join((MODELARK_KEY, SPEECH_KEY, VISION_KEY, CLIENT_SECRET))
+    detail = " ".join((MODELARK_KEY, SPEECH_KEY, CLIENT_SECRET))
     route = respx.post(f"{MODELARK}/images/generations")
     if failure == "transport_error":
         route.mock(side_effect=httpx.ReadError(detail))
@@ -689,7 +607,6 @@ async def test_canary_credentials_stay_out_of_results_logs_spans_and_state(
             headers={
                 **credentials(),
                 "X-Seed-Speech-Api-Key": SPEECH_KEY,
-                "X-OmniHuman-Api-Key": VISION_KEY,
             },
         )
         assert_denied(response)

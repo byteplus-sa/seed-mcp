@@ -80,7 +80,7 @@ def profile(frame, event, arg):
         event == "call"
         and frame.f_globals.get("__name__") == "ark_mcp.tools._catalog"
         and frame.f_code.co_name in {
-            "_always", "_local", "_modelark", "_seed_audio", "_object_storage", "_omnihuman", "_temporary_upload",
+            "_always", "_local", "_modelark", "_seed_audio", "_object_storage", "_temporary_upload",
         }
     ):
         raise AssertionError("Exporter evaluated a registration gate")
@@ -223,7 +223,7 @@ runpy.run_path = missing_gate
 
 def test_catalog_inventory_and_order_are_exact(exported: dict[str, Any]) -> None:
     assert [tool["name"] for tool in exported["tools"]] == [entry.name for entry in CATALOG]
-    assert len(exported["tools"]) == len(CATALOG) == 16
+    assert len(exported["tools"]) == len(CATALOG) == 13
     assert {tool["name"] for tool in exported["tools"]} == {
         "ark_list_models",
         "seed_media_get_artifact",
@@ -233,9 +233,6 @@ def test_catalog_inventory_and_order_are_exact(exported: dict[str, Any]) -> None
         "media_upload",
         "media_presign",
         "media_prepare_upload",
-        "omnihuman_create_task",
-        "omnihuman_get_task",
-        "omnihuman_cancel_task",
         "seedream_generate_image",
         "seedance_create_task",
         "gen_task_get",
@@ -262,7 +259,7 @@ def test_documentation_examples_match_actual_input_schemas(exported: dict[str, A
                 )
 
 
-@pytest.mark.parametrize("name", ["seedance_create_task", "omnihuman_create_task"])
+@pytest.mark.parametrize("name", ["seedance_create_task"])
 def test_create_key_schema_describes_transport_rules_and_validates_boundaries(
     exported: dict[str, Any], name: str
 ) -> None:
@@ -273,14 +270,7 @@ def test_create_key_schema_describes_transport_rules_and_validates_boundaries(
     assert "idempotency_key" not in model.get("required", [])
     for text in ("Unsupported", "omit", "stateless", "replay", "uncertain"):
         assert text in field["description"]
-    arguments = (
-        {"prompt": "A paper boat on calm water.", "variations": 2}
-        if name == "seedance_create_task"
-        else {
-            "image": "https://example.com/portrait.png",
-            "audio": "https://example.com/speech.mp3",
-        }
-    )
+    arguments = {"prompt": "A paper boat on calm water.", "variations": 2}
     validator = Draft202012Validator(schema)
     validator.validate({"input": arguments})
     for key in (None, "a" * 16, "Z9_-" * 32, "fa02c945-0497-4cd2-987b-e56b1de39915"):
@@ -329,7 +319,7 @@ process.stdout.write(JSON.stringify(
     assert generated.returncode == 0, generated.stderr
     pages = dict(json.loads(generated.stdout))
     examples = json.loads((root / "docs/site/tool-examples.json").read_text(encoding="utf-8"))
-    assert "omnihuman_create_task" in examples
+    assert "seedance_create_task" in examples
     for tool in exported["tools"]:
         name = tool["name"]
         if name not in pages or name not in examples:
@@ -341,7 +331,7 @@ process.stdout.write(JSON.stringify(
         call = json.loads(match[1])
         assert call["name"] == name
         Draft202012Validator(tool["inputSchema"]).validate(call["arguments"])
-        if name in {"seedance_create_task", "omnihuman_create_task"}:
+        if name == "seedance_create_task":
             request = call["arguments"]["input"]
             assert "idempotency_key" not in request
             local = page.split("Exact MCP call (for developers)</summary>", 1)[1]
@@ -371,7 +361,6 @@ def test_model_tables_only_document_catalog_tools() -> None:
     [
         ("seedream_generate_image", "seedream_default_model"),
         ("seedance_create_task", "seedance_default_model"),
-        ("omnihuman_create_task", "omnihuman_req_key"),
     ],
 )
 def test_model_table_ids_match_static_configuration_defaults(tool: str, setting: str) -> None:
@@ -459,7 +448,6 @@ def test_all_registration_gates_name_the_exact_environment_variables(
             "S3_SECRET_KEY",
             "S3_BUCKET",
         },
-        "_omnihuman": {"BYTEPLUS_OMNIHUMAN_ENABLED", "BYTEPLUS_CV_API_KEY"},
         "_temporary_upload": set(),
     }
     tools = {tool["name"]: tool for tool in exported["tools"]}
@@ -470,8 +458,6 @@ def test_all_registration_gates_name_the_exact_environment_variables(
         assert variables == expected[entry.gate.__name__], entry.name
         if entry.gate.__name__ == "_always":
             assert "always" in gate.lower()
-        if entry.gate.__name__ == "_omnihuman":
-            assert "=true" in gate
         if entry.gate.__name__ == "_object_storage":
             assert "OBJECT_STORAGE_BACKEND=tos" in gate
             assert "OBJECT_STORAGE_BACKEND=s3" in gate
@@ -481,12 +467,9 @@ def test_all_registration_gates_name_the_exact_environment_variables(
 def test_transport_inventory_and_execution_match_catalog(exported: dict[str, Any]) -> None:
     from ark_mcp.config.env import Settings
 
-    settings = Settings.model_construct(mcp_transport="http", omnihuman_enabled=False)
-    with_omnihuman = Settings.model_construct(mcp_transport="http", omnihuman_enabled=True)
+    settings = Settings.model_construct(mcp_transport="http")
     ordinary = {entry.name for entry in CATALOG if entry.gate(settings)}
-    enabled = {entry.name for entry in CATALOG if entry.gate(with_omnihuman)}
     assert len(ordinary) == 7
-    assert len(enabled) == 10
     for tool in exported["tools"]:
         transports = tool["transports"]
         if tool["name"] == "media_prepare_upload":
@@ -496,7 +479,7 @@ def test_transport_inventory_and_execution_match_catalog(exported: dict[str, Any
             assert "MCP_TEMPORARY_UPLOAD_ENABLED=true" in transports["http"]["registration_gate"]
             assert "MCP_UPLOAD_CLIENT_SECRET_SHA256" in transports["http"]["registration_gate"]
             continue
-        assert set(transports) == ({"stdio", "http"} if tool["name"] in enabled else {"stdio"})
+        assert set(transports) == ({"stdio", "http"} if tool["name"] in ordinary else {"stdio"})
         assert transports["stdio"]["execution"] == tool["execution"] == "direct"
         if "http" in transports:
             assert transports["http"]["execution"] == "direct"
@@ -504,8 +487,6 @@ def test_transport_inventory_and_execution_match_catalog(exported: dict[str, Any
             assert transports["http"]["credential_header"] == (
                 None
                 if tool["name"] == "ark_list_models"
-                else "X-OmniHuman-Api-Key"
-                if tool["name"].startswith("omnihuman_")
                 else "X-Seed-Speech-Api-Key"
                 if tool["name"] == "seed_audio_generate"
                 else "X-ModelArk-Api-Key"
@@ -518,7 +499,6 @@ def test_transport_inventory_and_execution_match_catalog(exported: dict[str, Any
     [
         ("seed_audio_generate", "persist"),
         ("seedream_generate_image", "persist"),
-        ("omnihuman_get_task", "persist_output"),
     ],
 )
 def test_persistence_defaults_are_false_for_all_transports(

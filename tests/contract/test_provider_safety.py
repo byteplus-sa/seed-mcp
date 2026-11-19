@@ -23,18 +23,15 @@ from ark_mcp.providers.modelark.seedream import SeedreamService
 from ark_mcp.providers.retry import RetryPolicy, call_with_retry
 from ark_mcp.providers.seed_speech.client import SeedSpeechGateway
 from ark_mcp.providers.seed_speech.seed_audio import SeedAudioService
-from ark_mcp.providers.vision_cv.client import VisionCvGateway
-from ark_mcp.providers.vision_cv.omnihuman import OmniHumanService
 
 MODELARK_BASE = "https://ark.ap-southeast.bytepluses.com/api/v3"
 TEST_CREDENTIAL = "synthetic-key"  # pragma: allowlist secret
-GATEWAYS = [ModelArkGateway, SeedSpeechGateway, VisionCvGateway]
+GATEWAYS = [ModelArkGateway, SeedSpeechGateway]
 SERVICES = [
     SeedanceService,
     SeedreamService,
     GenerationTaskService,
     SeedAudioService,
-    OmniHumanService,
 ]
 
 
@@ -74,7 +71,6 @@ def test_gateway_rejects_invalid_key_without_startup_fallback(
     for name in (
         "BYTEPLUS_MODELARK_API_KEY",
         "BYTEPLUS_SEED_SPEECH_API_KEY",
-        "BYTEPLUS_CV_API_KEY",
     ):
         monkeypatch.setenv(name, "synthetic-startup-key")
     with pytest.raises(ValueError, match="API key") as info:
@@ -180,13 +176,12 @@ async def test_transport_spans_and_exception_chain_do_not_capture_secrets(
 
 
 @pytest.fixture
-def redact_canaries(monkeypatch: pytest.MonkeyPatch) -> tuple[str, str, str, str]:
+def redact_canaries(monkeypatch: pytest.MonkeyPatch) -> tuple[str, str, str]:
     from ark_mcp.security import credentials
 
     canaries = (
         "synthetic-modelark-canary",
         "synthetic-speech-canary",
-        "synthetic-vision-canary",
         "synthetic-client-secret-canary",
     )
 
@@ -287,13 +282,12 @@ async def test_service_close_owns_only_its_injected_gateway(service_type: type[A
     gateway.close.assert_awaited_once_with()
 
 
-@pytest.mark.parametrize("service_name", ["seedream", "seed_audio", "omnihuman"])
+@pytest.mark.parametrize("service_name", ["seedream", "seed_audio"])
 @pytest.mark.parametrize("failure", [httpx.ReadError, httpx.WriteError, httpx.RemoteProtocolError])
 @respx.mock
 async def test_other_mutations_do_not_retry_uncertain_dispatch(
     service_name: str, failure: type[httpx.TransportError]
 ) -> None:
-    from ark_mcp.providers.vision_cv.schemas import OmniHumanSubmitRequest
 
     service: Any
     if service_name == "seedream":
@@ -301,20 +295,13 @@ async def test_other_mutations_do_not_retry_uncertain_dispatch(
         path = "/images/generations"
         request = SeedreamService.build_request(model="test", prompt="test")
         operation = partial(service.generate, request)
-    elif service_name == "seed_audio":
+    else:
         service = SeedAudioService(
             SeedSpeechGateway(api_key=TEST_CREDENTIAL, base_url=MODELARK_BASE)
         )
         path = "/api/v3/tts/create"
         audio_request = SeedAudioService.build_request(text_prompt="test")
         operation = partial(service.generate, audio_request)
-    else:
-        service = OmniHumanService(VisionCvGateway(api_key=TEST_CREDENTIAL, base_url=MODELARK_BASE))
-        path = "/api/common/v3/submit_task_v2"
-        avatar_request = OmniHumanSubmitRequest(
-            image_url="https://example.com/face.png", audio_url="https://example.com/input.wav"
-        )
-        operation = partial(service.create, avatar_request)
     route = respx.post(f"{MODELARK_BASE}{path}").mock(side_effect=failure("uncertain dispatch"))
     try:
         with pytest.raises(ProviderError) as info:

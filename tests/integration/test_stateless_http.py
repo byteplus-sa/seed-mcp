@@ -12,7 +12,6 @@ import respx
 from tests.integration.test_byok_http import (
     MODELARK,
     OTHER_SECRET,
-    VISION,
     assert_denied,
     call_tool,
     credentials,
@@ -76,27 +75,19 @@ async def test_tasks_follow_provider_credentials_across_instances_and_restart(
     [
         ("seedance_create_task", {"prompt": "Synthetic"}),
         ("seedance_create_task", {"prompt": "Synthetic", "dry_run": True}),
-        (
-            "omnihuman_create_task",
-            {"image": "https://example.com/face.png", "audio": "https://example.com/audio.wav"},
-        ),
     ],
 )
 @respx.mock
 async def test_legacy_replay_key_is_rejected_before_dispatch(
     tmp_path: Path, tool: str, arguments: dict
 ) -> None:
-    config = http_settings(tmp_path, BYTEPLUS_OMNIHUMAN_ENABLED=True)
+    config = http_settings(tmp_path)
     async with http_server(tmp_path, settings=config) as (_, _, client):
         result = await call_tool(
             client,
             tool,
             {**arguments, "idempotency_key": "legacy-operation-0001"},
-            headers=credentials(
-                header="X-OmniHuman-Api-Key"
-                if tool.startswith("omnihuman")
-                else "X-ModelArk-Api-Key"
-            ),
+            headers=credentials(),
         )
         assert_denied(result)
         assert "unsupported" in str(result)
@@ -149,24 +140,3 @@ async def test_uncertain_create_is_not_automatically_retried(tmp_path: Path) -> 
         assert_denied(result)
         assert "ambiguous_completion=True" in str(result)
     assert route.call_count == 1
-
-
-@respx.mock
-async def test_omnihuman_works_without_journal_or_local_storage(tmp_path: Path) -> None:
-    route = respx.post(f"{VISION}/api/common/v3/submit_task_v2").respond(
-        200,
-        json={"code": 10000, "data": {"task_id": "avatar-task"}, "request_id": "request-avatar"},
-    )
-    config = http_settings(tmp_path, BYTEPLUS_OMNIHUMAN_ENABLED=True)
-    async with http_server(tmp_path, settings=config) as (_, _, client):
-        result = successful(
-            await call_tool(
-                client,
-                "omnihuman_create_task",
-                {"image": "https://example.com/face.png", "audio": "https://example.com/audio.wav"},
-                headers=credentials(header="X-OmniHuman-Api-Key"),
-            )
-        )
-        assert result["task_id"] == "avatar-task"
-    assert route.call_count == 1
-    assert not (tmp_path / "artifacts").exists()

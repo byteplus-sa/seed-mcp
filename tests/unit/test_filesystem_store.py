@@ -198,7 +198,7 @@ class TestFilesystemArtifactStore:
         ("notbytepluses.com", False),
         ("3002771874-amk-3000006864-default-934334.vod.ap-southeast-1.byteplusvod.com", True),
         ("evil.byteplusvod.com.attacker.example", False),
-        ("v16m-default.tiktokcdn.com", False),
+        ("v16m-default.media.example.com", False),
     ],
 )
 def test_trusted_host_policy_rejects_suffix_confusion(hostname: str, expected: bool) -> None:
@@ -376,29 +376,29 @@ async def test_copy_translates_storage_failure(
     assert "signature=" not in str(exc_info.value)
 
 
-OMNIHUMAN_VIDEO = DownloadedMedia(
+EXTERNAL_VIDEO = DownloadedMedia(
     body=b"video-bytes",
     content_type="video/mp4",
-    final_url="https://v16m-default.tiktokcdn.com/out.mp4",
+    final_url="https://v16m-default.media.example.com/out.mp4",
 )
 
 
 @pytest.mark.parametrize(
     ("hostname", "expected"),
     [
-        ("v16m-default.tiktokcdn.com", True),
-        ("V16M-DEFAULT.TIKTOKCDN.COM", True),
+        ("v16m-default.media.example.com", True),
+        ("V16M-DEFAULT.MEDIA.EXAMPLE.COM", True),
         ("media.bytepluses.com", True),
-        ("tiktokcdn.com", False),
-        ("tiktokcdn.com.attacker.example", False),
-        ("nottiktokcdn.com", False),
+        ("media.example.com", False),
+        ("media.example.com.attacker.example", False),
+        ("notmedia.example.com", False),
         ("evil.example", False),
     ],
 )
 async def test_extra_trusted_suffixes_extend_the_policy_for_that_call_only(
     tmp_path: Path, hostname: str, expected: bool
 ) -> None:
-    downloader = StubDownloader(result=OMNIHUMAN_VIDEO)
+    downloader = StubDownloader(result=EXTERNAL_VIDEO)
     store = FilesystemArtifactStore(
         artifact_dir=str(tmp_path),
         ttl_seconds=3600,
@@ -406,20 +406,20 @@ async def test_extra_trusted_suffixes_extend_the_policy_for_that_call_only(
     )
     try:
         await store.copy_from_trusted_url(
-            "https://v16m-default.tiktokcdn.com/out.mp4",
+            "https://v16m-default.media.example.com/out.mp4",
             media_type="video",
             mime_type="video/mp4",
-            extra_trusted_host_suffixes=(".tiktokcdn.com",),
+            extra_trusted_host_suffixes=(".media.example.com",),
         )
         assert downloader.trusted_hosts is not None
         assert downloader.trusted_hosts(hostname) is expected
 
         await store.copy_from_trusted_url(
-            "https://v16m-default.tiktokcdn.com/out.mp4",
+            "https://v16m-default.media.example.com/out.mp4",
             media_type="video",
             mime_type="video/mp4",
         )
-        assert downloader.trusted_hosts("v16m-default.tiktokcdn.com") is False
+        assert downloader.trusted_hosts("v16m-default.media.example.com") is False
     finally:
         await store.close()
 
@@ -428,15 +428,15 @@ async def test_extra_trusted_suffix_must_start_with_a_dot(tmp_path: Path) -> Non
     store = FilesystemArtifactStore(
         artifact_dir=str(tmp_path),
         ttl_seconds=3600,
-        downloader=StubDownloader(result=OMNIHUMAN_VIDEO),  # type: ignore[arg-type]
+        downloader=StubDownloader(result=EXTERNAL_VIDEO),  # type: ignore[arg-type]
     )
     try:
         with pytest.raises(ValueError, match="start with"):
             await store.copy_from_trusted_url(
-                "https://v16m-default.tiktokcdn.com/out.mp4",
+                "https://v16m-default.media.example.com/out.mp4",
                 media_type="video",
                 mime_type="video/mp4",
-                extra_trusted_host_suffixes=("tiktokcdn.com",),
+                extra_trusted_host_suffixes=("media.example.com",),
             )
     finally:
         await store.close()

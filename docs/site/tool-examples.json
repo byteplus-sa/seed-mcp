@@ -28,12 +28,6 @@
       "dry_run": true
     }
   },
-  "omnihuman_create_task": {
-    "input": {
-      "image": "https://example.com/portrait.png",
-      "audio": "https://example.com/speech.mp3"
-    }
-  },
   "seed_audio_generate": {
     "input": {
       "text_prompt": "Gentle rain on a window. Max duration: 5 seconds"
@@ -41,7 +35,9 @@
   },
   "gen_task_get": {
     "input": {
-      "task_ids": ["cgt-example-replace-me"],
+      "task_ids": [
+        "cgt-example-replace-me"
+      ],
       "persist_output": false
     }
   }

@@ -153,7 +153,6 @@ def serve(directory: Path, port: int, mode: str) -> None:
             "SEEDREAM_MODEL_BINDINGS": [{"model_id": IMAGE_MODEL, "family": "pro"}],
             "SEEDANCE_DEFAULT_MODEL": VIDEO_MODEL,
             "SEEDANCE_MODEL_BINDINGS": [{"model_id": VIDEO_MODEL, "family": "seedance_2_5"}],
-            "BYTEPLUS_OMNIHUMAN_ENABLED": mode == "omni",
             "MCP_ADMISSION_TIMEOUT_SECONDS": 0.05,
             "MCP_TOOL_TIMEOUT_SECONDS": TOOL_TIMEOUT,
             "PROVIDER_MAX_CONCURRENCY": 1,
@@ -166,7 +165,7 @@ def serve(directory: Path, port: int, mode: str) -> None:
         }
     )
     require(
-        not any((settings.modelark_api_key, settings.seed_speech_api_key, settings.cv_api_key)),
+        not any((settings.modelark_api_key, settings.seed_speech_api_key)),
         "worker_environment_credentials",
     )
     with respx.mock(assert_all_mocked=True, assert_all_called=False) as router:

@@ -1,6 +1,6 @@
 # Tools Reference
 
-The local stdio server exposes a conditional set of 15 typed tools. `ark_list_models`, `seed_media_get_artifact`,
+The local stdio server exposes a conditional set of 12 typed tools. `ark_list_models`, `seed_media_get_artifact`,
 `seed_media_export_artifact`, and `seed_media_persist_url` are always
 available, provider tools are registered only when their credentials
 are configured, and `media_upload` and `media_presign` are registered when
@@ -9,20 +9,20 @@ tool accepts a Pydantic input model and returns a Pydantic output model as
 structured content. All tools accept a `ctx: Context` parameter for progress
 reporting and logging.
 
-HTTP exposes 7 discovery/provider tools, or 10 with OmniHuman enabled, without
+HTTP exposes 7 discovery/provider tools, without
 operator provider keys. Discovery is anonymous/static. Provider calls use the
 selected BYOK header plus `X-MCP-Client-Secret` and run directly in the foreground.
 HTTP has no jobs/native tasks/local storage/artifact tools/resources. No OAuth,
 signup, server-issued key or environment-key fallback exists.
 See [HTTP setup](setup/shared-server.md) and [Security](security.md).
 
-Optional HTTP-only `media_prepare_upload` adds one tool (8/11 total).
+Optional HTTP-only `media_prepare_upload` adds one tool (8 total).
 Operator enrollment authorizes preparation without a generation-provider key;
 the client uploads directly to TOS. See [temporary uploads](temporary-uploads.md).
 
 Startup-key/artifact guidance below is **stdio-only**. Catalog
 scope labels are metadata, not customer-selected roles. Seed Audio/Seedream
-`persist` and OmniHuman get `persist_output` default to false globally.
+`persist` default to false globally.
 HTTP rejects true, local paths and stored artifact references. Local true is
 explicit; HTTP clients retrieve expiring URLs themselves.
 
@@ -66,8 +66,8 @@ SDK/SQLite cleanup may exceed the deadline. `ADMISSION_TIMEOUT` means this
 attempt did not dispatch, not the entire batch. `TOOL_DEADLINE_EXCEEDED`
 retains mutation uncertainty and known safe IDs. Never blindly resubmit.
 
-Seedance/OmniHuman return provider task IDs from create. Poll with
-`gen_task_get`/`omnihuman_get_task`, never create again to poll.
+Seedance returns provider task IDs from create. Poll with
+`gen_task_get`, never create again to poll.
 Provider queues remain asynchronous. Poll with `persist_output=false`, then
 call directly with `persist_output=true` on stdio to store successful outputs.
 HTTP clients download their temporary URLs.
@@ -132,7 +132,7 @@ needs no scope.
     resolution, audio-only input, `task_types`, `output_formats`.
   - `image`: reference maximum, output formats, batch support, sizes,
     transparent-background support.
-- **`services`**: `modelark`, `seed_audio`, `omnihuman`, `object_storage`,
+- **`services`**: `modelark`, `seed_audio`, `object_storage`,
   each with `enabled` and, when disabled,
   a `reason` naming the setting to change (never a secret value).
 - **`connection`**: null by default. With `check_connection=true`, reports
@@ -217,7 +217,7 @@ Persist a temporary provider output URL as a durable artifact. Use it when a
 generation or retrieval result returned an artifact with `id="provider-url"`
 and a `persistence_error`: the output was generated and billed, but could not
 be stored at the time. Call it before the provider URL expires (2 hours for
-Seed Audio, 24 hours for ModelArk images/video, about 1 hour for OmniHuman).
+Seed Audio, 24 hours for ModelArk images/video).
 Always registered; uses the
 `media:upload` scope (catalog capability label).
 
@@ -244,70 +244,6 @@ size limits as generation-time persistence; any other URL is rejected.
 Returns `SeedMediaPersistUrlOutput` with `artifact`, the new durable
 `ArtifactRef`. A persistence failure is a tool error that names the failure
 code and whether it is retryable.
-
-## omnihuman_create_task / omnihuman_get_task / omnihuman_cancel_task
-
-Generate a video of a person speaking or performing from one portrait image and
-one audio clip with BytePlus OmniHuman 2.0 (`realman_avatar_picture_omni20_cv`).
-The three tools are registered only when `BYTEPLUS_OMNIHUMAN_ENABLED=true` and
-the transport is HTTP or local `BYTEPLUS_CV_API_KEY` is set. HTTP requires the
-client's `X-OmniHuman-Api-Key` plus `X-MCP-Client-Secret`; it never uses an
-operator generation key. Vision AI credentials are separate from the ModelArk key.
-
-**Execution:** Direct call where registered. Explicit persistence is stdio-only; use a 660-second client timeout. Provider video generation is polled separately.
-
-### Input (`omnihuman_create_task`)
-
-| Field | Type | Required | Description |
-|---|---|---|---|
-| `image` | string | Yes | Public HTTPS URL or `seed-media://artifacts/<id>`. jpeg/png/webp/bmp/tiff/gif/heic/heif, under 30 MB, aspect ratio 0.4-2.5, 300-6000 px per side |
-| `audio` | string | Yes | Public HTTPS URL or `seed-media://artifacts/<id>`. wav or mp3, under 15 MB, 4-300 seconds |
-| `prompt` | string | No | Scene, movement, or camera guidance (up to 2000 characters; zh, en, ja, ko, es-MX, id) |
-| `watermark` | boolean | No | Provider watermark; defaults to `true` |
-
-Artifact references need an object-storage artifact backend
-(`ARTIFACT_BACKEND=object_storage`) so BytePlus can fetch a presigned URL
-(valid one hour) minted for the calling principal. With the filesystem backend,
-upload the file with `media_upload` and pass the presigned URL instead. The
-server validates artifact type, MIME type, and size; for plain URLs it applies
-the SSRF policy only, and BytePlus validates dimensions and duration.
-
-### Output
-
-- `omnihuman_create_task` returns `task_id`, `status="accepted"`, and
-  `recommended_poll_after_ms`. Submission is never retried automatically.
-- `omnihuman_get_task` returns `status` (`queued`, `running`, `succeeded`,
-  `failed`, `canceled`, `expired`, `not_found`). On the first successful poll
-  with `persist_output=true` it copies the provider video into a durable
-  `seed-media://` artifact (`video`); `source_url` is kept for one hour.
-  Supports `output_path` on stdio.
-- `omnihuman_cancel_task` returns `canceled`. Only queued tasks can be
-  canceled; a started or finished task returns `canceled=false` with an explanation,
-  including the provider's HTTP 400 / `50217` refusal. Other HTTP failures
-  remain errors, and cancellation is never retried automatically.
-  Immediately after creation the provider can reject the new ID as invalid
-  (`50200`); retry after a few seconds. Tasks usually start within seconds, so
-  cancelation is only practical when the provider queue is busy.
-
-**Audio failures surface after submission.** The provider does not validate audio
-duration or content when the task is submitted (a 2-second clip is accepted); the
-task fails during processing and `omnihuman_get_task` then returns `status="failed"`
-with `error.code` and `error.message` carrying the provider's own reason, for example
-`InvalidParameter: ... audio duration (seconds) ... must be greater than or equal to 4`.
-That failure is permanent, so do not keep polling or retry it unchanged.
-
-**Long audio:** the documented limit is 4-300 seconds and under 15 MB. A 300-second
-WAV only fits at low sample rates (16 kHz mono is about 9.6 MB, 24 kHz mono about
-14.4 MB); 44.1 kHz or 48 kHz WAV is 26-58 MB and is rejected for size. Use MP3
-(300 s at 128 kbps is about 4.8 MB) or generate shorter clips. `media_upload`
-accepts at most 10 MB of audio.
-
-**Duration:** audio drives the video, but exact duration equality is not verified.
-A live 4.0998-second WAV produced a 5.024-second avatar; provider padding or
-trimming rules remain unresolved. Verify timing before accepting a synchronized edit.
-
-Tasks are retained by the provider for 12 hours. Auth scopes:
-`omnihuman:create`, `omnihuman:read`, `omnihuman:cancel`.
 
 ## seed_audio_generate
 

@@ -51,9 +51,6 @@ def isolate_settings_env(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     monkeypatch.setenv("SEEDREAM_MODEL_BINDINGS", "[]")
     monkeypatch.setenv("SEEDANCE_MODEL_BINDINGS", "[]")
     monkeypatch.setenv("SEED_UNDERSTANDING_MODEL_BINDINGS", "[]")
-    # Likewise for OmniHuman: a developer .env with the flag and key set would
-    # register the omnihuman_* tools in every test.
-    monkeypatch.setenv("BYTEPLUS_OMNIHUMAN_ENABLED", "false")
     from ark_mcp.config.env import Settings, get_settings
 
     monkeypatch.setitem(Settings.model_config, "env_file", None)

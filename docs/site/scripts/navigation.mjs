@@ -8,7 +8,6 @@ const categories = [
       name.startsWith("gen_task_"),
   ],
   ["Audio", (name) => name === "seed_audio_generate"],
-  ["Avatars", (name) => name.startsWith("omnihuman_")],
   [
     "Uploads and artifacts",
     (name) => name.startsWith("media_") || name.startsWith("seed_media_"),

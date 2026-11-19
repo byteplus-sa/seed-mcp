@@ -18,8 +18,6 @@ from ark_mcp.providers.seed_speech.schemas import SeedAudioProviderResponse
 from ark_mcp.providers.seed_speech.seed_audio import SeedAudioService
 from ark_mcp.tools._parallel import run_variation_batch
 from ark_mcp.tools.gen_task_get import GenTaskGetInput, gen_task_get
-from ark_mcp.tools.omnihuman_create_task import OmniHumanCreateTaskInput, omnihuman_create_task
-from ark_mcp.tools.omnihuman_get_task import OmniHumanGetTaskInput, omnihuman_get_task
 from ark_mcp.tools.seed_audio_generate import (
     SeedAudioGenerateInput,
     SeedAudioGenerateOutput,
@@ -33,7 +31,6 @@ from tests.fixtures.fake_context import FakeContext
 def test_persistence_is_opt_in_on_every_transport() -> None:
     assert SeedAudioGenerateInput(text_prompt="A short tone").persist is False
     assert SeedreamGenerateInput(prompt="A blue square").persist is False
-    assert OmniHumanGetTaskInput(task_id="task-test").persist_output is False
 
 
 @pytest.mark.parametrize(
@@ -42,7 +39,6 @@ def test_persistence_is_opt_in_on_every_transport() -> None:
         (seed_audio_generate, SeedAudioGenerateInput(text_prompt="tone", persist=True)),
         (seedream_generate_image, SeedreamGenerateInput(prompt="square", persist=True)),
         (gen_task_get, GenTaskGetInput(task_ids=["test"], persist_output=True)),
-        (omnihuman_get_task, OmniHumanGetTaskInput(task_id="test", persist_output=True)),
     ],
 )
 async def test_http_persistence_is_rejected_before_provider_calls(
@@ -59,21 +55,6 @@ async def test_http_persistence_is_rejected_before_provider_calls(
     with pytest.raises(ValueError, match=r"HTTP.*persist|persist.*HTTP"):
         await handler(input_data, fake_ctx)
     credentials.assert_not_called()
-
-
-@pytest.mark.parametrize("field", ["image", "audio"])
-async def test_http_artifact_refs_fail_before_resolution(
-    fake_ctx: FakeContext, monkeypatch: pytest.MonkeyPatch, field: str
-) -> None:
-    runtime = fake_ctx.lifespan_context["runtime"]
-    runtime.settings = runtime.settings.model_copy(update={"mcp_transport": "http"})
-    resolve = AsyncMock(side_effect=AssertionError("must not resolve media"))
-    monkeypatch.setattr("ark_mcp.tools.omnihuman_create_task.resolve_media_ref", resolve)
-    refs = {"image": "https://example.com/image.png", "audio": "https://example.com/audio.wav"}
-    refs[field] = "seed-media://artifacts/stored-test"
-    with pytest.raises(ValueError, match=r"artifact.*HTTP|HTTP.*artifact"):
-        await omnihuman_create_task(OmniHumanCreateTaskInput(**refs), fake_ctx)
-    resolve.assert_not_awaited()
 
 
 @pytest.mark.parametrize(

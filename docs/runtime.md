@@ -71,7 +71,7 @@ and drains through repeated cancellation, reusing the same close task.
 Two per-pod layers, acquired owner-first for billable calls:
 
 - **Provider-level** — one global `asyncio.Semaphore` per provider bucket:
-  `"modelark"`, `"seed-speech"`, `"vision-cv"`, `"tos"`, and `"s3"`.
+  `"modelark"`, `"seed-speech"`, `"tos"`, and `"s3"`.
   Each is independently sized to `provider_limit`, so the default cap is five
   concurrent calls per provider rather than five shared across all providers.
 - **Principal-level** — one `asyncio.Semaphore(principal_limit)` per
@@ -265,8 +265,8 @@ even in local mode.
 ## HTTP Submission Journal
 
 Removed. There is no durable deduplication or saved-response replay.
-`seedance_create_task` and `omnihuman_create_task` retain nullable legacy
-`idempotency_key` schema fields but reject non-null values on both transports,
+`seedance_create_task` retains a nullable legacy
+`idempotency_key` schema field but rejects non-null values on both transports,
 including dry runs. Every repeated create is independent and may bill again.
 See [HTTP submission safety](../specs/SPEC_HOSTED_BYOK.md#http-submission-safety).
 
@@ -356,7 +356,7 @@ Finalization errors leave conservative reserved allowance and log only safe
 fields. They do not replace the provider result/error or trigger resubmission.
 Cancellation drains local bookkeeping before admission is released.
 
-Seedance and OmniHuman capture safe accepted IDs inside the slot, before the
+Seedance captures safe accepted IDs inside the slot, before the
 next await. HTTP receipts must match `[A-Za-z0-9._:-]{1,256}` and must not echo
 request/operator secrets. Unsafe IDs produce ambiguous, nonretryable
 `UNSAFE_TASK_RECEIPT` without echoing them. Safe IDs remain only in the live call
@@ -375,11 +375,10 @@ recording failure retains accepted IDs in an `AcceptedTaskError`.
 | `PermissionError` | builtin | `get_principal`, `require_owner` | missing token, missing principal/tenant claims, ownership mismatch |
 
 `NormalizedProviderError` carries: `provider` (including `modelark`, `seed-speech`,
-`byteplus-vision-cv`, `tos` and `s3`),
+`tos` and `s3`),
 `operation`, `http_status`, `code`, `message`, `request_id`, `retryable`,
 `ambiguous_completion`, `retry_after_seconds`. Transport-layer normalizers in
-`BaseHttpGateway` follow the table below. The Vision AI error provider label
-`byteplus-vision-cv` is distinct from its concurrency limiter bucket `vision-cv`.
+`BaseHttpGateway` follow the table below.
 
 | Method | `code` | `retryable` | `ambiguous_completion` |
 |---|---|---|---|
@@ -394,8 +393,8 @@ change provider state or consume billable inference:
 
 | Call | Examples | Timeout result | Auto-retried? |
 |---|---|---|---|
-| Mutation | Seedance/OmniHuman create, cancel, delete; Seedream/Seed Audio generate | `retryable=False`, `ambiguous_completion=True` | No — reconcile by task/request ID |
-| Read-only poll | Seedance `get_task`/`list_tasks`, OmniHuman status | `retryable=True`, `ambiguous_completion=False` | Yes |
+| Mutation | Seedance create, cancel, delete; Seedream/Seed Audio generate | `retryable=False`, `ambiguous_completion=True` | No — reconcile by task/request ID |
+| Read-only poll | Seedance `get_task` / `list_tasks` | `retryable=True`, `ambiguous_completion=False` | Yes |
 
 ## Parallel variations (`tools/_parallel.py`)
 

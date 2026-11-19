@@ -62,7 +62,7 @@ class MediaPresignInput(BaseModel):
         le=604800,
         description=(
             "Presigned URL validity in seconds for every key; defaults to the server presign "
-            "TTL. Use >= 3600 for asynchronous Seedance or OmniHuman inputs."
+            "TTL. Use >= 3600 for asynchronous Seedance inputs."
         ),
     )
 

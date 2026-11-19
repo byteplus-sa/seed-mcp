@@ -60,7 +60,7 @@ if TYPE_CHECKING:
     from ark_mcp.artifacts.store import ArtifactStore
     from ark_mcp.providers.tos.credentials import IrsaCredentialsProvider
 
-ProviderKey = Literal["modelark", "seed-speech", "vision-cv", "tos", "s3"]
+ProviderKey = Literal["modelark", "seed-speech", "tos", "s3"]
 
 
 class _StateCleanupFailed(RuntimeError):
@@ -135,7 +135,6 @@ class ProviderLimiters:
         self._provider = {
             "modelark": asyncio.Semaphore(provider_limit),
             "seed-speech": asyncio.Semaphore(provider_limit),
-            "vision-cv": asyncio.Semaphore(provider_limit),
             "tos": asyncio.Semaphore(provider_limit),
             "s3": asyncio.Semaphore(provider_limit),
         }
@@ -154,7 +153,7 @@ class ProviderLimiters:
         ).inc()
         return ProviderError(
             NormalizedProviderError(
-                provider="byteplus-vision-cv" if provider == "vision-cv" else provider,
+                provider=provider,
                 operation="admission",
                 code="ADMISSION_CAPACITY_EXCEEDED" if capacity else "ADMISSION_TIMEOUT",
                 message=(
@@ -1135,7 +1134,6 @@ def _safe_receipt_identifier(settings: Settings, value: str | None) -> bool:
         settings.identity_hmac_key.get_secret_value(),
         settings.modelark_api_key,
         settings.seed_speech_api_key,
-        settings.cv_api_key,
         settings.s3_access_key,
         settings.s3_secret_key,
         settings.tos_access_key,
@@ -1147,7 +1145,7 @@ def _safe_receipt_identifier(settings: Settings, value: str | None) -> bool:
 
 def capture_accepted_task(
     ctx: Context,
-    provider: Literal["modelark", "vision-cv"],
+    provider: Literal["modelark"],
     task_id: str,
     request_id: str | None,
 ) -> None:
@@ -1164,7 +1162,7 @@ def capture_accepted_task(
 
 async def record_accepted_task(
     ctx: Context,
-    provider: Literal["modelark", "vision-cv"],
+    provider: Literal["modelark"],
     task_id: str,
     request_id: str | None,
 ) -> None:
@@ -1180,7 +1178,7 @@ async def record_accepted_task(
             log_error("ownership_record_failed", provider=provider, action="record")
             raise AcceptedTaskError(
                 NormalizedProviderError(
-                    provider="modelark" if provider == "modelark" else "byteplus-vision-cv",
+                    provider=provider,
                     operation="create_task",
                     code="OWNERSHIP_RECORD_FAILED",
                     message=(

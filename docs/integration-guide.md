@@ -5,7 +5,7 @@ start with [Set Up Ark MCP](setup/install.md) and [your client guide](integratio
 Users can ask their client in plain language; the client handles tool calls.
 
 **Choose the transport first.** Both transports use direct tool calls.
-HTTP BYOK exposes 7 tools (10 with OmniHuman), plus optional temporary upload preparation, direct foreground provider calls
+HTTP BYOK exposes 7 tools, plus optional temporary upload preparation, direct foreground provider calls
 and anonymous static discovery. It has no jobs/native tasks/local storage/artifact
 tools/resources. Keep persistence false and download expiring provider URLs
 on the client. See [HTTP setup](setup/shared-server.md).
@@ -47,7 +47,7 @@ native tasks, worker queue, task snapshots or execution claims exist.
 1. Discover configured bindings and services with `ark_list_models`.
 2. For Seedream/Seedance, optionally call the product with `dry_run=true`.
 3. Make one authorized direct create call and retain safe task/request IDs.
-4. Poll Seedance with `gen_task_get` or OmniHuman with `omnihuman_get_task`;
+4. Poll Seedance with `gen_task_get`;
    never call create to poll. Respect `recommended_poll_after_ms`.
 5. On stdio, explicitly persist successful outputs with the same direct
    poller and `persist_output=true`. HTTP clients download expiring URLs.
@@ -172,7 +172,6 @@ from pathlib import Path
 from fastmcp import Client
 from fastmcp.client.transports import StdioTransport
 
-
 async def main():
     transport = StdioTransport(
         command=sys.executable,
@@ -241,7 +240,6 @@ async def main():
         if completed.is_error or completed.structured_content is None:
             raise RuntimeError("Persistence failed; retain the provider ID")
         print(completed.structured_content["tasks"][0]["outputs"])
-
 
 asyncio.run(main())
 ```
@@ -329,12 +327,12 @@ On local stdio, if only some products' tools are registered:
 
 - No ModelArk key → no `seedream_generate_image`, `seedance_create_task`,
   `gen_task_*`
-- Seed Audio, OmniHuman and object storage need their own credentials
+- Seed Audio and object storage need their own credentials
   or feature flags; see
   [Configuration](configuration.md).
 
 `ark_list_models` reports which optional services are enabled. HTTP registers
-provider tools without operator keys, subject to the OmniHuman flag; invocation
+provider tools without operator keys; invocation
 still requires the selected live provider key and client secret.
 
 ## Environment Variables Reference
@@ -358,8 +356,8 @@ still requires the selected live provider key and client secret.
 | `ARTIFACT_DIR` | No | `.artifacts` | Local artifact storage |
 | `ARTIFACT_TTL_SECONDS` | No | `604800` (7 days) | Artifact retention |
 
-HTTP clients send only the selected `X-ModelArk-Api-Key`,
-`X-Seed-Speech-Api-Key` or `X-OmniHuman-Api-Key`, plus required
+HTTP clients send only the selected `X-ModelArk-Api-Key` or
+`X-Seed-Speech-Api-Key`, plus required
 `X-MCP-Client-Secret` (client-generated 32 random bytes as 64 lowercase hex).
 Discovery is anonymous/static; provider calls including dry runs need headers.
 Keys are not persisted and there is no environment fallback, OAuth, signup or

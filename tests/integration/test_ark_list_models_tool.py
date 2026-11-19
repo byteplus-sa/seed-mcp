@@ -63,9 +63,7 @@ async def test_kind_filter_limits_results(configured: None) -> None:
 async def test_disabled_services_explain_how_to_enable_them(configured: None) -> None:
     services = {item["service"]: item for item in (await _list_models({}))["services"]}
     assert services["modelark"] == {"service": "modelark", "enabled": True, "reason": None}
-    assert set(services) == {"modelark", "seed_audio", "omnihuman", "object_storage"}
-    assert services["omnihuman"]["enabled"] is False
-    assert "BYTEPLUS_OMNIHUMAN_ENABLED" in services["omnihuman"]["reason"]
+    assert set(services) == {"modelark", "seed_audio", "object_storage"}
 
 
 async def test_reasons_never_contain_secret_values(configured: None) -> None:

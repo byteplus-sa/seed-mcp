@@ -73,16 +73,5 @@
         "capabilities": "Full-scene speech, music and sound generation; text, audio references or image reference; image and audio references are mutually exclusive; 1-5 independent variations."
       }
     ]
-  },
-  "omnihuman_create_task": {
-    "selection": "This tool has no per-call `model` argument. The identifier is a Vision AI service `req_key`, configurable with `BYTEPLUS_OMNIHUMAN_REQ_KEY`, not a ModelArk model ID.",
-    "models": [
-      {
-        "name": "OmniHuman 2.0",
-        "id": "`realman_avatar_picture_omni20_cv`",
-        "availability": "`BYTEPLUS_OMNIHUMAN_ENABLED=true`; disabled by default. Local `BYTEPLUS_CV_API_KEY` or HTTP `X-OmniHuman-Api-Key` plus client secret.",
-        "capabilities": "Image plus audio to talking-avatar video; asynchronous tasks polled with `omnihuman_get_task`."
-      }
-    ]
   }
 }

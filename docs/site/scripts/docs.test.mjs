@@ -118,7 +118,7 @@ test("nullable operation keys retain string constraints in field tables", () => 
   assert.match(table, /Default: null/);
 });
 
-for (const name of ["seedance_create_task", "omnihuman_create_task"]) {
+for (const name of ["seedance_create_task"]) {
   test(`${name} HTTP example separates receipt recovery from polling and local calls`, () => {
     const original = JSON.stringify(EXAMPLES);
     const page = toolPage({
@@ -129,9 +129,7 @@ for (const name of ["seedance_create_task", "omnihuman_create_task"]) {
       transports: {
         http: {
           execution: "direct",
-          credential_header: name.startsWith("seedance")
-            ? "X-ModelArk-Api-Key"
-            : "X-OmniHuman-Api-Key",
+          credential_header: "X-ModelArk-Api-Key",
           registration_gate: "HTTP provider tool.",
         },
       },
@@ -142,14 +140,8 @@ for (const name of ["seedance_create_task", "omnihuman_create_task"]) {
     const call = JSON.parse(http.match(/```json\n([\s\S]*?)\n```/)[1]);
     assert.equal(call.name, name);
     assert.doesNotMatch(http, /ark_job_submit/);
-    if (name === "seedance_create_task") {
-      assert.equal(call.arguments.input.dry_run, true);
-      assert.equal(call.arguments.input.idempotency_key, undefined);
-    } else {
-      assert.equal(call.arguments.input.idempotency_key, undefined);
-      assert.match(call.arguments.input.image, /^https:\/\//);
-      assert.match(call.arguments.input.audio, /^https:\/\//);
-    }
+    assert.equal(call.arguments.input.dry_run, true);
+    assert.equal(call.arguments.input.idempotency_key, undefined);
     const local = page.split("Exact MCP call (for developers)</summary>")[1];
     const localCall = JSON.parse(local.match(/```json\n([\s\S]*?)\n```/)[1]);
     assert.equal(localCall.name, name);

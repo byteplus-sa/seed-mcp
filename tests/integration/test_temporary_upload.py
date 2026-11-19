@@ -12,7 +12,6 @@ from ark_mcp.config.env import Settings
 from ark_mcp.tools._catalog import CATALOG
 from tests.integration.test_byok_http import (
     CLIENT_SECRET,
-    OMNIHUMAN_TOOLS,
     OTHER_SECRET,
     PUBLIC_TOOLS,
     assert_denied,
@@ -28,18 +27,14 @@ HEADERS = {"X-MCP-Client-Secret": CLIENT_SECRET}
 
 
 @pytest.mark.parametrize("enabled", [False, True])
-@pytest.mark.parametrize("omnihuman", [False, True])
-async def test_http_upload_inventory_and_instructions(
-    tmp_path: Path, enabled: bool, omnihuman: bool
-) -> None:
+async def test_http_upload_inventory_and_instructions(tmp_path: Path, enabled: bool) -> None:
     settings = upload_settings(
         tmp_path,
         MCP_TEMPORARY_UPLOAD_ENABLED=enabled,
-        BYTEPLUS_OMNIHUMAN_ENABLED=omnihuman,
     )
     async with http_server(tmp_path, settings=settings) as (server, runtime, client):
         tools = (await rpc(client, "tools/list"))["result"]["tools"]
-        expected = PUBLIC_TOOLS | (OMNIHUMAN_TOOLS if omnihuman else set())
+        expected = PUBLIC_TOOLS
         if enabled:
             expected |= {"media_prepare_upload"}
         assert {tool["name"] for tool in tools} == expected

@@ -339,13 +339,6 @@ def describe_services(settings: Settings) -> list[ServiceStatus]:
             ServiceStatus(service="modelark", enabled=True),
             ServiceStatus(service="seed_audio", enabled=True),
             ServiceStatus(
-                service="omnihuman",
-                enabled=settings.omnihuman_enabled,
-                reason=None
-                if settings.omnihuman_enabled
-                else "Set BYTEPLUS_OMNIHUMAN_ENABLED=true.",
-            ),
-            ServiceStatus(
                 service="object_storage",
                 enabled=settings.temporary_upload_enabled,
                 reason=None
@@ -364,11 +357,6 @@ def describe_services(settings: Settings) -> list[ServiceStatus]:
     services = (
         ("modelark", settings.has_modelark, "Set BYTEPLUS_MODELARK_API_KEY."),
         ("seed_audio", settings.has_seed_audio, "Set BYTEPLUS_SEED_SPEECH_API_KEY."),
-        (
-            "omnihuman",
-            settings.has_omnihuman,
-            "Set BYTEPLUS_OMNIHUMAN_ENABLED=true and BYTEPLUS_CV_API_KEY.",
-        ),
         ("object_storage", settings.has_object_storage, f"Set {storage_vars}."),
     )
     return [

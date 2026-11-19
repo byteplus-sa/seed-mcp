@@ -44,12 +44,6 @@ def _temporary_upload(settings: Settings) -> bool:
     return settings.mcp_transport == "http" and settings.temporary_upload_enabled
 
 
-def _omnihuman(settings: Settings) -> bool:
-    return settings.omnihuman_enabled and (
-        settings.mcp_transport == "http" or settings.has_omnihuman
-    )
-
-
 @dataclass(frozen=True, slots=True)
 class CatalogEntry:
     """Registration metadata for one MCP tool."""
@@ -60,7 +54,7 @@ class CatalogEntry:
     scope: str | None
     gate: Callable[[Settings], bool] = _always
     annotations: str = "TOOL_ANNOTATIONS"
-    provider: Literal["modelark", "seed-speech", "vision-cv"] | None = None
+    provider: Literal["modelark", "seed-speech"] | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -89,13 +83,7 @@ def _entry(
         gate=gate,
         annotations=annotations,
         provider=(
-            "modelark"
-            if gate is _modelark
-            else "seed-speech"
-            if gate is _seed_audio
-            else "vision-cv"
-            if gate is _omnihuman
-            else None
+            "modelark" if gate is _modelark else "seed-speech" if gate is _seed_audio else None
         ),
     )
 
@@ -127,24 +115,6 @@ CATALOG: tuple[CatalogEntry, ...] = (
     _entry("media_presign", "MediaPresignOutput", "media:presign", gate=_object_storage),
     _entry(
         "media_prepare_upload", "MediaPrepareUploadOutput", "media:upload", gate=_temporary_upload
-    ),
-    _entry(
-        "omnihuman_create_task",
-        "OmniHumanCreateTaskOutput",
-        "omnihuman:create",
-        gate=_omnihuman,
-    ),
-    _entry(
-        "omnihuman_get_task",
-        "OmniHumanTaskOutput",
-        "omnihuman:read",
-        gate=_omnihuman,
-    ),
-    _entry(
-        "omnihuman_cancel_task",
-        "OmniHumanCancelTaskOutput",
-        "omnihuman:cancel",
-        gate=_omnihuman,
     ),
     _entry(
         "seedream_generate_image",

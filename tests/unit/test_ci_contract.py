@@ -21,7 +21,7 @@ def test_container_smoke_inventory_matches_default_http_catalog() -> None:
     )
     match = re.search(r"\.result\.tools \| length == (\d+)", step["run"])
     assert match is not None
-    settings = Settings.model_construct(mcp_transport="http", omnihuman_enabled=False)
+    settings = Settings.model_construct(mcp_transport="http")
     assert int(match[1]) == sum(entry.gate(settings) for entry in CATALOG)
     assert "BYTEPLUS_MODELARK_API_KEY" not in step["run"]
     assert '"dry_run":true' in step["run"]

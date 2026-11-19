@@ -8,8 +8,8 @@ inventory or hosted contract. No release or public endpoint is assumed.
 
 | Transport | Tools | Credentials and execution |
 | --- | --- | --- |
-| Local stdio | 15 conditional entries; four always registered | Private startup provider keys; direct calls; storage/artifacts retained |
-| HTTP BYOK | 7, or 10 with OmniHuman enabled; opt-in upload adds one | Selected live provider key plus client secret for generation; enrolled secret alone for preparation; direct foreground calls |
+| Local stdio | 12 conditional entries; four always registered | Private startup provider keys; direct calls; storage/artifacts retained |
+| HTTP BYOK | 7; opt-in upload adds one | Selected live provider key plus client secret for generation; enrolled secret alone for preparation; direct foreground calls |
 
 HTTP has no ordinary jobs, native tasks, local storage/artifact tools, media resources
 or configuration-detail resource. Discovery is anonymous/static and makes no
@@ -25,7 +25,7 @@ Explicit per-call `io.modelcontextprotocol/tasks` opt-in is rejected before
 provider dispatch, snapshot capture/save or queue creation, including discovery.
 
 HTTP provider calls, including dry runs, require only the selected header:
-`X-ModelArk-Api-Key`, `X-Seed-Speech-Api-Key`, or `X-OmniHuman-Api-Key`, plus
+`X-ModelArk-Api-Key` or `X-Seed-Speech-Api-Key`, plus
 `X-MCP-Client-Secret` (client-generated 32 random bytes as 64 lowercase hex).
 Enter them privately through the client's supported mechanism. Never put
 credentials in tool arguments, chat, command-line flags, logs or Git.
@@ -83,7 +83,6 @@ configuration, isolated from other server instances' defaults.
 | --- | --- |
 | `BYTEPLUS_MODELARK_BASE_URL` | `https://ark.ap-southeast.bytepluses.com/api/v3` |
 | `BYTEPLUS_SEED_AUDIO_BASE_URL` | `https://voice.ap-southeast-1.bytepluses.com` |
-| `BYTEPLUS_CV_BASE_URL` | `https://openapi.cv.bytepluses.com` |
 
 ## Limits and State
 
@@ -109,7 +108,7 @@ belong in the hosted deployment.
 
 ## Delivery and Retries
 
-Seed Audio/Seedream `persist` and OmniHuman get `persist_output` default to
+Seed Audio/Seedream `persist` default to
 false globally. HTTP rejects true; local explicit true remains supported.
 Local output paths and stored artifact references are rejected on HTTP.
 Clients download expiring provider outputs themselves.
@@ -129,8 +128,7 @@ and reconcile uncertain creates with the provider instead of repeating them.
 
 Read the checkout's `docs/setup/install.md`. Use a reviewed locked environment,
 private `ARK_MCP_ENV_FILE`, and requested provider keys only. ModelArk enables
-image/video; Seed Speech enables audio; OmniHuman needs its
-separate Vision AI key and `BYTEPLUS_OMNIHUMAN_ENABLED=true`.
+image/video; Seed Speech enables audio.
 TOS/S3 storage is optional and stdio-only.
 
 Both transports execute directly with no MCP jobs, worker, snapshots or

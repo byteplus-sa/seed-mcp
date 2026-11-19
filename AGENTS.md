@@ -40,10 +40,6 @@ separate tools. The flow is discovery → create → poll:
 - **Generation tasks** — `gen_task_get`, `gen_task_list` and
   `gen_task_cancel_or_delete` poll, list and cancel Seedance tasks
   (scopes `gen:read` / `gen:delete`).
-- **OmniHuman 2.0** — image + audio to talking-avatar video through BytePlus
-  Vision AI (`omnihuman_create_task`, `omnihuman_get_task`,
-  `omnihuman_cancel_task`). Bearer `BYTEPLUS_CV_API_KEY`; gated by
-  `BYTEPLUS_OMNIHUMAN_ENABLED`; disabled by default.
 - **Local object storage upload** — stdio-only `media_upload` / `media_presign` take lists and
   return presigned URLs for URL-only media workflows (TOS or S3 backend).
 - **Temporary HTTP references** — opt-in `media_prepare_upload` signs exact-key
@@ -58,27 +54,26 @@ separate tools. The flow is discovery → create → poll:
   jobs, native tasks, snapshots or execution claims exist. Provider video
   queues remain asynchronous; retain their task IDs and poll.
 - **Local durable artifacts** — stdio-only MCP resources for generated media whose provider URLs
-  expire (2h for Seed Audio, 24h for ModelArk image/video, about 1h for OmniHuman).
+  expire (2h for Seed Audio, 24h for ModelArk image/video).
 - **Transports** — local stdio retains storage/artifacts.
-  HTTP is forward-only BYOK: 7 provider/discovery tools, or 10 with OmniHuman,
+  HTTP is forward-only BYOK: 7 provider/discovery tools,
   direct foreground calls, no jobs/native tasks/local storage/artifact tools/resources.
-  Temporary upload preparation adds one optional tool (8/11 total).
+  Temporary upload preparation adds one optional tool (8 total).
   `MCP_AUTH_MODE=byok` is the default; explicit `local` is stdio-only and
   `api_key` is removed. No OAuth/signup/server-issued key. HTTP requires
   operator `MCP_IDENTITY_HMAC_KEY` (64 lowercase hex) and positive
   `MCP_IDENTITY_KEY_VERSION` (default 1), not customer credentials.
 
 Seedance and Seedream share the ModelArk data-plane host and Bearer authentication. Seed Audio
-uses Seed Speech and `X-Api-Key`; OmniHuman uses Vision AI and its own
-Bearer key. These three provider gateways sit behind one normalized domain
+uses Seed Speech and `X-Api-Key`. These two provider gateways sit behind one normalized domain
 layer. See `docs/architecture.md` for current behavior.
 
-The catalog contains **16 definitions**, with **15 local tools** and four always registered on stdio. Enabled
-tools depend on the four service gates: `modelark`, `seed_audio`, `omnihuman`,
+The catalog contains **13 definitions**, with **12 local tools** and four always registered on stdio. Enabled
+tools depend on the three service gates: `modelark`, `seed_audio`,
 and `object_storage`. VOD processing, 3D generation, dedicated ASR, asset
 administration and operator-account live pricing are not part of this server.
 Local provider keys are startup configuration. HTTP uses only live
-`X-ModelArk-Api-Key`, `X-Seed-Speech-Api-Key` or `X-OmniHuman-Api-Key` for the
+`X-ModelArk-Api-Key` or `X-Seed-Speech-Api-Key` for the
 selected provider plus required `X-MCP-Client-Secret` (client-generated 32
 random bytes, 64 lowercase hex), including dry runs. Discovery is anonymous/static.
 Keys are not persisted and never fall back to environment provider keys.

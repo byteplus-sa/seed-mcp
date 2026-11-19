@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import re
-from typing import TYPE_CHECKING, Annotated
+from typing import TYPE_CHECKING, Annotated, Literal
 
 from pydantic import Field
 
@@ -30,7 +30,7 @@ IDEMPOTENCY_KEY_DESCRIPTION = (
 
 
 def validate_receipt_identifiers(
-    ctx: Context, provider: str, task_id: str, request_id: str | None
+    ctx: Context, provider: Literal["modelark"], task_id: str, request_id: str | None
 ) -> None:
     """Reject unsafe HTTP provider identifiers before exposing them to clients."""
     from ark_mcp.domain.errors import NormalizedProviderError, ProviderError
@@ -51,7 +51,7 @@ def validate_receipt_identifiers(
         ):
             raise ProviderError(
                 NormalizedProviderError(
-                    provider="modelark" if provider == "modelark" else "byteplus-vision-cv",
+                    provider=provider,
                     operation="create_task",
                     code="UNSAFE_TASK_RECEIPT",
                     message=(

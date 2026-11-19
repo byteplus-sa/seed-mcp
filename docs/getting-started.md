@@ -33,7 +33,7 @@ and account entitlement are not established by those local checks.
 For local setup, enter the [provider keys](api-keys.md) you need in the
 private file prepared for you. Never paste keys into chat or shared client
 configuration. Images and video use ModelArk; audio generation
-uses Seed Speech; talking avatars use Vision AI with OmniHuman enabled.
+uses Seed Speech.
 You do not need every service.
 
 ## Running the Server
@@ -82,6 +82,6 @@ Developing or deploying the server? Use [Transports](transports.md),
 
 ## Next Steps
 
-- [Choose a Tool](capabilities.md) for images, video, audio and avatars.
+- [Choose a Tool](capabilities.md) for images, video and audio.
 - [Update and Roll Back](setup/updating.md) for an existing installation.
 - [Migrating to 0.2.0](migration-0.2.md) when upgrading old 0.1.x prompts or clients.
