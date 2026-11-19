@@ -144,7 +144,7 @@ async def test_retired_avatar_configuration_cannot_restore_support(transport: st
         BYTEPLUS_MODELARK_API_KEY="",
         BYTEPLUS_SEED_SPEECH_API_KEY="",
         BYTEPLUS_OMNIHUMAN_ENABLED=True,
-        BYTEPLUS_CV_API_KEY="synthetic-retired-key",
+        BYTEPLUS_CV_API_KEY="synthetic-retired-key",  # pragma: allowlist secret
         BYTEPLUS_CV_BASE_URL="not-a-provider-origin",
         BYTEPLUS_OMNIHUMAN_REQ_KEY="retired-service",
     )
