@@ -211,7 +211,17 @@ Missing/unusable URL-only output is a nonretryable per-item
 - **Base64 reference audio** is checked against the media limit (30 s by default for WAV) and the audio size cap before submission; prefer a URL for longer material.
 - **`asset://` references** are rejected by Seed Audio; only Seedance accepts them natively.
 - **`text_prompt` is 1-3000 characters**; a line such as `Max duration: 20 seconds` in the prompt is only used for the cost estimate, not enforced.
-- **Subtitles** (`output.subtitle`, `subtitle_type` `utterance` or `word`) are returned on the single-call result only.
+- **Output MIME follows `output.format`:** `audio/wav` by default,
+  `audio/mpeg` for MP3, `audio/ogg`, or `audio/pcm`. URL references, local
+  persistence, variations and fallbacks use the same mapping. This is declared
+  format metadata, not byte inspection; raw PCM is not a WAV container.
+- **Subtitles** (`output.subtitle`, `subtitle_type` `utterance` or `word`) are
+  provider-supplied on the single-call result only; they may be null even when
+  requested. Live checks observed missing word/utterance subtitles and OGG
+  at 48,000 Hz for a 24,000 Hz request. Controls are forwarded in `audio_config`;
+  provider-versus-adapter causes remain unresolved. Verify decoded sample rate,
+  raw PCM encoding/channels and subtitles; retain billed output and diagnostics,
+  never regenerate automatically to compensate.
 - **Variations:** no seed exists, so variations differ only by sampling. With `variations > 1`, `artifact`, `duration_seconds`, `billing_duration_seconds` and `subtitle` are **null**; everything is in `summary` (`total`, `succeeded`, `failed`, per-variation `artifact` or `error`). `output_path` must then be a directory ending in `/`.
 - `billing_duration_seconds` can differ from the actual `duration_seconds`.
 
@@ -225,6 +235,6 @@ Needs `BYTEPLUS_OMNIHUMAN_ENABLED=true` and `BYTEPLUS_CV_API_KEY` (a Vision AI k
   Local recording failures return ambiguous/nonretryable `AcceptedTaskError`
   text retaining task/request IDs. Never resubmit accepted work; HTTP polling
   uses the supplied provider credential.
-- **Sources:** `image` and `audio` are public HTTPS URLs or `seed-media://artifacts/<id>`. Image limits: common formats (jpeg, png, webp, bmp, tiff, gif, heic, heif), under 30 MB, aspect 0.4-2.5, each side 300-6000 px. Audio: wav or mp3, under 15 MB, 4-300 s. **The video length follows the audio.**
+- **Sources:** `image` and `audio` are public HTTPS URLs or `seed-media://artifacts/<id>`. Image limits: common formats (jpeg, png, webp, bmp, tiff, gif, heic, heif), under 30 MB, aspect 0.4-2.5, each side 300-6000 px. Audio: wav or mp3, under 15 MB, 4-300 s. Audio drives video timing, but exact equality is unverified: a live 4.0998-second WAV produced a 5.024-second video. Verify synchronization; provider padding/trim rules remain unresolved.
 - **`seed-media://` inputs need `ARTIFACT_BACKEND=object_storage`** so the server can presign them (1-hour URL). Otherwise `media_upload` the file and pass the presigned URL. The artifact's media type, MIME type and size are checked and reported as safe errors.
 - `prompt` is optional scene, motion and camera guidance (max 2000 characters; zh, en, ja, ko, es-MX, id). `watermark` defaults to `true`.

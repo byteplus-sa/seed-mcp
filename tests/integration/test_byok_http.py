@@ -269,6 +269,84 @@ async def test_only_selected_customer_key_is_sent_to_official_origin(
 
 
 @pytest.mark.parametrize(
+    ("output", "expected_mime"),
+    [
+        ({}, "audio/wav"),
+        ({"format": "wav"}, "audio/wav"),
+        ({"format": "mp3"}, "audio/mpeg"),
+        ({"format": "ogg"}, "audio/ogg"),
+        ({"format": "pcm"}, "audio/pcm"),
+    ],
+)
+@pytest.mark.parametrize("variations", [1, 2])
+@respx.mock
+async def test_http_audio_format_metadata_and_controls(
+    tmp_path: Path, output: dict[str, Any], expected_mime: str, variations: int
+) -> None:
+    controls = {**output, "sample_rate": 24000, "subtitle": True, "subtitle_type": "word"}
+    route = respx.post(f"{SPEECH}/api/v3/tts/create").respond(
+        200, json={"code": 0, "url": "https://example.com/audio"}
+    )
+    async with http_server(tmp_path) as (_, _, client):
+        result = successful(
+            await call_tool(
+                client,
+                "seed_audio_generate",
+                {"text_prompt": "tone", "output": controls, "variations": variations},
+                headers=credentials(SPEECH_KEY, header="X-Seed-Speech-Api-Key"),
+            )
+        )
+    artifacts = (
+        [result["artifact"]]
+        if variations == 1
+        else [item["artifact"] for item in result["summary"]["variations"]]
+    )
+    assert all(artifact["mime_type"] == expected_mime for artifact in artifacts)
+    assert all(artifact["id"] == "provider-url" for artifact in artifacts)
+    assert result["subtitle"] is None
+    assert route.call_count == len(respx.calls) == variations
+    for call in route.calls:
+        assert json.loads(call.request.content)["audio_config"] == controls
+        assert call.request.headers["X-Api-Key"] == SPEECH_KEY
+        assert "X-MCP-Client-Secret" not in call.request.headers
+    assert_no_canaries(json.dumps(result))
+    assert not (tmp_path / "artifacts").exists()
+
+
+@pytest.mark.parametrize("http_status", [200, 400])
+@respx.mock
+async def test_http_completed_avatar_cancel_returns_typed_refusal(
+    tmp_path: Path, http_status: int
+) -> None:
+    route = respx.post(f"{VISION}/api/common/v3/cancel_task").respond(
+        http_status,
+        json={
+            "code": 50217,
+            "message": "Cancel not allow: task already been executed",
+            "request_id": "synthetic-cancel-refusal",
+        },
+    )
+    settings = http_settings(tmp_path, BYTEPLUS_OMNIHUMAN_ENABLED=True)
+    async with http_server(tmp_path, settings=settings) as (_, _, client):
+        result = successful(
+            await call_tool(
+                client,
+                "omnihuman_cancel_task",
+                {"task_id": "completed-avatar"},
+                headers=credentials(VISION_KEY, header="X-OmniHuman-Api-Key"),
+            )
+        )
+    assert result["canceled"] is False
+    assert result["task_id"] == "completed-avatar"
+    assert result["request_id"] == "synthetic-cancel-refusal"
+    assert "already started or finished" in result["message"]
+    assert route.call_count == len(respx.calls) == 1
+    assert route.calls[0].request.headers["Authorization"] == f"Bearer {VISION_KEY}"
+    assert_no_canaries(json.dumps(result))
+    assert not (tmp_path / "artifacts").exists()
+
+
+@pytest.mark.parametrize(
     ("name", "input_data"),
     [
         ("seedream_generate_image", {"prompt": "square"}),

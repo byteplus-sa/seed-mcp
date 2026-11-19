@@ -8,12 +8,14 @@ from __future__ import annotations
 
 import base64
 from typing import Any
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 from fastmcp.tools import ToolResult
 
+from ark_mcp.artifacts.store import ArtifactPersistenceError
 from ark_mcp.domain.errors import ProviderError
+from ark_mcp.providers.seed_speech.schemas import SeedAudioProviderResponse
 from ark_mcp.providers.seed_speech.seed_audio import SeedAudioService
 from ark_mcp.tools.seed_audio_generate import (
     SeedAudioGenerateInput,
@@ -46,6 +48,82 @@ def _patch_audio_service(monkeypatch: pytest.MonkeyPatch, response_data: dict[st
 
 class TestSeedAudioGenerateTool:
     """Full-path integration tests for seed_audio_generate."""
+
+    @pytest.mark.parametrize(
+        ("output", "expected_mime"),
+        [
+            (None, "audio/wav"),
+            ({}, "audio/wav"),
+            ({"format": "wav"}, "audio/wav"),
+            ({"format": "mp3"}, "audio/mpeg"),
+            ({"format": "ogg"}, "audio/ogg"),
+            ({"format": "pcm"}, "audio/pcm"),
+        ],
+    )
+    @pytest.mark.parametrize("variations", [1, 2])
+    @pytest.mark.parametrize("delivery", ["url", "persisted", "fallback_url", "fallback_inline"])
+    async def test_output_mime_tracks_format_on_every_delivery_path(
+        self,
+        fake_ctx: FakeContext,
+        temp_store: Any,
+        monkeypatch: pytest.MonkeyPatch,
+        output: dict[str, str] | None,
+        expected_mime: str,
+        variations: int,
+        delivery: str,
+    ) -> None:
+        audio_b64 = base64.b64encode(b"synthetic audio").decode()
+        generate = AsyncMock(
+            return_value=(
+                SeedAudioProviderResponse(
+                    audio=audio_b64,
+                    url=None if delivery == "fallback_inline" else "https://example.com/audio",
+                ),
+                "log-format",
+            )
+        )
+        monkeypatch.setattr(SeedAudioService, "generate", generate)
+        monkeypatch.setattr(SeedAudioService, "close", AsyncMock())
+        if delivery.startswith("fallback"):
+            monkeypatch.setattr(
+                temp_store,
+                "put_base64",
+                AsyncMock(
+                    side_effect=ArtifactPersistenceError(
+                        "storage_failed", "Synthetic storage failure.", retryable=False
+                    )
+                ),
+            )
+
+        result = await seed_audio_generate(
+            SeedAudioGenerateInput(
+                text_prompt="tone", output=output, variations=variations, persist=delivery != "url"
+            ),
+            fake_ctx,
+        )
+
+        assert isinstance(result, SeedAudioGenerateOutput)
+        artifacts = (
+            [result.artifact]
+            if variations == 1
+            else [item.artifact for item in result.summary.variations]
+        )
+        for artifact in artifacts:
+            assert artifact is not None
+            assert artifact.mime_type == expected_mime
+            if delivery == "persisted":
+                stored = await temp_store.get(artifact.id)
+                assert stored.mime_type == expected_mime
+                assert stored.data == b"synthetic audio"
+            elif delivery == "fallback_inline":
+                assert artifact.uri == f"data:{expected_mime};base64,"
+                assert artifact.fallback_data == audio_b64
+                assert artifact.persistence_error is not None
+            else:
+                assert artifact.id == "provider-url"
+                assert (artifact.persistence_error is not None) == (delivery == "fallback_url")
+        assert generate.await_count == variations
+        assert all(call.args[0].audio_config == output for call in generate.await_args_list)
 
     async def test_text_only_generation_with_persistence(
         self,

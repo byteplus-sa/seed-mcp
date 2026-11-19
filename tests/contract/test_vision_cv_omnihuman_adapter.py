@@ -546,12 +546,13 @@ class TestCancel:
         assert result.message is None
 
     @respx.mock
+    @pytest.mark.parametrize("http_status", [200, 400])
     async def test_already_started_is_typed_result_not_exception(
-        self, service: OmniHumanService
+        self, service: OmniHumanService, http_status: int
     ) -> None:
-        respx.post(CANCEL).mock(
+        route = respx.post(CANCEL).mock(
             return_value=httpx.Response(
-                200,
+                http_status,
                 json=envelope(code=50217, message="Cancel not allow: task already been executed"),
             )
         )
@@ -559,19 +560,59 @@ class TestCancel:
         result = await service.cancel("t-1")
 
         assert result.canceled is False
+        assert result.request_id == "req-1"
         assert result.message is not None
         assert "already" in result.message
+        assert route.call_count == 1
 
     @respx.mock
-    async def test_other_failures_raise(self, service: OmniHumanService) -> None:
+    @pytest.mark.parametrize("http_status", [200, 400, 401, 403, 429, 500])
+    async def test_other_failures_raise(self, service: OmniHumanService, http_status: int) -> None:
         respx.post(CANCEL).mock(
-            return_value=httpx.Response(200, json=envelope(code=50400, message="Access Denied"))
+            return_value=httpx.Response(
+                http_status, json=envelope(code=50400, message="Access Denied")
+            )
         )
 
         with pytest.raises(ProviderError) as exc_info:
             await service.cancel("t-1")
 
         assert exc_info.value.error.code == "50400"
+        assert exc_info.value.error.http_status == http_status
+
+    @respx.mock
+    @pytest.mark.parametrize("http_status", [401, 403, 429, 500, 503])
+    async def test_refusal_code_does_not_hide_other_http_failures(
+        self, service: OmniHumanService, http_status: int
+    ) -> None:
+        route = respx.post(CANCEL).respond(
+            http_status, json=envelope(code=50217, message="Synthetic error")
+        )
+
+        with pytest.raises(ProviderError) as exc_info:
+            await service.cancel("t-1")
+
+        assert exc_info.value.error.http_status == http_status
+        assert exc_info.value.error.code == "50217"
+        assert route.call_count == 1
+
+    @respx.mock
+    @pytest.mark.parametrize("operation", ["create", "get"])
+    async def test_cancel_refusal_is_not_normalized_for_other_operations(
+        self, service: OmniHumanService, operation: str
+    ) -> None:
+        route = respx.post(SUBMIT if operation == "create" else GET_RESULT).respond(
+            400, json=envelope(code=50217, message="Synthetic error")
+        )
+
+        with pytest.raises(ProviderError) as exc_info:
+            if operation == "create":
+                await service.create(submit_request())
+            else:
+                await service.get("t-1")
+
+        assert exc_info.value.error.http_status == 400
+        assert route.call_count == 1
 
     @respx.mock
     async def test_timeout_is_ambiguous(self, service: OmniHumanService) -> None:

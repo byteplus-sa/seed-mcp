@@ -250,8 +250,9 @@ code and whether it is retryable.
 Generate a video of a person speaking or performing from one portrait image and
 one audio clip with BytePlus OmniHuman 2.0 (`realman_avatar_picture_omni20_cv`).
 The three tools are registered only when `BYTEPLUS_OMNIHUMAN_ENABLED=true` and
-`BYTEPLUS_CV_API_KEY` is set (Bearer auth to the Vision AI host). They use their
-own key, separate from the ModelArk key.
+the transport is HTTP or local `BYTEPLUS_CV_API_KEY` is set. HTTP requires the
+client's `X-OmniHuman-Api-Key` plus `X-MCP-Client-Secret`; it never uses an
+operator generation key. Vision AI credentials are separate from the ModelArk key.
 
 **Execution:** Direct call where registered. Explicit persistence is stdio-only; use a 660-second client timeout. Provider video generation is polled separately.
 
@@ -281,7 +282,9 @@ the SSRF policy only, and BytePlus validates dimensions and duration.
   `seed-media://` artifact (`video`); `source_url` is kept for one hour.
   Supports `output_path` on stdio.
 - `omnihuman_cancel_task` returns `canceled`. Only queued tasks can be
-  canceled; a started task returns `canceled=false` with an explanation.
+  canceled; a started or finished task returns `canceled=false` with an explanation,
+  including the provider's HTTP 400 / `50217` refusal. Other HTTP failures
+  remain errors, and cancellation is never retried automatically.
   Immediately after creation the provider can reject the new ID as invalid
   (`50200`); retry after a few seconds. Tasks usually start within seconds, so
   cancelation is only practical when the provider queue is busy.
@@ -298,6 +301,10 @@ WAV only fits at low sample rates (16 kHz mono is about 9.6 MB, 24 kHz mono abou
 14.4 MB); 44.1 kHz or 48 kHz WAV is 26-58 MB and is rejected for size. Use MP3
 (300 s at 128 kbps is about 4.8 MB) or generate shorter clips. `media_upload`
 accepts at most 10 MB of audio.
+
+**Duration:** audio drives the video, but exact duration equality is not verified.
+A live 4.0998-second WAV produced a 5.024-second avatar; provider padding or
+trimming rules remain unresolved. Verify timing before accepting a synchronized edit.
 
 Tasks are retained by the provider for 12 hours. Auth scopes:
 `omnihuman:create`, `omnihuman:read`, `omnihuman:cancel`.
@@ -334,6 +341,19 @@ independent variations in parallel.
 Returns a `SeedAudioGenerateOutput`. For a single clip it carries
 `duration_seconds`, `billing_duration_seconds`, `artifact`, optional
 `subtitle`, `request_id`, `provider_log_id`, and optional `source_url`.
+
+Audio artifact MIME follows `output.format`: WAV is `audio/wav` (default),
+MP3 is `audio/mpeg`, OGG is `audio/ogg`, and raw PCM is `audio/pcm`. This applies
+to URL references, persisted audio, variations and persistence fallbacks.
+It is declared format metadata, not independent byte inspection. Raw PCM is
+not a WAV container; its encoding, channels and actual rate need verification.
+
+`output.sample_rate`, `output.subtitle` and `output.subtitle_type` are forwarded
+in `audio_config`; they are requests, not delivery guarantees. Live checks
+observed missing word/utterance subtitles (`subtitle=null`) and an OGG file at
+48,000 Hz for a 24,000 Hz request. Their provider-versus-adapter causes remain
+unresolved. Check subtitles and decoded audio before acceptance; preserve the
+billed output and request/log IDs instead of regenerating automatically.
 
 **With `variations > 1`, `artifact`, `duration_seconds`, and
 `billing_duration_seconds` are `null`** and `summary` (`VariationSummary`)

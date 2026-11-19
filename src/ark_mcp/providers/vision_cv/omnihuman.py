@@ -165,6 +165,14 @@ class OmniHumanService:
 
         envelope = self._parse_envelope(response)
         if response.status_code >= 400:
+            # The queued-only cancellation refusal is also returned as HTTP 400.
+            if (
+                response.status_code == 400
+                and operation == _OPERATION_CANCEL
+                and envelope is not None
+                and envelope.code == CANCEL_NOT_ALLOWED_CODE
+            ):
+                return response, envelope
             if task_failure_ok and envelope is not None:
                 nested = parse_nested_error(envelope.message)
                 if nested is not None and nested.is_rejection:

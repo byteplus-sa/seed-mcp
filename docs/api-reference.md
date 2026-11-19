@@ -372,13 +372,18 @@ rather than failing the call.
 
 | Field | Type | Default | Constraints |
 |---|---|---|---|
-| `format` | `"wav"` \| `"mp3"` \| `"pcm"` \| `"ogg"` | — | — |
-| `sample_rate` | integer | — | 8000-48000 |
+| `format` | `"wav"` \| `"mp3"` \| `"pcm"` \| `"ogg"` | provider WAV | Requested encoding; PCM has no WAV container |
+| `sample_rate` | integer | provider setting | 8000, 16000, 24000, 32000, 44100 or 48000 Hz; actual rate may differ |
 | `speech_rate` | integer | — | -50 to 100 |
 | `loudness_rate` | integer | — | -50 to 100 |
 | `pitch_rate` | integer | — | -12 to 12 |
-| `subtitle` | boolean | — | — |
+| `subtitle` | boolean | — | Requests subtitles; provider may omit them |
 | `subtitle_type` | `"utterance"` \| `"word"` | — | — |
+
+Output controls are forwarded in `audio_config`. Missing subtitles and a
+24,000 Hz OGG request delivered at 48,000 Hz were observed in live checks;
+provider-versus-adapter causes remain unresolved. Verify downloaded media
+and retain request/log IDs; do not regenerate automatically.
 
 ### Output
 
@@ -390,12 +395,16 @@ Returns `SeedAudioGenerateOutput` for both single calls and variations.
 | `model` | `"seed-audio-1.0"` | Fixed |
 | `duration_seconds` | float \| null | Output duration; `null` when `variations > 1` |
 | `billing_duration_seconds` | float \| null | Billed duration; `null` when `variations > 1` |
-| `artifact` | ArtifactRef \| null | Persisted audio; `null` when `variations > 1` |
-| `subtitle` | Subtitle \| null | Optional subtitles |
+| `artifact` | ArtifactRef \| null | Temporary URL or explicitly persisted stdio audio; `null` when `variations > 1` |
+| `subtitle` | Subtitle \| null | Provider-supplied subtitles; null if omitted, even when requested, or for variations |
 | `request_id` | string \| null | Request ID |
 | `provider_log_id` | string \| null | X-Tt-Logid |
 | `source_url` | string \| null | Provider URL (2-hour expiry) |
 | `summary` | VariationSummary \| null | Per-variation artifacts and errors when `variations > 1`; `null` otherwise |
+
+Artifact MIME follows the requested format, not independent byte inspection:
+`audio/wav` (default), `audio/mpeg` for MP3, `audio/ogg`, or `audio/pcm`.
+The same mapping applies to variations and persistence fallbacks.
 
 ### Examples
 

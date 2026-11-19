@@ -63,10 +63,14 @@ class AudioOutputOptions(BaseModel):
     """Optional output controls for Seed Audio generation."""
 
     format: Literal["wav", "mp3", "pcm", "ogg"] | None = Field(
-        None, description="Output audio format. Defaults to wav if not specified."
+        None, description="Requested output audio format. Defaults to wav if not specified."
     )
     sample_rate: Literal[8000, 16000, 24000, 32000, 44100, 48000] | None = Field(
-        None, description="Output sample rate in Hz. Defaults to provider setting if not specified."
+        None,
+        description=(
+            "Requested output sample rate in Hz; omitted uses the provider setting. "
+            "The provider may return a different rate; verify downloaded audio."
+        ),
     )
     speech_rate: int | None = Field(
         None, ge=-50, le=100, description="Speech speed adjustment. -50 (slowest) to 100 (fastest)."
@@ -81,7 +85,11 @@ class AudioOutputOptions(BaseModel):
         None, ge=-12, le=12, description="Pitch adjustment in semitones. -12 to +12."
     )
     subtitle: bool | None = Field(
-        None, description="Whether to return timestamped subtitles in the response."
+        None,
+        description=(
+            "Request timestamped subtitles. The provider may omit them even when true; "
+            "only single-call results expose subtitle data."
+        ),
     )
     subtitle_type: Literal["utterance", "word"] | None = Field(
         None, description="Subtitle granularity: utterance-level or word-level timestamps."
@@ -187,10 +195,18 @@ class SeedAudioGenerateOutput(BaseModel):
     )
     artifact: ArtifactRef | None = Field(
         None,
-        description="Temporary provider URL reference, or an explicitly persisted stdio artifact; null for variations.",
+        description=(
+            "Temporary provider URL reference, or an explicitly persisted stdio artifact; "
+            "null for variations. MIME follows the requested format (wav by default), "
+            "not independent byte inspection."
+        ),
     )
     subtitle: Subtitle | None = Field(
-        None, description="Timestamped subtitle data, if requested and available."
+        None,
+        description=(
+            "Provider-supplied timestamped subtitles; null when omitted by the provider "
+            "(even if requested) or when variations > 1."
+        ),
     )
     request_id: str | None = Field(None, description="Client request ID used for this generation.")
     provider_log_id: str | None = Field(
@@ -211,6 +227,17 @@ class SeedAudioGenerateOutput(BaseModel):
 
 _DURATION_RE = re.compile(r"Max\s+duration\s*:\s*(\d+(?:\.\d+)?)\s*seconds?", re.IGNORECASE)
 _MAX_MODEL_DURATION = 120.0
+_AUDIO_OUTPUT_MIMES = {
+    "wav": "audio/wav",
+    "mp3": "audio/mpeg",
+    "ogg": "audio/ogg",
+    "pcm": "audio/pcm",
+}
+
+
+def _output_mime_type(output: AudioOutputOptions | None) -> str:
+    """Map the requested encoding without inspecting or downloading provider bytes."""
+    return _AUDIO_OUTPUT_MIMES[output.format if output and output.format else "wav"]
 
 
 def _deliverable_url(url: str | None) -> str | None:
@@ -268,6 +295,8 @@ async def seed_audio_generate(
     Returns temporary provider URLs (2-hour expiry) by default. variations (up to 5)
     run in parallel and return a summary. HTTP runs in the foreground with persist=false.
     Both transports call directly; stdio persistence requires explicit persist=true.
+    Audio MIME reflects output.format (wav by default), not byte inspection.
+    Subtitles and sample-rate controls depend on the provider; verify delivered output.
     """
     validate_http_options(ctx, persist=input.persist)
     provider_api_key(ctx, "seed-speech")
@@ -341,6 +370,7 @@ async def seed_audio_generate(
 
     # Persist the audio output.
     artifact: ArtifactRef
+    mime_type = _output_mime_type(input.output)
     source_url = _deliverable_url(response.url)
     provider_expiry: str | None = (
         (datetime.now(UTC) + timedelta(hours=2)).isoformat() if source_url else None
@@ -353,7 +383,7 @@ async def seed_audio_generate(
             provider_url=source_url,
             data=response.audio,
             media_type=MediaType.AUDIO,
-            mime_type="audio/wav",
+            mime_type=mime_type,
             source_expires_at=provider_expiry,
             auth=get_principal(ctx),
         )
@@ -363,7 +393,7 @@ async def seed_audio_generate(
             id="provider-url",
             uri=source_url,
             media_type=MediaType.AUDIO,
-            mime_type="audio/wav",
+            mime_type=mime_type,
             created_at=datetime.now(UTC).isoformat(),
             source_expires_at=expiry,
         )
@@ -418,6 +448,7 @@ async def _generate_variations(
     watermark_dict: dict[str, Any] | None = (
         input.watermark.model_dump(exclude_none=True) if input.watermark else None
     )
+    mime_type = _output_mime_type(input.output)
     service = SeedAudioService(gateway=seed_speech_gateway(ctx))
 
     async def _generate_single(idx: int, progress: VariationProgress) -> VariationResult:
@@ -458,7 +489,7 @@ async def _generate_variations(
                     store,
                     data=response.audio,
                     media_type=MediaType.AUDIO,
-                    mime_type="audio/wav",
+                    mime_type=mime_type,
                     source_expires_at=source_expiry,
                     auth=owner,
                     provider_url=source_url,
@@ -467,7 +498,7 @@ async def _generate_variations(
                 artifact = provider_url_ref(
                     url=source_url,
                     media_type=MediaType.AUDIO,
-                    mime_type="audio/wav",
+                    mime_type=mime_type,
                     source_expires_at=source_expiry,
                 )
 

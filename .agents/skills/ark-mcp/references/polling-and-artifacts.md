@@ -83,7 +83,12 @@ A mode that does not fit `expected_status` (cancel with `succeeded`, delete with
 - **Statuses:** `queued`, `running`, `succeeded`, `failed`, `canceled` (single l), `expired` (the provider dropped the task; resubmit), `not_found` (unknown, or older than 12 h; the provider keeps tasks 12 h).
 - **Poll about every 10 s** until `succeeded`, then use `video.uri` (a `seed-media://` artifact).
 - **The provider's `source_url` is valid for only about one hour** (`source_expires_at` is an estimate: first poll plus one hour). Download promptly on HTTP. On stdio explicitly request `persist_output=true` in a direct call to retain it; later local polls reuse cached artifacts. `persistence` is `not_applicable` for any non-succeeded status.
-- **`omnihuman_cancel_task` only cancels a `queued` task.** A started or finished task returns `canceled=false` with a `message`, not an error. Right after creation the provider may reject the ID as invalid: wait a few seconds and retry.
+- **`omnihuman_cancel_task` only cancels a `queued` task.** A started or finished
+  task returns `canceled=false` with a `message`, including the provider's
+  HTTP 400 / `50217` refusal. Other HTTP failures remain errors; no automatic
+  cancellation retry is performed. Right after creation the provider may reject
+  the ID as invalid: wait a few seconds before a deliberate retry of that
+  explicit rejection, never an uncertain cancellation.
 
 ## Artifacts
 
