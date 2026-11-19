@@ -3,9 +3,7 @@ import { test } from "node:test";
 import { toolReferenceGroups } from "./navigation.mjs";
 
 test("audio has its own tool section", () => {
-  const names = [
-    "seed_audio_generate",
-  ];
+  const names = ["seed_audio_generate"];
   const groups = toolReferenceGroups(names.map((name) => ({ name })));
   const entries = Object.fromEntries(
     groups.map((group) => [group.label, group.items.map((item) => item.label)]),

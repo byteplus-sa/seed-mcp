@@ -167,9 +167,7 @@ export function toolPage(tool) {
     ? input.$defs[inputRef.split("/").at(-1)]
     : input.properties?.input || input;
   const args = EXAMPLES[name];
-  const asyncCreate = [
-    "seedance_create_task",
-  ].includes(name);
+  const asyncCreate = ["seedance_create_task"].includes(name);
   const httpArgs = args;
   const call = args && { name, arguments: args };
   const execution =
@@ -181,8 +179,8 @@ export function toolPage(tool) {
       : http.credential_header
         ? `**HTTP: direct foreground calls only.** Supply \`${http.credential_header}\` and \`X-MCP-Client-Secret\` privately in request headers, including dry runs. The client secret is client-generated 32 random bytes encoded as 64 lowercase hex. Only the selected provider key is needed. Keep persistence false; HTTP rejects true, local paths and stored artifact references. No jobs, native tasks, local storage/artifact tools or resources exist on HTTP. Optional temporary upload preparation is separate.`
         : "**HTTP: anonymous static discovery.** No provider key or client secret is required; it lists configured model bindings even without environment provider keys. `services[].enabled` reports registration, not entitlement. No provider calls are made.";
-  const providerTasks = ["seedance_", "gen_task_"].some(
-    (prefix) => name.startsWith(prefix),
+  const providerTasks = ["seedance_", "gen_task_"].some((prefix) =>
+    name.startsWith(prefix),
   );
   return `---
 title: ${JSON.stringify(name)}

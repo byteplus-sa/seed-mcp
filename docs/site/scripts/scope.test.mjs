@@ -124,11 +124,7 @@ test("retained skills document bindings services hosts and accurate persistence"
     "utf8",
   );
   assert.match(limits, /`services\[\]`/);
-  for (const service of [
-    "modelark",
-    "seed_audio",
-    "object_storage",
-  ]) {
+  for (const service of ["modelark", "seed_audio", "object_storage"]) {
     assert.ok(limits.includes(`\`${service}\``), service);
   }
   for (const setting of [
