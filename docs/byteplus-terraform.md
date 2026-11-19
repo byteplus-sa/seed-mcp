@@ -79,7 +79,63 @@ Provider initialization may download the locked provider; never bypass checksum
 checks. Terraform tests use mocks. `values.ci.yaml` contains synthetic inputs
 for rendering, **not deployment approvals** or usable credentials. Do not install
 it into a cluster. Default/example values intentionally fail until required
-inputs and the prerequisite acknowledgement are supplied.
+input values and the prerequisite acknowledgement are supplied.
+
+## Prepare Terraform Source
+
+The standard-library helper `scripts/prepare_vke_terraform.py` prepares source
+only. It has no live-plan, apply, destroy, credential-fetching or Helm commands,
+does not load `.env`, and does not provision a TOS bucket or database.
+
+Validate the reviewed checkout without touching its backend or operator inputs:
+
+```bash
+python scripts/prepare_vke_terraform.py validate
+# Or select an already installed, reviewed binary:
+make vke-validate TERRAFORM=/absolute/path/to/terraform
+```
+
+Validation copies an explicit source allowlist and the unchanged provider
+lockfile into a temporary directory. It runs version/fmt/init/validate/test
+with a private HOME and no inherited provider credentials, `TF_VAR_*`,
+CLI flags, CLI configuration, workspaces, tokens or plugin caches. Init uses
+`-backend=false -lockfile=readonly`; every test uses mock providers and plan
+mode only. Registry/provider downloads still require network access. Passing
+these checks does not establish regional availability or deployment readiness.
+
+For staging, create a private operator parent and a new dedicated working
+directory, outside the repository:
+
+```bash
+mkdir -m 700 "$HOME/.seed-mcp-ops"
+python scripts/prepare_vke_terraform.py prepare "$HOME/.seed-mcp-ops/vke-staging"
+```
+
+Use an existing parent only if it is same-owner, mode `0700` and not a symlink.
+The helper refuses an existing destination and copies only source/lock/tests,
+plus an initial mode-`0600` `terraform.tfvars`. It never copies existing state,
+plans, provider caches, `.env` or other operator inputs. A failed partial
+preparation is not reusable; inspect it privately and select a new path.
+
+The generated inputs select `seed-mcp-staging`, `ap-southeast-1` and two fixed
+nodes. Required zone, maintained Kubernetes release and instance type remain
+empty; `fresh_state_confirmed` remains false. Verify those values, account/
+project, quotas, private network ranges and backend separation before changing
+the acknowledgement. The helper does not certify a fresh backend.
+
+After separately approving authenticated infrastructure planning and privately
+injecting the IAM credentials described below, an operator can run:
+
+```bash
+terraform -chdir="$HOME/.seed-mcp-ops/vke-staging" init -input=false -lockfile=readonly
+terraform -chdir="$HOME/.seed-mcp-ops/vke-staging" plan -input=false -out=review.tfplan
+```
+
+The local backend stays inside that dedicated directory. Protect its state and
+saved plan, review the planned resources/costs, and obtain separate approval
+before applying. No live plan is run by the helper or by repository CI.
+Source updates do not update an existing prepared directory; review a new copy
+without replacing or migrating state automatically.
 
 ## Set Up IAM and Credentials
 
@@ -111,6 +167,12 @@ must create them in the intended namespace before installation:
   `MCP_IDENTITY_KEY_VERSION`, and a TLS Secret matching `publicHost`.
 - Only when enabling temporary uploads, a distinct existing TOS/enrollment
   Secret after completing the [upload prerequisites](temporary-uploads.md#operator-setup).
+  Static mode includes restricted AK/SK and optional STS token. Explicit
+  `temporaryUpload.credentialsMode=irsa` uses only bucket/region/endpoint/
+  enrollment keys in that Secret, with separately approved VKE OIDC and exact
+  namespace/ServiceAccount IAM trust. The chart creates a manual app-only token
+  projection, not cluster IRSA enablement or IAM roles. See
+  [IRSA setup and lifetime limits](temporary-uploads.md#vke-iam-roles-for-service-accounts).
   No database Secret or database CA ConfigMap is required.
 
 Hosted HTTP is database-free: provider-key task authorization, no durable replay or shared budget accounting. Omit legacy operation keys; never automatically resubmit uncertain creates. Local stdio persistence remains available.
@@ -259,7 +321,10 @@ provider probe. Admin API and proxy access logs are disabled; responses stream
 without buffering. Both layers default to a 2 MiB request body limit.
 
 The pod runs nonroot UID/GID 1001, read-only root filesystems, dropped
-capabilities and RuntimeDefault seccomp, without a service-account token.
+capabilities and RuntimeDefault seccomp, with automatic service-account token
+mounting disabled. Only explicit IRSA mode projects an app-only OIDC token;
+Caddy never mounts it. Verify nonroot readability, token rotation, absence of
+webhook double-injection and live BytePlus STS acceptance separately.
 CPU/memory and temporary volumes are bounded. `app.metricsEnabled=false`
 keeps the optional loopback listener off; enabling it selects port 9000,
 never a public Service. See [private operations](observability.md#metrics-endpoint).

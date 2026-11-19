@@ -87,6 +87,21 @@ def request_credentials_scope(headers: Sequence[tuple[bytes, bytes]]) -> Iterato
         if name in ENDPOINT_HEADERS.values() and not re.fullmatch(r"[A-Za-z0-9._-]{1,160}", value):
             raise ValueError(f"Invalid {name} header.")
         values[name] = value
+    secret = values.get(INSTALLATION_HEADER_NAME)
+    reused = False
+    if secret is not None:
+        for header in PROVIDER_HEADERS.values():
+            key = values.get(header)
+            if key is not None:
+                reused |= hmac.compare_digest(secret, key)
+    if reused:
+        raise ValueError(
+            "CREDENTIAL_REUSE: X-MCP-Client-Secret must be different from every supplied "
+            "provider API key. Generate a separate client secret using 32 random bytes "
+            "encoded as 64 lowercase hex characters, and update its private client "
+            "header configuration. Keep your provider API keys unchanged. "
+            "This request was rejected before tool execution."
+        )
     credentials = _RequestCredentials(values=values, lifetime=_RequestLifetime())
     token = _request.set(credentials)
     try:

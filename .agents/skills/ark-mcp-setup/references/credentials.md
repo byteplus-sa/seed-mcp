@@ -155,6 +155,12 @@ Client snippet flags take environment **names**, never values. Keep every
 selected header's source variable distinct, especially the independent client
 secret; do not reuse a provider key as the secret. The stdout generator neither
 reads files nor environment values and cannot prove value independence.
+The HTTP server rejects a client secret equal to any supplied provider key
+with HTTP 400 `CREDENTIAL_REUSE` before tool execution, including discovery,
+dry runs and upload preparation. Generate an independent 32-random-byte
+client secret as 64 lowercase hex and update only its protected client entry;
+leave provider keys unchanged. For temporary uploads, the operator must enroll
+the replacement secret's SHA-256 digest. Never reveal the raw secret.
 Optional endpoint variables require selected provider `modelark`; their values
 must be operator-verified exact bindings. Unknown endpoints require operator
 verification/binding, not customer AK/SK entry into this server.

@@ -4,7 +4,7 @@ type: spec
 status: accepted
 horizon: current
 created: 2026-11-17
-updated: 2026-11-18
+updated: 2026-11-19
 tags: [vke, terraform, helm, stateless, security]
 source:
   - https://registry.terraform.io/providers/byteplus-sdk/bytepluscc/0.0.63/docs/resources/vke_cluster
@@ -12,6 +12,8 @@ source:
   - https://docs.byteplus.com/en/docs/vke/Configuring-a-LoadBalancer-Service-using-annotations
   - https://docs.byteplus.com/docs/vke/Using-dynamic-EBS-Volumes
   - https://docs.byteplus.com/docs/vke/csi-ebs-add-on
+  - https://docs.byteplus.com/docs/vke/Using_IRSA_in_clusters
+  - https://docs.byteplus.com/id/docs/byteplus-platform/reference-assumerole
   - https://gofastmcp.com/deployment/http
 related:
   - specs/SPEC_HOSTED_BYOK.md
@@ -31,7 +33,7 @@ persistence is separate from this deployment.
 | --- | --- |
 | Terraform `deploy/terraform/vke` | Dedicated VPC/subnets, NAT/EIP/SNAT/routes, private VKE cluster and fixed on-demand node pool |
 | VKE administrator, outside Terraform and Helm | `cloud-controller-manager`, node readiness and addon lifecycle; CSI is not an application prerequisite |
-| Helm `deploy/helm/seed-mcp` | Application Deployment, HPA, PDB, proxy ConfigMap and CLB Service; no state PVC/StorageClass/headless Service |
+| Helm `deploy/helm/seed-mcp` | Application Deployment, HPA, PDB, proxy ConfigMap and CLB Service; conditional IRSA ServiceAccount/token projection; no state PVC/StorageClass/headless Service |
 
 Terraform does not retrieve kubeconfig or place HMAC keys, TLS Secrets,
 certificates, passwords or customer credentials in state/outputs. Helm
@@ -42,15 +44,67 @@ Infrastructure IDs and safe partial Helm inputs are the only outputs.
 
 Optional `temporaryUpload.enabled` defaults false; `existingSecret` defaults
 empty. Enabling requires a distinct existing Secret, separate from identity/TLS.
-Fixed required secretKeyRef keys are `TOS_ACCESS_KEY`, `TOS_SECRET_KEY`,
-`TOS_BUCKET`, `TOS_REGION`, `TOS_ENDPOINT`, `MCP_UPLOAD_CLIENT_SECRET_SHA256`;
-`TOS_SECURITY_TOKEN` is optional. The chart sets `OBJECT_STORAGE_BACKEND=tos`
+Both credential modes require secretKeyRef keys `TOS_BUCKET`, `TOS_REGION`,
+`TOS_ENDPOINT`, `MCP_UPLOAD_CLIENT_SECRET_SHA256`. Default
+`temporaryUpload.credentialsMode=static` additionally requires `TOS_ACCESS_KEY`,
+`TOS_SECRET_KEY`; `TOS_SECURITY_TOKEN` is optional. Explicit `irsa` mode
+references none of these three credential keys. The chart sets `OBJECT_STORAGE_BACKEND=tos`
 and the enable flag; it never emits Secret resources or accepts credential
 values/arbitrary env maps. External Secret changes require a pod rollout.
 No TOS bucket, IAM, CORS or lifecycle is provisioned by these roots. Operators
 must complete [temporary upload prerequisites](../docs/temporary-uploads.md#operator-setup)
 and live acceptance before enabling; per-pod signing limits are not global
-storage/egress budgets. This capability adds no database or volume.
+storage/egress budgets. This capability adds no database or persistent volume.
+
+### Explicit TOS IRSA
+
+`TOS_CREDENTIAL_MODE=irsa` is HTTP temporary-upload-only, with exact role TRN,
+absolute projected-token file and no configured AK/SK/session token. Static mode
+remains the default; no ambient credential discovery, node metadata, proxy
+inheritance or fallback is permitted. STS origin is restricted to
+`https://sts.byteplusapi.com` (default) or `https://open.byteplusapi.com`.
+Requested session duration is 3600-43200 seconds, default 3600.
+
+Only an enrolled call after admission lazily creates the runtime-owned credential
+provider. It exchanges the current token via unsigned form POST
+`Action=AssumeRoleWithOIDC&Version=2018-01-01`, using `RoleTrn`, `OIDCToken`,
+`RoleSessionName`, `DurationSeconds`. The synchronous exchange is worker-offloaded
+and drained on cancellation; HTTP redirects are rejected, decoded responses
+are bounded to 64 KiB and errors never echo provider bodies or credentials.
+No token/network read occurs at startup, discovery or readiness.
+
+Cache and refresh are single-flight in memory, five minutes before expiry.
+Failed refresh backs off ten seconds, allowing cached credentials only outside
+the final sixty seconds; otherwise fail closed. Reread the projected token
+on each exchange. Freeze one credential triplet for POST policy, form token
+and GET signing. Drop the cache on lifespan shutdown. No journal/database
+is introduced and replicas refresh independently.
+
+In IRSA mode the chart requires `temporaryUpload.irsa.prerequisitesConfirmed=true`,
+an explicit non-`default` `serviceAccountName` and exact `roleTrn`. It creates
+that ServiceAccount without IAM annotations or RBAC grants and retains
+`automountServiceAccountToken=false`. Only the MCP container mounts the manual
+projected token at `/var/run/secrets/seed-mcp/irsa/token`, with mode `0440`,
+audience `sts.volcengine.com` and requested expiration 3600 seconds. Caddy
+receives neither the mount nor TOS env. Static/disabled modes project no token.
+
+The VKE administrator owns regional IRSA support, cluster OIDC enablement,
+issuer/provider creation, exact namespace/ServiceAccount trust and least-privilege
+TOS policy. Enablement can restart the API and is documented as irreversible.
+Neither Terraform nor Helm enables IRSA, creates IAM resources or broadens
+permissions. Trust must match actual `oidc:iss`, exact
+`oidc:sub=system:serviceaccount:<namespace>:<serviceaccount>` and the VKE guide's
+fixed `oidc:aud=sts.volcengine.com`. Exclude automatic webhook injection that
+could mount tokens in Caddy or duplicate this manual configuration.
+
+STS expiry shortens the unchanged nominal 900/86400-second signed permissions.
+The one-hour default, or even the twelve-hour maximum, cannot guarantee a
+24-hour GET lifetime. Refresh never renews already issued URLs. Returned expiry
+timestamps remain nominal. Verify queue/fetch timing and effective lifetime.
+Live BytePlus OIDC endpoint/payload acceptance, trust, nonroot token readability,
+kubelet rotation, least privilege and signed TOS upload/read are separate
+staging gates. The VKE guide and installed SDK ground the exchange shape;
+an exact BytePlus OIDC OpenAPI schema has not been obtained.
 
 The private control plane requires operator private connectivity; possession
 of kubeconfig alone is insufficient. No public API fallback is supplied.
@@ -81,6 +135,17 @@ is `seed-mcp-vke.tfstate`; operators must protect it and review any backend
 selection independently. `fresh_state_confirmed=true` is an acknowledgement,
 not state inspection. Do not reuse state belonging to an unrelated deployment.
 
+`scripts/prepare_vke_terraform.py prepare` creates a new private source copy
+and unset operator inputs in a same-owner mode-0700 parent, refusing existing
+destinations. It copies only the explicit source/lock/test allowlist, not state,
+plans, caches or credentials. Its `validate` command uses a temporary source
+copy, private HOME and a minimal credential-free environment, disables backend
+initialization and runs mock-provider plans only with the unchanged lockfile.
+Provider installation can download from the registry. Neither command obtains
+credentials, runs a live plan, applies resources, installs Helm or proves
+regional inventory, backend separation, IAM authority or capacity. Live
+planning and deployment remain separate operator-approved steps.
+
 ## Prerequisite Gate
 
 Verify private API access, CCM, two Ready nodes and surge/draining headroom,
@@ -100,7 +165,7 @@ CPU 70%, 300-second scale-down stabilization) and `PodDisruptionBudget` with
 and `DoNotSchedule`. Rollouts use `maxSurge: 1` and `maxUnavailable: 0`.
 There is no headless Service or application storage-zone pin.
 
-Helm references existing identity and TLS Secrets only. `STATE_BACKEND=none` and
+Helm references existing identity/TLS and optional upload configuration Secrets. `STATE_BACKEND=none` and
 `DAILY_BUDGET_USD=0`; database inputs are rejected. No PVC, StorageClass, database
 CA, PostgreSQL driver or shared state service is required. Bounded scratch uses
 `emptyDir`. Model bindings remain exact and operator-verified.
@@ -195,6 +260,8 @@ in [Hosted BYOK](SPEC_HOSTED_BYOK.md#http-submission-safety).
 
 Official URLs in frontmatter are retained from implementation research recorded
 2026-11-17, not a claim of a new live deployment or independent regional test.
+IRSA and STS sources were accessed 2026-11-19; the STS AssumeRole reference
+establishes documented origins/durations/envelope, not OIDC API compatibility.
 Source contracts were checked against `deploy/terraform/vke`, the Helm values/
 schema/templates/Caddyfile, `runtime.py`, `__main__.py`,
 `config/env.py`, `security/http_middleware.py` and `observability/admin.py`.

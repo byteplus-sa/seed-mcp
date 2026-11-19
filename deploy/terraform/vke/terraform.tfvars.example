@@ -1,11 +1,23 @@
+# Nonsecret staging inputs only. Never put AK/SK/session tokens in this file.
+# Keep this false until a separate fresh backend/workspace has been reviewed.
 fresh_state_confirmed = false
-name                  = "seed-mcp"
+name                  = "seed-mcp-staging"
 region                = "ap-southeast-1"
-zone_id               = ""
-kubernetes_version    = ""
-node_instance_type    = ""
-node_count            = 2
-project_name          = "default"
-vpc_cidr              = "10.80.0.0/16"
-service_cidr          = "10.81.0.0/16"
-nat_bandwidth_mbps    = 25
+
+# Required: verify regional inventory, a maintained release and node capacity.
+# Empty values deliberately prevent a live plan; synthetic test values are not inventory.
+zone_id            = ""
+kubernetes_version = ""
+node_instance_type = ""
+
+# Fixed on-demand node capacity. HPA scales pods, not this worker pool.
+node_count   = 2
+project_name = "default"
+
+# Verify both ranges against private management/VPN routes before planning.
+vpc_cidr           = "10.80.0.0/16"
+service_cidr       = "10.81.0.0/16"
+nat_bandwidth_mbps = 25
+
+# Set only an existing key-pair name if the verified regional API requires it.
+# existing_ssh_key_pair_name = "existing-key-name"

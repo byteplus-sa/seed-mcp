@@ -86,23 +86,37 @@ jobs:
         run: |
           schema_cache="$RUNNER_TEMP/kubernetes-schemas/$KUBERNETES_SCHEMA_COMMIT"
           mkdir -p "$schema_cache"
+          upload_config=synthetic-uploads
           schema_location="https://raw.githubusercontent.com/yannh/kubernetes-json-schema/${KUBERNETES_SCHEMA_COMMIT}/{{.NormalizedKubernetesVersion}}-standalone{{.StrictSuffix}}/{{.ResourceKind}}{{.KindSuffix}}.json"
           for version in "$KUBERNETES_FLOOR_VERSION" "$KUBERNETES_CHECK_VERSION"; do
             helm lint deploy/helm/seed-mcp -f deploy/helm/seed-mcp/values.ci.yaml --strict --kube-version "$version"
             for autoscaling in true false; do
-              manifest="$RUNNER_TEMP/seed-mcp-${version}-${autoscaling}.yaml"
-              helm template seed-mcp deploy/helm/seed-mcp \
-                -f deploy/helm/seed-mcp/values.ci.yaml \
-                --kube-version "$version" --set "autoscaling.enabled=$autoscaling" > "$manifest"
-              test -s "$manifest"
-              kubeconform -strict -summary -exit-on-error \
-                -kubernetes-version "$version" -cache "$schema_cache" \
-                -schema-location "$schema_location" "$manifest"
+              for upload_mode in disabled static irsa; do
+                upload_args=()
+                if [ "$upload_mode" != disabled ]; then
+                  upload_args+=(--set temporaryUpload.enabled=true --set "temporaryUpload.existingSecret=$upload_config")
+                  upload_args+=(--set "temporaryUpload.credentialsMode=$upload_mode")
+                fi
+                if [ "$upload_mode" = irsa ]; then
+                  upload_args+=(--set temporaryUpload.irsa.prerequisitesConfirmed=true)
+                  upload_args+=(--set temporaryUpload.irsa.serviceAccountName=synthetic-tos-signer)
+                  upload_args+=(--set temporaryUpload.irsa.roleTrn=trn:iam::3000000000:role/synthetic-signing)
+                fi
+                manifest="$RUNNER_TEMP/seed-mcp-${version}-${autoscaling}-${upload_mode}.yaml"
+                helm template seed-mcp deploy/helm/seed-mcp \
+                  -f deploy/helm/seed-mcp/values.ci.yaml \
+                  --kube-version "$version" --set "autoscaling.enabled=$autoscaling" \
+                  "${upload_args[@]}" > "$manifest"
+                test -s "$manifest"
+                kubeconform -strict -summary -exit-on-error \
+                  -kubernetes-version "$version" -cache "$schema_cache" \
+                  -schema-location "$schema_location" "$manifest"
+              done
             done
             # Expose the pinned validator's URL-hashed cache as local schemas for offline pytest.
             directory="$schema_cache/v${version}-standalone-strict"
             mkdir -p "$directory"
-            for schema in configmap-v1 deployment-apps-v1 horizontalpodautoscaler-autoscaling-v2 poddisruptionbudget-policy-v1 service-v1; do
+            for schema in configmap-v1 deployment-apps-v1 horizontalpodautoscaler-autoscaling-v2 poddisruptionbudget-policy-v1 service-v1 serviceaccount-v1; do
               url="https://raw.githubusercontent.com/yannh/kubernetes-json-schema/${KUBERNETES_SCHEMA_COMMIT}/v${version}-standalone-strict/${schema}.json"
               key="$(printf '%s' "$url" | sha256sum | cut -d ' ' -f 1)"
               test -s "$schema_cache/$key"

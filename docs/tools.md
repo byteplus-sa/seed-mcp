@@ -999,7 +999,11 @@ Returns `upload_url`, `method="POST"`, `form_fields`, `file_field="file"`,
 `upload_expires_at`, `reference_url`, `reference_expires_at`, `object_key`,
 `size_bytes`, `object_expires_days=1` and instructions. Upload directly with all
 fields unchanged and file LAST; wait for success before using the GET URL.
-Fixed 15-minute POST / 24-hour GET / one-day scheduled object expiry.
+Nominal 15-minute POST / 24-hour GET / one-day scheduled object expiry.
+Signing uses static AK/SK or explicit operator VKE IRSA. STS expiry can shorten
+both permissions; the default one-hour IRSA session may leave an hour or less.
+Refresh never renews issued URLs. IRSA exchange is lazy after enrollment/
+admission; it adds no readiness probes, database or client-side credentials.
 Signed permissions are sensitive; declared MIME is not byte inspection.
 No upload receipt, DB, URL renewal or global quota. Full workflow and operator
 prerequisites: [temporary uploads](temporary-uploads.md).

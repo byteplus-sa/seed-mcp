@@ -58,6 +58,7 @@ if TYPE_CHECKING:
     from fastmcp import Context, FastMCP
 
     from ark_mcp.artifacts.store import ArtifactStore
+    from ark_mcp.providers.tos.credentials import IrsaCredentialsProvider
 
 ProviderKey = Literal["modelark", "seed-speech", "vision-cv", "tos", "s3"]
 
@@ -928,6 +929,7 @@ class RuntimeServices:
     task_artifact_cache: TaskArtifactCache
     task_artifact_locks: TaskArtifactPersistenceLocks
     metrics_listener: MetricsListener | None = None
+    tos_credentials: IrsaCredentialsProvider | None = field(default=None, repr=False)
     _close_task: asyncio.Task[None] | None = field(default=None, init=False, repr=False)
 
 
@@ -1098,6 +1100,8 @@ async def close_runtime_services(runtime: RuntimeServices) -> None:
             cleanup.push_async_callback(runtime.artifact_store.close)
             if runtime.metrics_listener is not None:
                 cleanup.push_async_callback(runtime.metrics_listener.close)
+            if runtime.tos_credentials is not None:
+                cleanup.push_async_callback(asyncio.to_thread, runtime.tos_credentials.close)
 
     if runtime._close_task is None:
         runtime._close_task = asyncio.create_task(close())

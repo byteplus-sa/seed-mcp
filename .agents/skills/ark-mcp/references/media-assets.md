@@ -100,6 +100,14 @@ Last-Modified/following midnight, not exact 24-hour deletion.
 There is no HTTP renewal/finalization tool, upload record or global storage/
 egress budget. Client attachment alone does not perform this upload.
 
+Operator signing can use static AK/SK or explicit VKE IRSA with lazily refreshed
+temporary credentials. IRSA changes no client inputs or generation BYOK headers.
+Its default one-hour STS session can shorten nominal GET validity to an hour
+or less; refresh never extends issued URLs. Use an independently managed
+reference source when longer validity is required. Credential-unavailable
+errors require operator STS/trust/token diagnosis, not submitting generation
+keys to the server or enabling IAM automatically.
+
 Operators enable `MCP_TEMPORARY_UPLOAD_ENABLED` with TOS and
 `MCP_UPLOAD_CLIENT_SECRET_SHA256`: 1-1000 unique lowercase digests of exact ASCII
 client-secret values (not decoded bytes), comma-separated without spaces.

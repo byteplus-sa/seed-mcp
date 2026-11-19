@@ -432,6 +432,17 @@ class Settings(BaseSettings):
 
     # --- TOS object storage -------------------------------------------------
 
+    tos_credential_mode: Literal["static", "irsa"] = Field(
+        default="static", validation_alias="TOS_CREDENTIAL_MODE"
+    )
+    tos_irsa_role_trn: str = Field(default="", validation_alias="TOS_IRSA_ROLE_TRN")
+    tos_irsa_token_file: str = Field(default="", validation_alias="TOS_IRSA_TOKEN_FILE")
+    tos_irsa_sts_endpoint: Literal[
+        "https://sts.byteplusapi.com", "https://open.byteplusapi.com"
+    ] = Field(default="https://sts.byteplusapi.com", validation_alias="TOS_IRSA_STS_ENDPOINT")
+    tos_irsa_duration_seconds: int = Field(
+        default=3600, ge=3600, le=43200, validation_alias="TOS_IRSA_DURATION_SECONDS"
+    )
     tos_access_key: str = Field(default="", validation_alias="TOS_ACCESS_KEY")
     tos_secret_key: str = Field(default="", validation_alias="TOS_SECRET_KEY")
     tos_security_token: str = Field(default="", validation_alias="TOS_SECURITY_TOKEN")
@@ -606,6 +617,8 @@ class Settings(BaseSettings):
     @property
     def has_tos(self) -> bool:
         """Whether TOS object storage credentials are configured."""
+        if self.tos_credential_mode == "irsa":
+            return bool(self.tos_irsa_role_trn and self.tos_irsa_token_file and self.tos_bucket)
         return bool(self.tos_access_key and self.tos_secret_key and self.tos_bucket)
 
     @property
@@ -801,6 +814,22 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "HTTP readiness must not call providers with operator credentials."
                 )
+        if self.tos_credential_mode == "irsa":
+            if self.mcp_transport != "http" or not self.temporary_upload_enabled:
+                raise ValueError("TOS_CREDENTIAL_MODE=irsa requires HTTP temporary uploads.")
+            if self.tos_access_key or self.tos_secret_key or self.tos_security_token:
+                raise ValueError("IRSA cannot be combined with static TOS credentials.")
+            if not re.fullmatch(
+                r"trn:iam::[0-9]+:role/[A-Za-z0-9+=,.@_-]{1,128}", self.tos_irsa_role_trn
+            ):
+                raise ValueError("TOS_IRSA_ROLE_TRN requires an exact IAM role TRN.")
+            if (
+                not Path(self.tos_irsa_token_file).is_absolute()
+                or ".." in Path(self.tos_irsa_token_file).parts
+            ):
+                raise ValueError("TOS_IRSA_TOKEN_FILE requires an absolute projected-token path.")
+        elif self.tos_irsa_role_trn or self.tos_irsa_token_file:
+            raise ValueError("IRSA role/token configuration requires TOS_CREDENTIAL_MODE=irsa.")
         if bool(self.tos_access_key) != bool(self.tos_secret_key):
             raise ValueError("TOS_ACCESS_KEY and TOS_SECRET_KEY must both be set or both be empty.")
         if self.tos_access_key and not self.tos_endpoint:

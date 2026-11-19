@@ -282,9 +282,9 @@ def test_chart_accepts_supported_kubernetes_source_versions(tmp_path: Path, vers
 
 @pytest.mark.parametrize("hpa", [False, True])
 @pytest.mark.parametrize("selected_version", [False, True])
-@pytest.mark.parametrize("upload_enabled", [False, True])
+@pytest.mark.parametrize("upload_mode", ["disabled", "static", "irsa"])
 def test_rendered_kubernetes_schemas_offline(
-    tmp_path: Path, hpa: bool, selected_version: bool, upload_enabled: bool
+    tmp_path: Path, hpa: bool, selected_version: bool, upload_mode: str
 ) -> None:
     binary = executable("KUBECONFORM_BIN", "kubeconform")
     version = os.environ.get("KUBERNETES_DEPLOYMENT_VERSION") if selected_version else "1.30.0"
@@ -295,14 +295,19 @@ def test_rendered_kubernetes_schemas_offline(
         pytest.skip("Set KUBERNETES_SCHEMA_LOCATION to cached strict versioned schemas")
     # No default/remote schema fallback: missing local schemas are fatal.
     assert Path(location).is_absolute() and "://" not in location
+    upload = (
+        irsa_values()
+        if upload_mode == "irsa"
+        else {
+            "enabled": upload_mode == "static",
+            "existingSecret": "synthetic-uploads",  # pragma: allowlist secret
+        }
+    )
     rendered = render(
         tmp_path,
         {
             "autoscaling": {"enabled": hpa},
-            "temporaryUpload": {
-                "enabled": upload_enabled,
-                "existingSecret": "synthetic-uploads",  # pragma: allowlist secret
-            },
+            "temporaryUpload": upload,
         },
         kube_version=version,
     )
@@ -762,6 +767,101 @@ def test_chart_packaging_excludes_ci_and_private_values(tmp_path: Path) -> None:
         names = archive.getnames()
     assert "seed-mcp/files/Caddyfile" in names
     assert not any("private" in name or name.endswith(("values.ci.yaml", ".env")) for name in names)
+
+
+def irsa_values(**overrides: Any) -> dict[str, Any]:
+    return {
+        "enabled": True,
+        "existingSecret": "synthetic-uploads",  # pragma: allowlist secret
+        "credentialsMode": "irsa",
+        "irsa": {
+            "prerequisitesConfirmed": True,
+            "serviceAccountName": "synthetic-tos-signer",
+            "roleTrn": "trn:iam::3000000000:role/synthetic-signing",
+            **overrides,
+        },
+    }
+
+
+def test_irsa_projects_token_only_to_app_without_static_keys(tmp_path: Path) -> None:
+    from tests.unit.test_tos_irsa import irsa_settings
+
+    rendered = documents(render(tmp_path, {"temporaryUpload": irsa_values()}))
+    account = next(item for item in rendered if item["kind"] == "ServiceAccount")
+    assert account["metadata"]["name"] == "synthetic-tos-signer"
+    assert account["automountServiceAccountToken"] is False
+    assert "annotations" not in account["metadata"]
+    assert not any(item["kind"] in {"Secret", "Role", "RoleBinding"} for item in rendered)
+    pod = next(item for item in rendered if item["kind"] == "Deployment")["spec"]["template"][
+        "spec"
+    ]
+    assert pod["serviceAccountName"] == account["metadata"]["name"]
+    assert pod["automountServiceAccountToken"] is False
+    app, proxy = pod["containers"]
+    assert {
+        "name": "irsa-token",
+        "mountPath": "/var/run/secrets/seed-mcp/irsa",
+        "readOnly": True,
+    } in app["volumeMounts"]
+    assert not any(mount["name"] == "irsa-token" for mount in proxy["volumeMounts"])
+    volume = next(item for item in pod["volumes"] if item["name"] == "irsa-token")
+    assert volume["projected"] == {
+        "defaultMode": 0o440,
+        "sources": [
+            {
+                "serviceAccountToken": {
+                    "audience": "sts.volcengine.com",
+                    "expirationSeconds": 3600,
+                    "path": "token",
+                }
+            }
+        ],
+    }
+    env = {entry["name"]: entry for entry in app["env"]}
+    assert not {"TOS_ACCESS_KEY", "TOS_SECRET_KEY", "TOS_SECURITY_TOKEN"}.intersection(env)
+    assert env["TOS_CREDENTIAL_MODE"]["value"] == "irsa"
+    assert env["TOS_IRSA_STS_ENDPOINT"]["value"] == "https://sts.byteplusapi.com"
+    assert not any("API_KEY" in name or name.startswith("VOLCENGINE_") for name in env)
+    assert not any(entry["name"].startswith("TOS_") for entry in proxy["env"])
+    for key in ("TOS_BUCKET", "TOS_REGION", "TOS_ENDPOINT", "MCP_UPLOAD_CLIENT_SECRET_SHA256"):
+        assert env[key]["valueFrom"]["secretKeyRef"]["name"] == "synthetic-uploads"
+    settings = irsa_settings(
+        tmp_path,
+        **{
+            key: json.loads(entry["value"]) if key.endswith("_MODEL_BINDINGS") else entry["value"]
+            for key, entry in env.items()
+            if "value" in entry
+        },
+    )
+    assert settings.has_tos and settings.tos_irsa_duration_seconds == 3600
+
+
+@pytest.mark.parametrize(
+    "overrides",
+    [
+        {"prerequisitesConfirmed": False},
+        {"serviceAccountName": ""},
+        {"serviceAccountName": "default"},
+        {"roleTrn": ""},
+        {"roleTrn": "trn:iam::*:role/*"},
+        {"stsEndpoint": "https://sts.volcengineapi.com"},
+        {"stsEndpoint": "https://attacker.invalid"},
+        {"durationSeconds": 3599},
+        {"durationSeconds": 43201},
+        {"accessKey": "not-accepted"},
+    ],
+)
+def test_irsa_rejects_unverified_or_unsafe_values(tmp_path: Path, overrides: dict) -> None:
+    assert render(tmp_path, {"temporaryUpload": irsa_values(**overrides)}).returncode != 0
+
+
+def test_irsa_requires_uploads_and_explicit_mode(tmp_path: Path) -> None:
+    values = irsa_values()
+    values["enabled"] = False
+    assert render(tmp_path, {"temporaryUpload": values}).returncode != 0
+    values["enabled"] = True
+    values["credentialsMode"] = "static"
+    assert render(tmp_path, {"temporaryUpload": values}).returncode != 0
 
 
 def test_caddy_validate_with_temporary_certificate(tmp_path: Path) -> None:

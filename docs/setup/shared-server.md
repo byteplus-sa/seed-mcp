@@ -51,6 +51,14 @@ in agent-visible output or reuse an example value. Enter the result directly
 into your client's protected secret configuration and keep it stable.
 Never paste credentials into chat, tool arguments, screenshots or Git.
 
+The client secret must differ from every provider key supplied in the request,
+even an unused provider key. Reuse returns HTTP 400 `CREDENTIAL_REUSE` before
+tool execution, including discovery, dry runs and upload preparation.
+Generate an independent client secret and change only its private client
+environment/secret-store entry, not your provider keys. If you use temporary
+uploads, ask the operator to enroll the replacement secret's SHA-256 digest;
+the old enrollment does not transfer. Never share the raw secret.
+
 Use private environment-backed header configuration where supported:
 [Codex](../integrations/codex.md#http-byok) and
 [Claude Code](../integrations/claude-code.md#http-byok) have placeholder-only

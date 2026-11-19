@@ -15,13 +15,14 @@ SHELL := /bin/bash
 UV      := uv
 PYTHON  := python
 FASTMCP := fastmcp
+TERRAFORM := terraform
 ENTRY   := src/ark_mcp/server.py:mcp
 
 .DEFAULT_GOAL := help
 
 .PHONY: help bootstrap install sync build dev start start-http test test-watch audit-capabilities \
         lint typecheck format pre-commit-install pre-commit-run pre-commit-run-all \
-        secrets-baseline audit inspect inspect-dev check-env clean setup
+        secrets-baseline audit inspect inspect-dev check-env clean setup vke-validate
 
 help: ## Show available targets
 	@awk 'BEGIN {FS = ":.*##"; printf "Ark Seed MCP — task runner\n\nUsage:\n  make \033[36m<target>\033[0m\n\nTargets:\n"} /^[a-zA-Z_-]+:.*?##/ { printf "  \033[36m%-16s\033[0m %s\n", $$1, $$2 }' $(MAKEFILE_LIST)
@@ -76,7 +77,11 @@ typecheck: ## Type-check with mypy
 		scripts/_smoke_context.py scripts/live_smoke_test.py \
 		scripts/live_smoke_test_variations.py scripts/smoke_seedream55.py \
 		scripts/generate_identity_secret.py \
+		scripts/prepare_vke_terraform.py \
 		scripts/hosted_acceptance.py
+
+vke-validate: ## Validate isolated VKE source and mock plans, without cloud credentials
+	$(UV) run python scripts/prepare_vke_terraform.py validate --terraform-bin "$(TERRAFORM)"
 
 # --- Pre-commit ------------------------------------------------------------
 

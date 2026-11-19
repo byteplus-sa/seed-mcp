@@ -11,6 +11,8 @@ from fastmcp import Context
 
 from ark_mcp.config.env import Settings
 from ark_mcp.security.credentials import (
+    PROVIDER_HEADERS,
+    has_client_secret,
     provider_api_key,
     provider_scope,
     request_credentials_scope,
@@ -87,6 +89,60 @@ def test_invalid_headers_are_rejected_without_echo(extra: list[tuple[bytes, byte
         pytest.fail("Malformed header accepted")
     assert "customer-a" not in str(caught.value)
     assert "not-an-mcp-token" not in str(caught.value)
+
+
+@pytest.mark.parametrize("header", PROVIDER_HEADERS.values())
+@pytest.mark.parametrize("secret_first", [False, True])
+def test_reused_client_secret_is_rejected_before_binding(header: str, secret_first: bool) -> None:
+    reused = "ab" * 32
+    supplied = [
+        (header.upper().encode(), reused.encode()),
+        (b"X-MCP-Client-Secret", reused.encode()),
+    ]
+    if secret_first:
+        supplied.reverse()
+    with (
+        pytest.raises(ValueError, match=r"^CREDENTIAL_REUSE:") as caught,
+        request_credentials_scope(supplied),
+    ):
+        pytest.fail("Reused client secret accepted")
+    message = str(caught.value)
+    assert reused not in message
+    assert "32 random bytes" in message
+    assert "64 lowercase hex" in message
+    assert "private client header configuration" in message
+    assert "Keep your provider API keys unchanged" in message
+    with pytest.raises(PermissionError):
+        has_client_secret()
+    with request_credentials_scope(headers()), provider_scope(http_settings(), "modelark"):
+        assert provider_api_key(context(http_settings()), "modelark") == "customer-a"
+
+
+def test_reuse_check_includes_unselected_provider_keys() -> None:
+    supplied = [*headers(), (b"x-seed-speech-api-key", b"b" * 64)]
+    with (
+        pytest.raises(ValueError, match=r"^CREDENTIAL_REUSE:"),
+        request_credentials_scope(supplied),
+    ):
+        pytest.fail("Unselected provider key reused as client secret")
+
+
+def test_reuse_check_does_not_reject_provider_key_equality_without_client_secret() -> None:
+    with request_credentials_scope(
+        [(header.encode(), b"ab" * 32) for header in PROVIDER_HEADERS.values()]
+    ):
+        assert has_client_secret() is False
+
+
+def test_independent_secret_allows_equal_provider_keys() -> None:
+    supplied = [(header.encode(), b"ab" * 32) for header in PROVIDER_HEADERS.values()] + [
+        (b"x-mcp-client-secret", b"cd" * 32)
+    ]
+    settings = http_settings()
+    with request_credentials_scope(supplied):
+        for provider in PROVIDER_HEADERS:
+            with provider_scope(settings, provider):
+                assert provider_api_key(context(settings), provider) == "ab" * 32
 
 
 def test_provider_scope_requires_client_secret_and_matching_provider_key() -> None:

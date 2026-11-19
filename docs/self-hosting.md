@@ -36,6 +36,10 @@ Keep operator configuration outside Git in an owner-only file. Set
 Load configuration through `ARK_MCP_ENV_FILE` or a protected runtime injector.
 Do not configure hosted generation-provider keys or a Redis task backend.
 Operator TOS credentials are required only for opt-in temporary upload preparation.
+These may be configured static AK/SK or explicit VKE IRSA with app-only OIDC
+projection and automatic in-memory refresh. Cluster/IAM setup and live
+acceptance remain separate operator gates. STS can shorten reference URLs;
+refresh does not renew them. See [IRSA setup](temporary-uploads.md#vke-iam-roles-for-service-accounts).
 HTTP ignores startup generation keys and has no fallback to them.
 Hosted [provider-secret sync is superseded](secret-manager.md).
 

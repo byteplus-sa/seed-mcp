@@ -244,6 +244,12 @@ installations require separately reviewed transition and reconciliation.
 Configure only the selected provider key header and `X-MCP-Client-Secret`,
 including dry runs. The client secret is 32 random bytes as 64 lowercase hex.
 Duplicate, empty or malformed values fail; `Authorization` is rejected.
+HTTP 400 `CREDENTIAL_REUSE` means the client secret exactly matches a supplied
+provider key. Generate a separate 32-random-byte secret as 64 lowercase hex
+characters and update only the client's private client-secret entry. Keep
+provider keys unchanged. The rejected request did not execute a tool or dispatch
+provider work. Temporary-upload users must have the replacement secret's
+SHA-256 digest enrolled by the operator; do not share its raw value.
 There is no OAuth, signup or server-issued key. Discovery is anonymous/static
 and does not validate provider keys. Never print secrets while troubleshooting.
 Task access depends on provider authorization. Client-secret/HMAC changes affect
@@ -261,6 +267,7 @@ are rejected. Default discovery returns `connection=null`.
 | --- | --- |
 | `missing_modelark_key` | Check the selected client's environment-name mapping for `X-ModelArk-Api-Key`, without printing its value |
 | `missing_client_secret` | Configure the independent `X-MCP-Client-Secret` variable privately |
+| HTTP 400 `CREDENTIAL_REUSE` | Generate an independent client secret and update its private entry, keeping provider keys unchanged; upload enrollment must use the replacement digest |
 | `endpoint_not_configured` / `ENDPOINT_NOT_CONFIGURED` | Operator must verify the endpoint's model/version and exact product binding; unknown ID/family are not echoed in preflight |
 | `configuration_valid=true` but provider later rejects the request | Presence and bindings passed, not provider authentication, entitlement, live lineage, balance or reachability |
 | Generator returns `invalid configuration arguments` | Use `--help`; check HTTPS URL, variable-name grammar, distinct selected variables and `modelark` selection for optional endpoint flags |

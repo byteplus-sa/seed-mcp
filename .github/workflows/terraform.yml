@@ -6,7 +6,15 @@ on:
       - "deploy/terraform/**"
       - "deploy/helm/**"
       - "scripts/generate_identity_secret.py"
+      - "scripts/prepare_vke_terraform.py"
       - "tests/unit/test_vke*.py"
+      - "tests/unit/test_prepare_vke_terraform.py"
+      - "src/ark_mcp/providers/tos/**"
+      - "src/ark_mcp/config/env.py"
+      - "src/ark_mcp/tools/media_prepare_upload.py"
+      - "src/ark_mcp/runtime.py"
+      - "tests/unit/test_tos_irsa.py"
+      - "tests/integration/test_tos_irsa.py"
       - "tests/unit/test_hosted_byok_deployment.py"
       - "tests/unit/test_generate_identity_secret.py"
       - ".github/workflows/terraform.yml"
@@ -16,7 +24,15 @@ on:
       - "deploy/terraform/**"
       - "deploy/helm/**"
       - "scripts/generate_identity_secret.py"
+      - "scripts/prepare_vke_terraform.py"
       - "tests/unit/test_vke*.py"
+      - "tests/unit/test_prepare_vke_terraform.py"
+      - "src/ark_mcp/providers/tos/**"
+      - "src/ark_mcp/config/env.py"
+      - "src/ark_mcp/tools/media_prepare_upload.py"
+      - "src/ark_mcp/runtime.py"
+      - "tests/unit/test_tos_irsa.py"
+      - "tests/integration/test_tos_irsa.py"
       - "tests/unit/test_hosted_byok_deployment.py"
       - "tests/unit/test_generate_identity_secret.py"
       - ".github/workflows/terraform.yml"
@@ -62,10 +78,7 @@ jobs:
 
       - name: Check Terraform and mocked plans
         run: |
-          terraform -chdir=deploy/terraform/vke fmt -check -recursive
-          terraform -chdir=deploy/terraform/vke init -backend=false -input=false -lockfile=readonly
-          terraform -chdir=deploy/terraform/vke validate
-          terraform -chdir=deploy/terraform/vke test -no-color
+          python3 scripts/prepare_vke_terraform.py validate
 
       - name: Install checksum-verified Helm
         run: |
@@ -81,5 +94,5 @@ jobs:
           uv sync --locked
           helm lint deploy/helm/seed-mcp -f deploy/helm/seed-mcp/values.ci.yaml --strict
           helm template seed-mcp deploy/helm/seed-mcp -f deploy/helm/seed-mcp/values.ci.yaml > "$RUNNER_TEMP/seed-mcp.yaml"
-          uv run mypy scripts/generate_identity_secret.py
-          uv run pytest tests/unit/test_vke*.py tests/unit/test_hosted_byok_deployment.py tests/unit/test_generate_identity_secret.py --disable-socket --allow-unix-socket
+          uv run mypy scripts/generate_identity_secret.py scripts/prepare_vke_terraform.py
+          uv run pytest tests/unit/test_vke*.py tests/unit/test_hosted_byok_deployment.py tests/unit/test_generate_identity_secret.py tests/unit/test_prepare_vke_terraform.py tests/unit/test_tos_irsa.py tests/integration/test_tos_irsa.py --disable-socket --allow-unix-socket

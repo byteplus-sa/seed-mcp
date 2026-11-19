@@ -11,7 +11,7 @@ from fastmcp.tools import ToolResult
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 from ark_mcp.config.env import get_settings
-from ark_mcp.domain.errors import ProviderError
+from ark_mcp.domain.errors import NormalizedProviderError, ProviderError
 from ark_mcp.providers.tos.constants import (
     TEMPORARY_OBJECT_EXPIRES_DAYS,
     TEMPORARY_REFERENCE_TTL_SECONDS,
@@ -149,6 +149,8 @@ async def media_prepare_upload(
     using reference_url in an existing generation tool. This call does not upload or inspect
     bytes, verify the object or create an asset. TOS expiry is one whole day with scheduled
     deletion; signed URL expiry is not deletion. STS expiry can shorten URL validity.
+    Explicit operator IRSA mode may exchange OIDC with BytePlus STS before signing;
+    no bucket/object provider call or generation-provider credential is used.
     Every call selects a new key; no durable state, replay or global upload budget exists.
     """
     principal = require_upload_scope()
@@ -160,13 +162,31 @@ async def media_prepare_upload(
     key = f"temporary-references/{principal.principal_id}/{input.media_type}/{uuid4()}"
     started = datetime.now(UTC)
     try:
-        async with get_runtime(ctx).provider_limiters.acquire("tos", principal):
-            gateway = TosGateway()
+        runtime = get_runtime(ctx)
+        async with runtime.provider_limiters.acquire("tos", principal):
+            if settings.tos_credential_mode == "irsa":
+                from ark_mcp.providers.tos.credentials import IrsaCredentialsProvider
+
+                if runtime.tos_credentials is None:
+                    runtime.tos_credentials = IrsaCredentialsProvider(settings)
+                gateway = TosGateway(credentials_provider=runtime.tos_credentials)
+            else:
+                gateway = TosGateway()
             try:
                 upload_url, fields, reference_url = await gateway.prepare_upload(
                     key=key, mime_type=input.mime_type, size_bytes=input.size_bytes
                 )
-            except ProviderError:
+            except ProviderError as exc:
+                if exc.code == "TOS_IRSA_CREDENTIALS_UNAVAILABLE":
+                    raise ProviderError(
+                        NormalizedProviderError(
+                            provider="tos",
+                            operation="prepare_upload",
+                            code="TOS_IRSA_CREDENTIALS_UNAVAILABLE",
+                            message="Could not obtain valid TOS IRSA credentials. Ask the operator to check TOS configuration.",
+                            retryable=True,
+                        )
+                    ) from None
                 raise ValueError(
                     "Could not prepare temporary upload permissions. Ask the operator to check TOS configuration."
                 ) from None

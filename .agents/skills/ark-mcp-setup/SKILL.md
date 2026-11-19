@@ -84,6 +84,18 @@ Bucket privacy, disabled versioning, prefix IAM, CORS, lifecycle and
 storage/egress controls need separate operator setup; do not enable as a
 side effect of client onboarding. See `docs/temporary-uploads.md` in the checkout.
 
+TOS mode defaults to static credentials. Explicit
+`temporaryUpload.credentialsMode=irsa` requires separately verified regional
+VKE OIDC, exact issuer/audience/namespace/ServiceAccount trust and prefix-only
+TOS IAM. It creates an app-only manual OIDC projection with audience
+`sts.volcengine.com`, not IAM roles, cluster enablement or webhook injection.
+The upload Secret then contains configuration/enrollment only, no AK/SK/token
+references. Runtime refresh is lazy, single-flight and memory-only; static
+fallback is rejected. Default 3600-second STS credentials can shorten nominal
+24-hour GET URLs to an hour or less; refresh never renews issued URLs.
+Live OIDC endpoint acceptance/readability/rotation remain staging gates.
+Never enable cluster IRSA or change IAM as a side effect of setup.
+
 `cloud-controller-manager` and addon lifecycle are VKE-admin owned outside
 Terraform/Helm. Inspect existing installations; install absent compatible
 maintained versions via VKE addon management. CCM Running and Ready nodes,
@@ -258,6 +270,11 @@ only ModelArk image/video header presence and exact endpoint defaults are
 checked. Omit `kind` for both routes or select `"image"` / `"video"`;
 Other kinds and stdio checks are rejected.
 Missing headers return `missing_modelark_key` / `missing_client_secret`.
+HTTP 400 `CREDENTIAL_REUSE` rejects a client secret equal to any supplied
+provider key before tool execution. Generate an independent 32-random-byte
+secret as 64 lowercase hex and update only its protected client entry, keeping
+provider keys unchanged. Temporary uploads require enrollment of the replacement
+digest; never expose the raw secret.
 `configuration_valid=true` requires both headers and every checked route;
 `authentication_verified` and `provider_calls_made` always stay false.
 This does not prove authentication, endpoint existence/current lineage,

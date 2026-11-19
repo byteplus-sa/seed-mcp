@@ -40,6 +40,20 @@ Helm `temporaryUpload.enabled`/`existingSecret` reference a distinct existing
 TOS/enrollment Secret. Bucket/IAM/CORS/versioning/lifecycle setup and live
 acceptance are separate operator gates. See [media-assets.md](media-assets.md#temporary-http-references).
 
+`TOS_CREDENTIAL_MODE=static` retains configured AK/SK and optional matching STS
+token. Explicit `irsa` is HTTP-preparation-only: exact `TOS_IRSA_ROLE_TRN`,
+absolute `TOS_IRSA_TOKEN_FILE`, allowlisted BytePlus STS endpoint and session
+3600-43200 seconds (default 3600). No static/metadata fallback. Refresh is lazy
+after enrollment/admission, single-flight and runtime-memory-only, not a
+discovery/readiness probe. Helm `temporaryUpload.credentialsMode=irsa`
+requires acknowledged prerequisites and an explicit non-default ServiceAccount;
+manual audience `sts.volcengine.com` token projection is app-only, not Caddy.
+The existing upload Secret holds bucket/region/endpoint/enrollment, not AK/SK.
+Cluster OIDC/IAM trust, least privilege, webhook exclusion and live STS/token
+rotation acceptance require separate approved operator setup. Default one-hour
+credentials can shorten signed references to an hour or less; refresh never
+renews already issued URLs. See `docs/temporary-uploads.md` in the checkout.
+
 The operator supplies `MCP_AUTH_MODE=byok` (default),
 `MCP_IDENTITY_HMAC_KEY` (64 lowercase hex) and positive
 `MCP_IDENTITY_KEY_VERSION` (default `1`). The HMAC key is operator identity
@@ -156,6 +170,13 @@ and stateful-release migration tooling are not supported.
 Terraform uses dedicated fresh VKE state and stores no
 HMAC/TLS Secret/kubeconfig. Helm references existing Secrets only. Private
 control-plane access requires operator private connectivity.
+`scripts/prepare_vke_terraform.py prepare` makes a new private source copy,
+refuses existing destinations and leaves regional inputs/fresh-state approval
+unset. Its `validate` command runs isolated mock-only Terraform checks with no
+inherited credentials or backend initialization. Registry downloads may occur;
+no live plan, apply, IAM changes or Helm installation is performed. Live
+planning/provisioning requires separate approval; use the operator runbook,
+not media generation or client setup, for those operations.
 Chart `models.seedream` and `models.seedance` accept `defaultModel` and
 `bindings: [{model_id, family}]` with strict families and unique IDs.
 Nonempty lists must include their default; alternate defaults need explicit

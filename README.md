@@ -45,6 +45,10 @@ HTTP BYOK exposes **7 tools, or 10 with OmniHuman enabled**, independently of
 operator provider keys. Discovery is anonymous/static; provider tools run
 directly in the foreground. Opt-in `media_prepare_upload` adds one HTTP tool
 (8/11 total) for enrolled clients to upload references directly to private TOS.
+TOS signing supports configured AK/SK or explicit VKE IRSA with automatic
+temporary-credential refresh. IRSA projects a token only into the MCP app;
+cluster/IAM setup remains operator-owned. STS expiry can shorten reference URLs,
+and refresh does not renew them. See [IRSA setup](docs/temporary-uploads.md#vke-iam-roles-for-service-accounts).
 HTTP has no jobs, native tasks, local storage/artifact tools or resources.
 Both transports execute directly; persistence is stdio-only.
 
@@ -92,7 +96,9 @@ Key features:
 - **Direct operations and safety** - bounded admission, cooperative deadlines,
   uncertainty-aware retries, live credential isolation and Host/Origin checks.
 - **Multi-pod deployment** - stateless Deployment/HPA/PDB/hostname spread with
-  same-pod Caddy TLS and optional loopback-only metrics. See the
+  same-pod Caddy TLS and optional loopback-only metrics.
+  [Terraform preparation](docs/byteplus-terraform.md#prepare-terraform-source)
+  creates private source copies and runs isolated mock-only validation. See the
   [VKE runbook](docs/byteplus-terraform.md) and
   [deployment contract](specs/SPEC_VKE_DEPLOYMENT.md).
 - **Offline regression coverage** - unit, contract, integration, HTTP security
@@ -284,6 +290,11 @@ HTTP requires operator `MCP_IDENTITY_HMAC_KEY` (64 lowercase hex) and positive
 `MCP_IDENTITY_KEY_VERSION` (default 1), not operator provider keys.
 `STATE_BACKEND` automatically selects `none`; `DAILY_BUDGET_USD` must be zero.
 Rate and concurrency limits are per pod and reset at restart.
+
+Client `X-MCP-Client-Secret` must differ from every supplied provider API key.
+Reuse returns HTTP 400 `CREDENTIAL_REUSE` before tool execution. Generate an
+independent client secret and update its private client entry, keeping provider
+keys unchanged. See [client setup](docs/setup/shared-server.md).
 
 Task access follows the selected provider key, not the client secret.
 Non-null `idempotency_key` is rejected on both transports. Repeated creates may

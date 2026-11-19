@@ -60,6 +60,18 @@ are validated: duplicate, empty, whitespace-containing, control, non-ASCII
 and oversized values are rejected without echoing them. Provider keys are
 opaque printable ASCII, 1-4096 characters, never normalized.
 
+After syntax validation and before binding a request context, exact
+constant-time comparisons reject `X-MCP-Client-Secret` matching any supplied
+provider API key, including an unselected provider. Header order and casing
+do not affect this check. The response is HTTP 400 plain text with the stable
+prefix `CREDENTIAL_REUSE:` and guidance to generate an independent 32-random-byte,
+64-lowercase-hex client secret, update its private client configuration and
+keep provider keys unchanged. It echoes no credential values and precedes tool
+execution, provider dispatch and TOS signing, including on discovery and dry runs.
+Provider keys are not required to differ from one another; omission of headers
+for anonymous discovery remains supported. This is configuration hygiene, not
+authentication, customer identity or provider-task authorization.
+
 An explicit tool `model` wins over its endpoint header default. Used defaults
 must exactly match a registry binding for the product. No arbitrary opaque
 `ep-*` lineage inference, automatic model activation or caller-selected base URL
@@ -92,7 +104,21 @@ issued bearer permissions.
 Input is metadata only: image/audio/video category, exact allowlisted MIME and
 strict positive byte count, at most 10/10/200 MiB. Extra fields are rejected.
 No local path, Base64, binary payload, caller-selected key/bucket/ACL/lifetime or
-credential is accepted. SDK signing makes no network call and creates no object.
+credential is accepted. SDK signing creates no object and makes no TOS call.
+Default `TOS_CREDENTIAL_MODE=static` uses configured operator AK/SK and optional
+matching STS token. Explicit `irsa` mode, only for HTTP temporary uploads,
+exchanges a projected OIDC token with allowlisted BytePlus STS before signing
+when the runtime credential cache needs refresh. It rejects configured static
+credentials and never uses ambient environment or node metadata fallback.
+Enrollment and admission precede cache creation/exchange; startup, discovery
+and readiness perform no token read or STS exchange.
+The cache is in-memory, runtime-owned, single-flight and discarded on shutdown.
+Refresh is five minutes early, with ten-second failed-refresh backoff; cached
+reuse is allowed only outside the last sixty seconds. Signing uses one frozen
+triplet for POST, form session token and GET, with drained SDK workers.
+Failures are sanitized as `TOS_IRSA_CREDENTIALS_UNAVAILABLE`.
+Configuration, chart projection/trust and unverified live OIDC acceptance are
+defined in [the VKE IRSA contract](SPEC_VKE_DEPLOYMENT.md#explicit-tos-irsa).
 Each invocation selects `temporary-references/{HMAC principal}/{media_type}/{uuid4}`.
 It signs multipart POST with exact key/MIME/size, private ACL, STANDARD storage,
 forbid-overwrite and `x-tos-object-expires=1`; permission TTL is 900 seconds.
@@ -105,7 +131,10 @@ bytes, verify existence/completion, finalize uploads, create assets, renew URLs
 or maintain upload records. Declared MIME does not prove valid media.
 Every output field/URL is potentially sensitive bearer authority; do not log
 or publish it. Permissions are not guaranteed one-use and STS expiry can
-shorten nominal validity.
+shorten nominal validity. IRSA sessions default to 3600 seconds (requested range
+3600-43200). Neither default nor maximum guarantees a 24-hour GET lifetime.
+Returned expiry timestamps are nominal, not credential-expiry certificates;
+refresh never renews previously issued URLs. Generation BYOK is unchanged.
 
 URL expiry is not deletion. One-day TOS object expiry is whole-day/scheduled
 from Last-Modified, with deletion beginning at the following midnight, not

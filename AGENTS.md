@@ -93,6 +93,23 @@ Helm `temporaryUpload.enabled`/`existingSecret` reference a distinct existing
 TOS/enrollment Secret. No automatic storage provisioning. See
 `docs/temporary-uploads.md` and the hosted contract.
 
+TOS signing defaults to `TOS_CREDENTIAL_MODE=static`. Explicit `irsa` is
+HTTP-temporary-upload-only and rejects configured AK/SK/session tokens.
+Use exact `TOS_IRSA_ROLE_TRN`, absolute `TOS_IRSA_TOKEN_FILE`, allowlisted
+BytePlus STS origin and requested session 3600-43200 seconds (default 3600).
+No ambient metadata/environment fallback. Runtime-owned single-flight refresh
+is lazy after enrollment/admission, five minutes early with ten-second failure
+backoff; never reuse the final sixty seconds. Freeze one triplet for POST/form/
+GET. Discovery/readiness do not read tokens or exchange with STS.
+Helm `temporaryUpload.credentialsMode=irsa` requires acknowledged prerequisites
+and an explicit non-default ServiceAccount. It manually projects audience
+`sts.volcengine.com` only into the app, never Caddy, with automatic mounting off.
+Cluster OIDC enablement, exact issuer/namespace/ServiceAccount trust, least
+privilege and webhook exclusions remain operator-owned; no IAM provisioning.
+STS expiry can shorten nominal 24-hour references to an hour or less; refresh
+does not renew issued URLs. Live BytePlus OIDC endpoint acceptance and token
+rotation remain staging gates, not established by offline tests.
+
 HTTP endpoint defaults `X-ModelArk-Seedance-Endpoint` and
 `X-ModelArk-Seedream-Endpoint` require exact registry bindings; explicit tool
 `model` wins. Never infer arbitrary opaque endpoint lineage. HTTP uses fixed

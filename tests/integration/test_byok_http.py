@@ -187,6 +187,76 @@ def assert_no_canaries(text: str) -> None:
         assert quote(canary, safe="") not in text
 
 
+@pytest.mark.parametrize(
+    "header", ["X-ModelArk-Api-Key", "X-Seed-Speech-Api-Key", "X-OmniHuman-Api-Key"]
+)
+@pytest.mark.parametrize(
+    ("name", "input_data"),
+    [
+        ("seedream_generate_image", {"prompt": "square"}),
+        ("seedream_generate_image", {"prompt": "square", "dry_run": True}),
+        ("ark_list_models", {"check_connection": True}),
+        (
+            "media_prepare_upload",
+            {"media_type": "image", "mime_type": "image/png", "size_bytes": 1234},
+        ),
+    ],
+)
+@respx.mock
+async def test_credential_reuse_returns_safe_http_error_before_tool_execution(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+    caplog: pytest.LogCaptureFixture,
+    capsys: pytest.CaptureFixture[str],
+    header: str,
+    name: str,
+    input_data: dict[str, Any],
+) -> None:
+    from tests.unit.test_temporary_upload import upload_settings
+
+    gateway = Mock()
+    monkeypatch.setattr("ark_mcp.providers.tos.client.TosGateway", gateway)
+    caplog.set_level(logging.DEBUG)
+    async with http_server(tmp_path, settings=upload_settings(tmp_path)) as (_, runtime, client):
+        response = await client.post(
+            "/mcp",
+            headers={
+                "Accept": "application/json, text/event-stream",
+                "Mcp-Protocol-Version": "2026-07-28",
+                "Mcp-Method": "tools/call",
+                "Mcp-Name": name,
+                "Origin": "https://client.example.com",
+                **credentials(),
+                header: CLIENT_SECRET,
+            },
+            json={
+                "jsonrpc": "2.0",
+                "id": 1,
+                "method": "tools/call",
+                "params": {
+                    "name": name,
+                    "arguments": {"input": input_data},
+                    "_meta": {"io.modelcontextprotocol/protocolVersion": "2026-07-28"},
+                },
+            },
+        )
+        assert response.status_code == 400
+        assert response.headers["content-type"].startswith("text/plain")
+        assert response.text.startswith("CREDENTIAL_REUSE:")
+        assert "X-MCP-Client-Secret" in response.text
+        assert "32 random bytes" in response.text
+        assert "64 lowercase hex characters" in response.text
+        assert "Keep your provider API keys unchanged" in response.text
+        assert "rejected before tool execution" in response.text
+        assert runtime.tos_credentials is None
+        assert len(respx.calls) == 0
+        successful(await call_tool(client, "ark_list_models", {}))
+    gateway.assert_not_called()
+    assert len(respx.calls) == 0
+    assert_no_canaries(response.text + caplog.text + capsys.readouterr().err)
+    assert not (tmp_path / "artifacts").exists()
+
+
 @pytest.mark.parametrize("omnihuman", [False, True])
 @respx.mock
 async def test_anonymous_catalog_and_resources_are_static(tmp_path: Path, omnihuman: bool) -> None:

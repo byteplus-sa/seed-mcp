@@ -17,8 +17,16 @@ identitySecret:
 tlsSecretName: ""
 temporaryUpload:
   enabled: false
-  # Dedicated existing Secret; never put TOS credentials or client digests in values.
+  credentialsMode: static
+  # Dedicated existing Secret: bucket/region/endpoint/enrollment; AK/SK only in static mode.
   existingSecret: ""
+  irsa:
+    # Separate operator gate: enabled cluster IRSA, exact trust and BytePlus STS verified.
+    prerequisitesConfirmed: false
+    serviceAccountName: ""
+    roleTrn: ""
+    stsEndpoint: https://sts.byteplusapi.com
+    durationSeconds: 3600
 service:
   subnetId: ""
   bandwidthMbps: 25

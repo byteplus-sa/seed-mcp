@@ -62,8 +62,13 @@ and writes constrained by live MCP roots or `OUTPUT_ROOTS`.
 
 Temporary uploads use a separate enrolled client-secret authorization scope and
 operator TOS signer, with exact-key POST permissions and a GET URL. No object
-is created or inspected by MCP, no network signing call or database is needed,
-and readiness does not probe the bucket. See [temporary references](temporary-uploads.md).
+is created or inspected by MCP and no database is needed. Static credentials
+sign locally without network calls. Explicit VKE IRSA mode lazily exchanges a
+projected ServiceAccount token with BytePlus STS and caches temporary credentials
+in runtime memory. One triplet signs the POST/form/GET pair; refresh never
+extends already issued URLs. Only the app mounts the manually projected token,
+not Caddy. Discovery/readiness perform no token read or STS/TOS probe.
+See [temporary references](temporary-uploads.md#vke-iam-roles-for-service-accounts).
 
 The tool deadline starts before credentials and admission (default 600s).
 Owner-first then provider admission has a combined 2s wait. Use a client timeout

@@ -61,9 +61,13 @@ def test_ci_secret_scan_enforces_findings_without_regenerating_baseline() -> Non
 def test_infrastructure_ci_does_not_apply_or_use_retired_vm_workflow() -> None:
     workflow = yaml.safe_load((ROOT / ".github/workflows/terraform.yml").read_text())
     scripts = "\n".join(step.get("run", "") for step in workflow["jobs"]["validate"]["steps"])
-    assert "deploy/terraform/vke test" in scripts
+    assert "scripts/prepare_vke_terraform.py validate" in scripts
+    helper = (ROOT / "scripts/prepare_vke_terraform.py").read_text()
+    assert '"test"' in helper
     assert "helm lint deploy/helm/seed-mcp" in scripts
-    assert "-lockfile=readonly" in scripts
+    assert "-lockfile=readonly" in helper
+    assert "tests/unit/test_tos_irsa.py" in scripts
+    assert "tests/integration/test_tos_irsa.py" in scripts
     for retired in (
         "deploy/compose",
         "deploy/terraform/byteplus",
@@ -151,6 +155,9 @@ def test_ci_kubernetes_schema_check_is_strict_pinned_and_floor_aware() -> None:
     assert "/${KUBERNETES_SCHEMA_COMMIT}/{{.NormalizedKubernetesVersion}}" in command
     assert "{{.StrictSuffix}}" in command
     assert "for autoscaling in true false" in command
+    assert "for upload_mode in disabled static irsa" in command
+    assert "temporaryUpload.irsa.prerequisitesConfirmed=true" in command
+    assert "serviceaccount-v1" in command
     assert "for version in 1.27.0 1.28.0 1.29.0" in command
     assert "grep -F 'requires kubeVersion'" in command
     assert 'test -s "$schema_cache/$key"' in command

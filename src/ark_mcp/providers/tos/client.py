@@ -5,9 +5,8 @@ async-friendly methods using ``asyncio.to_thread``. The SDK handles
 TOS4-HMAC-SHA256 request signing; this gateway adds error normalization
 and structured logging.
 
-TOS credentials are startup configuration (``TOS_ACCESS_KEY`` /
-``TOS_SECRET_KEY``) and never tool arguments, matching the existing
-provider-credential convention.
+TOS uses explicit startup credentials or an explicitly supplied IRSA provider,
+never caller credentials or an ambient metadata credential chain.
 """
 
 from __future__ import annotations
@@ -48,9 +47,15 @@ class TosGateway:
         client: Any = None,
         bucket: str | None = None,
         presign_ttl: int | None = None,
+        credentials_provider: Any = None,
     ) -> None:
         settings = get_settings()
         self._bucket = bucket if bucket is not None else settings.tos_bucket
+        self._region = settings.tos_region
+        self._endpoint = settings.tos_endpoint
+        self._credentials_provider = credentials_provider
+        if settings.tos_credential_mode == "irsa" and credentials_provider is None:
+            raise ValueError("IRSA requires a lifespan-owned credential provider.")
         self._upload_origin = f"https://{self._bucket}.tos-{settings.tos_region}.bytepluses.com/"
         self._security_token = settings.tos_security_token
         self._presign_ttl = (
@@ -62,6 +67,7 @@ class TosGateway:
             endpoint=settings.tos_endpoint,
             region=settings.tos_region,
             security_token=settings.tos_security_token or None,
+            **({"credentials_provider": credentials_provider} if credentials_provider else {}),
         )
         self._calls = BlockingSdkCalls()
 
@@ -117,9 +123,26 @@ class TosGateway:
     async def prepare_upload(
         self, *, key: str, mime_type: str, size_bytes: int
     ) -> tuple[str, dict[str, str], str]:
-        """Sign one restricted POST and GET locally; no object is uploaded or inspected."""
+        """Sign one restricted POST and GET; IRSA may first exchange a rotated OIDC token."""
 
         def _prepare() -> tuple[str, dict[str, str], str]:
+            if self._credentials_provider is None:
+                return _sign(self._client, self._security_token)
+            credentials = self._credentials_provider.get_credentials()
+            # Freeze one triplet for policy, form token and GET across credential rotation.
+            client = tos.TosClientV2(
+                ak=credentials.get_ak(),
+                sk=credentials.get_sk(),
+                security_token=credentials.get_security_token(),
+                endpoint=self._endpoint,
+                region=self._region,
+            )
+            try:
+                return _sign(client, credentials.get_security_token())
+            finally:
+                client.close()
+
+        def _sign(client: Any, security_token: str | None) -> tuple[str, dict[str, str], str]:
             fields = {
                 "key": key,
                 "Content-Type": mime_type,
@@ -128,7 +151,7 @@ class TosGateway:
                 "x-tos-forbid-overwrite": "true",
                 "x-tos-object-expires": str(TEMPORARY_OBJECT_EXPIRES_DAYS),
             }
-            signature = self._client.pre_signed_post_signature(
+            signature = client.pre_signed_post_signature(
                 bucket=self._bucket,
                 key=key,
                 expires=TEMPORARY_UPLOAD_TTL_SECONDS,
@@ -148,9 +171,9 @@ class TosGateway:
                     "x-tos-signature": signature.signature,
                 }
             )
-            if self._security_token:
-                fields["x-tos-security-token"] = self._security_token
-            reference = self._client.pre_signed_url(
+            if security_token:
+                fields["x-tos-security-token"] = security_token
+            reference = client.pre_signed_url(
                 HttpMethodType.Http_Method_Get,
                 bucket=self._bucket,
                 key=key,
@@ -171,10 +194,22 @@ class TosGateway:
             self._client = None
 
     async def _dispatch(self, func: Any, *, operation: str) -> Any:
+        from ark_mcp.providers.tos.credentials import IrsaCredentialError
+
         try:
             return await self._calls.run(
                 func, side_effect=operation not in {"presign", "prepare_upload"}
             )
+        except IrsaCredentialError:
+            raise ProviderError(
+                NormalizedProviderError(
+                    provider=PROVIDER,
+                    operation=operation,
+                    code="TOS_IRSA_CREDENTIALS_UNAVAILABLE",
+                    message="Could not obtain valid TOS IRSA credentials.",
+                    retryable=True,
+                )
+            ) from None
         except TosServerError as exc:
             raise _normalize_server_error(exc, operation) from None
         except TosClientError as exc:

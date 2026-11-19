@@ -84,6 +84,11 @@ flowchart LR
 
 ### HTTP connection preflight
 
+- HTTP 400 `CREDENTIAL_REUSE` means `X-MCP-Client-Secret` matches a supplied
+  provider key, including an unused provider. No tool ran. Generate an
+  independent 32-random-byte secret as 64 lowercase hex and update only its
+  private client entry; keep provider keys unchanged. For temporary uploads,
+  ask the operator to enroll the replacement digest, never its raw value.
 - Call `ark_list_models` with `{"input":{"check_connection":true}}` only on
   live HTTP. Omit `kind` for both image/video routes, or select `"image"` /
   `"video"`; other kinds and stdio checks are rejected.
@@ -238,6 +243,10 @@ flowchart LR
   Attaching a file in chat does not perform this upload. Never log/publish signed
   fields or URLs. MIME is declared metadata, not inspected content.
   POST/GET nominal TTLs are 15 minutes/24 hours; STS can shorten them.
+  Explicit operator VKE IRSA refreshes temporary credentials only for new calls,
+  never issued URLs. Its default one-hour session can reduce GET validity to
+  an hour or less. `TOS_IRSA_CREDENTIALS_UNAVAILABLE` needs operator diagnosis,
+  not generation-key changes or automatic IAM enablement.
   One-day object expiry is scheduled, not exact 24-hour deletion or URL expiry.
   No upload verification, URL renewal, DB or global storage budget exists.
   See [media-assets.md](references/media-assets.md#temporary-http-references).

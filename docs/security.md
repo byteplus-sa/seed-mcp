@@ -39,7 +39,13 @@ Only the selected provider key is required, including on dry runs.
 
 Raw ASGI header validation rejects duplicate, empty, non-ASCII, whitespace,
 control and oversized values without echoing them. Keys are opaque printable
-ASCII of at most 4096 characters. Live credentials are never restored from
+ASCII of at most 4096 characters. It also rejects a client secret equal to any
+supplied provider key with HTTP 400 `CREDENTIAL_REUSE`, before tool execution,
+including discovery, dry runs and upload preparation. Constant-time comparisons
+are exact; this hygiene check does not establish customer identity or provider
+authorization. Generate an independent client secret and update its private
+client configuration, keeping provider keys unchanged.
+Live credentials are never restored from
 task snapshots, persisted in backend/artifact/cache rows, or put in tool inputs.
 Request and provider contexts are released on completion/cancellation.
 Gateways receive explicit keys and never fall back to environment provider
@@ -112,6 +118,18 @@ One-day scheduled object expiry is not precise 24-hour deletion; URL expiry
 does not delete objects. Versioning must be disabled. Operator IAM, CORS,
 lifecycle and storage/egress abuse controls are separate prerequisites;
 per-pod admission is not a global quota. See [temporary uploads](temporary-uploads.md).
+
+TOS signing defaults to explicit static credentials. HTTP-only IRSA mode
+rejects static AK/SK/token configuration and performs no ambient environment
+or metadata fallback. It lazily exchanges the app-only projected OIDC token
+with allowlisted BytePlus STS after enrollment/admission. Redirects and proxy
+inheritance are disabled; bounded responses and errors do not echo credentials.
+The runtime cache is single-flight, refreshes early and fails closed near expiry.
+Automatic API-token mounting remains off, and Caddy has no token/TOS env.
+Exact issuer/audience/namespace/ServiceAccount trust, restricted TOS policy,
+webhook exclusions and live regional acceptance are operator prerequisites.
+STS expiry can shorten references; refreshing credentials never renews issued
+URLs. No IAM or cluster OIDC enablement is performed by the server/chart.
 
 ## HTTP Admission and Routing
 

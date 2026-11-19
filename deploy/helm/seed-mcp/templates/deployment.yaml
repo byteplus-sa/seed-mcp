@@ -1,5 +1,6 @@
 {{- $deadline := max .Values.app.toolTimeoutSeconds .Values.app.providerTimeoutSeconds -}}
 {{- $readinessTimeout := 3 -}}
+{{- $irsa := and .Values.temporaryUpload.enabled (eq .Values.temporaryUpload.credentialsMode "irsa") -}}
 # Stateless hosted HTTP; no database or local persistent volume.
 apiVersion: apps/v1
 kind: Deployment
@@ -28,6 +29,9 @@ spec:
         checksum/runtime: {{ omit .Values "image" "imagePullSecrets" "resources" "autoscaling" "replicaCount" "prerequisitesConfirmed" | toJson | sha256sum }}
     spec:
       automountServiceAccountToken: false
+      {{- if $irsa }}
+      serviceAccountName: {{ .Values.temporaryUpload.irsa.serviceAccountName | quote }}
+      {{- end }}
       enableServiceLinks: false
       terminationGracePeriodSeconds: {{ add $deadline 60 }}
       securityContext:
@@ -129,7 +133,26 @@ spec:
             {{- if .Values.temporaryUpload.enabled }}
             - name: OBJECT_STORAGE_BACKEND
               value: tos
-            {{- range $key := list "TOS_ACCESS_KEY" "TOS_SECRET_KEY" "TOS_BUCKET" "TOS_REGION" "TOS_ENDPOINT" "MCP_UPLOAD_CLIENT_SECRET_SHA256" }}
+            - name: TOS_CREDENTIAL_MODE
+              value: {{ .Values.temporaryUpload.credentialsMode | quote }}
+            {{- range $key := list "TOS_BUCKET" "TOS_REGION" "TOS_ENDPOINT" "MCP_UPLOAD_CLIENT_SECRET_SHA256" }}
+            - name: {{ $key }}
+              valueFrom:
+                secretKeyRef:
+                  name: {{ $.Values.temporaryUpload.existingSecret | quote }}
+                  key: {{ $key }}
+            {{- end }}
+            {{- if $irsa }}
+            - name: TOS_IRSA_ROLE_TRN
+              value: {{ .Values.temporaryUpload.irsa.roleTrn | quote }}
+            - name: TOS_IRSA_TOKEN_FILE
+              value: /var/run/secrets/seed-mcp/irsa/token
+            - name: TOS_IRSA_STS_ENDPOINT
+              value: {{ .Values.temporaryUpload.irsa.stsEndpoint | quote }}
+            - name: TOS_IRSA_DURATION_SECONDS
+              value: {{ .Values.temporaryUpload.irsa.durationSeconds | int | quote }}
+            {{- else }}
+            {{- range $key := list "TOS_ACCESS_KEY" "TOS_SECRET_KEY" }}
             - name: {{ $key }}
               valueFrom:
                 secretKeyRef:
@@ -142,6 +165,7 @@ spec:
                   name: {{ .Values.temporaryUpload.existingSecret | quote }}
                   key: TOS_SECURITY_TOKEN
                   optional: true
+            {{- end }}
             {{- end }}
           startupProbe:
             exec:
@@ -164,6 +188,11 @@ spec:
           volumeMounts:
             - name: app-tmp
               mountPath: /tmp
+            {{- if $irsa }}
+            - name: irsa-token
+              mountPath: /var/run/secrets/seed-mcp/irsa
+              readOnly: true
+            {{- end }}
         - name: proxy
           image: caddy:2.11.9-alpine
           imagePullPolicy: IfNotPresent
@@ -218,6 +247,16 @@ spec:
             - name: proxy-tmp
               mountPath: /tmp
       volumes:
+        {{- if $irsa }}
+        - name: irsa-token
+          projected:
+            defaultMode: 0440
+            sources:
+              - serviceAccountToken:
+                  audience: sts.volcengine.com
+                  expirationSeconds: 3600
+                  path: token
+        {{- end }}
         - name: proxy-config
           configMap:
             name: {{ include "seed-mcp.name" . }}-proxy

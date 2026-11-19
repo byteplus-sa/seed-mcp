@@ -233,6 +233,10 @@ Clients send `X-MCP-Client-Secret` (client-generated 32 random bytes as
 `X-ModelArk-Api-Key`, `X-Seed-Speech-Api-Key`, or `X-OmniHuman-Api-Key`.
 Provider operations including dry runs require these; discovery is anonymous.
 `Authorization` is rejected. There is no OAuth, signup or server-issued key.
+The client secret must differ from every supplied provider key; equality
+returns HTTP 400 `CREDENTIAL_REUSE` before tool execution. Use a separate
+private environment variable and independently generated value for the client
+secret. Keep provider keys unchanged when correcting this error.
 The provider key authorizes tasks; the client secret scopes admission only.
 See [HTTP client setup](setup/shared-server.md) and [security](security.md).
 
@@ -248,13 +252,25 @@ TOS signer configuration but not local state.
 | --- | --- | --- |
 | `MCP_TEMPORARY_UPLOAD_ENABLED` | `false` | HTTP-only restricted TOS POST/GET preparation |
 | `MCP_UPLOAD_CLIENT_SECRET_SHA256` | empty | Operator enrollment: 1-1000 distinct lowercase SHA-256 digests of exact ASCII client-secret values, comma-separated without whitespace |
+| `TOS_CREDENTIAL_MODE` | `static` | Configured AK/SK, or explicit `irsa` for HTTP preparation only; no ambient fallback |
+| `TOS_IRSA_ROLE_TRN` | empty | IRSA only: exact `trn:iam::<account>:role/<role>` without wildcards |
+| `TOS_IRSA_TOKEN_FILE` | empty | IRSA only: absolute projected OIDC token file path, reread at refresh |
+| `TOS_IRSA_STS_ENDPOINT` | `https://sts.byteplusapi.com` | Allowed alternative `https://open.byteplusapi.com`; no other origin/path |
+| `TOS_IRSA_DURATION_SECONDS` | `3600` | Requested STS session duration in seconds, 3600-43200; can shorten signed URL validity |
 
 Enabling requires `OBJECT_STORAGE_BACKEND=tos`, complete TOS signing credentials,
 valid bucket/region and the exact official `tos-{TOS_REGION}.bytepluses.com`
 endpoint (optional HTTPS scheme, no port/path). Lifetimes are fixed at
 900-second POST, 86400-second GET and one-day scheduled object expiry;
 `TOS_PRESIGN_TTL_SECONDS` does not override them. No generation-provider key
-is required to prepare. See [operator prerequisites and client upload flow](temporary-uploads.md).
+is required to prepare. IRSA rejects configured static AK/SK/session tokens and
+requires explicit role/token configuration plus separately approved cluster/
+IAM prerequisites. Credentials refresh lazily in runtime memory, not at startup
+or readiness. Nominal expiry timestamps do not guarantee 24-hour availability:
+one-hour default STS credentials can shorten URLs to an hour or less, and refresh
+does not renew issued URLs. Local stdio storage remains static-only.
+See [operator prerequisites and client upload flow](temporary-uploads.md)
+and [VKE IRSA setup](temporary-uploads.md#vke-iam-roles-for-service-accounts).
 
 The `media_upload` and `media_presign` tools are registered when the selected
 object-storage backend is configured. `media_upload` uploads 1-50 files to a
