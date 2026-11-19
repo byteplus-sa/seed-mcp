@@ -60,15 +60,6 @@ class TestNormalizedProviderError:
         )
         assert error.provider == "modelark"
 
-    def test_omnihuman_provider(self) -> None:
-        error = NormalizedProviderError(
-            provider="byteplus-vision-cv",
-            operation="submit_task_v2",
-            message="failed",
-            retryable=False,
-        )
-        assert error.provider == "byteplus-vision-cv"
-
     def test_empty_message(self) -> None:
         error = NormalizedProviderError(
             provider="modelark",

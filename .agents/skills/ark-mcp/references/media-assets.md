@@ -26,7 +26,7 @@ uncertain upload. See [local-output.md](local-output.md).
 ## Object storage (`media_upload`, `media_presign`)
 
 Needed whenever a tool takes media as a URL only (Seedance video/audio
-references, OmniHuman inputs). TOS or S3 makes no difference
+references). TOS or S3 makes no difference
 to tool behaviour.
 
 ### `media_upload`

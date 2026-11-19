@@ -3,7 +3,7 @@ title: Agent Workflow Ergonomics — understanding output, strict JSON, timeout 
 type: plan
 status: in-progress
 created: 2026-09-21
-updated: 2026-11-16
+updated: 2026-11-19
 reviewed: 2026-09-22 (subagent plan review; findings folded in)
 tags: [seed_understand, seedream, seedance, media_upload, retry, artifacts, ergonomics]
 source:
@@ -90,7 +90,7 @@ def normalize_timeout(cls, operation: str, *, side_effect: bool = True) -> Provi
 
 Pass `side_effect=False` for:
 - `SeedUnderstandingService.generate` (`chat_completion`)
-- Seedance `get_task` / `list_tasks` and OmniHuman task-status reads
+- Seedance `get_task` / `list_tasks` task-status reads
 
 Keep `side_effect=True` (the default) for all create, generate, cancel, and
 delete calls.
@@ -186,7 +186,7 @@ and Seedance 2.5 variation tools.
    `ArtifactPersistenceError`. If item 2 fails, item 1's already stored
    artifact disappears from the output too. Change this so each item is
    handled separately:
-   - **URL outputs** (Seedream `url`, Seedance video, OmniHuman): on final
+   - **URL outputs** (Seedream `url`, Seedance video): on final
      failure, return an unpersisted `ArtifactRef` (`id="provider-url"`,
      `uri=<provider URL>`, `source_expires_at`) with a `persistence_error` on
      that item. Stored items are always kept.
@@ -478,7 +478,7 @@ Rules:
 
 Add optional `output_path: str | None` to `seedream_generate_image`,
 `seedream_edit_image`, `seed_audio_generate`, `seedance_get_task` (when
-`persist_output`), and the OmniHuman poller. Add directory output support for
+`persist_output`). Add directory output support for
 variations on the retained create tools.
 
 - `output_path` is a file path, or a directory when it ends in `/`. A directory

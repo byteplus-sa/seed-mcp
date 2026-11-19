@@ -126,8 +126,6 @@ spec:
               value: {{ .Values.models.seedance.bindings | toJson | quote }}
             - name: MCP_METRICS_PORT
               value: {{ ternary "9000" "0" .Values.app.metricsEnabled | quote }}
-            - name: BYTEPLUS_OMNIHUMAN_ENABLED
-              value: {{ .Values.app.omnihumanEnabled | quote }}
             - name: MCP_TEMPORARY_UPLOAD_ENABLED
               value: {{ .Values.temporaryUpload.enabled | quote }}
             {{- if .Values.temporaryUpload.enabled }}

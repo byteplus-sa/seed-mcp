@@ -204,8 +204,7 @@
         "dailyBudgetUsd",
         "providerMaxConcurrency",
         "principalMaxConcurrency",
-        "metricsEnabled",
-        "omnihumanEnabled"
+        "metricsEnabled"
       ],
       "properties": {
         "toolTimeoutSeconds": {
@@ -258,9 +257,6 @@
           "maximum": 256
         },
         "metricsEnabled": {
-          "type": "boolean"
-        },
-        "omnihumanEnabled": {
           "type": "boolean"
         }
       }

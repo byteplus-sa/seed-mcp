@@ -10,7 +10,6 @@ from typing import TYPE_CHECKING, Any
 
 import httpx
 from scripts.hosted_acceptance_support.runtime import (
-    AVATAR_TOOLS,
     BODY_LIMIT,
     IMAGE_MODEL,
     PUBLIC_TOOLS,
@@ -91,9 +90,9 @@ async def wait_healthy(client: httpx.AsyncClient, url: str, process: ManagedProc
             await asyncio.sleep(0.05)
 
 
-async def surface(client: httpx.AsyncClient, url: str, omni: bool = False) -> None:
+async def surface(client: httpx.AsyncClient, url: str) -> None:
     tools = result_of(await rpc(client, url, "tools/list"))["tools"]
-    expected = PUBLIC_TOOLS | (AVATAR_TOOLS if omni else set())
+    expected = PUBLIC_TOOLS
     require(
         len(tools) == len(expected) and {tool["name"] for tool in tools} == expected,
         "tool_inventory",

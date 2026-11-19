@@ -32,8 +32,8 @@ This key derives identity; it is not a customer credential.
 
 There is no OAuth, signup, server-issued key or bearer-token passthrough.
 `Authorization` is rejected with safe guidance. Clients send
-`X-MCP-Client-Secret` and the selected `X-ModelArk-Api-Key`,
-`X-Seed-Speech-Api-Key`, or `X-OmniHuman-Api-Key`. The client secret must be
+`X-MCP-Client-Secret` and the selected `X-ModelArk-Api-Key`
+or `X-Seed-Speech-Api-Key`. The client secret must be
 client-generated 32 random bytes encoded as 64 lowercase hex.
 Only the selected provider key is required, including on dry runs.
 
@@ -81,7 +81,7 @@ Catalog scope strings remain capability metadata, not customer-selected roles,
 OAuth grants or a common team identity. HTTP admission enforces the selected
 provider key and client owner. Local stdio trusts its local principal.
 
-All 11 scope strings in the catalog are retained below as metadata, not auth
+All 8 scope strings in the catalog are retained below as metadata, not auth
 grants. A label does not register a tool or grant access to provider accounts.
 
 | Catalog scope metadata | Tools |
@@ -94,16 +94,14 @@ grants. A label does not register a tool or grant access to provider accounts.
 | `seedance:create` | `seedance_create_task` |
 | `gen:read` | `gen_task_get`, `gen_task_list` |
 | `gen:delete` | `gen_task_cancel_or_delete` |
-| `omnihuman:create` | `omnihuman_create_task` |
-| `omnihuman:read` | `omnihuman_get_task` |
-| `omnihuman:cancel` | `omnihuman_cancel_task` |
 
-HTTP exposes 7 provider/discovery tools, or 10 with OmniHuman enabled, without
+HTTP exposes 7 provider/discovery tools, without
 requiring operator provider keys. Anonymous `ark_list_models` lists configured
 model bindings even without an environment provider key. `services[].enabled`
 describes registration, not customer entitlement or key validity. Jobs, native tasks, local storage/artifact tools and all MCP
-resources are absent on HTTP. Storage/artifacts remain local stdio capabilities within the
-15-entry catalog. No asset administration exists on either transport.
+resources are absent on HTTP. Storage/artifacts remain local stdio capabilities
+among the 12 local tools. The catalog has 13 definitions including optional
+HTTP upload preparation. No asset administration exists on either transport.
 
 Opt-in `media_prepare_upload` adds one HTTP tool. Operator-enrolled SHA-256
 digests of exact ASCII client-secret values authorize it, independently of
@@ -163,14 +161,14 @@ HTTP-runtime listener; nonzero 1024-65535 ports bind only 127.0.0.1.
 Private metrics require authorized operator access, never a public Service.
 `seed-health://status` and artifact resources are stdio-only.
 
-Provider origins are fixed to official ModelArk, Seed Speech and Vision AI
+Provider origins are fixed to official ModelArk and Seed Speech
 URLs listed in [configuration](configuration.md). No arbitrary hosts,
 userinfo, query/fragment or path-confused base URLs are accepted.
 Endpoint headers select exact registry bindings only; explicit tool `model`
 wins and arbitrary opaque `ep-*` lineage is not inferred.
 
 HTTP rejects `persist=true`, `persist_output=true`, local paths and stored
-artifact references before dispatch. Seed Audio/Seedream/OmniHuman get
+artifact references before dispatch. Seed Audio/Seedream
 persistence defaults are false globally. Clients retrieve expiring outputs.
 
 ## SSRF-safe downloader (`security/safe_downloader.py`)
@@ -208,13 +206,11 @@ downloader accepts.
    chunks are accumulated and checked against `max_bytes` after each
    `extend`.
 
-`FilesystemArtifactStore` restricts `copy_from_trusted_url` to provider hosts
+Both artifact backends restrict `copy_from_trusted_url` to provider hosts
 via suffix allowlist: `.bytepluses.com`, `.byteplus.com`, `.bytedance.com`,
 `.bytednsdoc.com`, `.volces.com`, `.byteplusvod.com`,
-`.tos-ap-southeast.bytepluses.com`. A caller may extend the list for one download
-only: `omnihuman_get_task` additionally trusts `.tiktokcdn.com`, where OmniHuman
-output videos are served, so `seed_media_persist_url` still
-reject that host.
+`.tos-ap-southeast.bytepluses.com`. This fixed policy has no per-call extensions;
+`seed_media_persist_url` uses the same allowlist.
 
 `seed_media_persist_url` accepts a caller-supplied URL, so it relies on the
 same controls: the URL goes through `copy_from_trusted_url` with this host
@@ -228,8 +224,7 @@ outcomes. A completed provider output URL is preserved for the authorized
 caller while requested persistence downloads through this SSRF-safe path.
 Outputs above the 200 MiB video limit or failing host/MIME/download/storage
 checks do not change provider success into provider failure. Seedance reports
-`outputs[].persistence="failed"` with `persistence_issue`; OmniHuman reports
-top-level `persistence="failed"` with `persistence_issue`. An `ArtifactRef`
+`outputs[].persistence="failed"` with `persistence_issue`. An `ArtifactRef`
 fallback instead carries `persistence_error` alongside its temporary URL or
 inline bytes. These are distinct output shapes, not interchangeable fields.
 Full source URLs and credentials are excluded from logs and safe error messages.
@@ -329,10 +324,10 @@ with an under-reported size could bypass it. The provider enforces the
 - `truststore.inject_into_ssl()` runs at module import in `server.py` and
   `__main__.py`, so Python uses the macOS Keychain for TLS verification.
 - Provider base URLs (`BYTEPLUS_MODELARK_BASE_URL`,
-  `BYTEPLUS_SEED_AUDIO_BASE_URL`, `BYTEPLUS_CV_BASE_URL`) are
+  `BYTEPLUS_SEED_AUDIO_BASE_URL`) are
   validated at settings load: local overrides require HTTPS with a hostname
   and no embedded credentials; HTTP accepts only the fixed official origins.
-- ModelArk and Vision AI use separate Bearer keys; Seed Speech uses
+- ModelArk uses Bearer authentication; Seed Speech uses
   `X-Api-Key`. Keys are never logged, returned or accepted as tool arguments.
 - Prompt, subtitle, media URL, and credential fields are treated as sensitive
   content and redacted from structured logs.
@@ -360,7 +355,6 @@ resubmit or assume timeout cancelled upstream work. See
 See the database-free HTTP contract above; local stdio persistence is unchanged.
 
 ## VKE Operations
-
 
 The chart renders a stateless `Deployment`, HPA (default 2-6 pods, CPU 70%),
 `PodDisruptionBudget` with `minAvailable: 1` and hostname topology spread with

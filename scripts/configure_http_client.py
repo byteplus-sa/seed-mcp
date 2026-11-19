@@ -15,13 +15,11 @@ DEFAULT_OPTIONS = {
     "--client-secret-env": "SEED_MCP_CLIENT_SECRET",
     "--modelark-key-env": "SEED_MCP_MODELARK_KEY",
     "--seed-speech-key-env": "SEED_MCP_SEED_SPEECH_KEY",
-    "--omnihuman-key-env": "SEED_MCP_OMNIHUMAN_KEY",
     "--tool-timeout-seconds": "660",
 }
 PROVIDER_HEADERS = {
     "modelark": ("X-ModelArk-Api-Key", "--modelark-key-env"),
     "seed-speech": ("X-Seed-Speech-Api-Key", "--seed-speech-key-env"),
-    "vision-cv": ("X-OmniHuman-Api-Key", "--omnihuman-key-env"),
 }
 ENDPOINT_HEADERS = {
     "--seedance-endpoint-env": "X-ModelArk-Seedance-Endpoint",
@@ -40,12 +38,11 @@ Options:
   --url URL                       Required absolute HTTPS MCP endpoint.
   --name NAME                     Server name (default: seed-mcp), 1-64 ASCII
                                   letters, digits, underscores or hyphens.
-  --provider PROVIDER             Repeat for modelark, seed-speech or vision-cv.
+  --provider PROVIDER             Repeat for modelark or seed-speech.
                                   Default: modelark. Repeats are deduplicated.
   --client-secret-env VAR         Default: SEED_MCP_CLIENT_SECRET.
   --modelark-key-env VAR          Default: SEED_MCP_MODELARK_KEY.
   --seed-speech-key-env VAR       Default: SEED_MCP_SEED_SPEECH_KEY.
-  --omnihuman-key-env VAR         Default: SEED_MCP_OMNIHUMAN_KEY.
   --seedance-endpoint-env VAR     Optional video endpoint source; needs modelark.
   --seedream-endpoint-env VAR     Optional image endpoint source; needs modelark.
   --tool-timeout-seconds INTEGER  1-3600 (default: 660). Claude uses milliseconds.

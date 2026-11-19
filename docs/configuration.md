@@ -7,7 +7,7 @@ and existing Secret references, not this local provider-key template.
 
 Provider-key environment variables below apply to **local stdio only**.
 HTTP uses live request BYOK headers and registers its 7 provider/discovery
-tools (10 with OmniHuman) without operator generation keys. No HTTP fallback
+tools without operator generation keys. No HTTP fallback
 to environment provider keys exists. Keep private configuration outside Git.
 
 `.env` is resolved **relative to the server's working directory**. Most MCP
@@ -31,7 +31,6 @@ client is missing tools and that warning is absent, look at
 |---|---|---|
 | `BYTEPLUS_MODELARK_API_KEY` | empty | Enables Seedream and Seedance; sent as Bearer auth |
 | `BYTEPLUS_SEED_SPEECH_API_KEY` | empty | Enables Seed Audio generation; sent as `X-Api-Key` |
-| `BYTEPLUS_CV_API_KEY` | empty | BytePlus Vision AI Bearer key for OmniHuman; tools also need `BYTEPLUS_OMNIHUMAN_ENABLED=true` |
 | `BYTEPLUS_MODELARK_BASE_URL` | AP Southeast ModelArk URL | HTTPS data-plane base URL |
 | `BYTEPLUS_SEED_AUDIO_BASE_URL` | AP Southeast Seed Speech URL | HTTPS service base URL |
 | `SEEDREAM_DEFAULT_MODEL` | `dola-seedream-5-5-261028` | Default image model/endpoint ID (Seedream 5.5; account authorization required) |
@@ -41,9 +40,6 @@ client is missing tools and that warning is absent, look at
 | `SEEDANCE_MODEL_FAMILY` | empty | Family for a custom default: `standard`, `fast`, `mini`, `seedance_2_5` (through 4K), or `seedance_2_5_flash` (480p/720p, no Draft) |
 | `SEEDREAM_MODEL_BINDINGS` | empty | JSON list of `{model_id, family}` bindings |
 | `SEEDANCE_MODEL_BINDINGS` | empty | JSON list of `{model_id, family}` bindings |
-| `BYTEPLUS_OMNIHUMAN_ENABLED` | `false` | Feature flag for OmniHuman 2.0 (`omnihuman_*` tools); requires `BYTEPLUS_CV_API_KEY` |
-| `BYTEPLUS_CV_BASE_URL` | `https://openapi.cv.bytepluses.com` | HTTPS Vision AI base URL |
-| `BYTEPLUS_OMNIHUMAN_REQ_KEY` | `realman_avatar_picture_omni20_cv` | Service identifier sent as `req_key`; change only if BytePlus issues a new one |
 
 The recognized built-in IDs have known families. A custom ID must be bound
 explicitly; the server does not infer capabilities from substrings in an ID.
@@ -157,11 +153,10 @@ the model does not prove provider activation or account entitlement. No new
 feature flag is required. Flash cost previews currently reuse the static
 2.5 per-task fallback, not its token-based provider price.
 
-On stdio, missing startup keys omit their tools. On HTTP, only the OmniHuman
-enable flag affects provider-tool registration; keys are checked at invocation.
-HTTP fixes provider origins to `https://ark.ap-southeast.bytepluses.com/api/v3`,
-`https://voice.ap-southeast-1.bytepluses.com` and
-`https://openapi.cv.bytepluses.com`. Userinfo, query/fragment, path-confused or
+On stdio, missing startup keys omit their tools. On HTTP, provider tools
+are always registered; keys are checked at invocation.
+HTTP fixes provider origins to `https://ark.ap-southeast.bytepluses.com/api/v3`
+and `https://voice.ap-southeast-1.bytepluses.com`. Userinfo, query/fragment, path-confused or
 nonofficial origins are rejected. Local overrides require credential-free HTTPS.
 
 Optional HTTP `X-ModelArk-Seedance-Endpoint` and
@@ -230,7 +225,7 @@ Helm requires `app.dailyBudgetUsd=0`. HTTP has no budget ledger.
 
 Clients send `X-MCP-Client-Secret` (client-generated 32 random bytes as
 64 lowercase hex) plus only the selected provider header:
-`X-ModelArk-Api-Key`, `X-Seed-Speech-Api-Key`, or `X-OmniHuman-Api-Key`.
+`X-ModelArk-Api-Key` or `X-Seed-Speech-Api-Key`.
 Provider operations including dry runs require these; discovery is anonymous.
 `Authorization` is rejected. There is no OAuth, signup or server-issued key.
 The client secret must differ from every supplied provider key; equality
@@ -339,7 +334,7 @@ no persistence; provider/principal concurrency remains per pod.
 HTTP keeps no Draft ownership records and has no state-retention requirement.
 Draft eligibility still follows the model/provider creation window.
 
-Seed Audio/Seedream `persist` and OmniHuman get `persist_output` default to
+Seed Audio/Seedream `persist` default to
 false on every transport. HTTP rejects explicit true and returns temporary
 provider URLs; local callers can explicitly opt into persistence.
 A local billed output retains fallback delivery when storage fails; see

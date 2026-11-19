@@ -56,15 +56,15 @@ a capable client, not treatment as success.
 
 | Mode | Targets |
 | --- | --- |
-| Required | `seed_audio_generate`, `seedream_generate_image`, `seedance_create_task`, `omnihuman_create_task`, `media_upload`, `seed_understand`, `seed_audio_understand` |
-| Optional | `gen_task_get`, `omnihuman_get_task`, `seed_media_persist_url` |
+| Required | `seed_audio_generate`, `seedream_generate_image`, `seedance_create_task`, `media_upload`, `seed_understand`, `seed_audio_understand` |
+| Optional | `gen_task_get`, `seed_media_persist_url` |
 
 On stdio a required tool's foreground invocation is rejected before provider
 work. Pollers run in the foreground with `persist_output=false`; explicit
 persistence requires background execution. The persist-URL tool can run in
 either mode; persist-URL always downloads and stores.
 
-The three changed persistence defaults (Seed Audio, Seedream and OmniHuman get)
+The two changed persistence defaults (Seed Audio and Seedream)
 are false globally, including stdio. A local caller must explicitly request
 true to retain outputs.
 
@@ -118,7 +118,7 @@ bounded to `fastmcp[tasks]>=4.1.8,<4.2`. There is no job-list or ordinary
 input-update tool. Keep job IDs.
 
 HTTP has a separate [asynchronous-create submission journal](SPEC_HOSTED_BYOK.md#http-submission-safety),
-not a job backend: non-dry Seedance/OmniHuman creates require `idempotency_key`
+not a job backend: non-dry Seedance creates require `idempotency_key`
 and only saved success replays after ownership checks. Stdio rejects supplied
 keys. Unresolved HTTP attempts never automatically resume; synchronous product
 replay and complete crash recovery remain deferred. PostgreSQL/Redis are

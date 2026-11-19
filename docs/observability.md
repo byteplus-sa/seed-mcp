@@ -77,7 +77,7 @@ Generation and polling logs contain safe lifecycle metadata, not source/output
 URLs or credentials. Provider success does not imply successful artifact
 storage. Monitor `ArtifactRef.persistence_error` for Seedream/Seed Audio
 fallbacks, `outputs[].persistence_issue` with `outputs[].persistence` for
-Seedance, and top-level `persistence_issue` with `persistence` for OmniHuman.
+Seedance.
 These are distinct result shapes; successful MCP/provider metrics alone do
 not prove that output was stored.
 

@@ -72,7 +72,6 @@ done. Never paste keys into chat or client configuration.
 | --- | --- |
 | Images and video | ModelArk |
 | Audio generation | Seed Speech |
-| Talking avatars | Vision AI, plus OmniHuman access |
 
 See [Provider Keys](../api-keys.md) for where to obtain each key. Flash
 and other optional products may have extra account access requirements.

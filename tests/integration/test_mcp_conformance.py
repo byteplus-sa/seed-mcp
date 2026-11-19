@@ -84,14 +84,9 @@ def s3_only_server(
 class TestToolDiscovery:
     """Verify configured tools are discoverable when credentials are set."""
 
-    async def test_all_retained_tools_are_direct(
-        self, configured_server: None, omnihuman_server: None
-    ) -> None:
-        tools = [
-            *await configured_server.mcp.list_tools(),
-            *await omnihuman_server.mcp.list_tools(),
-        ]
-        assert len({tool.name for tool in tools}) == 15
+    async def test_all_retained_tools_are_direct(self, configured_server: None) -> None:
+        tools = await configured_server.mcp.list_tools()
+        assert len({tool.name for tool in tools}) == 12
         for tool in tools:
             assert tool.task_config.mode == "forbidden"
             assert tool.to_mcp_tool().execution is None
@@ -379,59 +374,3 @@ class TestResourceTemplate:
         resources = await server.mcp.list_resources()
         # Health resource is a static resource, not a template.
         assert len(resources) >= 1
-
-
-OMNIHUMAN_TOOLS = {"omnihuman_create_task", "omnihuman_get_task", "omnihuman_cancel_task"}
-
-
-@pytest.fixture
-def omnihuman_server() -> SimpleNamespace:
-    """OmniHuman is configured alone: no ModelArk key, and no ``.env`` file is read."""
-    return SimpleNamespace(
-        mcp=create_server(
-            Settings(
-                _env_file=None,
-                BYTEPLUS_CV_API_KEY="cv-test",  # pragma: allowlist secret
-                BYTEPLUS_OMNIHUMAN_ENABLED=True,
-            )
-        )
-    )
-
-
-class TestOmniHumanDiscovery:
-    async def test_task_modes(self, omnihuman_server: SimpleNamespace) -> None:
-        tools = {tool.name: tool for tool in await omnihuman_server.mcp.list_tools()}
-
-        assert tools["omnihuman_create_task"].task_config.mode == "forbidden"
-        assert tools["omnihuman_get_task"].task_config.mode == "forbidden"
-        assert tools["omnihuman_cancel_task"].task_config.mode == "forbidden"
-
-    async def test_tools_registered_when_enabled_with_key(
-        self, omnihuman_server: SimpleNamespace
-    ) -> None:
-        tools = {tool.name: tool for tool in await omnihuman_server.mcp.list_tools()}
-
-        assert tools.keys() >= OMNIHUMAN_TOOLS
-        for name in OMNIHUMAN_TOOLS:
-            assert tools[name].description
-            assert tools[name].output_schema is not None
-            assert all(
-                prop.get("description") for prop in tools[name].output_schema["properties"].values()
-            )
-
-    async def test_tools_absent_without_flag_or_key(self, no_creds_server: SimpleNamespace) -> None:
-        names = {tool.name for tool in await no_creds_server.mcp.list_tools()}
-        assert OMNIHUMAN_TOOLS.isdisjoint(names)
-
-    async def test_tools_absent_when_key_set_but_flag_off(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        monkeypatch.setenv("BYTEPLUS_CV_API_KEY", "cv-test")
-        monkeypatch.delenv("BYTEPLUS_OMNIHUMAN_ENABLED", raising=False)
-        get_settings.cache_clear()
-        try:
-            server = create_server(Settings(_env_file=None, BYTEPLUS_CV_API_KEY="cv-test"))
-            names = {tool.name for tool in await server.list_tools()}
-        finally:
-            get_settings.cache_clear()
-        assert OMNIHUMAN_TOOLS.isdisjoint(names)

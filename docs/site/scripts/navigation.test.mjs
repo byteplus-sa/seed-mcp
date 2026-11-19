@@ -2,13 +2,8 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { toolReferenceGroups } from "./navigation.mjs";
 
-test("audio and avatars have separate tool sections", () => {
-  const names = [
-    "seed_audio_generate",
-    "omnihuman_create_task",
-    "omnihuman_get_task",
-    "omnihuman_cancel_task",
-  ];
+test("audio has its own tool section", () => {
+  const names = ["seed_audio_generate"];
   const groups = toolReferenceGroups(names.map((name) => ({ name })));
   const entries = Object.fromEntries(
     groups.map((group) => [group.label, group.items.map((item) => item.label)]),
@@ -18,11 +13,7 @@ test("audio and avatars have separate tool sections", () => {
   assert.equal(entries["3D"], undefined);
   assert.equal(entries["VOD AI MediaKit"], undefined);
   assert.equal(entries["Asset library"], undefined);
-  assert.deepEqual(entries.Avatars, [
-    "omnihuman_create_task",
-    "omnihuman_get_task",
-    "omnihuman_cancel_task",
-  ]);
+  assert.equal(entries.Avatars, undefined);
   assert.equal(groups.flatMap((group) => group.items).length, names.length);
   assert.ok(groups.every((group) => group.collapsed));
 });
@@ -50,6 +41,9 @@ test("uncategorized tools fail visibly instead of disappearing from navigation",
 
 test("retired capability names cannot reappear in navigation", () => {
   for (const name of [
+    "omnihuman_create_task",
+    "omnihuman_get_task",
+    "omnihuman_cancel_task",
     "speech_to_text",
     "hyper3d_create_task",
     "hitem3d_create_task",

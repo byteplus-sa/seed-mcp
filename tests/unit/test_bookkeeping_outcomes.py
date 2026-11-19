@@ -351,12 +351,12 @@ async def test_billed_slot_cancellation_cleanup_is_shielded_and_logged(
             await asyncio.wait_for(cleanup_finished.wait(), 2)
 
 
-@pytest.mark.parametrize("provider", ["modelark", "vision-cv"])
+@pytest.mark.parametrize("provider", ["modelark"])
 async def test_record_accepted_task_retains_id_with_safe_outward_text(
     billed_context: Context,
     monkeypatch: pytest.MonkeyPatch,
     capsys: pytest.CaptureFixture[str],
-    provider: Literal["modelark", "vision-cv"],
+    provider: Literal["modelark"],
 ) -> None:
     record = AsyncMock(side_effect=RuntimeError(STORAGE_DETAIL))
     monkeypatch.setattr(get_runtime(billed_context).ownership_store, "record", record)
@@ -495,7 +495,6 @@ async def test_accepted_receipts_survive_deadline_during_partial_batch_bookkeepi
     [
         "modelark_api_key",
         "seed_speech_api_key",
-        "cv_api_key",
         "s3_access_key",
         "s3_secret_key",
         "tos_access_key",

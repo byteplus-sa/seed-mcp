@@ -30,12 +30,12 @@ including discovery, before provider dispatch.
 
 ## Surface
 
-The catalog contains 15 conditionally registered local tools. Four are always
+The catalog contains 12 conditionally registered local tools. Four are always
 available: `ark_list_models`, `seed_media_get_artifact`,
 `seed_media_export_artifact`, and `seed_media_persist_url`.
-HTTP exposes seven discovery/provider tools, or ten with OmniHuman enabled.
+HTTP exposes seven discovery/provider tools.
 HTTP has no local storage/artifact tools or resources; local stdio retains them.
-The 16th catalog definition is opt-in HTTP-only `media_prepare_upload`, adding
+The 13th catalog definition is opt-in HTTP-only `media_prepare_upload`, adding
 one tool to the baseline HTTP inventory. It signs locally under the same direct
 deadline and owner-first `tos` admission, without dispatching a storage mutation
 or reserving budget. Client binary upload occurs separately; see
@@ -95,8 +95,7 @@ skip inapplicable budget and generation-admission stages.
 object with an incompatible schema. It distinguishes pre-dispatch/read-only
 expiry from a mutation that may have started, retaining only bounded,
 validated task/request IDs already observed. Mutation tracking follows
-provider-operation semantics, not merely HTTP method or tool annotations;
-OmniHuman's status POST is read-only.
+provider-operation semantics, not merely HTTP method or tool annotations.
 
 Safe accepted IDs are captured before the next await after provider acceptance.
 HTTP holds them only in the live call, not a durable journal.

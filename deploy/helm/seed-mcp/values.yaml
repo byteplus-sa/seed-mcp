@@ -43,7 +43,6 @@ app:
   providerMaxConcurrency: 5
   principalMaxConcurrency: 3
   metricsEnabled: false
-  omnihumanEnabled: false
 models:
   seedream:
     defaultModel: dola-seedream-5-5-261028

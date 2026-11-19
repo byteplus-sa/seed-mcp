@@ -36,7 +36,6 @@ def test_hosted_postgres_requires_operator_identity_and_database_not_provider_ke
     assert settings.mcp_auth_mode == "byok"
     assert not settings.modelark_api_key
     assert not settings.seed_speech_api_key
-    assert not settings.cv_api_key
     assert settings.state_backend == "none"
 
 

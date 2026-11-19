@@ -20,7 +20,7 @@ The source guides cover [installation](docs/setup/install.md),
 [site maintenance](docs/site-maintenance.md) for local development and deployment.
 
 > **Breaking capability removal:** the current server narrows the catalog to
-> 15 local tools (four always registered) plus optional HTTP upload preparation. MCP jobs/native tasks, media
+> 12 local tools (four always registered) plus optional HTTP upload preparation. MCP jobs/native tasks, media
 > understanding, VOD, 3D, dedicated ASR, asset administration/resolution/preflight
 > and operator live-pricing discovery are removed. Saved 3D artifacts are no
 > longer served by the narrowed schema: **export needed 3D outputs using the
@@ -40,11 +40,11 @@ and images do not establish narrowed Seed MCP support. See
 
 The server provides a conditional MCP tool surface across several BytePlus
 products plus artifact access and an optional media upload helper. The catalog
-contains **15 local stdio tools**; four are always registered locally.
-HTTP BYOK exposes **7 tools, or 10 with OmniHuman enabled**, independently of
+contains **12 local stdio tools**; four are always registered locally.
+HTTP BYOK exposes **7 tools**, independently of
 operator provider keys. Discovery is anonymous/static; provider tools run
 directly in the foreground. Opt-in `media_prepare_upload` adds one HTTP tool
-(8/11 total) for enrolled clients to upload references directly to private TOS.
+(8 total) for enrolled clients to upload references directly to private TOS.
 TOS signing supports configured AK/SK or explicit VKE IRSA with automatic
 temporary-credential refresh. IRSA projects a token only into the MCP app;
 cluster/IAM setup remains operator-owned. STS expiry can shorten reference URLs,
@@ -52,8 +52,8 @@ and refresh does not renew them. See [IRSA setup](docs/temporary-uploads.md#vke-
 HTTP has no jobs, native tasks, local storage/artifact tools or resources.
 Both transports execute directly; persistence is stdio-only.
 
-HTTP clients send only the selected `X-ModelArk-Api-Key`,
-`X-Seed-Speech-Api-Key`, or `X-OmniHuman-Api-Key`, plus required
+HTTP clients send only the selected `X-ModelArk-Api-Key`
+or `X-Seed-Speech-Api-Key`, plus required
 `X-MCP-Client-Secret` (client-generated 32 random bytes as 64 lowercase hex).
 There is no OAuth, signup or server-issued key; `Authorization` is rejected.
 Keys are not persisted and there is no provider-key fallback. See
@@ -66,7 +66,6 @@ Keys are not persisted and there is no provider-key fallback. See
 | **Seedream** | `seedream_generate_image` | One direct image tool through ModelArk: [Seedream 5.5](https://byteplus-sa.github.io/ark-mcp/tool-reference/seedream-generate-image/#seedream-5-5) by default, generation/reference and point/box editing, native transparent PNGs, auto backgrounds, standard-only optimization, validated 1K/1.5K/2K or custom sizes, hashed safety IDs, provider image metadata, 1-10 variations and dry runs. Pro retains transparency-preserving edits; batches are Lite/4.x only. Layer decomposition/OCR are not exposed |
 | **Seedance** | `seedance_create_task` | One direct video tool for every configured Seedance model (regular 2.5 and Flash bound by default, 2.0 configurable): regular 2.5 accepts `resolution="4k"` ([provider-contract caveat](docs/models.md#video-capabilities-videocapabilities)); Flash supports 480p/720p, 10 images / 5 videos / 5 audios and no Draft. Regular 2.5 Drafts have a 14-day window (7 for creation before 2026-10-28 10:00 UTC+8). Pick the model from `ark_list_models(kind='video')`, create 1-5 variations, or use `dry_run` for a free request and static cost preview; poll with the shared generation task tools |
 | **Generation tasks** | `gen_task_get`, `gen_task_list`, `gen_task_cancel_or_delete` | Seedance lifecycle: direct batched status checks (1-50 IDs) with derived queue timing and explicit local output persistence, cursor-paged listing of your own tasks, and guarded cancel/delete |
-| **OmniHuman 2.0** | `omnihuman_create_task`, `omnihuman_get_task`, `omnihuman_cancel_task` | Image + audio to talking-avatar video through BytePlus Vision AI; direct submission, polling with durable video persistence, and queue cancel (gated by `BYTEPLUS_OMNIHUMAN_ENABLED` and `BYTEPLUS_CV_API_KEY`, disabled by default) |
 | **Artifacts** | `seed_media_get_artifact`, `seed_media_export_artifact`, `seed_media_persist_url` | Retrieve persisted media inline by artifact ID, locate/copy it to a local path without Base64 round-trips, or durably persist a provider URL whose storage failed |
 | **Object storage** (optional) | `media_upload`, `media_presign` | Direct upload of 1-50 Base64 or local-file media items to TOS or S3 with per-item results; foreground URL renewal for 1-100 object keys without re-uploading |
 | **Temporary HTTP references** (opt-in) | `media_prepare_upload` | Restricted 15-minute POST instructions and 24-hour GET URL; enrolled client uploads directly to TOS, with one-day scheduled object expiry and no application database |
@@ -162,7 +161,7 @@ flowchart TB
     TR[TRAE IDE]
   end
   subgraph Server["Ark MCP Server (FastMCP)"]
-    Tools["Direct tools<br/>Seedream · Seedance · Seed Audio · OmniHuman · Artifacts · Uploads"]
+    Tools["Direct tools<br/>Seedream · Seedance · Seed Audio · Artifacts · Uploads"]
     Domain["Domain layer<br/>models · capability registry · errors"]
     Runtime["Runtime services<br/>concurrency · budget · ownership · retry"]
     Store["Artifact store<br/>filesystem + .meta.json"]
@@ -172,7 +171,6 @@ flowchart TB
   subgraph Providers["BytePlus"]
     MA["ModelArk gateway<br/>Bearer auth"]
     SS["Seed Speech gateway<br/>X-Api-Key"]
-    CV["Vision AI gateway<br/>OmniHuman, Bearer auth"]
   end
   Client <-->|"stdio / HTTP"| Tools
   Tools --> Domain
@@ -189,8 +187,8 @@ flowchart TB
 flowchart LR
   L1["Transport<br/>stdio · Streamable HTTP"] --> L2["Server<br/>FastMCP tools · resources · routes"]
   L2 --> L3["Domain<br/>typed models · capability registry"]
-  L3 --> L4["Provider gateways<br/>ModelArk · Seed Speech · Vision AI"]
-  L4 --> L5["BytePlus<br/>Seedream · Seedance · Seed Audio · OmniHuman"]
+  L3 --> L4["Provider gateways<br/>ModelArk · Seed Speech"]
+  L4 --> L5["BytePlus<br/>Seedream · Seedance · Seed Audio"]
   L2 -.-> X["Cross-cutting<br/>security · runtime · observability · artifacts"]
 ```
 
@@ -282,9 +280,6 @@ when their credentials are configured, `media_upload` and
 `media_presign` appear
 only when object storage credentials (TOS or S3) are configured, and
 `seed_audio_generate` appears only when `BYTEPLUS_SEED_SPEECH_API_KEY` is set.
-`omnihuman_create_task`,
-`omnihuman_get_task`, and `omnihuman_cancel_task` appear only when
-`BYTEPLUS_OMNIHUMAN_ENABLED=true` and `BYTEPLUS_CV_API_KEY` is set.
 
 HTTP requires operator `MCP_IDENTITY_HMAC_KEY` (64 lowercase hex) and positive
 `MCP_IDENTITY_KEY_VERSION` (default 1), not operator provider keys.
@@ -412,8 +407,8 @@ ark-mcp/
 │   ├── state/                 # Disabled HTTP persistence and provider-authorized task adapters
 │   ├── config/                # Pydantic Settings, model capability registry
 │   ├── domain/                # ArtifactRef, errors, media, models
-│   ├── providers/             # ModelArk + Seed Speech + Vision AI adapters
-│   ├── tools/                 # 16 definitions (15 local + HTTP-only upload preparation)
+│   ├── providers/             # ModelArk + Seed Speech adapters
+│   ├── tools/                 # 13 definitions (12 local + HTTP-only upload preparation)
 │   ├── artifacts/             # Tenant-aware filesystem artifact store
 │   ├── observability/         # Structured logging and Prometheus metrics
 │   └── security/              # Request BYOK, URL/media policy, safe downloader, HTTP limits

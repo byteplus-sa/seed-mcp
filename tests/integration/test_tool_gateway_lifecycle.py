@@ -58,15 +58,6 @@ CASES = [
         "modelark",
         2,
     ),
-    (
-        "omnihuman_create_task",
-        "OmniHumanCreateTaskInput",
-        {"image": "https://example.com/image.png", "audio": "https://example.com/audio.wav"},
-        "vision-cv",
-        1,
-    ),
-    ("omnihuman_get_task", "OmniHumanGetTaskInput", {"task_id": "task-test"}, "vision-cv", 1),
-    ("omnihuman_cancel_task", "OmniHumanCancelTaskInput", {"task_id": "task-test"}, "vision-cv", 1),
 ]
 
 
@@ -92,14 +83,7 @@ def _response(request: httpx.Request, count: int) -> httpx.Response:
         else:
             body = task
     else:
-        body = {
-            "code": 10000,
-            "data": {
-                "task_id": "created-test",
-                "status": "done",
-                "video_url": "https://example.com/video.mp4",
-            },
-        }
+        raise AssertionError(f"Unexpected provider path: {path}")
     return httpx.Response(200, json=body, headers={"X-Request-Id": "synthetic-request"})
 
 
@@ -121,13 +105,10 @@ async def test_each_tool_uses_request_factory_and_closes_its_gateways(
         update={
             "modelark_api_key": None,
             "seed_speech_api_key": None,
-            "cv_api_key": None,
-            "omnihuman_enabled": True,
         }
     )
     monkeypatch.setenv("BYTEPLUS_MODELARK_API_KEY", "")
     monkeypatch.setenv("BYTEPLUS_SEED_SPEECH_API_KEY", "")
-    monkeypatch.setenv("BYTEPLUS_CV_API_KEY", "")
     monkeypatch.setenv("SEEDANCE_DEFAULT_MODEL", "dreamina-seedance-2-5-260628")
     get_settings.cache_clear()
     refresh_capability_registry()

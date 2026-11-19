@@ -24,7 +24,6 @@ _REDACT_KEYS: frozenset[str] = frozenset(
         "x-api-key",
         "x-modelark-api-key",
         "x-seed-speech-api-key",
-        "x-omnihuman-api-key",
         "x-mcp-client-secret",
         "api_key",
         "apikey",

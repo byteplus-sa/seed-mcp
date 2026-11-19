@@ -8,7 +8,7 @@
 ## Breaking Capability Migration
 
 **The current narrowing is a breaking capability removal, not a compatible
-upgrade.** With all services configured, the catalog now contains **15 tools**.
+upgrade.** With all services configured, the catalog now contains **12 tools**.
 VOD / AI MediaKit, 3D generation, dedicated ASR (`speech_to_text`), asset
 administration (`ark_asset_*`), asset resolution/preflight and operator AK/SK
 live-pricing discovery have been removed. MCP jobs/native task execution and
@@ -36,9 +36,8 @@ is provided.
    key, but administration, lookup, resolution and status preflight are absent.
    Ordinary TOS/S3 uploads do not register provider assets.
 
-Current HTTP is a forward-only BYOK foundation with 7 tools (10 with
-OmniHuman), anonymous static discovery and foreground provider calls.
-Local stdio retains the conditional 15-tool catalog and storage, using direct
+Current HTTP is a forward-only BYOK foundation with 7 tools, anonymous static discovery and foreground provider calls.
+Local stdio retains the conditional 12-tool catalog and storage, using direct
 calls without MCP workers. Removing jobs does not delete current provider
 ownership or journal state; preserve it. No old-auth compatibility or ownership
 migration exists. See [direct execution](../specs/SPEC_DIRECT_EXECUTION.md),
@@ -50,7 +49,7 @@ migration exists. See [direct execution](../specs/SPEC_DIRECT_EXECUTION.md),
 **0.2.0 consolidated the tool surface.** One tool per product capability
 replaced the per-model, per-variation and per-operation tools of 0.1.x. The
 broader catalog documented at that time contained **38 tools** when every
-service was enabled, not the current 15. **There was no
+service was enabled, not the current 12. **There was no
 compatibility layer**: clients, prompts, skills and dashboards that name a
 removed tool must switch to its replacement.
 

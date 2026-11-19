@@ -76,21 +76,19 @@ from ark_mcp.tools._catalog import (  # noqa: E402
 )
 
 SERVER_INSTRUCTIONS = (
-    "BytePlus multimodal generation server: Seedance video, Seedream images, Seed Audio, "
-    "and OmniHuman avatar video. "
+    "BytePlus multimodal generation server: Seedance video, Seedream images, and Seed Audio. "
     "Call ark_list_models first: `model` accepts only the exact "
     "configured IDs it returns, and it lists per-model limits and which optional services "
     "are enabled. Call tools directly; MCP background jobs and native tasks are unavailable. "
     "Calls have bounded admission and execution deadlines; timeouts do not cancel provider work. "
-    "Poll Seedance tasks with gen_task_get and OmniHuman tasks with "
-    "omnihuman_get_task; never resubmit a create tool to poll. "
+    "Poll Seedance tasks with gen_task_get; never resubmit a create tool to poll. "
     "Local persistence is explicit; persisted media uses seed-media:// resources. "
     "Reference private assets as "
     "asset://<asset_id> in Seedance."
 )
 
 HTTP_SERVER_INSTRUCTIONS = (
-    "Seed MCP: customer-key ModelArk, Seed Speech and OmniHuman. "
+    "Seed MCP: customer-key ModelArk and Seed Speech. "
     "Call ark_list_models first, then call provider tools directly in the foreground. "
     "Configure provider keys and X-MCP-Client-Secret privately in client HTTP headers, "
     "never prompts or tool arguments. No OAuth, signup or MCP bearer key is used. "
@@ -345,7 +343,6 @@ def create_server(
             f"Seedream default model: {resolved_settings.seedream_default_model}\n"
             f"Seedream default family: {_seedream_default_family(resolved_settings)}\n"
             f"Seed Audio configured: {resolved_settings.has_seed_audio}\n"
-            f"OmniHuman configured: {resolved_settings.has_omnihuman}\n"
             f"TOS configured: {resolved_settings.has_tos}\n"
             f"S3 configured: {resolved_settings.has_s3}\n"
             f"Object storage backend: {resolved_settings.object_storage_backend}\n"
@@ -421,24 +418,6 @@ def create_server(
             finally:
                 await audio_gw.close()
 
-        if resolved_settings.has_omnihuman:
-            from ark_mcp.providers.vision_cv.client import VisionCvGateway
-
-            cv_gw = VisionCvGateway(
-                api_key=resolved_settings.cv_api_key,
-                base_url=resolved_settings.cv_base_url,
-                timeout=resolved_settings.request_timeout_ms / 1000,
-                connect_timeout=resolved_settings.connect_timeout_ms / 1000,
-            )
-            try:
-                providers["vision_cv"] = (
-                    "reachable"
-                    if await cv_gw.health_check(timeout_seconds=timeout)
-                    else "unreachable"
-                )
-            finally:
-                await cv_gw.close()
-
         all_reachable = all(v == "reachable" for v in providers.values())
         if all_reachable:
             return JSONResponse({"status": "ready", "providers": providers})
@@ -455,15 +434,13 @@ def create_server(
 
     register_tools(server, resolved_settings)
     if resolved_settings.mcp_transport == "stdio" and not (
-        resolved_settings.has_modelark
-        or resolved_settings.has_seed_audio
-        or resolved_settings.has_omnihuman
+        resolved_settings.has_modelark or resolved_settings.has_seed_audio
     ):
         log_warning(
             "no_provider_credentials_configured",
             detail=(
-                "No generation provider credentials resolved. Configure ModelArk, Seed Audio "
-                "or OmniHuman credentials to enable generation. The env file is read relative "
+                "No generation provider credentials resolved. Configure ModelArk or Seed Audio "
+                "credentials to enable generation. The env file is read relative "
                 "to the server's working directory; set ARK_MCP_ENV_FILE to an absolute path, "
                 "or launch the server with its working directory at the repository root."
             ),
@@ -483,7 +460,6 @@ def create_server(
         auth_mode=resolved_settings.mcp_auth_mode.value,
         modelark_configured=resolved_settings.has_modelark,
         seed_audio_configured=resolved_settings.has_seed_audio,
-        omnihuman_configured=resolved_settings.has_omnihuman,
         object_storage_backend=resolved_settings.object_storage_backend,
         artifact_backend=resolved_settings.artifact_backend,
         log_level=resolved_settings.log_level,

@@ -5,8 +5,8 @@ description: Find the right Ark MCP capability and learn its credentials, execut
 
 Ark MCP has one tool per capability. Models, variations, edits and previews
 are parameters, not separate tool names. Start with `ark_list_models`.
-HTTP has 7 tools, or 10 with OmniHuman enabled, plus optional upload preparation; anonymous static discovery
-and direct foreground provider calls. Local stdio has a 15-tool conditional
+HTTP has 7 tools, plus optional upload preparation; anonymous static discovery
+and direct foreground provider calls. Local stdio has a 12-tool conditional
 catalog, four always registered. It also calls directly, with local
 storage/artifacts retained. Neither transport exposes MCP jobs/native tasks.
 
@@ -42,15 +42,6 @@ available in Ark MCP.
 | Task | Tool | Credential |
 | --- | --- | --- |
 | Generate full-scene audio | [seed_audio_generate](/ark-mcp/tool-reference/seed-audio-generate/) | Seed Speech key |
-
-## Avatars
-
-| Task | Tool | Requirements |
-| --- | --- | --- |
-| Image + audio to avatar video | [omnihuman_create_task](/ark-mcp/tool-reference/omnihuman-create-task/) | Vision AI key and `BYTEPLUS_OMNIHUMAN_ENABLED=true` |
-| Poll/cancel avatars | [omnihuman_get_task](/ark-mcp/tool-reference/omnihuman-get-task/), [omnihuman_cancel_task](/ark-mcp/tool-reference/omnihuman-cancel-task/) | Vision AI credentials and gate |
-
-OmniHuman has its own poller and cancel tool. Avatars are disabled by default.
 
 ## Uploads and Outputs
 

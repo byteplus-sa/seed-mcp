@@ -19,13 +19,11 @@ CLIENTS = ("codex", "claude-code")
 PROVIDERS = {
     "modelark": ("X-ModelArk-Api-Key", "SEED_MCP_MODELARK_KEY"),
     "seed-speech": ("X-Seed-Speech-Api-Key", "SEED_MCP_SEED_SPEECH_KEY"),
-    "vision-cv": ("X-OmniHuman-Api-Key", "SEED_MCP_OMNIHUMAN_KEY"),
 }
 ENV_OPTIONS = (
     "--client-secret-env",
     "--modelark-key-env",
     "--seed-speech-key-env",
-    "--omnihuman-key-env",
     "--seedance-endpoint-env",
     "--seedream-endpoint-env",
 )
@@ -130,8 +128,6 @@ def test_custom_sources_endpoints_name_and_timeout(tmp_path: Path, client: str) 
         "--name",
         "Team_2-mcp",
         "--provider",
-        "vision-cv",
-        "--provider",
         "seed-speech",
         "--provider",
         "modelark",
@@ -139,8 +135,6 @@ def test_custom_sources_endpoints_name_and_timeout(tmp_path: Path, client: str) 
         "PRIVATE_MODELARK",
         "--seed-speech-key-env",
         "PRIVATE_SPEECH",
-        "--omnihuman-key-env",
-        "PRIVATE_VISION",
         "--client-secret-env",
         "PRIVATE_OWNER",
         "--seedance-endpoint-env",
@@ -155,7 +149,6 @@ def test_custom_sources_endpoints_name_and_timeout(tmp_path: Path, client: str) 
         {
             "X-ModelArk-Api-Key": "PRIVATE_MODELARK",
             "X-Seed-Speech-Api-Key": "PRIVATE_SPEECH",
-            "X-OmniHuman-Api-Key": "PRIVATE_VISION",
             "X-MCP-Client-Secret": "PRIVATE_OWNER",  # pragma: allowlist secret
             "X-ModelArk-Seedance-Endpoint": "VIDEO_ENDPOINT",
             "X-ModelArk-Seedream-Endpoint": "IMAGE_ENDPOINT",
@@ -188,9 +181,8 @@ def test_output_is_deterministic_independent_of_provider_order_and_duplicates(
 ) -> None:
     outputs = []
     for providers in (
-        ("modelark", "seed-speech", "vision-cv"),
-        ("vision-cv", "seed-speech", "modelark", "modelark"),
-        ("seed-speech", "modelark", "vision-cv"),
+        ("modelark", "seed-speech"),
+        ("seed-speech", "modelark", "modelark"),
     ):
         arguments = [argument for provider in providers for argument in ("--provider", provider)]
         result = invoke(tmp_path, "--client", client, "--url", URL, *arguments)
@@ -206,7 +198,6 @@ def test_hostile_environment_values_are_never_expanded(tmp_path: Path, client: s
         [
             "SEED_MCP_MODELARK_KEY",
             "SEED_MCP_SEED_SPEECH_KEY",
-            "SEED_MCP_OMNIHUMAN_KEY",
             "SEED_MCP_CLIENT_SECRET",
             "VIDEO_ENDPOINT",
             "IMAGE_ENDPOINT",
@@ -232,8 +223,6 @@ def test_hostile_environment_values_are_never_expanded(tmp_path: Path, client: s
         "modelark",
         "--provider",
         "seed-speech",
-        "--provider",
-        "vision-cv",
         "--seedance-endpoint-env",
         "VIDEO_ENDPOINT",
         "--seedream-endpoint-env",
@@ -450,7 +439,7 @@ def test_all_environment_source_options_validate_names(
     assert_rejected(invoke(tmp_path, "--client", "codex", "--url", URL, option, variable))
 
 
-@pytest.mark.parametrize("provider", ("seed-speech", "vision-cv"))
+@pytest.mark.parametrize("provider", ("seed-speech",))
 @pytest.mark.parametrize("option", ("--seedance-endpoint-env", "--seedream-endpoint-env"))
 def test_endpoint_sources_require_selected_modelark(
     tmp_path: Path, provider: str, option: str
@@ -458,6 +447,20 @@ def test_endpoint_sources_require_selected_modelark(
     assert_rejected(
         invoke(tmp_path, "--client", "codex", "--url", URL, "--provider", provider, option, "EP")
     )
+
+
+@pytest.mark.parametrize("client", CLIENTS)
+@pytest.mark.parametrize(
+    "arguments",
+    [
+        ("--provider", "vision-cv"),
+        ("--omnihuman-key-env", "RETIRED_PROVIDER_KEY"),
+    ],
+)
+def test_retired_avatar_options_are_rejected(
+    tmp_path: Path, client: str, arguments: tuple[str, str]
+) -> None:
+    assert_rejected(invoke(tmp_path, "--client", client, "--url", URL, *arguments))
 
 
 @pytest.mark.parametrize("first,second", list(itertools.combinations(ENV_OPTIONS, 2)))
@@ -475,8 +478,6 @@ def test_duplicate_sources_across_selected_headers_are_rejected(
             "modelark",
             "--provider",
             "seed-speech",
-            "--provider",
-            "vision-cv",
             first,
             "SAME_SOURCE",
             second,
@@ -509,8 +510,6 @@ def test_unselected_source_duplicates_are_ignored(tmp_path: Path, client: str) -
         URL,
         "--seed-speech-key-env",
         "SEED_MCP_MODELARK_KEY",
-        "--omnihuman-key-env",
-        "SEED_MCP_CLIENT_SECRET",
     )
     baseline = invoke(tmp_path, "--client", client, "--url", URL)
     parse_config(result, client)

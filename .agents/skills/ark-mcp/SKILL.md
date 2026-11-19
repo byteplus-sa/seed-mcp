@@ -1,6 +1,6 @@
 ---
 name: ark-mcp
-description: Generate media with Seed MCP. Use for Seedream, Seedance, Seed Audio and OmniHuman through direct HTTP BYOK or stdio calls, including opt-in temporary TOS reference preparation.
+description: Generate media with Seed MCP. Use for Seedream, Seedance and Seed Audio through direct HTTP BYOK or stdio calls, including opt-in temporary TOS reference preparation.
 ---
 
 # Ark Seed Multimodal MCP Server
@@ -16,16 +16,16 @@ skill covers only what the schemas cannot tell you: the flow, the rules that
 span tools, and where to look things up. **Parameters live in the tool
 schemas** (upstream retained-tool detail: [API reference](https://byteplus-sa.github.io/ark-mcp/api-reference/)).
 
-Determine the transport before choosing a workflow. HTTP BYOK has 7 tools,
-or 10 with OmniHuman enabled, and runs provider tools directly in the foreground.
-Opt-in `media_prepare_upload` adds one HTTP tool for enrolled clients (8/11).
+Determine the transport before choosing a workflow. HTTP BYOK has 7 tools
+and runs provider tools directly in the foreground.
+Opt-in `media_prepare_upload` adds one HTTP tool for enrolled clients (8 total).
 It has no jobs, native tasks, local storage/artifact tools or resources. Local stdio
-retains the 15-entry conditional catalog and storage/artifacts, with direct calls.
+retains the 12-entry conditional catalog and storage/artifacts, with direct calls.
 Asset administration is unavailable on either transport. Setup and rotation:
 [environment.md](references/environment.md#transport-and-auth).
 
-HTTP needs the selected `X-ModelArk-Api-Key`, `X-Seed-Speech-Api-Key`, or
-`X-OmniHuman-Api-Key` plus required `X-MCP-Client-Secret` (client-generated
+HTTP needs the selected `X-ModelArk-Api-Key` or `X-Seed-Speech-Api-Key`,
+plus required `X-MCP-Client-Secret` (client-generated
 32 random bytes as 64 lowercase hex), including dry runs. Discovery is
 anonymous/static. Never put keys in tool arguments or chat. No OAuth, signup
 or server-issued key exists; `Authorization` is rejected.
@@ -35,13 +35,12 @@ or server-issued key exists; `Authorization` is rejected.
 | **Seedance** video (2.0, regular 2.5 with 4K, and 2.5 Flash) | `seedance_create_task` | `gen_task_get`, `gen_task_list`, `gen_task_cancel_or_delete` | `BYTEPLUS_MODELARK_API_KEY` |
 | **Seedream** images (generate and edit) | `seedream_generate_image` | artifacts in the result | `BYTEPLUS_MODELARK_API_KEY` |
 | **Seed Audio** | `seed_audio_generate` | artifact in the result | `BYTEPLUS_SEED_SPEECH_API_KEY` |
-| **OmniHuman 2.0** avatar video | `omnihuman_create_task` | `omnihuman_get_task`, `omnihuman_cancel_task` | `BYTEPLUS_OMNIHUMAN_ENABLED=true` + `BYTEPLUS_CV_API_KEY` |
 | **Object storage** | `media_upload`, `media_presign` | URLs in the result | TOS or S3 credentials |
 | **Always registered (four local tools)** | `ark_list_models`, `seed_media_*` | — | — |
 
 The enabling-settings column and always-registered artifact entries
 above describe **stdio only**. HTTP provider registration is credential-independent;
-only OmniHuman needs its enable flag. HTTP never falls back to operator keys.
+HTTP never falls back to operator keys.
 
 **Do not assume a tool exists.** A tool registers only when its gate passes;
 `ark_list_models.services` and the `seed-health://status` resource show what is
@@ -52,7 +51,7 @@ on and which setting enables the rest. The health resource is stdio-only.
 ```mermaid
 flowchart LR
     discover["1 Discover: ark_list_models"] --> create["2 Direct product call"]
-    create -->|"Seedance, OmniHuman task IDs"| poll["3 Poll provider task"]
+    create -->|"Seedance task IDs"| poll["3 Poll provider task"]
     create -->|"Seedream, Seed Audio"| output["URLs or explicit local artifacts"]
     poll -->|"Successful output"| output
     output -->|"stdio persistence"| artifacts["4 Local seed_media_*"]
@@ -73,8 +72,8 @@ flowchart LR
    [Direct execution](#direct-execution)). Use `variations` instead of looking
    for variation tools, and `dry_run` (Seedance, Seedream) to check a request
    and its cost without billing.
-3. **Poll.** Seedance with `gen_task_get`; OmniHuman with
-   `omnihuman_get_task`. **Never resubmit a create tool to poll**; there is no
+3. **Poll.** Seedance with `gen_task_get`.
+   **Never resubmit a create tool to poll**; there is no
    saved-response replay, and a new create can bill again.
 4. **Keep outputs.** HTTP clients download expiring provider URLs themselves.
    Stdio can explicitly persist and use `seed_media_get_artifact`,
@@ -220,12 +219,12 @@ flowchart LR
 - Poll Seedance with `persist_output=false`; pass every task ID in one
   `gen_task_get` call. When successful outputs are available, call the poller directly with
   `persist_output=true` to keep the outputs on stdio only.
-  Seed Audio/Seedream `persist` and OmniHuman get `persist_output` default to
+  Seed Audio/Seedream `persist` default to
   false globally. HTTP rejects explicit true; local explicit true is allowed.
 - `queued` / `running` / `processing` is not a failure. Wait
   `recommended_poll_after_ms` (default 5000).
 - Provider URLs expire: **2 hours for Seed Audio, 24 hours for Seedream and
-  Seedance, 1 hour for OmniHuman**. An artifact with id `provider-url`
+  Seedance**. An artifact with id `provider-url`
   and a `persistence_error` is still usable until then; recover it with
   `seed_media_persist_url` on stdio; HTTP clients download the URL themselves.
 - `output_path`, `output_dir` write to local disk on **stdio only**,
@@ -304,7 +303,6 @@ Asset reference: pass an already usable provider reference as
 | `persistence_error` on an artifact | Output billed, storage failed | `seed_media_persist_url` before the URL expires |
 | Variation `error.phase` | `queued` (`QUEUE_TIMEOUT`): not started; `generating`: may have completed; `persisting`: output not stored | Reconcile the whole HTTP create; no automatic partial-batch resume. Local retries only for confirmed unstarted work |
 | `NOT_OWNED` | Local artifact/object-key/task ownership mismatch | Use the owning local context. HTTP task authorization instead follows the supplied provider key |
-| OmniHuman failed `InvalidParameter ... audio` or error `50510` | Provider rejected the audio or content after submission | Fix the inputs; never retry unchanged |
 | Budget rejected | Local stdio `DAILY_BUDGET_USD` exceeded | Review the local estimate limit; HTTP requires zero and has no budget ledger |
 
 Missing/unusable URL-only Seed Audio output is a nonretryable per-item
@@ -324,7 +322,7 @@ media generation; see [deployment limits](references/environment.md#deployment-l
 
 Read these only when you need the detail:
 
-- [tool-reference.md](references/tool-reference.md): per-product notes for Seedance, Seedream, Seed Audio and OmniHuman.
+- [tool-reference.md](references/tool-reference.md): per-product notes for Seedance, Seedream and Seed Audio.
 - [polling-and-artifacts.md](references/polling-and-artifacts.md): pollers, cancel/delete, artifact tools, local paths, persistence fallbacks.
 - [media-assets.md](references/media-assets.md): object storage and native assets.
 - [models-and-limits.md](references/models-and-limits.md): per-family limits and model selection.

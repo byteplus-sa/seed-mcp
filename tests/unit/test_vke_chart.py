@@ -556,7 +556,6 @@ def test_chart_accepts_bounded_options_and_decimal_environment(tmp_path: Path) -
                 "imagePullSecrets": ["existing-registry"],
                 "app": {
                     "maxBodyBytes": 16777216,
-                    "omnihumanEnabled": True,
                 },
             },
         )
@@ -568,7 +567,6 @@ def test_chart_accepts_bounded_options_and_decimal_environment(tmp_path: Path) -
     app_env = {entry["name"]: entry.get("value") for entry in pod["containers"][0]["env"]}
     assert "STATE_MAX_RECORDS" not in app_env
     assert app_env["MCP_HTTP_MAX_BODY_BYTES"] == "16777216"
-    assert app_env["BYTEPLUS_OMNIHUMAN_ENABLED"] == "true"
 
 
 def test_chart_preserves_verified_byoe_bindings_and_operator_limits(

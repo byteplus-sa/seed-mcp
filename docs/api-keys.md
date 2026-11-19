@@ -1,7 +1,7 @@
 # API Keys Guide
 
-HTTP BYOK uses your provider key in the selected `X-ModelArk-Api-Key`,
-`X-Seed-Speech-Api-Key` or `X-OmniHuman-Api-Key` header, plus
+HTTP BYOK uses your provider key in the selected `X-ModelArk-Api-Key` or
+`X-Seed-Speech-Api-Key` header, plus
 `X-MCP-Client-Secret` (client-generated 32 random bytes as 64 lowercase hex).
 Only the selected key is needed. Discovery is anonymous/static and never
 validates your provider entitlement. See [private HTTP setup](setup/shared-server.md).
@@ -15,13 +15,12 @@ identity configuration, not a customer credential.
 This server calls several BytePlus services. Each uses a distinct credential
 and auth scheme — they are **not interchangeable**. You only need the keys for
 the products you want to use. On stdio, absent credentials omit that tool set;
-HTTP registration is credential-independent (OmniHuman still needs its flag).
+HTTP registration is credential-independent.
 
 | Service | Env var | Auth header | Tools it enables |
 |---|---|---|---|
 | ModelArk | `BYTEPLUS_MODELARK_API_KEY` | `Authorization: Bearer <key>` | Seedream and Seedance |
 | Seed Speech | `BYTEPLUS_SEED_SPEECH_API_KEY` | `X-Api-Key: <key>` | Seed Audio generation |
-| Vision AI (OmniHuman) | `BYTEPLUS_CV_API_KEY` | `Authorization: Bearer <key>` | `omnihuman_*` tools (also needs `BYTEPLUS_OMNIHUMAN_ENABLED=true`) |
 | TOS | `TOS_ACCESS_KEY` + `TOS_SECRET_KEY` + `TOS_BUCKET` | AK/SK signing | `media_upload`, `media_presign` |
 | S3 | `S3_ACCESS_KEY` + `S3_SECRET_KEY` + `S3_BUCKET` | AK/SK signing | `media_upload`, `media_presign` |
 
@@ -92,21 +91,6 @@ when the key itself is valid.
 ```dotenv
 BYTEPLUS_SEED_SPEECH_API_KEY=your-seed-speech-key-here
 ```
-
-## BytePlus Vision AI (OmniHuman)
-
-**Env vars:**
-
-| Variable | Default | Purpose |
-|---|---|---|
-| `BYTEPLUS_CV_API_KEY` | empty | Vision AI Bearer key |
-| `BYTEPLUS_OMNIHUMAN_ENABLED` | `false` | Registers the `omnihuman_*` tools |
-| `BYTEPLUS_CV_BASE_URL` | `https://openapi.cv.bytepluses.com` | Vision AI base URL |
-
-Create the key under Access Key Management in the BytePlus console and make
-sure the account has OmniHuman 2.0 enabled. The same service also accepts
-AK/SK-signed requests on `cv.byteplusapi.com`; this server uses the API-key
-path only.
 
 ## Object storage (TOS or S3)
 
@@ -201,7 +185,7 @@ feature flag. Ask your setup agent to check names and the configured
 `ARK_MCP_ENV_FILE` path without reading or printing key values.
 
 On stdio, a missing provider key omits its tools. HTTP always exposes the
-7 supported provider/discovery tools, or 10 with OmniHuman enabled.
+7 supported provider/discovery tools.
 Discovery confirms configuration, not provider-key validity or account access.
 
 ## Quick reference
@@ -214,11 +198,6 @@ BYTEPLUS_MODELARK_BASE_URL=https://ark.ap-southeast.bytepluses.com/api/v3
 # Seed Speech — Seed Audio generation
 BYTEPLUS_SEED_SPEECH_API_KEY=
 BYTEPLUS_SEED_AUDIO_BASE_URL=https://voice.ap-southeast-1.bytepluses.com
-
-# Vision AI — OmniHuman (optional)
-BYTEPLUS_CV_API_KEY=
-BYTEPLUS_OMNIHUMAN_ENABLED=false
-BYTEPLUS_CV_BASE_URL=https://openapi.cv.bytepluses.com
 
 # Object storage — TOS (optional, default backend)
 TOS_ACCESS_KEY=

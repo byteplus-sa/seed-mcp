@@ -15,8 +15,6 @@ from ark_mcp.domain.errors import ProviderError
 from ark_mcp.execution import before_provider_request, record_accepted_receipt, run_direct_call
 from ark_mcp.providers.modelark.client import ModelArkGateway
 from ark_mcp.providers.seed_speech.client import SeedSpeechGateway
-from ark_mcp.providers.vision_cv.client import VisionCvGateway
-from ark_mcp.providers.vision_cv.omnihuman import OmniHumanService
 from ark_mcp.security.credentials import request_credentials_scope
 from ark_mcp.sqlite_io import drain_task
 
@@ -248,9 +246,9 @@ async def test_inherited_context_cannot_dispatch_after_root_finishes() -> None:
 
 @pytest.mark.parametrize(
     "operation",
-    ["modelark-get", "modelark-post", "modelark-delete", "speech", "vision-get", "vision-cancel"],
+    ["modelark-get", "modelark-post", "modelark-delete", "speech"],
 )
-async def test_http_gateways_mark_semantic_mutations_including_read_only_post(
+async def test_http_gateways_mark_semantic_mutations(
     operation: str,
 ) -> None:
     received = asyncio.Event()
@@ -260,7 +258,7 @@ async def test_http_gateways_mark_semantic_mutations_including_read_only_post(
         await asyncio.Event().wait()
         return httpx.Response(200)
 
-    gateway: ModelArkGateway | SeedSpeechGateway | VisionCvGateway
+    gateway: ModelArkGateway | SeedSpeechGateway
     call: Callable[[], Awaitable[object]]
     if operation.startswith("modelark"):
         gateway = modelark = ModelArkGateway(api_key="synthetic-key")
@@ -270,18 +268,14 @@ async def test_http_gateways_mark_semantic_mutations_including_read_only_post(
             call = partial(modelark.post, "/tasks", {})
         else:
             call = partial(modelark.delete, "/tasks/task-1")
-    elif operation == "speech":
+    else:
         gateway = speech = SeedSpeechGateway(api_key="synthetic-key")
         call = partial(speech.post, "/audio", {})
-    else:
-        gateway = vision = VisionCvGateway(api_key="synthetic-key")
-        service = OmniHumanService(vision)
-        call = partial(service.get if operation == "vision-get" else service.cancel, "task-1")
     gateway._client = httpx.AsyncClient(transport=httpx.MockTransport(blocked))
     try:
         result = await run_direct_call(call, timeout_seconds=0.02, read_only=False)
         assert received.is_set()
-        deadline_text(result, ambiguous=operation not in {"modelark-get", "vision-get"})
+        deadline_text(result, ambiguous=operation not in {"modelark-get"})
     finally:
         await gateway.close()
 

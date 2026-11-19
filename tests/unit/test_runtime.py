@@ -210,20 +210,20 @@ async def test_task_ownership_and_artifacts_are_provider_scoped(tmp_path: Path) 
     bob = AuthContext(principal_id="bob", tenant_id="tenant-a")
 
     await store.record("modelark", "shared-id", alice)
-    await store.record("vision-cv", "shared-id", bob)
+    await store.record("test-provider", "shared-id", bob)
     await cache.set("modelark", "shared-id", {"video": _make_ref("modelark"), "last_frame": None})
-    await cache.set("vision-cv", "shared-id", {"video": _make_ref("omnihuman"), "last_frame": None})
+    await cache.set("test-provider", "shared-id", {"video": _make_ref("other"), "last_frame": None})
 
     await store.require_owner("modelark", "shared-id", alice)
-    await store.require_owner("vision-cv", "shared-id", bob)
+    await store.require_owner("test-provider", "shared-id", bob)
     assert await _owned_ids(store, "modelark", alice) == ["shared-id"]
-    assert await _owned_ids(store, "vision-cv", alice) == []
+    assert await _owned_ids(store, "test-provider", alice) == []
     modelark = await cache.get("modelark", "shared-id")
-    omnihuman = await cache.get("vision-cv", "shared-id")
+    other = await cache.get("test-provider", "shared-id")
     assert modelark is not None and modelark["video"] is not None
-    assert omnihuman is not None and omnihuman["video"] is not None
+    assert other is not None and other["video"] is not None
     assert modelark["video"].id == "modelark"
-    assert omnihuman["video"].id == "omnihuman"
+    assert other["video"].id == "other"
     await cache.close()
     await store.close()
 

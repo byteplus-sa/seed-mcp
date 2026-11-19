@@ -157,8 +157,7 @@ and MCP entry until the staged version passes verification.
 
 Read [credentials.md](references/credentials.md) before handling credentials.
 
-1. Ask which capabilities are needed if unspecified. ModelArk, Seed Speech,
-   and Vision AI use different credentials; never assume one key
+1. Ask which capabilities are needed if unspecified. ModelArk and Seed Speech use different credentials; never assume one key
    unlocks everything. Keep whitelist and destructive-operation flags off.
 2. Create a minimal blank `.env` in a private directory outside the checkout,
    with owner-only access. Preserve an existing file without reading or
@@ -253,7 +252,7 @@ For repeat runs, keep an already-current installation unchanged unless repair
 is needed. Preserve credentials and user-selected flags during updates.
 
 Both transports execute directly and reject explicit native task opt-in.
-Local stdio has 15 conditional tools, four always registered, with storage
+Local stdio has 12 conditional tools, four always registered, with storage
 and artifacts retained. Configure client timeout 660 seconds for the default
 600-second cooperative tool deadline. Admission defaults to 2 seconds,
 owner-first then provider; operator maxima are 30 seconds for admission and
@@ -262,8 +261,8 @@ Timeout does not cancel provider work: retain safe accepted IDs and never
 blindly resubmit. Local outputs use live MCP roots or `OUTPUT_ROOTS`.
 
 For HTTP, verify default anonymous/static `ark_list_models` with
-`{"input":{}}` and `connection=null`, and 7 tools (10 with OmniHuman enabled),
-or 8/11 when temporary upload preparation is enabled,
+`{"input":{}}` and `connection=null`, and 7 tools,
+or 8 when temporary upload preparation is enabled,
 no resources, no job tools/native tasks and direct foreground execution.
 Then optionally call `{"input":{"check_connection":true}}` on live HTTP:
 only ModelArk image/video header presence and exact endpoint defaults are

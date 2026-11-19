@@ -26,7 +26,6 @@ class TestSettings:
         settings = Settings()
         assert settings.modelark_base_url == "https://ark.ap-southeast.bytepluses.com/api/v3"
         assert settings.seed_audio_base_url == "https://voice.ap-southeast-1.bytepluses.com"
-        assert settings.cv_base_url == "https://openapi.cv.bytepluses.com"
         assert settings.mcp_transport == "stdio"
         assert settings.mcp_host == "127.0.0.1"
         assert settings.mcp_port == 3000
@@ -135,31 +134,6 @@ class TestSettings:
                 SEEDANCE_MODEL_FAMILY="seedance_2_5_premium",
             )
 
-    def test_omnihuman_disabled_by_default(self) -> None:
-        settings = Settings(_env_file=None)
-        assert not settings.omnihuman_enabled
-        assert not settings.has_omnihuman
-        assert settings.cv_base_url == "https://openapi.cv.bytepluses.com"
-        assert settings.omnihuman_req_key == "realman_avatar_picture_omni20_cv"
-
-    def test_omnihuman_requires_both_flag_and_key(self) -> None:
-        assert not Settings(_env_file=None, BYTEPLUS_OMNIHUMAN_ENABLED=True).has_omnihuman
-        assert not Settings(
-            _env_file=None,
-            BYTEPLUS_CV_API_KEY="cv-key",  # pragma: allowlist secret
-        ).has_omnihuman
-        assert Settings(
-            _env_file=None,
-            BYTEPLUS_OMNIHUMAN_ENABLED=True,
-            BYTEPLUS_CV_API_KEY="cv-key",  # pragma: allowlist secret
-        ).has_omnihuman
-
-    def test_cv_base_url_override_requires_https(self) -> None:
-        settings = Settings(_env_file=None, BYTEPLUS_CV_BASE_URL="https://cv.example.com/")
-        assert settings.cv_base_url == "https://cv.example.com"
-        with pytest.raises(ValueError, match="BYTEPLUS_CV_BASE_URL must use HTTPS"):
-            Settings(_env_file=None, BYTEPLUS_CV_BASE_URL="http://cv.example.com")
-
     def test_allowed_origins_empty(self) -> None:
         settings = Settings(_env_file=None)
         assert settings.allowed_origins == []
@@ -188,7 +162,6 @@ class TestSettings:
         assert settings.mcp_auth_mode is AuthMode.BYOK
         assert not settings.has_modelark
         assert not settings.has_seed_audio
-        assert not settings.has_omnihuman
 
     def test_stdio_needs_no_hmac_or_provider_credentials(self) -> None:
         settings = Settings(_env_file=None, MCP_TRANSPORT="stdio", MCP_AUTH_MODE="local")
@@ -229,7 +202,6 @@ class TestSettings:
         [
             ("BYTEPLUS_MODELARK_BASE_URL", "https://ark.ap-southeast.bytepluses.com/api/v3"),
             ("BYTEPLUS_SEED_AUDIO_BASE_URL", "https://voice.ap-southeast-1.bytepluses.com"),
-            ("BYTEPLUS_CV_BASE_URL", "https://openapi.cv.bytepluses.com"),
         ],
     )
     @pytest.mark.parametrize(
@@ -241,10 +213,7 @@ class TestSettings:
         with pytest.raises(ValueError, match="fixed official provider base URLs"):
             _http_settings(**{name: official + suffix})
 
-    @pytest.mark.parametrize(
-        "name",
-        ["BYTEPLUS_MODELARK_BASE_URL", "BYTEPLUS_SEED_AUDIO_BASE_URL", "BYTEPLUS_CV_BASE_URL"],
-    )
+    @pytest.mark.parametrize("name", ["BYTEPLUS_MODELARK_BASE_URL", "BYTEPLUS_SEED_AUDIO_BASE_URL"])
     @pytest.mark.parametrize(
         "url,error",
         [

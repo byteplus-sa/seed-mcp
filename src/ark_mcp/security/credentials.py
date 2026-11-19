@@ -21,12 +21,11 @@ if TYPE_CHECKING:
 
     from ark_mcp.config.env import Settings
 
-CredentialProvider = Literal["modelark", "seed-speech", "vision-cv"]
+CredentialProvider = Literal["modelark", "seed-speech"]
 
 PROVIDER_HEADERS: dict[CredentialProvider, str] = {
     "modelark": "x-modelark-api-key",
     "seed-speech": "x-seed-speech-api-key",
-    "vision-cv": "x-omnihuman-api-key",
 }
 ENDPOINT_HEADERS = {
     "seedance_create_task": "x-modelark-seedance-endpoint",
@@ -72,7 +71,7 @@ def request_credentials_scope(headers: Sequence[tuple[bytes, bytes]]) -> Iterato
         if name == "authorization":
             raise ValueError(
                 "This endpoint uses provider-specific BYOK headers, not Authorization. "
-                "Configure X-ModelArk-Api-Key, X-Seed-Speech-Api-Key or X-OmniHuman-Api-Key."
+                "Configure X-ModelArk-Api-Key or X-Seed-Speech-Api-Key."
             )
         try:
             value = raw_value.decode("ascii")
@@ -154,7 +153,6 @@ def provider_scope(settings: Settings, provider: CredentialProvider) -> Iterator
     origin = {
         "modelark": settings.modelark_base_url,
         "seed-speech": settings.seed_audio_base_url,
-        "vision-cv": settings.cv_base_url,
     }[provider]
     tenant = _digest(settings, "seed-mcp:credential", provider, origin, key)
     owner = _digest(settings, "seed-mcp:owner", tenant, secret)
@@ -224,7 +222,6 @@ def provider_api_key(ctx: Context, provider: CredentialProvider) -> str:
         key = {
             "modelark": settings.modelark_api_key,
             "seed-speech": settings.seed_speech_api_key,
-            "vision-cv": settings.cv_api_key,
         }[provider]
         if not key:
             raise PermissionError(f"Configure the {provider} API key for local stdio.")

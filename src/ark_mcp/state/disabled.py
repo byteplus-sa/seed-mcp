@@ -34,7 +34,6 @@ class DisabledArtifactStore:
         mime_type: str,
         source_expires_at: str | None = None,
         auth: AuthContext | None = None,
-        extra_trusted_host_suffixes: tuple[str, ...] = (),
     ) -> ArtifactRef:
         raise _disabled()
 

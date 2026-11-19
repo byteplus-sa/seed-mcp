@@ -1,4 +1,4 @@
-"""Bounded schemas for 15 tools, including the optional HTTP connection preflight.
+"""Bounded schemas for 12 local tools, including optional HTTP connection preflight.
 
 The preflight adds about 2,900 output-schema characters and has its own size
 guard. Removed job and understanding schemas cannot expand the inventory.
@@ -14,7 +14,7 @@ from ark_mcp.config.env import Settings
 from ark_mcp.server import create_server
 from ark_mcp.tools.ark_list_models import HttpConnectionCheck
 
-MAX_TOOLS = 15
+MAX_TOOLS = 12
 MAX_MODEL_FACING_CHARS = 52_000
 MAX_OUTPUT_SCHEMA_CHARS = 100_000
 
@@ -26,7 +26,7 @@ def test_connection_output_has_a_bounded_schema_and_no_authentication_claim() ->
     assert schema["properties"]["provider_calls_made"]["const"] is False
 
 
-@pytest.mark.parametrize("transport,tool_count", [("stdio", 15), ("http", 10)])
+@pytest.mark.parametrize("transport,tool_count", [("stdio", 12), ("http", 7)])
 async def test_tool_schemas_stay_within_budget(
     all_services_enabled: None, transport: str, tool_count: int
 ) -> None:
@@ -61,7 +61,6 @@ async def test_published_persistence_defaults_are_opt_in(
     for tool_name, field_name in (
         ("seed_audio_generate", "persist"),
         ("seedream_generate_image", "persist"),
-        ("omnihuman_get_task", "persist_output"),
     ):
         schema = tools[tool_name].parameters
         field = schema["properties"]["input"]["properties"][field_name]

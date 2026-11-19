@@ -18,7 +18,7 @@ effect of client setup.
 | --- | --- | --- |
 | Provider credentials | Private local environment file | Client request headers; never persisted by the server |
 | Identity | Trusted local principal | Provider-key authorization; client secret scopes admission only |
-| Tools | 15 conditional catalog entries, four always registered | 7, or 10 with OmniHuman; temporary preparation adds one |
+| Tools | 12 conditional catalog entries, four always registered | 7; temporary preparation adds one |
 | Long operations | Direct calls | Direct calls |
 | Storage/artifacts | Optional local persistence and resources | No local persistence/resources; optional temporary TOS preparation; client retrieves provider URLs |
 
@@ -143,7 +143,6 @@ binding. Arbitrary opaque endpoint lineage is never inferred.
 
 ## Rotation and Recovery
 
-
 There is no hosted state to restore or replay. Restarting a pod does not
 cancel provider work; clients must retain IDs and poll with authorized provider
 credentials. A lost create response may hide billed work and must be reconciled,
@@ -154,7 +153,7 @@ stateful-release migration tooling are not part of this repository.
 
 ## Validation Status
 
-Verify anonymous `ark_list_models`, exact 7/10 baseline (8/11 with temporary preparation) HTTP tool inventory, no resources,
+Verify anonymous `ark_list_models`, exact 7 baseline (8 with temporary preparation) HTTP tool inventory, no resources,
 rejected jobs/native tasks, selected-key enforcement, owner isolation, limits,
 and minimal backend `/health`/`/ready`. Caddy exposes only `/mcp` and `/health`;
 `/ready` and `/metrics` are private. Optional metrics use authorized pod

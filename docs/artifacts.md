@@ -1,14 +1,14 @@
 # Durable Artifacts
 
 Provider media URLs expire: 2 hours for Seed Audio, 24 hours for ModelArk
-image/video, and about 1 hour for OmniHuman. When persistence is enabled,
+image/video. When persistence is enabled,
 the server copies generated outputs to its configured artifact store and
 re-exposes it as a stable MCP resource `seed-media://artifacts/{artifact_id}`.
 This document describes the artifact store, its lifecycle, and the
 ownership model.
 
 Artifact storage/tools/resources are **stdio-only**. Seed Audio/Seedream
-`persist` and OmniHuman get `persist_output` default to false globally.
+`persist` default to false globally.
 Local callers may explicitly request true; HTTP rejects it and local paths.
 HTTP clients download temporary provider URLs themselves.
 Persistence uses direct calls on stdio, with live MCP roots or `OUTPUT_ROOTS`
@@ -24,7 +24,7 @@ for explicit local paths. No task augmentation is needed or supported.
 
 | Concept | Where | Default | Meaning |
 |---|---|---|---|
-| **Provider URL expiry** (`source_expires_at`) | on `ArtifactRef` | 2h (Seed Audio) / 24h (ModelArk image/video) / about 1h (OmniHuman) | how long the original provider URL is valid |
+| **Provider URL expiry** (`source_expires_at`) | on `ArtifactRef` | 2h (Seed Audio) / 24h (ModelArk image/video) | how long the original provider URL is valid |
 | **Local artifact TTL** (`expires_at`) | on `ArtifactRef`, from `ARTIFACT_TTL_SECONDS` | 604800 (7 days), must be `> 0` | how long the persisted copy is kept |
 
 The local TTL is **independent** of the provider URL expiry. Even after the
@@ -118,9 +118,8 @@ artifacts **sharded by the first 2 characters of the UUIDv4 id**:
 `copy_from_trusted_url` passes a host-suffix allowlist
 (`.bytepluses.com`, `.byteplus.com`, `.byteplusvod.com`, `.bytedance.com`,
 `.bytednsdoc.com`, `.volces.com`, `.tos-ap-southeast.bytepluses.com`) as the
-`trusted_hosts` predicate to `SafeDownloader.download`. A caller can extend it for
-one download with `extra_trusted_host_suffixes` (dot-prefixed); `omnihuman_get_task`
-uses this for `.tiktokcdn.com`. If the downloaded
+`trusted_hosts` predicate to `SafeDownloader.download`. Both artifact backends
+use this fixed policy, with no per-call extensions. If the downloaded
 `content_type` differs from the supplied `mime_type`, it logs
 `artifact_mime_mismatch` and overrides the MIME with the actual content type.
 
@@ -143,7 +142,7 @@ idempotent); a final failure surfaces as `storage_failed`.
 For Seedream and Seed Audio, recoverable persistence failures return an
 `ArtifactRef` carrying `persistence_error` (`ArtifactPersistenceIssue`).
 Inline output without a provider URL must fit the fallback cap described below.
-Seedance and OmniHuman use distinct task-output fields described after the table.
+Seedance uses distinct task-output fields described after the table.
 
 | Field | Meaning |
 |---|---|
@@ -173,10 +172,9 @@ downloader and limits, and returns a new durable `ArtifactRef`.
 In variation batches, a variation whose output was generated but not stored
 reports `error.phase="persisting"`.
 
-For Seedance and OmniHuman, provider completion remains successful when
+For Seedance, provider completion remains successful when
 requested persistence fails. Seedance reports `outputs[].persistence="failed"`
-and `outputs[].persistence_issue`; OmniHuman reports top-level
-`persistence="failed"` and `persistence_issue`. Keep the returned `source_url`;
+and `outputs[].persistence_issue`. Keep the returned `source_url`;
 an `ArtifactRef` need not exist on failure. Call the local poller directly with
 `persist_output=true`, or use `seed_media_persist_url` before expiry. Successful
 copies are cached, so later polls can retry failed outputs without duplicating

@@ -7,7 +7,6 @@ How to poll asynchronous provider tasks, what the persistence layer does with fi
 | Task ID comes from | Poll | Clean up |
 |---|---|---|
 | `seedance_create_task` | `gen_task_get`, `gen_task_list` | `gen_task_cancel_or_delete` |
-| `omnihuman_create_task` | `omnihuman_get_task` | `omnihuman_cancel_task` |
 
 The create tool's direct result carries the provider task ID. There are no MCP job IDs.
 
@@ -32,7 +31,7 @@ flowchart LR
   `persist_output=true` to download and store them on stdio.
 - **No task augmentation is required or supported.** Persistence uses the
   direct call's live MCP context.
-- **`omnihuman_get_task` defaults to `persist_output=false`**, as do Seed Audio/Seedream persistence inputs globally. Local true is explicit; HTTP rejects true.
+- **Persistence defaults to false globally.** Local true is explicit; HTTP rejects true.
 - **Never resubmit a create tool to poll.** `queued`, `running` and `processing` are not failures, and a second create call starts a second billed task. After a local timeout, disconnect or client restart, poll the same task ID again.
 - **Persistence is cached per task and output.** Concurrent and repeated polls reuse each cached durable copy. Missing or failed generation outputs can be persisted later without copying successful siblings again.
 - Local files written by a persist run (`output_dir`, `output_path`) need live MCP roots or `OUTPUT_ROOTS`; see [local-output.md](local-output.md).
@@ -78,18 +77,6 @@ Hosted HTTP is database-free: provider-key task authorization, no durable replay
 
 A mode that does not fit `expected_status` (cancel with `succeeded`, delete with `queued`) is rejected before any provider call.
 
-## OmniHuman: `omnihuman_get_task`, `omnihuman_cancel_task`
-
-- **Statuses:** `queued`, `running`, `succeeded`, `failed`, `canceled` (single l), `expired` (the provider dropped the task; resubmit), `not_found` (unknown, or older than 12 h; the provider keeps tasks 12 h).
-- **Poll about every 10 s** until `succeeded`, then use `video.uri` (a `seed-media://` artifact).
-- **The provider's `source_url` is valid for only about one hour** (`source_expires_at` is an estimate: first poll plus one hour). Download promptly on HTTP. On stdio explicitly request `persist_output=true` in a direct call to retain it; later local polls reuse cached artifacts. `persistence` is `not_applicable` for any non-succeeded status.
-- **`omnihuman_cancel_task` only cancels a `queued` task.** A started or finished
-  task returns `canceled=false` with a `message`, including the provider's
-  HTTP 400 / `50217` refusal. Other HTTP failures remain errors; no automatic
-  cancellation retry is performed. Right after creation the provider may reject
-  the ID as invalid: wait a few seconds before a deliberate retry of that
-  explicit rejection, never an uncertain cancellation.
-
 ## Artifacts
 
 Stdio persisted outputs are `ArtifactRef`s with a stable
@@ -98,7 +85,7 @@ Stdio persisted outputs are `ArtifactRef`s with a stable
 
 ### Retention and access
 
-- **Provider URLs expire fast: 2 h for audio, 24 h for ModelArk image/video, about 1 h for OmniHuman video.** Durable artifacts survive 7 days by default (`ARTIFACT_TTL_SECONDS`; see [environment.md](environment.md)).
+- **Provider URLs expire fast: 2 h for audio, 24 h for ModelArk image/video.** Durable artifacts survive 7 days by default (`ARTIFACT_TTL_SECONDS`; see [environment.md](environment.md)).
 - **Artifacts are local-only and owner-checked.** The resource needs a canonical UUID and returns bytes with the right MIME type.
 - **`seed_media_get_artifact` returns the whole file as Base64 in context.** Prefer local export for large files; the tool does not exist on HTTP.
 - **`seed_media_export_artifact` is stdio only.** Without `destination_path` it returns the artifact's path inside the store (`copied=false`), which is only possible when the store is on the local filesystem; with an object-storage backend it errors and asks for a `destination_path`. With `destination_path` (absolute, inside an allowed output root) it writes an atomic copy (`copied=true`). An existing file with different content is replaced only with `overwrite=true`; identical content always succeeds.
@@ -124,8 +111,7 @@ When durable storage fails after the store's own download retries, an
 `ArtifactRef` fallback carries `persistence_error` (`code`, `message`,
 `retryable`, `artifact_limit_bytes`, `source_url_expires_at`). Check this on
 Seedream and Seed Audio artifacts. Provider task success is separate:
-Seedance reports `outputs[].persistence` and `outputs[].persistence_issue`;
-OmniHuman reports top-level `persistence` and `persistence_issue`. On failed
+Seedance reports `outputs[].persistence` and `outputs[].persistence_issue`. On failed
 task-output persistence, keep `source_url` and recover it before expiry;
 do not assume an `ArtifactRef` exists.
 
@@ -142,7 +128,7 @@ Above the inline cap a Base64 output that cannot be stored becomes a tool error.
 Persists a temporary provider URL as a durable artifact, for `provider-url` fallbacks and for task outputs whose `persistence` is `failed`.
 
 - **Pass the artifact's own `media_type`, `mime_type` and `source_expires_at`.** For a task output, use its `source_url` and actual format: MP4 is `video/mp4`, MOV is `video/quicktime`; `last_frame` is an image.
-- **Only trusted BytePlus provider hosts are accepted**, through the same downloader, host allowlist, redirect checks and size limits as generation-time persistence. Anything else is rejected, so it cannot be used to fetch arbitrary URLs.
+- **Only trusted BytePlus provider hosts are accepted**, through the same downloader, fixed host allowlist, redirect checks and size limits as generation-time persistence. Neither artifact backend supports per-call allowlist extensions. Anything else is rejected, so it cannot be used to fetch arbitrary URLs.
 - **Retry before the source expires.** A failure returns an error with the persistence code and `retryable`; a non-retryable code such as a size-limit breach will not succeed on retry (see `artifact_limit_bytes`).
 - Stdio only. It is not idempotent: each success creates a new artifact.
 

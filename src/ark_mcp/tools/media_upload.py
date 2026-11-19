@@ -71,7 +71,7 @@ class UploadRequest(BaseModel):
         le=604800,
         description=(
             "Presigned URL validity in seconds (60-604800). Defaults to the configured presign "
-            "TTL. Use a long TTL (e.g. 3600) for asynchronous Seedance or OmniHuman inputs."
+            "TTL. Use a long TTL (e.g. 3600) for asynchronous Seedance inputs."
         ),
     )
 
@@ -252,7 +252,7 @@ class MediaUploadInput(BaseModel):
         le=604800,
         description=(
             "Presigned URL validity in seconds for every item; defaults to the server presign "
-            "TTL. Use >= 3600 for asynchronous Seedance or OmniHuman inputs."
+            "TTL. Use >= 3600 for asynchronous Seedance inputs."
         ),
     )
     max_concurrent: int = Field(4, ge=1, le=8, description="Concurrent uploads.")

@@ -5,8 +5,8 @@ forward-only BYOK surface, including on loopback.
 
 | Transport | Tools | Execution |
 | --- | --- | --- |
-| stdio | 15 catalog tools, conditional on local credentials/flags; four always available | Direct calls; storage and artifacts retained |
-| HTTP | 7, or 10 with OmniHuman enabled; temporary upload adds one | Direct foreground calls; no jobs, native tasks, local storage/artifact tools or resources |
+| stdio | 12 catalog tools, conditional on local credentials/flags; four always available | Direct calls; storage and artifacts retained |
+| HTTP | 7; temporary upload adds one | Direct foreground calls; no jobs, native tasks, local storage/artifact tools or resources |
 
 ## stdio
 
@@ -21,7 +21,7 @@ uv run --locked --no-sync python -m ark_mcp
 
 Call the original tool directly, without native task opt-in. Local SQLite
 supports storage/artifacts and bookkeeping, not saved-response replay.
-Seedance/OmniHuman calls must omit the unsupported legacy `idempotency_key`.
+Seedance calls must omit the unsupported legacy `idempotency_key`.
 
 ## Streamable HTTP
 
@@ -44,7 +44,7 @@ protection are enforced by `HardenedFastMCP.http_app()` and the normal CLI.
 Building an HTTP app from stdio-configured settings is rejected.
 
 Clients supply `X-MCP-Client-Secret` and only the selected provider header:
-`X-ModelArk-Api-Key`, `X-Seed-Speech-Api-Key`, or `X-OmniHuman-Api-Key`.
+`X-ModelArk-Api-Key` or `X-Seed-Speech-Api-Key`.
 The client secret is client-generated 32 random bytes as 64 lowercase hex.
 `Authorization` is rejected. There is no OAuth, signup or server-issued key.
 [Client setup](setup/shared-server.md) includes private entry and examples.
@@ -69,7 +69,7 @@ HTTP has no budget ledger.
 `TOOL_DEADLINE_EXCEEDED` preserves uncertainty and safe accepted IDs; never
 blindly resubmit or assume timeout cancelled upstream work.
 Keep returned provider task IDs and poll
-with `gen_task_get` or `omnihuman_get_task`. Never resubmit to poll.
+with `gen_task_get`. Never resubmit to poll.
 
 ### Create Delivery Recovery
 

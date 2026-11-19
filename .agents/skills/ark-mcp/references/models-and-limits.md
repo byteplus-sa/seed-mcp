@@ -19,7 +19,7 @@ Model discovery with `ark_list_models`, how the server binds model IDs to famili
   `X-ModelArk-Seedream-Endpoint` must be exact registry bindings. Explicit tool
   `model` wins; no arbitrary opaque endpoint lineage is inferred.
 - **`tool`** names the image/video generation tool that serves the model.
-- **`services[]`** reports `modelark`, `seed_audio`, `omnihuman`, and
+- **`services[]`** reports `modelark`, `seed_audio`, and
   `object_storage`, with `enabled` and a safe disabled `reason` naming required
   settings. Use it to check the running server; documentation alone does not
   prove a capability is available. On HTTP, `enabled` means registered, not
@@ -173,8 +173,7 @@ use live client roots. This resource is stdio-only. Backend `/health` and `/read
 return minimal process/state status without provider checks; VKE Caddy exposes
 only `/mcp` and `/health`. Public `/metrics` is unavailable; an optional
 HTTP-runtime listener is loopback-only and off by default.
-HTTP discovery is anonymous/static, with 7 tools or 10 when
-OmniHuman is enabled, plus one optional temporary-upload preparation tool.
+HTTP discovery is anonymous/static, with 7 tools, plus one optional temporary-upload preparation tool.
 Generation registration remains
 independent of operator provider keys. For per-service
 enablement prefer `ark_list_models.services`. Settings: [environment.md](environment.md).
