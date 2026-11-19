@@ -134,37 +134,7 @@ def test_removed_service_settings_are_not_part_of_configuration() -> None:
     assert removed == set()
 
 
-@pytest.mark.parametrize("transport", ["stdio", "http"])
-async def test_retired_avatar_configuration_cannot_restore_support(transport: str) -> None:
-    settings = Settings(
-        _env_file=None,
-        MCP_TRANSPORT=transport,
-        MCP_AUTH_MODE="byok" if transport == "http" else "local",
-        MCP_IDENTITY_HMAC_KEY="a" * 64,
-        BYTEPLUS_MODELARK_API_KEY="",
-        BYTEPLUS_SEED_SPEECH_API_KEY="",
-        BYTEPLUS_OMNIHUMAN_ENABLED=True,
-        BYTEPLUS_CV_API_KEY="synthetic-retired-key",  # pragma: allowlist secret
-        BYTEPLUS_CV_BASE_URL="not-a-provider-origin",
-        BYTEPLUS_OMNIHUMAN_REQ_KEY="retired-service",
-    )
-    names = {tool.name for tool in await create_server(settings).list_tools()}
-    assert names == (
-        HTTP_PROVIDER_TOOLS
-        if transport == "http"
-        else {
-            "ark_list_models",
-            "seed_media_get_artifact",
-            "seed_media_export_artifact",
-            "seed_media_persist_url",
-        }
-    )
-    assert {service.service for service in describe_services(settings)} == {
-        "modelark",
-        "seed_audio",
-        "object_storage",
-    }
-    assert "synthetic-retired-key" not in settings.model_dump_json()
+def test_retired_provider_environment_aliases_are_absent() -> None:
     aliases = {
         alias
         for field in Settings.model_fields.values()

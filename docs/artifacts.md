@@ -118,9 +118,8 @@ artifacts **sharded by the first 2 characters of the UUIDv4 id**:
 `copy_from_trusted_url` passes a host-suffix allowlist
 (`.bytepluses.com`, `.byteplus.com`, `.byteplusvod.com`, `.bytedance.com`,
 `.bytednsdoc.com`, `.volces.com`, `.tos-ap-southeast.bytepluses.com`) as the
-`trusted_hosts` predicate to `SafeDownloader.download`. A caller can extend it for
-one download with `extra_trusted_host_suffixes` (dot-prefixed), without
-changing the shared policy. This is internal-only, not a tool input. If the downloaded
+`trusted_hosts` predicate to `SafeDownloader.download`. Both artifact backends
+use this fixed policy, with no per-call extensions. If the downloaded
 `content_type` differs from the supplied `mime_type`, it logs
 `artifact_mime_mismatch` and overrides the MIME with the actual content type.
 

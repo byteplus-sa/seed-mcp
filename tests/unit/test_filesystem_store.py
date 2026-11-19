@@ -231,6 +231,8 @@ async def test_copy_from_trusted_url_stores_valid_video(tmp_path: Path) -> None:
     assert ref.bytes == len(b"video-bytes")
     assert downloader.trusted_hosts is not None
     assert downloader.trusted_hosts("media.bytepluses.com") is True
+    assert downloader.trusted_hosts("media.bytepluses.com.attacker.example") is False
+    assert downloader.trusted_hosts("v16m-default.media.example.com") is False
 
 
 @pytest.mark.parametrize(
@@ -374,69 +376,3 @@ async def test_copy_translates_storage_failure(
     assert exc_info.value.retryable is True
     assert "sensitive" not in str(exc_info.value)
     assert "signature=" not in str(exc_info.value)
-
-
-EXTERNAL_VIDEO = DownloadedMedia(
-    body=b"video-bytes",
-    content_type="video/mp4",
-    final_url="https://v16m-default.media.example.com/out.mp4",
-)
-
-
-@pytest.mark.parametrize(
-    ("hostname", "expected"),
-    [
-        ("v16m-default.media.example.com", True),
-        ("V16M-DEFAULT.MEDIA.EXAMPLE.COM", True),
-        ("media.bytepluses.com", True),
-        ("media.example.com", False),
-        ("media.example.com.attacker.example", False),
-        ("notmedia.example.com", False),
-        ("evil.example", False),
-    ],
-)
-async def test_extra_trusted_suffixes_extend_the_policy_for_that_call_only(
-    tmp_path: Path, hostname: str, expected: bool
-) -> None:
-    downloader = StubDownloader(result=EXTERNAL_VIDEO)
-    store = FilesystemArtifactStore(
-        artifact_dir=str(tmp_path),
-        ttl_seconds=3600,
-        downloader=downloader,  # type: ignore[arg-type]
-    )
-    try:
-        await store.copy_from_trusted_url(
-            "https://v16m-default.media.example.com/out.mp4",
-            media_type="video",
-            mime_type="video/mp4",
-            extra_trusted_host_suffixes=(".media.example.com",),
-        )
-        assert downloader.trusted_hosts is not None
-        assert downloader.trusted_hosts(hostname) is expected
-
-        await store.copy_from_trusted_url(
-            "https://v16m-default.media.example.com/out.mp4",
-            media_type="video",
-            mime_type="video/mp4",
-        )
-        assert downloader.trusted_hosts("v16m-default.media.example.com") is False
-    finally:
-        await store.close()
-
-
-async def test_extra_trusted_suffix_must_start_with_a_dot(tmp_path: Path) -> None:
-    store = FilesystemArtifactStore(
-        artifact_dir=str(tmp_path),
-        ttl_seconds=3600,
-        downloader=StubDownloader(result=EXTERNAL_VIDEO),  # type: ignore[arg-type]
-    )
-    try:
-        with pytest.raises(ValueError, match="start with"):
-            await store.copy_from_trusted_url(
-                "https://v16m-default.media.example.com/out.mp4",
-                media_type="video",
-                mime_type="video/mp4",
-                extra_trusted_host_suffixes=("media.example.com",),
-            )
-    finally:
-        await store.close()

@@ -81,7 +81,7 @@ Catalog scope strings remain capability metadata, not customer-selected roles,
 OAuth grants or a common team identity. HTTP admission enforces the selected
 provider key and client owner. Local stdio trusts its local principal.
 
-All 11 scope strings in the catalog are retained below as metadata, not auth
+All 8 scope strings in the catalog are retained below as metadata, not auth
 grants. A label does not register a tool or grant access to provider accounts.
 
 | Catalog scope metadata | Tools |
@@ -99,8 +99,9 @@ HTTP exposes 7 provider/discovery tools, without
 requiring operator provider keys. Anonymous `ark_list_models` lists configured
 model bindings even without an environment provider key. `services[].enabled`
 describes registration, not customer entitlement or key validity. Jobs, native tasks, local storage/artifact tools and all MCP
-resources are absent on HTTP. Storage/artifacts remain local stdio capabilities within the
-12-entry catalog. No asset administration exists on either transport.
+resources are absent on HTTP. Storage/artifacts remain local stdio capabilities
+among the 12 local tools. The catalog has 13 definitions including optional
+HTTP upload preparation. No asset administration exists on either transport.
 
 Opt-in `media_prepare_upload` adds one HTTP tool. Operator-enrolled SHA-256
 digests of exact ASCII client-secret values authorize it, independently of
@@ -205,12 +206,11 @@ downloader accepts.
    chunks are accumulated and checked against `max_bytes` after each
    `extend`.
 
-`FilesystemArtifactStore` restricts `copy_from_trusted_url` to provider hosts
+Both artifact backends restrict `copy_from_trusted_url` to provider hosts
 via suffix allowlist: `.bytepluses.com`, `.byteplus.com`, `.bytedance.com`,
 `.bytednsdoc.com`, `.volces.com`, `.byteplusvod.com`,
-`.tos-ap-southeast.bytepluses.com`. An internal caller may extend the list for one download
-without changing the shared policy. `seed_media_persist_url` accepts only the
-default provider allowlist; clients cannot supply extra trusted hosts.
+`.tos-ap-southeast.bytepluses.com`. This fixed policy has no per-call extensions;
+`seed_media_persist_url` uses the same allowlist.
 
 `seed_media_persist_url` accepts a caller-supplied URL, so it relies on the
 same controls: the URL goes through `copy_from_trusted_url` with this host

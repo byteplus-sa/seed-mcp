@@ -164,10 +164,3 @@ def needs_persist(input: Any) -> str | None:
     if getattr(input, "persist", True) is False:
         return "output_path/output_dir require persist=true."
     return None
-
-
-def needs_persist_output(input: Any) -> str | None:
-    """Precondition: a local copy needs a persisted artifact (persist_output=true)."""
-    if getattr(input, "persist_output", True) is False:
-        return "output_path requires persist_output=true."
-    return None

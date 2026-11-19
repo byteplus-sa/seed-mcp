@@ -128,7 +128,7 @@ Above the inline cap a Base64 output that cannot be stored becomes a tool error.
 Persists a temporary provider URL as a durable artifact, for `provider-url` fallbacks and for task outputs whose `persistence` is `failed`.
 
 - **Pass the artifact's own `media_type`, `mime_type` and `source_expires_at`.** For a task output, use its `source_url` and actual format: MP4 is `video/mp4`, MOV is `video/quicktime`; `last_frame` is an image.
-- **Only trusted BytePlus provider hosts are accepted**, through the same downloader, host allowlist, redirect checks and size limits as generation-time persistence. Anything else is rejected, so it cannot be used to fetch arbitrary URLs.
+- **Only trusted BytePlus provider hosts are accepted**, through the same downloader, fixed host allowlist, redirect checks and size limits as generation-time persistence. Neither artifact backend supports per-call allowlist extensions. Anything else is rejected, so it cannot be used to fetch arbitrary URLs.
 - **Retry before the source expires.** A failure returns an error with the persistence code and `retryable`; a non-retryable code such as a size-limit breach will not succeed on retry (see `artifact_limit_bytes`).
 - Stdio only. It is not idempotent: each success creates a new artifact.
 
