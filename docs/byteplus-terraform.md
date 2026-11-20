@@ -53,6 +53,20 @@ Operators need:
 Python/uv are needed for repository checks, not remote client connections.
 ArkCLI and bytedcli are not required by this deployment source.
 
+### GitHub Actions Instead of Laptop Access
+
+The manual [Actions delivery workflow](github-actions-deployment.md) runs Helm
+on a workflow-restricted private runner after an environment approval. A runner
+in the VKE VPC needs neither a laptop VPN nor CEN. CI/image publishing remain
+GitHub-hosted. An ordinary GitHub-hosted runner does not automatically gain
+private Kubernetes access by receiving credentials.
+
+Runner bootstrap, isolation, Kubernetes credentials and existing Secrets remain
+operator prerequisites. This workflow handles application delivery, not initial
+Terraform provisioning, IAM federation or addon installation. It makes no public
+API fallback and stores no provider-generation keys. Keep runner/prerequisite
+readiness flags false until independently verified.
+
 ## Set Up Dependencies
 
 Use your organization's approved installation process or the official
@@ -117,8 +131,9 @@ plus an initial mode-`0600` `terraform.tfvars`. It never copies existing state,
 plans, provider caches, `.env` or other operator inputs. A failed partial
 preparation is not reusable; inspect it privately and select a new path.
 
-The generated inputs select `seed-mcp-staging`, `ap-southeast-1` and two fixed
-nodes. Required zone, maintained Kubernetes release and instance type remain
+The generated inputs select `seed-mcp-staging`, `ap-southeast-1`, two fixed
+baseline nodes and `burst_node_max_count=0` (disabled). Required zone,
+maintained Kubernetes release and instance type remain
 empty; `fresh_state_confirmed` remains false. Verify those values, account/
 project, quotas, private network ranges and backend separation before changing
 the acknowledgement. The helper does not certify a fresh backend.
@@ -194,7 +209,9 @@ key bundle or client secret belongs in Terraform, Helm or pod environment.
 2. Review `variables.tf` and `terraform.tfvars.example`. Verify `zone_id`,
    `kubernetes_version`, `node_instance_type`, private network ranges and
    regional quotas. Defaults select `ap-southeast-1`, two fixed on-demand nodes
-   and no node autoscaling. Hostname spreading needs two schedulable nodes;
+   and no burst pool. Optional `burst_node_max_count` adds a separate bounded
+   private on-demand pool starting at zero, not a change to baseline ownership.
+   Hostname spreading needs two schedulable nodes;
    same-zone nodes are not AZ resilience. NAT/EIP/SNAT supply egress without public
    node IPs. Infrastructure creation is a separate approved, billable step.
 3. Establish authenticated private management access. Inspect the actual VKE
@@ -237,6 +254,37 @@ displaying sensitive data. Optional upload prerequisites remain a separate gate.
 Only then set `prerequisitesConfirmed=true`. This is an **acknowledgement,
 not programmatic proof** of addon, node, TLS, identity or network readiness.
 Failure of a prerequisite blocks deployment even when rendering succeeds.
+
+### Optional Worker Autoscaling
+
+HPA scales application pods, not worker nodes. Terraform `node_count` remains
+the fixed baseline (default two). `burst_node_max_count=0` creates no burst
+pool; a positive whole value adds a separate private PostPaid/NoSpot pool with
+desired/minimum zero and that maximum. Baseline plus burst cannot exceed ten
+nodes. Both pools share the same instance type, network/security configuration
+and 80 GiB ESSD_PL0 system disk.
+
+For a two-baseline plus zero-to-two-burst design, select `node_count=2` and
+`burst_node_max_count=2` only after reviewing the full costs and quotas.
+Terraform retains the baseline count and burst bounds/configuration; it ignores
+only the burst pool's live `auto_scaling.desired_replicas`, owned by Cluster
+Autoscaler. The addon is not installed or configured by these roots.
+
+The VKE administrator must verify a maintained compatible Cluster Autoscaler,
+pool discovery, scale-from-zero and automatic scale-in for Pay-as-you-go nodes.
+Review cooldown/stabilization and configure its pod-drain timeout above the
+application termination grace (660 seconds with defaults). Verify actual
+allocatable capacity for addons, active/surge/draining pods, PDB/topology
+interactions, pending-pod scale-out and safe burst scale-in to zero before
+claiming elasticity. Inspect existing addons before any separately approved
+installation or configuration change.
+
+At low usage the two baseline nodes still cost money. Include cluster management,
+node compute/disks, NAT/EIP, private control-plane load balancing, application
+CLB/EIP when installed, traffic and private management connectivity in the
+estimate. A node ceiling or bandwidth cap is not a monthly spend cap. Single-zone
+nodes remain vulnerable to an AZ outage. Application installation and billable
+infrastructure creation each require their own approval.
 
 <span id="state-and-activation"></span>
 

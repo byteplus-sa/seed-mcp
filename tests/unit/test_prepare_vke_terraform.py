@@ -39,6 +39,12 @@ def test_preparation_copies_only_reviewed_source_and_unset_operator_inputs(
         assert stat.S_IMODE(path.stat().st_mode) == (0o700 if path.is_dir() else 0o600)
     inputs = (destination / "terraform.tfvars").read_text()
     assert "fresh_state_confirmed = false" in inputs
+    for field, value in (("node_count", "2"), ("burst_node_max_count", "0")):
+        assert any(
+            line.split("=")[1].strip() == value
+            for line in inputs.splitlines()
+            if line.startswith(field)
+        )
     for field in ("zone_id", "kubernetes_version", "node_instance_type"):
         assert any(
             line.split("=")[1].strip() == '""'
@@ -230,3 +236,13 @@ def test_cli_has_no_live_or_destructive_commands(tmp_path: Path) -> None:
 def test_version_floor_matches_root_contract() -> None:
     assert 'required_version = ">= 1.17.1, < 2.0.0"' in (script.ROOT / "versions.tf").read_text()
     assert script.MIN_TERRAFORM == (1, 17, 1)
+
+
+def test_only_burst_live_desired_count_is_ignored() -> None:
+    source = (script.ROOT / "main.tf").read_text()
+    baseline, burst = source.split('resource "bytepluscc_vke_node_pool" "burst"', 1)
+    assert "ignore_changes" not in baseline
+    assert burst.count("ignore_changes") == 1
+    assert "ignore_changes = [auto_scaling.desired_replicas]" in burst
+    assert "node_config = local.worker_node_config" in baseline
+    assert "node_config = local.worker_node_config" in burst

@@ -108,6 +108,13 @@ The chart renders a stateless `Deployment`, HPA (default 2-6 pods, CPU 70%),
 `minDomains: 2`. Kubernetes must be >=1.30 and a maintained regional release.
 Same-zone nodes are not zone-failure resilience.
 
+Terraform defaults to two fixed private baseline nodes. Opt-in
+`burst_node_max_count` adds bounded private on-demand workers starting at zero;
+Cluster Autoscaler and safe scale-in/drain settings remain administrator-owned.
+HPA alone does not scale workers. Only burst capacity can return to zero,
+not baseline or networking charges. See
+[worker autoscaling](byteplus-terraform.md#optional-worker-autoscaling).
+
 Every pod runs FastMCP on `127.0.0.1:3000` and Caddy TLS on 8443. CLB TCP 443 uses
 Local traffic policy; Caddy overwrites forwarding headers and Uvicorn does not
 rewrite them. Only `/mcp` and `/health` are public. `/ready` is an internal exec

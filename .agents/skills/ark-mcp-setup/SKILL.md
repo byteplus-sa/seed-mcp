@@ -68,6 +68,27 @@ Terraform uses dedicated fresh state and stores no HMAC/
 TLS Secret/kubeconfig. Helm references existing Secrets only. Private API
 access requires operator private connectivity.
 
+The optional `deploy-vke.yml` GitHub Actions workflow supplies manual main-only
+Helm delivery through protected `byteplus-staging` approval and a workflow-
+restricted private runner group. A same-VPC runner needs no laptop VPN/CEN;
+ordinary GitHub-hosted runners do not gain private API reachability from keys.
+Read `docs/github-actions-deployment.md` in the selected checkout for bootstrap,
+isolation, existing kubeconfig/Secrets and nonsecret reference variables.
+It does not provision VKE, establish GitHub IAM/OIDC federation, synchronize
+Secrets or install addons. Do not enable runner/prerequisite acknowledgements
+until verified or run deployment as a client-onboarding side effect.
+
+Terraform defaults to two fixed private on-demand baseline nodes, with
+`burst_node_max_count=0` disabling extra workers. An approved positive maximum
+adds a separate pool starting/minimum at zero; baseline plus burst is bounded
+to ten nodes. Only the burst live desired count is ignored by Terraform.
+VKE administrators own compatible Cluster Autoscaler installation, discovery,
+automatic scale-in and drain settings; HPA alone does not scale nodes. Verify
+pending-pod scale-out, safe burst return to zero and drain timeout above the
+configured pod grace (660 seconds by default). Baseline/network/cluster charges
+remain at idle; node bounds are not a spend cap. Do not enable burst, install
+addons or apply resources as a side effect of client setup.
+
 Helm provides `models.seedream`/`models.seedance` `defaultModel` and verified
 `{model_id, family}` binding lists, with strict families and default inclusion.
 Alternate defaults require bindings. This does not verify lineage or permit

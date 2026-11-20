@@ -78,6 +78,7 @@ typecheck: ## Type-check with mypy
 		scripts/live_smoke_test_variations.py scripts/smoke_seedream55.py \
 		scripts/generate_identity_secret.py \
 		scripts/prepare_vke_terraform.py \
+		scripts/deploy_vke.py \
 		scripts/hosted_acceptance.py
 
 vke-validate: ## Validate isolated VKE source and mock plans, without cloud credentials

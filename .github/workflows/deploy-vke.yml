@@ -1,0 +1,94 @@
+name: Deploy BytePlus VKE
+
+on:
+  workflow_dispatch:
+    inputs:
+      operation:
+        description: Read-only preflight or one approved Helm delivery
+        type: choice
+        options: [check, deploy]
+        default: check
+        required: true
+      image:
+        description: Reviewed ghcr.io/byteplus-sa/seed-mcp@sha256 image reference
+        type: string
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: byteplus-staging-delivery
+  cancel-in-progress: false
+
+jobs:
+  configuration:
+    if: github.repository == 'byteplus-sa/seed-mcp' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    outputs:
+      runner_group: ${{ steps.config.outputs.runner_group }}
+    steps:
+      - name: Require an isolated deployment runner before queueing private work
+        id: config
+        env:
+          RUNNER_READY: ${{ vars.VKE_RUNNER_READY }}
+          RUNNER_GROUP: ${{ vars.VKE_RUNNER_GROUP }}
+          DEPLOY_IMAGE: ${{ inputs.image }}
+        run: |
+          if [[ "$RUNNER_READY" != true ]]; then
+            echo "::error::Bootstrap the private workflow-restricted runner and set VKE_RUNNER_READY=true first."
+            exit 1
+          fi
+          [[ "$RUNNER_GROUP" =~ ^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$ ]]
+          [[ "$DEPLOY_IMAGE" =~ ^ghcr\.io/byteplus-sa/seed-mcp@sha256:[0-9a-f]{64}$ ]]
+          printf 'runner_group=%s\n' "$RUNNER_GROUP" >> "$GITHUB_OUTPUT"
+
+  delivery:
+    needs: configuration
+    if: github.repository == 'byteplus-sa/seed-mcp' && github.ref == 'refs/heads/main'
+    environment: byteplus-staging
+    runs-on:
+      group: ${{ needs.configuration.outputs.runner_group }}
+      labels: [self-hosted, linux, x64, seed-mcp-vke]
+    timeout-minutes: 30
+    steps:
+      - name: Check out the approved main commit
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          clean: true
+
+      - name: Check private connection prerequisites and optionally deliver Helm once
+        env:
+          OPERATION: ${{ inputs.operation }}
+          DEPLOY_IMAGE: ${{ inputs.image }}
+          KUBE_FILE: ${{ vars.VKE_KUBECONFIG_PATH }}
+          VALUES_FILE: ${{ vars.VKE_VALUES_PATH }}
+          KUBE_CONTEXT: ${{ vars.VKE_CONTEXT }}
+          API_SERVER: ${{ vars.VKE_PRIVATE_API_SERVER }}
+          NAMESPACE: ${{ vars.VKE_NAMESPACE }}
+          PUBLIC_HOST: ${{ vars.VKE_PUBLIC_HOST }}
+          IDENTITY_SECRET: ${{ vars.VKE_IDENTITY_SECRET }}
+          TLS_SECRET: ${{ vars.VKE_TLS_SECRET }}
+          PREREQUISITES: ${{ vars.VKE_PREREQUISITES_CONFIRMED }}
+        run: |
+          set -euo pipefail
+          for name in OPERATION DEPLOY_IMAGE KUBE_FILE VALUES_FILE KUBE_CONTEXT API_SERVER \
+            NAMESPACE PUBLIC_HOST IDENTITY_SECRET TLS_SECRET; do
+            if [[ -z "${!name}" ]]; then
+              echo "::error::Missing protected deployment configuration: $name"
+              exit 1
+            fi
+          done
+          if [[ "$PREREQUISITES" != true ]]; then
+            echo "::error::Verify operator-owned CCM, capacity, DNS/TLS, source ranges and addons first."
+            exit 1
+          fi
+          python3 scripts/deploy_vke.py "$OPERATION" \
+            --kubeconfig "$KUBE_FILE" --values "$VALUES_FILE" \
+            --context "$KUBE_CONTEXT" --api-server "$API_SERVER" \
+            --namespace "$NAMESPACE" --image "$DEPLOY_IMAGE" --public-host "$PUBLIC_HOST" \
+            --identity-secret "$IDENTITY_SECRET" --tls-secret "$TLS_SECRET" \
+            --prerequisites-confirmed

@@ -10,9 +10,11 @@ zone_id            = ""
 kubernetes_version = ""
 node_instance_type = ""
 
-# Fixed on-demand node capacity. HPA scales pods, not this worker pool.
-node_count   = 2
-project_name = "default"
+# Fixed baseline plus opt-in extra nodes. HPA scales pods, not worker nodes.
+# Nonzero burst needs separately approved costs and administrator-managed CA.
+node_count           = 2
+burst_node_max_count = 0
+project_name         = "default"
 
 # Verify both ranges against private management/VPN routes before planning.
 vpc_cidr           = "10.80.0.0/16"

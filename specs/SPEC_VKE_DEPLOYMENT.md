@@ -4,11 +4,12 @@ type: spec
 status: accepted
 horizon: current
 created: 2026-11-17
-updated: 2026-11-19
+updated: 2026-11-20
 tags: [vke, terraform, helm, stateless, security]
 source:
   - https://registry.terraform.io/providers/byteplus-sdk/bytepluscc/0.0.63/docs/resources/vke_cluster
   - https://registry.terraform.io/providers/byteplus-sdk/bytepluscc/0.0.63/docs/resources/vke_node_pool
+  - https://docs.byteplus.com/zh-TW/docs/vke/cluster-autoscaler-add-on
   - https://docs.byteplus.com/en/docs/vke/Configuring-a-LoadBalancer-Service-using-annotations
   - https://docs.byteplus.com/docs/vke/Using-dynamic-EBS-Volumes
   - https://docs.byteplus.com/docs/vke/csi-ebs-add-on
@@ -31,8 +32,8 @@ persistence is separate from this deployment.
 
 | Owner | Resources and responsibilities |
 | --- | --- |
-| Terraform `deploy/terraform/vke` | Dedicated VPC/subnets, NAT/EIP/SNAT/routes, private VKE cluster and fixed on-demand node pool |
-| VKE administrator, outside Terraform and Helm | `cloud-controller-manager`, node readiness and addon lifecycle; CSI is not an application prerequisite |
+| Terraform `deploy/terraform/vke` | Dedicated VPC/subnets, NAT/EIP/SNAT/routes, private VKE cluster, fixed baseline node pool and optional bounded on-demand burst pool |
+| VKE administrator, outside Terraform and Helm | `cloud-controller-manager`, optional Cluster Autoscaler, node readiness and addon lifecycle; CSI is not an application prerequisite |
 | Helm `deploy/helm/seed-mcp` | Application Deployment, HPA, PDB, proxy ConfigMap and CLB Service; conditional IRSA ServiceAccount/token projection; no state PVC/StorageClass/headless Service |
 
 Terraform does not retrieve kubeconfig or place HMAC keys, TLS Secrets,
@@ -109,6 +110,36 @@ an exact BytePlus OIDC OpenAPI schema has not been obtained.
 The private control plane requires operator private connectivity; possession
 of kubeconfig alone is insufficient. No public API fallback is supplied.
 
+### GitHub Actions Delivery
+
+`.github/workflows/deploy-vke.yml` supplies manual `check`/`deploy` operations
+from `main` only, through the protected `byteplus-staging` environment. CI and
+image publishing remain GitHub-hosted; Helm runs on an explicitly configured
+workflow-restricted private runner group. A runner in the VKE VPC does not
+require a laptop VPN or CEN. Public-repository runner isolation is an operator
+prerequisite; labels alone do not isolate credentials or private network access.
+
+The workflow uses existing private token/certificate kubeconfig and values
+files outside the checkout, not GitHub-to-BytePlus IAM federation. It creates
+no infrastructure, IAM trust, Secrets, addons or DNS. Terraform's dedicated
+operator state and VKE-admin ownership remain unchanged. VKE IRSA evidence
+does not establish acceptance of GitHub OIDC tokens. No IAM/provider credentials
+are stored in Actions or added to the application.
+
+`scripts/deploy_vke.py` checks the exact private API/context, CA/no-proxy
+configuration, Kubernetes/kubectl compatibility, Ready schedulable nodes,
+metrics and existing identity/TLS fields before strict Helm lint and one
+optional Helm dispatch. External CCM, capacity, source enforcement and
+autoscaler prerequisites still require operator evidence. Raw command output
+is captured, not relayed to logs; no Secret/manifests artifact upload is supplied.
+Use a 15-minute Helm timeout and 30-minute job limit, without automatic retry,
+rollback, namespace creation or secret regeneration. A partial/timed-out
+installation requires inspection before another dispatch.
+
+The [Actions runbook](../docs/github-actions-deployment.md) defines exact
+runner, file-permission, environment-protection and variable requirements.
+Source and offline tests are not live runner/account or public-launch evidence.
+
 ## Infrastructure Contract
 
 `versions.tf` requires Terraform `>=1.17.1,<2.0.0` and pins `bytepluscc`
@@ -125,10 +156,28 @@ node/pod egress. Nodes and the API have public access disabled. Cluster
 deletion protection is enabled. No node passwords or private SSH keys are
 accepted; an existing key-pair name is optional for regional requirements.
 
-The fixed on-demand pool defaults to two nodes in one zone with node
-autoscaling disabled. Hostname spreading is not AZ-failure resilience.
-Application HPA does not create nodes. Regional inventory, quotas,
-route behavior and image pulls remain live gates.
+The fixed on-demand baseline defaults to two nodes in one zone with its
+autoscaling disabled. `burst_node_max_count=0` disables the separate optional
+burst pool. A positive whole value creates that pool with desired/minimum zero,
+the specified maximum and `ZoneBalance` subnet policy. Baseline plus burst is
+limited to ten nodes. Both pools use identical private PostPaid/NoSpot node
+configuration and 80 GiB ESSD_PL0 system disks. Hostname spreading and a
+single-zone subnet do not establish AZ-failure resilience.
+
+Terraform owns the fixed count and all burst bounds/configuration. Only the
+burst pool's `auto_scaling.desired_replicas` has `ignore_changes`, allowing the
+administrator-managed Cluster Autoscaler to own its live desired count.
+HPA scales pods, not nodes. Enabling a burst pool does not install the addon or
+prove scale-from-zero, automatic scale-in or sufficient capacity.
+
+Separately verify a maintained compatible Cluster Autoscaler, pool discovery,
+automatic scale-in and conservative cooldown settings. Its pod-drain timeout
+must exceed the application's configured termination grace (660 seconds by
+default); verify PDB/topology interactions and active-call draining. Test pending
+pods triggering burst scale-out and safe return to zero. Two baseline nodes
+continue to incur compute/disk charges at idle; cluster, NAT/EIP, load-balancer
+and traffic charges are separate. Node bounds are not a monetary spend cap.
+Regional inventory, quotas, route behavior and image pulls remain live gates.
 
 Use a **separate fresh VKE Terraform state**. The default local backend file
 is `seed-mcp-vke.tfstate`; operators must protect it and review any backend
@@ -156,6 +205,8 @@ administrator-owned outside Terraform/Helm.
 
 Node capacity must accommodate active, surge and draining pods. Application
 HPA does not provision that capacity or establish provider quota headroom.
+When burst is enabled, autoscaler readiness and verified scale-out/scale-in
+behavior are additional live gates, not substitutes for baseline headroom.
 
 ## Application Contract
 
@@ -262,6 +313,8 @@ Official URLs in frontmatter are retained from implementation research recorded
 2026-11-17, not a claim of a new live deployment or independent regional test.
 IRSA and STS sources were accessed 2026-11-19; the STS AssumeRole reference
 establishes documented origins/durations/envelope, not OIDC API compatibility.
+Node-pool and Cluster Autoscaler contracts were accessed 2026-11-19; source
+validation does not establish live autoscaler readiness or regional capacity.
 Source contracts were checked against `deploy/terraform/vke`, the Helm values/
 schema/templates/Caddyfile, `runtime.py`, `__main__.py`,
 `config/env.py`, `security/http_middleware.py` and `observability/admin.py`.

@@ -97,9 +97,15 @@ Key features:
 - **Multi-pod deployment** - stateless Deployment/HPA/PDB/hostname spread with
   same-pod Caddy TLS and optional loopback-only metrics.
   [Terraform preparation](docs/byteplus-terraform.md#prepare-terraform-source)
-  creates private source copies and runs isolated mock-only validation. See the
+  creates private source copies and runs isolated mock-only validation. Two
+  fixed private baseline nodes remain at idle; an opt-in bounded burst pool
+  requires administrator-managed Cluster Autoscaler and live validation, not
+  just pod HPA. See the
   [VKE runbook](docs/byteplus-terraform.md) and
   [deployment contract](specs/SPEC_VKE_DEPLOYMENT.md).
+  [Manual GitHub Actions delivery](docs/github-actions-deployment.md) uses a
+  protected environment and workflow-restricted private runner for Helm, not
+  GitHub-hosted private API access or automatic IAM federation.
 - **Offline regression coverage** - unit, contract, integration, HTTP security
   and MCP conformance tests, plus documentation build/link checks.
 
@@ -393,6 +399,7 @@ make check-env     # Validate environment configuration
 | [Artifacts](docs/artifacts.md) | Durable artifact lifecycle and store |
 | [Transports](docs/transports.md) | stdio vs HTTP deployment |
 | [Deployment](docs/deployment.md) | Container, Kubernetes, and remote HTTP deployment |
+| [GitHub Actions Delivery](docs/github-actions-deployment.md) | Protected Helm delivery from a private VKE runner |
 | [Secret Handling](docs/secret-manager.md) | Operator HMAC/client credentials; hosted provider-secret sync superseded |
 | [Troubleshooting](docs/troubleshooting.md) | Common errors and fixes |
 

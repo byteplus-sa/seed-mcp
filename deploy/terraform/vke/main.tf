@@ -8,6 +8,24 @@ locals {
     nodes = bytepluscc_vpc_subnet.private["nodes"].subnet_id
     pods  = bytepluscc_vpc_subnet.private["pods"].subnet_id
   }
+  worker_node_config = {
+    instance_type_ids     = [var.node_instance_type]
+    instance_charge_type  = "PostPaid"
+    spot_strategy         = "NoSpot"
+    subnet_ids            = [bytepluscc_vpc_subnet.private["nodes"].subnet_id]
+    public_access_enabled = false
+    project_name          = var.project_name
+    system_volume = {
+      type = "ESSD_PL0"
+      size = 80
+    }
+    security = {
+      security_group_ids = bytepluscc_vke_cluster.dedicated.cluster_config.security_group_ids
+      login = var.existing_ssh_key_pair_name == null ? null : {
+        ssh_key_pair_name = var.existing_ssh_key_pair_name
+      }
+    }
+  }
 }
 
 resource "bytepluscc_vpc_vpc" "dedicated" {
@@ -110,22 +128,25 @@ resource "bytepluscc_vke_node_pool" "application" {
     enabled          = false
     desired_replicas = var.node_count
   }
-  node_config = {
-    instance_type_ids     = [var.node_instance_type]
-    instance_charge_type  = "PostPaid"
-    spot_strategy         = "NoSpot"
-    subnet_ids            = [bytepluscc_vpc_subnet.private["nodes"].subnet_id]
-    public_access_enabled = false
-    project_name          = var.project_name
-    system_volume = {
-      type = "ESSD_PL0"
-      size = 80
-    }
-    security = {
-      security_group_ids = bytepluscc_vke_cluster.dedicated.cluster_config.security_group_ids
-      login = var.existing_ssh_key_pair_name == null ? null : {
-        ssh_key_pair_name = var.existing_ssh_key_pair_name
-      }
-    }
+  node_config = local.worker_node_config
+}
+
+resource "bytepluscc_vke_node_pool" "burst" {
+  count = var.burst_node_max_count > 0 ? 1 : 0
+
+  name       = "${var.name}-burst-workers"
+  cluster_id = bytepluscc_vke_cluster.dedicated.cluster_id
+  auto_scaling = {
+    enabled          = true
+    desired_replicas = 0
+    min_replicas     = 0
+    max_replicas     = var.burst_node_max_count
+    subnet_policy    = "ZoneBalance"
+  }
+  node_config = local.worker_node_config
+
+  lifecycle {
+    # Cluster Autoscaler owns only the burst count; Terraform retains its bounds.
+    ignore_changes = [auto_scaling.desired_replicas]
   }
 }

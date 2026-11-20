@@ -48,7 +48,11 @@ run "private_shared_state_infrastructure" {
   }
   assert {
     condition     = bytepluscc_vke_node_pool.application.auto_scaling.desired_replicas == 2 && !bytepluscc_vke_node_pool.application.auto_scaling.enabled && !bytepluscc_vke_node_pool.application.node_config.public_access_enabled && bytepluscc_vke_node_pool.application.node_config.instance_charge_type == "PostPaid" && bytepluscc_vke_node_pool.application.node_config.spot_strategy == "NoSpot"
-    error_message = "Use two fixed private on-demand nodes; never spot or node autoscaling."
+    error_message = "The baseline must retain two fixed private on-demand nodes, never Spot."
+  }
+  assert {
+    condition     = length(bytepluscc_vke_node_pool.burst) == 0 && output.burst_node_pool_id == null
+    error_message = "Burst scaling must be opt-in and absent by default."
   }
   assert {
     condition     = bytepluscc_natgateway_ngw.egress.network_type == "internet" && bytepluscc_vpc_eip.egress.instance_type == "Nat" && bytepluscc_vpc_eip.egress.instance_id == bytepluscc_natgateway_ngw.egress.nat_gateway_id
@@ -70,6 +74,50 @@ run "private_shared_state_infrastructure" {
     condition     = !output.helm_infrastructure_values.prerequisitesConfirmed && output.helm_infrastructure_values.service.subnetId == "subnet-edge" && toset(keys(output.helm_infrastructure_values)) == toset(["prerequisitesConfirmed", "service"])
     error_message = "Safe outputs must not acknowledge administrator-owned readiness or couple application pods to storage."
   }
+}
+
+run "private_bounded_burst_pool" {
+  command = plan
+  variables { burst_node_max_count = 2 }
+  assert {
+    condition     = length(bytepluscc_vke_node_pool.burst) == 1 && bytepluscc_vke_node_pool.burst[0].auto_scaling.enabled && bytepluscc_vke_node_pool.burst[0].auto_scaling.desired_replicas == 0 && bytepluscc_vke_node_pool.burst[0].auto_scaling.min_replicas == 0 && bytepluscc_vke_node_pool.burst[0].auto_scaling.max_replicas == 2 && bytepluscc_vke_node_pool.burst[0].auto_scaling.subnet_policy == "ZoneBalance"
+    error_message = "The separate burst pool starts empty and permits only 0-2 additional nodes."
+  }
+  assert {
+    condition     = bytepluscc_vke_node_pool.application.auto_scaling.desired_replicas == 2 && !bytepluscc_vke_node_pool.application.auto_scaling.enabled
+    error_message = "Enabling burst nodes must not alter fixed baseline ownership."
+  }
+  assert {
+    condition     = bytepluscc_vke_node_pool.burst[0].node_config.instance_type_ids == bytepluscc_vke_node_pool.application.node_config.instance_type_ids && bytepluscc_vke_node_pool.burst[0].node_config.subnet_ids == bytepluscc_vke_node_pool.application.node_config.subnet_ids && bytepluscc_vke_node_pool.burst[0].node_config.project_name == var.project_name && local.worker_node_config.security.login == null && !bytepluscc_vke_node_pool.burst[0].node_config.public_access_enabled && bytepluscc_vke_node_pool.burst[0].node_config.instance_charge_type == "PostPaid" && bytepluscc_vke_node_pool.burst[0].node_config.spot_strategy == "NoSpot" && bytepluscc_vke_node_pool.burst[0].node_config.system_volume.size == 80 && bytepluscc_vke_node_pool.burst[0].node_config.system_volume.type == "ESSD_PL0"
+    error_message = "Burst nodes must use identical private on-demand configuration, not Spot or public IPs."
+  }
+}
+
+run "reject_negative_burst_nodes" {
+  command = plan
+  variables { burst_node_max_count = -1 }
+  expect_failures = [var.burst_node_max_count]
+}
+
+run "reject_fractional_burst_nodes" {
+  command = plan
+  variables { burst_node_max_count = 1.5 }
+  expect_failures = [var.burst_node_max_count]
+}
+
+run "reject_unbounded_burst_nodes" {
+  command = plan
+  variables { burst_node_max_count = 9 }
+  expect_failures = [var.burst_node_max_count]
+}
+
+run "reject_combined_node_limit" {
+  command = plan
+  variables {
+    node_count           = 9
+    burst_node_max_count = 2
+  }
+  expect_failures = [var.burst_node_max_count]
 }
 
 run "reject_unacknowledged_state" {

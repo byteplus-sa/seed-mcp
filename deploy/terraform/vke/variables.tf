@@ -62,13 +62,24 @@ variable "node_instance_type" {
 }
 
 variable "node_count" {
-  description = "Fixed node count, not app replicas; node autoscaling is disabled. Size application HPA against actual schedulable capacity including surge/draining pods; two same-zone nodes are not capacity or AZ-resilience certification."
+  description = "Fixed baseline node count, not app replicas; this pool does not autoscale. Optional burst nodes are additional. Size HPA against actual schedulable capacity including surge/draining pods; two same-zone nodes are not capacity or AZ-resilience certification."
   type        = number
   default     = 2
   nullable    = false
   validation {
     condition     = var.node_count >= 2 && var.node_count <= 10 && floor(var.node_count) == var.node_count
     error_message = "Use 2-10 whole on-demand nodes and verify application, surge and draining capacity separately."
+  }
+}
+
+variable "burst_node_max_count" {
+  description = "Maximum additional private on-demand nodes in a separate autoscaled pool; 0 disables it. The pool starts at 0 and can return to 0 only with a compatible administrator-managed Cluster Autoscaler and approved scale-in/drain settings. Baseline plus burst is limited to 10 nodes, not a spend cap."
+  type        = number
+  default     = 0
+  nullable    = false
+  validation {
+    condition     = var.burst_node_max_count >= 0 && var.burst_node_max_count <= 8 && floor(var.burst_node_max_count) == var.burst_node_max_count && var.node_count + var.burst_node_max_count <= 10
+    error_message = "Use 0-8 whole additional burst nodes, with at most 10 baseline plus burst nodes. Zero disables the burst pool; verify costs and Cluster Autoscaler separately."
   }
 }
 

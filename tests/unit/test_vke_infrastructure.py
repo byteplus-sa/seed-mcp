@@ -20,6 +20,7 @@ def test_terraform_owns_only_dedicated_network_and_vke_resources() -> None:
         ("bytepluscc_vpc_route_table", "private_egress"),
         ("bytepluscc_vke_cluster", "dedicated"),
         ("bytepluscc_vke_node_pool", "application"),
+        ("bytepluscc_vke_node_pool", "burst"),
     }
     for forbidden in (
         "provisioner ",

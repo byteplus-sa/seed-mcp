@@ -177,6 +177,28 @@ Terraform stores no HMAC/TLS Secret/kubeconfig; Helm references distinct
 existing identity and TLS Secrets plus a distinct optional TOS/enrollment Secret.
 Private API access requires operator private connectivity.
 
+Manual `.github/workflows/deploy-vke.yml` Helm delivery uses main-only dispatch,
+protected `byteplus-staging` approval and a workflow-restricted private runner
+group. Labels alone are not isolation for this public repository. A same-VPC
+runner needs no laptop VPN/CEN. `scripts/deploy_vke.py` checks explicit private
+kubeconfig/API, nodes, metrics and existing identity/TLS fields, then optionally
+dispatches Helm once (15-minute Helm / 30-minute job limits). No Terraform apply,
+IAM federation, secret sync, namespace creation, automatic retry or rollback.
+Raw subprocess output is captured, not logged or uploaded. Preserve separate
+operator state and addon ownership. GitHub OIDC acceptance is not established by
+VKE IRSA docs. See `docs/github-actions-deployment.md`; keep readiness flags false
+until private runner isolation and live prerequisites are independently verified.
+
+Terraform keeps two fixed private on-demand baseline nodes by default.
+`burst_node_max_count=0` disables a separate optional burst pool; positive
+values start/minimum at zero and cap baseline plus burst at ten nodes.
+Only burst `auto_scaling.desired_replicas` is ignored by Terraform.
+Cluster Autoscaler discovery, scale-from-zero, automatic scale-in and drain
+settings remain VKE-admin owned; HPA does not scale workers. Drain timeout
+must exceed configured application pod grace (660 seconds by default).
+Baseline and networking charges remain at idle; node bounds are not a spend cap.
+Live elasticity and capacity require separate evidence.
+
 Helm `models.seedream`/`models.seedance` expose `defaultModel` and
 `bindings: [{model_id, family}]`, with strict product families, unique IDs
 and selected-default inclusion. Alternate defaults require explicit verified
