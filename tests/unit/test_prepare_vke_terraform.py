@@ -45,12 +45,23 @@ def test_preparation_copies_only_reviewed_source_and_unset_operator_inputs(
             for line in inputs.splitlines()
             if line.startswith(field)
         )
-    for field in ("zone_id", "kubernetes_version", "node_instance_type"):
+    for field in (
+        "zone_id",
+        "kubernetes_version",
+        "node_instance_type",
+        "gateway_secondary_zone_id",
+    ):
         assert any(
             line.split("=")[1].strip() == '""'
             for line in inputs.splitlines()
             if line.startswith(field)
         )
+    assert "gateway.tf" in script.SOURCE_FILES
+    assert any(
+        line.split("=")[1].strip() == "false"
+        for line in inputs.splitlines()
+        if line.startswith("public_gateway_enabled")
+    )
     assert "remain unset" in capsys.readouterr().out
     execute.assert_not_called()
 

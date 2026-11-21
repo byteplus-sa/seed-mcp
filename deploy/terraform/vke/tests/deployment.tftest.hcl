@@ -13,6 +13,17 @@ mock_provider "bytepluscc" {
   mock_resource "bytepluscc_vke_cluster" {
     defaults = { cluster_id = "cluster-synthetic" }
   }
+  mock_resource "bytepluscc_apig_gateway" {
+    defaults = {
+      gateway_id = "gateway-synthetic"
+      log_spec = {
+        enable     = false
+        project_id = ""
+        topic_id   = ""
+      }
+      trace_spec = { enable = false }
+    }
+  }
 }
 
 override_resource {
@@ -91,6 +102,132 @@ run "private_bounded_burst_pool" {
     condition     = bytepluscc_vke_node_pool.burst[0].node_config.instance_type_ids == bytepluscc_vke_node_pool.application.node_config.instance_type_ids && bytepluscc_vke_node_pool.burst[0].node_config.subnet_ids == bytepluscc_vke_node_pool.application.node_config.subnet_ids && bytepluscc_vke_node_pool.burst[0].node_config.project_name == var.project_name && local.worker_node_config.security.login == null && !bytepluscc_vke_node_pool.burst[0].node_config.public_access_enabled && bytepluscc_vke_node_pool.burst[0].node_config.instance_charge_type == "PostPaid" && bytepluscc_vke_node_pool.burst[0].node_config.spot_strategy == "NoSpot" && bytepluscc_vke_node_pool.burst[0].node_config.system_volume.size == 80 && bytepluscc_vke_node_pool.burst[0].node_config.system_volume.type == "ESSD_PL0"
     error_message = "Burst nodes must use identical private on-demand configuration, not Spot or public IPs."
   }
+}
+
+run "gateway_disabled_by_default" {
+  command = plan
+  assert {
+    condition     = length(bytepluscc_apig_gateway.public) == 0 && length(bytepluscc_vpc_subnet.private) == 3 && output.public_gateway_id == null
+    error_message = "APIG and additional subnets must be absent without explicit enablement."
+  }
+}
+
+run "dedicated_two_zone_gateway" {
+  command = plan
+  variables {
+    public_gateway_enabled    = true
+    gateway_secondary_zone_id = "ap-southeast-1b"
+    burst_node_max_count      = 2
+  }
+  override_resource {
+    target          = bytepluscc_vpc_subnet.private["gateway-primary"]
+    override_during = plan
+    values          = { subnet_id = "subnet-gateway-primary" }
+  }
+  override_resource {
+    target          = bytepluscc_vpc_subnet.private["gateway-secondary"]
+    override_during = plan
+    values          = { subnet_id = "subnet-gateway-secondary" }
+  }
+  assert {
+    condition     = bytepluscc_apig_gateway.public[0].name == "${var.name}-gateway" && bytepluscc_apig_gateway.public[0].project_name == var.project_name && bytepluscc_apig_gateway.public[0].vpc_id == bytepluscc_vpc_vpc.dedicated.vpc_id && bytepluscc_apig_gateway.public[0].type == "standard"
+    error_message = "The gateway must be new and dedicated to the selected VPC/project."
+  }
+  assert {
+    condition     = bytepluscc_apig_gateway.public[0].subnet_ids == toset([bytepluscc_vpc_subnet.private["gateway-primary"].subnet_id, bytepluscc_vpc_subnet.private["gateway-secondary"].subnet_id]) && bytepluscc_vpc_subnet.private["gateway-primary"].zone_id == var.zone_id && bytepluscc_vpc_subnet.private["gateway-secondary"].zone_id == var.gateway_secondary_zone_id && length(toset([for subnet in bytepluscc_vpc_subnet.private : subnet.cidr_block])) == 5 && bytepluscc_vpc_subnet.private["gateway-primary"].cidr_block == "10.80.48.0/20" && bytepluscc_vpc_subnet.private["gateway-secondary"].cidr_block == "10.80.64.0/20"
+    error_message = "Gateway subnets must occupy distinct AZs and distinct derived /20 ranges."
+  }
+  assert {
+    condition     = bytepluscc_apig_gateway.public[0].resource_spec.instance_spec_code == "1c2g" && bytepluscc_apig_gateway.public[0].resource_spec.replicas == 2 && bytepluscc_apig_gateway.public[0].resource_spec.clb_spec_code == "small_1" && bytepluscc_apig_gateway.public[0].resource_spec.public_network_billing_type == "traffic" && bytepluscc_apig_gateway.public[0].resource_spec.network_type.enable_private_network && bytepluscc_apig_gateway.public[0].resource_spec.network_type.enable_public_network
+    error_message = "Gateway resources must match the explicit two-node traffic-billed configuration."
+  }
+  assert {
+    condition     = !bytepluscc_apig_gateway.public[0].log_spec.enable && !bytepluscc_apig_gateway.public[0].monitor_spec.enable && !bytepluscc_apig_gateway.public[0].trace_spec.enable && !output.helm_infrastructure_values.prerequisitesConfirmed
+    error_message = "Gateway logging/tracing must be off and infrastructure must not imply delivery readiness."
+  }
+  assert {
+    condition     = !bytepluscc_vke_cluster.dedicated.cluster_config.api_server_public_access_enabled && !bytepluscc_vke_cluster.dedicated.cluster_config.resource_public_access_default_enabled && !bytepluscc_vke_node_pool.application.node_config.public_access_enabled && !bytepluscc_vke_node_pool.application.auto_scaling.enabled && bytepluscc_vke_node_pool.application.auto_scaling.desired_replicas == 2 && bytepluscc_vke_node_pool.burst[0].auto_scaling.desired_replicas == 0 && bytepluscc_vke_node_pool.burst[0].auto_scaling.max_replicas == 2
+    error_message = "Public APIG must not expose the Kubernetes API/nodes or change worker ownership."
+  }
+  assert {
+    condition     = length(bytepluscc_natgateway_snatentry.private) == 2 && bytepluscc_vpc_route_table.private_egress.subnet_ids == toset(["subnet-nodes", "subnet-pods"]) && bytepluscc_vpc_subnet.private["nodes"].cidr_block == "10.80.0.0/20" && bytepluscc_vpc_subnet.private["pods"].cidr_block == "10.80.16.0/20" && bytepluscc_vpc_subnet.private["edge"].cidr_block == "10.80.32.0/20"
+    error_message = "Gateway preparation must preserve node/pod egress and existing subnet ranges."
+  }
+}
+
+run "reject_enabled_gateway_without_secondary_zone" {
+  command = plan
+  variables { public_gateway_enabled = true }
+  expect_failures = [var.gateway_secondary_zone_id]
+}
+
+run "reject_same_gateway_zone" {
+  command = plan
+  variables {
+    public_gateway_enabled    = true
+    gateway_secondary_zone_id = "ap-southeast-1a"
+  }
+  expect_failures = [var.gateway_secondary_zone_id]
+}
+
+run "reject_wrong_region_gateway_zone" {
+  command = plan
+  variables {
+    public_gateway_enabled    = true
+    gateway_secondary_zone_id = "cn-beijing-a"
+  }
+  expect_failures = [var.gateway_secondary_zone_id]
+}
+
+run "reject_ignored_gateway_zone" {
+  command = plan
+  variables { gateway_secondary_zone_id = "ap-southeast-1b" }
+  expect_failures = [var.gateway_secondary_zone_id]
+}
+
+run "reject_logging_readback_enabled" {
+  command = plan
+  variables {
+    public_gateway_enabled    = true
+    gateway_secondary_zone_id = "ap-southeast-1b"
+  }
+  override_resource {
+    target          = bytepluscc_apig_gateway.public[0]
+    override_during = plan
+    values = {
+      log_spec = {
+        enable     = true
+        project_id = "synthetic"
+        topic_id   = "synthetic"
+      }
+    }
+  }
+  expect_failures = [bytepluscc_apig_gateway.public[0]]
+}
+
+run "logging_guard_null_semantics" {
+  command = plan
+  variables { public_gateway_enabled = false }
+  # The mock engine rejects null log_spec before evaluating a postcondition.
+  # Source tests pin the production expression; these assert its null semantics.
+  assert {
+    condition     = !try((var.public_gateway_enabled ? { enable = false } : null).enable == false, false) && !try(({ enable = var.public_gateway_enabled ? false : null }).enable == false, false)
+    error_message = "Missing logging objects and null enable flags must not establish disabled logging."
+  }
+}
+
+run "reject_tracing_readback_enabled" {
+  command = plan
+  variables {
+    public_gateway_enabled    = true
+    gateway_secondary_zone_id = "ap-southeast-1b"
+  }
+  override_resource {
+    target          = bytepluscc_apig_gateway.public[0]
+    override_during = plan
+    values          = { trace_spec = { enable = true } }
+  }
+  expect_failures = [bytepluscc_apig_gateway.public[0]]
 }
 
 run "reject_negative_burst_nodes" {

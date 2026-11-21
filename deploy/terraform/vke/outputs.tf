@@ -13,6 +13,11 @@ output "burst_node_pool_id" {
   value       = try(bytepluscc_vke_node_pool.burst[0].node_pool_id, null)
 }
 
+output "public_gateway_id" {
+  description = "Optional dedicated APIG identifier, null when disabled. Infrastructure only: no service, route, default domain or verified private HTTPS backend is configured."
+  value       = try(bytepluscc_apig_gateway.public[0].gateway_id, null)
+}
+
 output "network_ids" {
   description = "Infrastructure identifiers for operator route/SNAT verification. No application credentials."
   value = {

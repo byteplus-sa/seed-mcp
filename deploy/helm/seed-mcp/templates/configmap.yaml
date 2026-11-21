@@ -6,4 +6,4 @@ metadata:
     {{- include "seed-mcp.selector" . | nindent 4 }}
 data:
   Caddyfile: |
-    {{- .Files.Get "files/Caddyfile" | nindent 4 }}
+    {{- include "seed-mcp.proxy" . | nindent 4 }}

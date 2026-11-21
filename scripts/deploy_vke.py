@@ -27,6 +27,7 @@ from urllib.parse import urlsplit
 CHART = Path(__file__).resolve().parents[1] / "deploy" / "helm" / "seed-mcp"
 IMAGE = re.compile(r"ghcr\.io/byteplus-sa/seed-mcp@sha256:[0-9a-f]{64}")
 NAME = re.compile(r"[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?")
+HOST = re.compile(r"(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z](?:[a-z0-9-]{0,61}[a-z0-9])?")
 PRIVATE_NETWORKS = tuple(
     ipaddress.ip_network(value) for value in ("10.0.0.0/8", "172.16.0.0/12", "192.168.0.0/16")
 )
@@ -139,6 +140,10 @@ class Delivery:
             "--set-string",
             f"publicHost={self.args.public_host}",
             "--set-string",
+            f"service.mode={self.args.service_mode}",
+            "--set-string",
+            f"backendHost={self.args.backend_host}",
+            "--set-string",
             f"identitySecret.name={self.args.identity_secret}",
             "--set-string",
             "identitySecret.hmacKey=MCP_IDENTITY_HMAC_KEY",
@@ -210,20 +215,22 @@ class Delivery:
                 os.fchmod(stream.fileno(), 0o600)
                 stream.write(base64.b64decode(tls[field], validate=True))
         ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT).load_cert_chain(certificate, private_key)
+        tls_host = (
+            self.args.backend_host
+            if self.args.service_mode == "apig-staging"
+            else self.args.public_host
+        )
         hostname_check = self.run(
             "openssl",
             "x509",
             "-in",
             str(certificate),
             "-checkhost",
-            self.args.public_host,
+            tls_host,
             "-noout",
         )
-        if (
-            f"Hostname {self.args.public_host} does match certificate"
-            not in hostname_check.splitlines()
-        ):
-            raise ValueError("The existing TLS certificate must match the public hostname.")
+        if f"Hostname {tls_host} does match certificate" not in hostname_check.splitlines():
+            raise ValueError("The existing TLS certificate must match the selected TLS hostname.")
         self.run("openssl", "x509", "-in", str(certificate), "-checkend", "86400", "-noout")
         self.run("helm", "lint", str(CHART), "--strict", *self.helm_arguments())
 
@@ -265,6 +272,10 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--release", default="seed-mcp")
     parser.add_argument("--image", required=True)
     parser.add_argument("--public-host", required=True)
+    parser.add_argument(
+        "--service-mode", choices=("public-clb", "apig-staging"), default="public-clb"
+    )
+    parser.add_argument("--backend-host", default="")
     parser.add_argument("--identity-secret", required=True)
     parser.add_argument("--tls-secret", required=True)
     parser.add_argument("--prerequisites-confirmed", action="store_true")
@@ -279,8 +290,17 @@ def main(argv: list[str] | None = None) -> int:
             raise ValueError("Select a sha256-pinned image from the Seed MCP GHCR repository.")
         if not args.context or any(ord(char) < 33 for char in args.context):
             raise ValueError("Supply an explicit reviewed Kubernetes context.")
-        if not re.fullmatch(r"[a-z0-9](?:[a-z0-9.-]{0,251}[a-z0-9])?", args.public_host):
+        if len(args.public_host) > 253 or not HOST.fullmatch(args.public_host):
             raise ValueError("Supply the reviewed public DNS hostname.")
+        if args.service_mode == "apig-staging":
+            if (
+                len(args.backend_host) > 253
+                or not HOST.fullmatch(args.backend_host)
+                or args.backend_host == args.public_host
+            ):
+                raise ValueError("Staging requires a distinct reviewed private TLS hostname.")
+        elif args.backend_host:
+            raise ValueError("backend-host is accepted only for apig-staging.")
         for value in (args.namespace, args.release, args.identity_secret, args.tls_secret):
             if not NAME.fullmatch(value):
                 raise ValueError("Use explicit DNS-label namespace, release and Secret names.")
@@ -301,7 +321,9 @@ def main(argv: list[str] | None = None) -> int:
             if args.operation == "deploy":
                 dispatched = True
                 delivery.deploy()
-                print("Helm delivery completed. Verify public HTTPS, BYOK and scaling separately.")
+                print(
+                    "Helm delivery completed. Live routing and scaling acceptance remain separate."
+                )
     except (OSError, ValueError, KeyError, TypeError, subprocess.SubprocessError):
         message = (
             "Helm delivery failed or timed out; inspect the release before retrying. Outcome may be partial."

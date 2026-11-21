@@ -20,6 +20,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parents[1] / "deploy" / "terraform" / "vke"
 SOURCE_FILES = (
     "main.tf",
+    "gateway.tf",
     "variables.tf",
     "outputs.tf",
     "versions.tf",

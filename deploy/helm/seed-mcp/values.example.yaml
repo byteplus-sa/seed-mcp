@@ -2,6 +2,7 @@ prerequisitesConfirmed: false
 # Existing references only; never put DSNs, passwords or provider keys here.
 image: ""
 publicHost: ""
+backendHost: ""
 identitySecret:
   name: ""
 tlsSecretName: ""
@@ -20,5 +21,7 @@ temporaryUpload:
     # Credentials can shorten the nominal 24h GET; refresh cannot renew issued URLs.
     durationSeconds: 3600
 service:
+  # Synthetic-only private backend: apig-staging, backendHost, empty subnetId.
+  mode: public-clb
   subnetId: ""
   sourceRanges: []

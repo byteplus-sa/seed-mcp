@@ -70,6 +70,8 @@ jobs:
           API_SERVER: ${{ vars.VKE_PRIVATE_API_SERVER }}
           NAMESPACE: ${{ vars.VKE_NAMESPACE }}
           PUBLIC_HOST: ${{ vars.VKE_PUBLIC_HOST }}
+          SERVICE_MODE: ${{ vars.VKE_SERVICE_MODE }}
+          BACKEND_HOST: ${{ vars.VKE_BACKEND_HOST }}
           IDENTITY_SECRET: ${{ vars.VKE_IDENTITY_SECRET }}
           TLS_SECRET: ${{ vars.VKE_TLS_SECRET }}
           PREREQUISITES: ${{ vars.VKE_PREREQUISITES_CONFIRMED }}
@@ -86,9 +88,15 @@ jobs:
             echo "::error::Verify operator-owned CCM, capacity, DNS/TLS, source ranges and addons first."
             exit 1
           fi
+          SERVICE_MODE="${SERVICE_MODE:-public-clb}"
+          if [[ "$SERVICE_MODE" == apig-staging && -z "$BACKEND_HOST" ]]; then
+            echo "::error::Staging requires an explicit private TLS hostname."
+            exit 1
+          fi
           python3 scripts/deploy_vke.py "$OPERATION" \
             --kubeconfig "$KUBE_FILE" --values "$VALUES_FILE" \
             --context "$KUBE_CONTEXT" --api-server "$API_SERVER" \
             --namespace "$NAMESPACE" --image "$DEPLOY_IMAGE" --public-host "$PUBLIC_HOST" \
+            --service-mode "$SERVICE_MODE" --backend-host "$BACKEND_HOST" \
             --identity-secret "$IDENTITY_SECRET" --tls-secret "$TLS_SECRET" \
             --prerequisites-confirmed

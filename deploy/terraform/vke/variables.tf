@@ -51,6 +51,27 @@ variable "kubernetes_version" {
   }
 }
 
+variable "public_gateway_enabled" {
+  description = "Opt in to a new dedicated two-node standard APIG and two gateway subnets. Infrastructure only: no backend, routes, certificate trust or live generic MCP endpoint is configured. Review complete costs and plans/PLAN_GATEWAY_DEPLOYMENT.md before provisioning."
+  type        = bool
+  default     = false
+  nullable    = false
+}
+
+variable "gateway_secondary_zone_id" {
+  description = "Explicit verified gateway AZ in the selected region, different from the node zone. Required only with public_gateway_enabled=true; must be empty when disabled. Gateway AZ distribution does not make same-zone VKE workers AZ-resilient."
+  type        = string
+  default     = ""
+  nullable    = false
+  validation {
+    condition = var.public_gateway_enabled ? (
+      can(regex("^${var.region}-?[a-z]$", var.gateway_secondary_zone_id)) &&
+      var.gateway_secondary_zone_id != var.zone_id
+    ) : var.gateway_secondary_zone_id == ""
+    error_message = "Enabled gateway requires a verified secondary zone in this region different from zone_id. Leave gateway_secondary_zone_id empty when disabled."
+  }
+}
+
 variable "node_instance_type" {
   description = "One operator-verified regular on-demand instance type supporting ESSD_PL0 in the selected zone. VKE selects its supported veLinux image."
   type        = string
@@ -95,7 +116,7 @@ variable "project_name" {
 }
 
 variable "vpc_cidr" {
-  description = "Dedicated canonical RFC1918 /16. Three nonoverlapping /20 subnets are derived for nodes, VPC-CNI pods and NAT/CLB."
+  description = "Dedicated canonical RFC1918 /16. Three nonoverlapping /20 subnets are derived for nodes, VPC-CNI pods and NAT/CLB; opt-in APIG adds two distinct /20 gateway subnets."
   type        = string
   default     = "10.80.0.0/16"
   nullable    = false

@@ -138,6 +138,51 @@ empty; `fresh_state_confirmed` remains false. Verify those values, account/
 project, quotas, private network ranges and backend separation before changing
 the acknowledgement. The helper does not certify a fresh backend.
 
+### Optional Dedicated Gateway Infrastructure
+
+The prepared inputs also leave `public_gateway_enabled=false` and
+`gateway_secondary_zone_id=""`. Enabling requires a verified distinct regional
+secondary AZ and adds two /20 gateway subnets plus a new standard APIG with two
+`1c2g` nodes, `small_1` CLB and traffic-based public billing. Existing node/pod/
+edge ranges and NAT configuration are unchanged. When disabled, a nonempty
+secondary AZ is rejected.
+
+This prepares infrastructure only: no upstream, service, route, default domain
+or generic MCP endpoint is configured. `public_gateway_id` is nullable.
+The chart defaults to public CLB/Caddy. Opt-in `service.mode=apig-staging`
+provides a private ClusterIP/ingress-policy backend for synthetic-only tests,
+with separate `backendHost`, no CLB subnet and disabled uploads. It refuses
+credential headers and does not fix the APIG trust gap. Keep public client
+routes disabled; see [private staging](github-actions-deployment.md#private-apig-staging).
+Do not install the public CLB path as a substitute for a selected gateway design.
+
+Monitoring is disabled explicitly. Tracing is left unset: the native APIG API
+rejected a partial `TraceSpec` containing only `Enable=false`, while the same
+request without that object was accepted. The locked provider also rejects
+destination-free disabled logging configuration. Logging and tracing must
+both read back disabled through Terraform postconditions; omission does not
+establish either cloud default. A postcondition failure may occur
+after creation: inspect protected state and the gateway before another attempt;
+never blindly repeat creation or attach routes/send BYOK traffic.
+
+Before provisioning for a generic URL, complete the private HTTPS certificate
+verification, host/proxy-trust, stateless/no-retry routing, body/header/streaming/
+timeout contracts and full cost/quota review in the
+[gateway preparation plan](../plans/PLAN_GATEWAY_DEPLOYMENT.md).
+An operator may explicitly authorize infrastructure creation first and billing
+review afterward. This does not waive regional quotas or permit real BYOK
+traffic before TLS, disabled logging and routing acceptance.
+Two gateway AZs do not make single-zone workers AZ-resilient. Gateway, private
+backend, runner and traffic charges are additional; node limits are not a cap.
+
+The 2026-11-21 staging probe found that APIG 4.4.4 one-way TLS (`SIMPLE`)
+with SNI accepted an untrusted self-signed K8S backend certificate. Public TLS
+was verified, but backend chain trust failed; the synthetic diagnostic route
+was disabled afterward. Do not treat SNI or encryption as verification or send
+real BYOK credentials through that configuration. Require a supported,
+negatively tested backend trust control or an explicitly reviewed architecture
+change. This finding applies to the tested configuration, not every APIG mode.
+
 After separately approving authenticated infrastructure planning and privately
 injecting the IAM credentials described below, an operator can run:
 
@@ -151,6 +196,34 @@ saved plan, review the planned resources/costs, and obtain separate approval
 before applying. No live plan is run by the helper or by repository CI.
 Source updates do not update an existing prepared directory; review a new copy
 without replacing or migrating state automatically.
+
+### Failed or Asynchronous Creates
+
+A failed apply or empty Terraform state does not establish cloud absence.
+Inspect accepted Cloud Control task IDs, protected state and signed live
+inventory before another attempt. Import only a completed resource whose
+identity and configuration match the approved deployment; never blindly repeat
+an uncertain create or rerun a stale saved plan.
+
+The locked provider's gateway-ID import does not restore top-level write-only
+`vpc_id`/`subnet_ids`. Inspect a fresh full plan after import; missing values can
+propose replacement even when live `network_spec` matches. Never apply that
+replacement as reconciliation. A reviewed operator state correction must
+restore only independently verified exact IDs, preserve all other resources,
+lineage and locking, and be followed by another full no-change plan. Do not
+disable drift detection or use force to bypass state conflicts.
+
+`QuotaLimitExceeded` / `QuotaExceeded.Vpc` means regional VPC headroom must be
+established before creating the dedicated network. Check the exact regional
+quota and usage as well as any pending adjustment. A quota read can show an
+adjustable item already at the normal maximum; do not submit an out-of-range
+request or delete/reuse unrelated networks without explicit approval. Exact
+operator-approved retirement requires fresh dependency checks, confirmed cloud
+absence and separate evidence outside the new Terraform state. After capacity
+changes, reconcile live inventory and quota again and produce a fresh plan.
+Retain completed dedicated resources after a partial apply; do not rerun the
+original saved plan. A new remaining-resource plan must preserve them without
+unapproved replacement or deletion.
 
 ## Set Up IAM and Credentials
 
@@ -338,6 +411,9 @@ self-service is added.
 The chart requires `DAILY_BUDGET_USD=0`: no hosted budget ledger exists. Concurrency values remain bounded to1-256 and burst to0-10000, per pod. Use provider-console spend controls and measured capacity.
 
 ### Network and Scaling
+
+The diagram below is the current chart path. Optional APIG source does not
+change it or make a generic gateway endpoint ready.
 
 ```mermaid
 flowchart LR

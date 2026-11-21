@@ -11,6 +11,13 @@ HPA is 2-6 pods by default. All rate and concurrency limits are PER POD.
 There is no daily budget ledger or durable deduplication/replay. Configure
 provider-side spend limits and save task IDs on clients. Never repeat uncertain creates.
 Only /mcp and /health are public. /ready and metrics remain private.
+{{- if eq .Values.service.mode "apig-staging" }}
+This release uses a private ClusterIP:8443 Service and explicit ingress policy.
+STAGING ONLY: all credential headers are refused and uploads are disabled.
+Keep public client routes disabled. Operator-only synthetic gateway tests need
+verified exact header matching and immediate route disable/404 readback.
+This mode does not fix APIG backend certificate trust or approve BYOK launch.
+{{- end }}
 Temporary upload preparation is disabled by default. If enabled, verify the
 distinct existing TOS/enrollment Secret and private versioning-disabled bucket,
 prefix IAM, browser POST CORS, lifecycle and storage/egress controls separately.

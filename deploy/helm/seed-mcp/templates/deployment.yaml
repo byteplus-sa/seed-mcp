@@ -25,7 +25,7 @@ spec:
       labels:
         {{- include "seed-mcp.selector" . | nindent 8 }}
       annotations:
-        checksum/proxy: {{ .Files.Get "files/Caddyfile" | sha256sum }}
+        checksum/proxy: {{ include "seed-mcp.proxy" . | sha256sum }}
         checksum/runtime: {{ omit .Values "image" "imagePullSecrets" "resources" "autoscaling" "replicaCount" "prerequisitesConfirmed" | toJson | sha256sum }}
     spec:
       automountServiceAccountToken: false
@@ -206,6 +206,8 @@ spec:
           env:
             - name: MCP_PUBLIC_HOST
               value: {{ .Values.publicHost | quote }}
+            - name: MCP_BACKEND_HOST
+              value: {{ .Values.backendHost | quote }}
             - name: MCP_PROXY_PORT
               value: "8443"
             - name: MCP_PORT

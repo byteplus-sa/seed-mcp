@@ -10,6 +10,21 @@
 {{- if eq .Values.identitySecret.name .Values.tlsSecretName -}}
 {{- fail "identity and TLS must use different existing Secrets" -}}
 {{- end -}}
+{{- if eq .Values.service.mode "apig-staging" -}}
+{{- if or (empty .Values.backendHost) (eq .Values.backendHost .Values.publicHost) (not (empty .Values.service.subnetId)) .Values.temporaryUpload.enabled -}}
+{{- fail "apig-staging requires a distinct backendHost, empty subnetId and disabled temporary uploads" -}}
+{{- end -}}
+{{- range $cidr := .Values.service.sourceRanges -}}
+{{- $parts := splitList "/" $cidr -}}
+{{- $octets := splitList "." (index $parts 0) -}}
+{{- $first := int (index $octets 0) -}}
+{{- $second := int (index $octets 1) -}}
+{{- $prefix := int (index $parts 1) -}}
+{{- if not (or (and (eq $first 10) (ge $prefix 8)) (and (eq $first 172) (ge $second 16) (le $second 31) (ge $prefix 12)) (and (eq $first 192) (eq $second 168) (ge $prefix 16))) -}}
+{{- fail "apig-staging sourceRanges must be contained entirely in RFC1918 networks" -}}
+{{- end -}}
+{{- end -}}
+{{- end -}}
 {{- if .Values.temporaryUpload.enabled -}}
 {{- if or (empty .Values.temporaryUpload.existingSecret) (eq .Values.temporaryUpload.existingSecret .Values.identitySecret.name) (eq .Values.temporaryUpload.existingSecret .Values.tlsSecretName) -}}
 {{- fail "temporary uploads require a distinct existing TOS/enrollment Secret" -}}

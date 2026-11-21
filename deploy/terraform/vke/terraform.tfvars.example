@@ -10,6 +10,11 @@ zone_id            = ""
 kubernetes_version = ""
 node_instance_type = ""
 
+# Optional dedicated APIG infrastructure, not a working generic MCP endpoint.
+# Review full costs and private HTTPS/routing gates before enabling.
+public_gateway_enabled    = false
+gateway_secondary_zone_id = ""
+
 # Fixed baseline plus opt-in extra nodes. HPA scales pods, not worker nodes.
 # Nonzero burst needs separately approved costs and administrator-managed CA.
 node_count           = 2

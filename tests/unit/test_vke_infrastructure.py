@@ -21,11 +21,12 @@ def test_terraform_owns_only_dedicated_network_and_vke_resources() -> None:
         ("bytepluscc_vke_cluster", "dedicated"),
         ("bytepluscc_vke_node_pool", "application"),
         ("bytepluscc_vke_node_pool", "burst"),
+        ("bytepluscc_apig_gateway", "public"),
     }
     for forbidden in (
         "provisioner ",
         'data "',
-        "kubeconfig",
+        "bytepluscc_vke_kubeconfig",
         "initialize_script",
         "pre_script",
         "password =",
@@ -36,8 +37,11 @@ def test_terraform_owns_only_dedicated_network_and_vke_resources() -> None:
         "kubernetes_secret",
         "bytepluscc_vke_addon",
     ):
-        assert forbidden not in (ROOT / "main.tf").read_text()
-    assert not re.search(r"(?m)^\s*(access_key|secret_key|session_token)\s*=", source)
+        assert forbidden not in source
+    assert not re.search(
+        r"(?m)^\s*(access_key|secret_key|session_token|api_key|iam_user_ak|iam_user_sk)\s*=",
+        source,
+    )
 
 
 def test_terraform_keeps_fresh_state_and_locked_provider() -> None:
@@ -53,6 +57,31 @@ def test_terraform_keeps_fresh_state_and_locked_provider() -> None:
     example = (ROOT / "terraform.tfvars.example").read_text()
     assert re.search(r"fresh_state_confirmed\s*=\s*false", example)
     assert "prerequisitesConfirmed = false" in (ROOT / "outputs.tf").read_text()
+
+
+def test_optional_gateway_is_infrastructure_only_and_has_no_logging_credentials() -> None:
+    source = (ROOT / "gateway.tf").read_text()
+    assert "count = var.public_gateway_enabled ? 1 : 0" in source
+    assert "project_name = var.project_name" in source
+    assert 'type         = "standard"' in source
+    assert 'instance_spec_code = "1c2g"' in source
+    assert 'clb_spec_code      = "small_1"' in source
+    assert 'public_network_billing_type = "traffic"' in source
+    assert "try(self.log_spec.enable == false, false)" in source
+    assert "before any routes or BYOK traffic" in source
+    assert "do not retry creation automatically" in source
+    assert not re.search(r"(?m)^\s*log_spec\s*=", source)
+    assert re.search(r"monitor_spec\s*=\s*\{ enable = false \}", source)
+    assert not re.search(r"(?m)^\s*trace_spec\s*=", source)
+    assert "try(self.trace_spec.enable == false, false)" in source
+    for forbidden in ("custom_log", "request_headers", "apm_trace_spec", "tls_trace_spec"):
+        assert forbidden not in source
+    example = (ROOT / "terraform.tfvars.example").read_text()
+    assert re.search(r"public_gateway_enabled\s*=\s*false", example)
+    assert re.search(r'gateway_secondary_zone_id\s*=\s*""', example)
+    outputs = (ROOT / "outputs.tf").read_text()
+    assert 'output "public_gateway_id"' in outputs
+    assert "no service, route, default domain" in outputs
 
 
 def test_all_terraform_runs_use_mocked_plans_only() -> None:
@@ -79,9 +108,7 @@ def test_terraform_mocks_reject_versions_below_chart_floor(minor: int) -> None:
 
 def test_terraform_version_floor_is_not_a_maintained_release_or_inventory_claim() -> None:
     variables = (ROOT / "variables.tf").read_text()
-    version = variables.split('variable "kubernetes_version" {', 1)[1].split(
-        'variable "node_instance_type"', 1
-    )[0]
+    version = variables.split('variable "kubernetes_version" {', 1)[1].split('\nvariable "', 1)[0]
     assert ">= 30" in version
     assert ">=1.30" in version
     assert "currently maintained regional VKE" in version

@@ -9,6 +9,7 @@
     "image",
     "imagePullSecrets",
     "publicHost",
+    "backendHost",
     "identitySecret",
     "tlsSecretName",
     "temporaryUpload",
@@ -82,6 +83,12 @@
       "type": "string",
       "maxLength": 253,
       "pattern": "^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]([a-z0-9-]{0,61}[a-z0-9])?$"
+    },
+    "backendHost": {
+      "type": "string",
+      "maxLength": 253,
+      "pattern": "^$|^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]([a-z0-9-]{0,61}[a-z0-9])?$",
+      "description": "Distinct private TLS/SNI hostname for synthetic-only apig-staging; empty for public-clb."
     },
     "identitySecret": {
       "type": "object",
@@ -164,14 +171,18 @@
       "type": "object",
       "additionalProperties": false,
       "required": [
+        "mode",
         "subnetId",
         "bandwidthMbps",
         "sourceRanges"
       ],
       "properties": {
+        "mode": {
+          "enum": ["public-clb", "apig-staging"]
+        },
         "subnetId": {
           "type": "string",
-          "pattern": "^subnet-[a-z0-9]+$"
+          "pattern": "^$|^subnet-[a-z0-9]+$"
         },
         "bandwidthMbps": {
           "type": "integer",
@@ -368,6 +379,24 @@
       }
     }
   },
+  "allOf": [{
+    "if": {
+      "properties": {"service": {"properties": {"mode": {"const": "apig-staging"}}}}
+    },
+    "then": {
+      "properties": {
+        "backendHost": {"minLength": 1},
+        "service": {"properties": {"subnetId": {"const": ""}}},
+        "temporaryUpload": {"properties": {"enabled": {"const": false}}}
+      }
+    },
+    "else": {
+      "properties": {
+        "backendHost": {"const": ""},
+        "service": {"properties": {"subnetId": {"pattern": "^subnet-[a-z0-9]+$"}}}
+      }
+    }
+  }],
   "definitions": {
     "configKey": {
       "type": "string",

@@ -35,7 +35,11 @@ byteplus-sa/seed-mcp/.github/workflows/deploy-vke.yml@refs/heads/main
 ```
 
 Use labels `self-hosted`, `linux`, `x64`, `seed-mcp-vke`. Prefer an ephemeral
-one-job runner. Do not let PRs, forks, other workflows or arbitrary branches
+one-job runner, replenished separately for each `check` and `deploy` job.
+Reconcile job completion, deregistration and private scratch teardown before
+replacing it. Projected credentials should use kubeconfig `tokenFile`, so
+rotation is retained rather than copying a token snapshot.
+Do not let PRs, forks, other workflows or arbitrary branches
 execute on a runner with deployment credentials or private cluster access.
 Verify the organization's runner-group restriction support and authority; do not
 silently fall back to an unrestricted repository runner.
@@ -46,6 +50,7 @@ application namespace, existing identity/TLS Secrets and scoped Kubernetes
 credentials. Helm needs namespace release-storage/resource permissions; preflight
 also needs cluster node and metrics reads plus reads of the selected Secrets.
 Review RBAC independently; no blanket cluster-admin policy is supplied.
+Private staging also needs NetworkPolicy management in the application namespace.
 
 Keep kubeconfig and nonsecret Helm values in same-owner mode-0700 directories
 outside the checkout, with mode-0600 regular files and no symlinks. Kubeconfig
@@ -76,7 +81,9 @@ Protected environment variables contain references, not secret values:
 | `VKE_CONTEXT` | Exact operator-verified Kubernetes context |
 | `VKE_PRIVATE_API_SERVER` | Exact private HTTPS API origin, including port if used |
 | `VKE_NAMESPACE` | Dedicated existing application namespace; default/system namespaces rejected |
-| `VKE_PUBLIC_HOST` | DNS hostname matching the existing TLS certificate |
+| `VKE_PUBLIC_HOST` | Canonical public DNS hostname |
+| `VKE_SERVICE_MODE` | `public-clb` (default) or synthetic-only `apig-staging` |
+| `VKE_BACKEND_HOST` | Distinct private TLS/SNI hostname for `apig-staging`; empty otherwise |
 | `VKE_IDENTITY_SECRET` | Existing identity Secret with default HMAC/version key names |
 | `VKE_TLS_SECRET` | Distinct existing `kubernetes.io/tls` Secret |
 | `VKE_PREREQUISITES_CONFIRMED` | `true` after CCM, addon, capacity, source-range and DNS/TLS checks |
@@ -98,6 +105,30 @@ matching, hostname matching, certificate expiry of at least one day, and strict
 Helm lint. It captures command output without forwarding raw diagnostics to
 Actions logs. Secret values remain in the live process and private temporary TLS
 files, removed on ordinary exit; abrupt host failure requires operator cleanup.
+Certificate hostname checks use `VKE_BACKEND_HOST` in private staging and
+`VKE_PUBLIC_HOST` in the public CLB mode.
+
+## Private APIG Staging
+
+Set `service.mode=apig-staging`, `backendHost` to the separate private TLS/SNI
+hostname, `service.subnetId=""` and `service.sourceRanges` to verified private
+source CIDRs. The chart renders a ClusterIP Service on TCP 8443 and an ingress
+NetworkPolicy, with no public CLB. CIDRs must be contained entirely in RFC1918.
+Establish actual APIG routing/SNAT sources and test allowed/denied paths;
+configuration alone is not isolation evidence.
+
+The staging Caddyfile refuses ModelArk, Seed Speech, client-secret and
+Authorization headers, including empty values, before proxying. Only `/mcp`
+and `/health` are forwarded, with canonical Host/proxy fields. Uploads cannot
+be enabled. This is synthetic-only, not a client endpoint or a fix for APIG's
+failed backend chain-trust gate. Never send real generation credentials.
+
+Keep public application routes disabled. Temporary diagnostic routes require
+an exact operator-held random `X-Seed-Staging-Probe` header matcher at APIG.
+Create disabled, inspect the matcher, then verify missing/wrong markers fail
+before synthetic acceptance. Disable afterward and confirm public 404.
+Without verified operator-only edge controls, use private tests and leave APIG
+acceptance pending. Proxy key refusal does not protect the preceding TLS hop.
 
 After the read-only check and prerequisites pass, dispatch `operation=deploy`
 and approve it. This executes one `helm upgrade --install --wait`, with a

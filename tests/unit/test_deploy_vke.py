@@ -149,6 +149,48 @@ def test_deploy_dispatches_once_with_no_retry_or_automatic_rollback(
     assert "--create-namespace" not in creates[0]
 
 
+def test_staging_checks_backend_certificate_and_pins_mode(
+    delivery: tuple[list[str], list[list[str]], Mock],
+) -> None:
+    argv, calls, execute = delivery
+    argv.extend(["--service-mode", "apig-staging", "--backend-host", "backend.example.invalid"])
+    original = execute.side_effect
+
+    def backend(command: list[str], **options: object) -> subprocess.CompletedProcess[str]:
+        result = original(command, **options)
+        if "-checkhost" in command:
+            return subprocess.CompletedProcess(
+                command, 0, "Hostname backend.example.invalid does match certificate\n"
+            )
+        return result
+
+    execute.side_effect = backend
+    assert script.main(argv) == 0
+    check = next(command for command in calls if "-checkhost" in command)
+    assert check[check.index("-checkhost") + 1] == "backend.example.invalid"
+    lint = next(command for command in calls if "lint" in command)
+    assert "service.mode=apig-staging" in lint
+    assert "backendHost=backend.example.invalid" in lint
+
+
+@pytest.mark.parametrize(
+    "extra",
+    [
+        ["--backend-host", "backend.example.invalid"],
+        ["--service-mode", "apig-staging"],
+        ["--service-mode", "apig-staging", "--backend-host", "mcp.example.com"],
+        ["--service-mode", "apig-staging", "--backend-host", "bad,extra=value"],
+        ["--service-mode", "apig-staging", "--backend-host", "bad..example.com"],
+    ],
+)
+def test_invalid_staging_mode_stops_before_commands(
+    delivery: tuple[list[str], list[list[str]], Mock], extra: list[str]
+) -> None:
+    argv, _, execute = delivery
+    assert script.main([*argv, *extra]) == 1
+    execute.assert_not_called()
+
+
 @pytest.mark.parametrize(
     "option,value",
     [

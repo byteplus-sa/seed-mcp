@@ -106,6 +106,14 @@ Key features:
   [Manual GitHub Actions delivery](docs/github-actions-deployment.md) uses a
   protected environment and workflow-restricted private runner for Helm, not
   GitHub-hosted private API access or automatic IAM federation.
+  [Optional dedicated APIG preparation](docs/byteplus-terraform.md#optional-dedicated-gateway-infrastructure)
+  adds a gateway and two subnets only: no routes or generic MCP endpoint.
+  Logging and tracing must read back disabled; verified private HTTPS, stateless routing
+  and host/proxy trust remain launch gates. Explicit operator approval may
+  allow provisioning first and billing inspection afterward; regional quotas
+  still apply. The chart defaults to CLB/Caddy; opt-in
+  [private APIG staging](docs/github-actions-deployment.md#private-apig-staging)
+  is synthetic-only, refuses credential headers and keeps public clients blocked.
 - **Offline regression coverage** - unit, contract, integration, HTTP security
   and MCP conformance tests, plus documentation build/link checks.
 

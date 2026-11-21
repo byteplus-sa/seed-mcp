@@ -199,6 +199,30 @@ must exceed configured application pod grace (660 seconds by default).
 Baseline and networking charges remain at idle; node bounds are not a spend cap.
 Live elasticity and capacity require separate evidence.
 
+Terraform `public_gateway_enabled=false` keeps optional dedicated APIG
+preparation off. Enabling requires an explicit distinct regional secondary AZ
+and adds two gateway subnets/two standard gateway nodes only, no service,
+upstream, routes or generic endpoint. Pinned-provider logging configuration
+cannot express destination-free disablement; require disabled readback by
+postcondition. Native APIG rejects partial disabled `TraceSpec`; omit tracing
+input and require disabled tracing readback too. Failure may follow creation:
+inspect state/cloud before retries.
+Never attach BYOK routes until logging and private HTTPS verification pass.
+The chart defaults to public CLB/Caddy. Opt-in `service.mode=apig-staging`
+uses private ClusterIP:8443/ingress policy and separate `backendHost`, refuses
+credential headers and forbids uploads. It is synthetic-only, not a BYOK
+launch or backend trust fix. Keep public application routes disabled;
+temporary tests require verified operator-only exact header matching at APIG
+and immediate disable/404 readback. Replenish ephemeral runners per job.
+Explicit operator approval can permit provisioning first and
+billing review afterward; real BYOK still requires TLS/logging/stateless routing
+and host/proxy-trust acceptance. Quota failure requires verified headroom, not
+unapproved unrelated-network reuse or deletion. Exact operator-approved
+retirement requires dependency rechecks and confirmed absence; keep its evidence
+separate from the new dedicated state. Reconcile tasks/state/inventory before
+fresh plans or new create attempts. See `plans/PLAN_GATEWAY_DEPLOYMENT.md`;
+do not silently substitute the CLB path for an approved gateway design.
+
 Helm `models.seedream`/`models.seedance` expose `defaultModel` and
 `bindings: [{model_id, family}]`, with strict product families, unique IDs
 and selected-default inclusion. Alternate defaults require explicit verified

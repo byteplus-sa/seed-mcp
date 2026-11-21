@@ -1,9 +1,12 @@
 locals {
-  subnet_cidrs = {
+  subnet_cidrs = merge({
     nodes = cidrsubnet(var.vpc_cidr, 4, 0)
     pods  = cidrsubnet(var.vpc_cidr, 4, 1)
     edge  = cidrsubnet(var.vpc_cidr, 4, 2)
-  }
+    }, var.public_gateway_enabled ? {
+    gateway-primary   = cidrsubnet(var.vpc_cidr, 4, 3)
+    gateway-secondary = cidrsubnet(var.vpc_cidr, 4, 4)
+  } : {})
   egress_subnets = {
     nodes = bytepluscc_vpc_subnet.private["nodes"].subnet_id
     pods  = bytepluscc_vpc_subnet.private["pods"].subnet_id
@@ -42,7 +45,7 @@ resource "bytepluscc_vpc_subnet" "private" {
   subnet_name  = "${var.name}-${each.key}"
   vpc_id       = bytepluscc_vpc_vpc.dedicated.vpc_id
   cidr_block   = each.value
-  zone_id      = var.zone_id
+  zone_id      = each.key == "gateway-secondary" ? var.gateway_secondary_zone_id : var.zone_id
   enable_ipv_6 = false
 }
 

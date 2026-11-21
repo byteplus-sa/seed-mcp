@@ -2,6 +2,14 @@
 {{- printf "%s-seed-mcp" .Release.Name | trunc 52 | trimSuffix "-" -}}
 {{- end -}}
 
+{{- define "seed-mcp.proxy" -}}
+{{- if eq .Values.service.mode "apig-staging" -}}
+{{- .Files.Get "files/Caddyfile.apig-staging" -}}
+{{- else -}}
+{{- .Files.Get "files/Caddyfile" -}}
+{{- end -}}
+{{- end -}}
+
 {{- define "seed-mcp.selector" -}}
 app.kubernetes.io/name: seed-mcp
 app.kubernetes.io/instance: {{ .Release.Name | quote }}

@@ -4,11 +4,13 @@ type: spec
 status: accepted
 horizon: current
 created: 2026-11-17
-updated: 2026-11-20
+updated: 2026-11-21
 tags: [vke, terraform, helm, stateless, security]
 source:
   - https://registry.terraform.io/providers/byteplus-sdk/bytepluscc/0.0.63/docs/resources/vke_cluster
   - https://registry.terraform.io/providers/byteplus-sdk/bytepluscc/0.0.63/docs/resources/vke_node_pool
+  - https://registry.terraform.io/providers/byteplus-sdk/bytepluscc/0.0.63/docs/resources/apig_gateway
+  - https://docs.byteplus.com/en/docs/apig/Fixed_IP_type_Upstream
   - https://docs.byteplus.com/zh-TW/docs/vke/cluster-autoscaler-add-on
   - https://docs.byteplus.com/en/docs/vke/Configuring-a-LoadBalancer-Service-using-annotations
   - https://docs.byteplus.com/docs/vke/Using-dynamic-EBS-Volumes
@@ -32,9 +34,9 @@ persistence is separate from this deployment.
 
 | Owner | Resources and responsibilities |
 | --- | --- |
-| Terraform `deploy/terraform/vke` | Dedicated VPC/subnets, NAT/EIP/SNAT/routes, private VKE cluster, fixed baseline node pool and optional bounded on-demand burst pool |
+| Terraform `deploy/terraform/vke` | Dedicated VPC/subnets, NAT/EIP/SNAT/routes, private VKE cluster, fixed baseline node pool, optional bounded on-demand burst pool and optional dedicated APIG infrastructure |
 | VKE administrator, outside Terraform and Helm | `cloud-controller-manager`, optional Cluster Autoscaler, node readiness and addon lifecycle; CSI is not an application prerequisite |
-| Helm `deploy/helm/seed-mcp` | Application Deployment, HPA, PDB, proxy ConfigMap and CLB Service; conditional IRSA ServiceAccount/token projection; no state PVC/StorageClass/headless Service |
+| Helm `deploy/helm/seed-mcp` | Application Deployment, HPA, PDB, proxy ConfigMap; public CLB Service or synthetic-only private ClusterIP/ingress policy; conditional IRSA ServiceAccount/token projection; no state PVC/StorageClass/headless Service |
 
 Terraform does not retrieve kubeconfig or place HMAC keys, TLS Secrets,
 certificates, passwords or customer credentials in state/outputs. Helm
@@ -195,6 +197,63 @@ credentials, runs a live plan, applies resources, installs Helm or proves
 regional inventory, backend separation, IAM authority or capacity. Live
 planning and deployment remain separate operator-approved steps.
 
+### Optional Gateway Preparation
+
+`public_gateway_enabled=false` and `gateway_secondary_zone_id=""` are the
+defaults. Enabling creates a dedicated standard APIG and two additional /20
+subnets at VPC indices 3 and 4, leaving node/pod/edge ranges and their NAT
+configuration unchanged. The primary gateway subnet uses `zone_id`; the
+secondary requires an explicit distinct AZ in the same region. Disabled mode
+rejects a nonempty secondary AZ. Gateway zone distribution does not make
+single-zone VKE workers AZ-resilient.
+
+The gateway uses two `1c2g` nodes, `small_1` CLB, public/private networking and
+traffic-based public billing. Monitoring is explicitly disabled. Tracing is
+left unset because native APIG rejected a partial `TraceSpec` with only
+`Enable=false`; the identical request without it was accepted on 2026-11-21.
+Tracing must read back disabled by postcondition, never inferred from omission.
+Pinned provider 0.0.63 requires a nonempty logging destination even for disabled
+`log_spec`, so the root omits that input and requires disabled access logging
+by readback postcondition. Missing/enabled readback fails closed; this is not
+proof of a disabled cloud default. A failed postcondition may follow creation:
+inspect the actual gateway and protected state before retrying. Never attach
+routes or send BYOK traffic until disabled logging has been verified.
+
+Only a nullable `public_gateway_id` is output. No upstream, service, route,
+default domain, certificate or ready endpoint is configured. Helm defaults to
+public CLB/Caddy; opt-in `service.mode=apig-staging` supplies a private
+synthetic-only backend, not a public BYOK gateway path.
+Do not silently substitute it for an approved gateway design.
+
+Live staging evidence on 2026-11-21 showed APIG 4.4.4 accepting an untrusted
+self-signed certificate on a K8S upstream configured with `Protocol="HTTP"`,
+`TlsMode="SIMPLE"` and SNI. A GET-only synthetic route returned the exact
+backend marker through verified public HTTPS; it was subsequently disabled.
+This configuration fails backend chain-trust acceptance. Direct-client
+wrong-host/chain negative controls passed but do not prove gateway hostname
+verification. Mode/SNI alone are not a verification control, and this result
+must not be generalized to every gateway mode. Real BYOK requires supported,
+configured and negatively tested backend trust or an explicitly reviewed
+architecture change; encryption alone does not satisfy the gate.
+
+Verified private HTTPS certificate trust, public/upstream host separation,
+forged-forwarded-header handling, stateless routing without session persistence
+or affinity, no caching/mirroring/automatic POST retries, streaming/body/header
+limits and compatible timeouts remain delivery gates. A complete matched cost
+review must include the gateway, backend, runner and network charges. Explicit
+operator authorization can permit infrastructure creation before TLS/routing
+acceptance and cost review, with billing inspected afterward; it does not waive
+the real-BYOK launch gates or regional quotas. Reconcile asynchronous task
+status, protected state and live inventory after failures before any new create.
+Never delete or reuse unrelated resources without explicit operator approval
+to bypass a dedicated-resource quota. Separately approved exact retirement
+requires fresh dependency checks and confirmed cloud absence; keep its evidence
+outside the new dedicated Terraform state. Neither deletion acceptance nor a
+possibly stale quota counter alone establishes headroom.
+Infrastructure preparation and mock plans do not establish these contracts.
+See [the gateway plan](../plans/PLAN_GATEWAY_DEPLOYMENT.md) for the current
+implementation effort.
+
 ## Prerequisite Gate
 
 Verify private API access, CCM, two Ready nodes and surge/draining headroom,
@@ -233,6 +292,9 @@ mappings, not arbitrary env maps or account-wide spend controls.
 
 ## Network and Shutdown
 
+The default `service.mode=public-clb` uses the following path. It is not
+evidence of a deployed generic endpoint.
+
 ```mermaid
 flowchart LR
     Client["BYOK client"] -->|TCP 443 with TLS| CLB["Public CLB; Local traffic policy"]
@@ -254,6 +316,24 @@ Caddy is pinned to `2.11.9-alpine`. It disables admin API, automatic HTTPS and
 access logging; it streams without buffering and proxies only `/mcp` and
 `/health`. `/ready`, `/metrics` and all other paths return 404 publicly.
 Backend health/readiness probes execute loopback HTTP; proxy probes check TCP.
+
+`service.mode=apig-staging` requires a distinct `backendHost`, empty CLB
+`subnetId`, disabled uploads and explicit entirely RFC1918 `sourceRanges`.
+It renders ClusterIP TCP 8443 and an ingress-only NetworkPolicy selecting the
+application pods. Verify actual APIG source/SNAT and allowed/denied paths.
+The separate Caddyfile accepts backend/public Host names, canonicalizes the
+app Host and forwarded fields, strips `Forwarded` and the synthetic test marker,
+and rejects generation keys, client secret and Authorization even when empty.
+Unknown hosts/paths return 404. It does not validate APIG's backend trust.
+
+Public application routes must remain disabled for this synthetic-only mode.
+Temporary tests need verified exact operator-held random header matching at
+APIG with missing/wrong-marker negatives, followed by immediate disable and
+public 404 readback. The marker is not customer authentication. If that edge
+boundary cannot be verified, private-only acceptance leaves APIG acceptance
+pending. No real generation credentials may cross the unverified TLS hop.
+Delivery helper/workflow select `backendHost` for certificate checks in this
+mode, preserving one-shot Helm and protected main-only approval.
 
 The application binds `MCP_HOST=127.0.0.1`, `MCP_PORT=3000` and trusts only
 `RATE_LIMIT_TRUSTED_PROXY_CIDRS=127.0.0.1/32`. Caddy replaces forwarded address,
@@ -315,6 +395,8 @@ IRSA and STS sources were accessed 2026-11-19; the STS AssumeRole reference
 establishes documented origins/durations/envelope, not OIDC API compatibility.
 Node-pool and Cluster Autoscaler contracts were accessed 2026-11-19; source
 validation does not establish live autoscaler readiness or regional capacity.
+APIG source and provider validation were checked 2026-11-20; no gateway was
+created and private-upstream TLS acceptance remains unverified.
 Source contracts were checked against `deploy/terraform/vke`, the Helm values/
 schema/templates/Caddyfile, `runtime.py`, `__main__.py`,
 `config/env.py`, `security/http_middleware.py` and `observability/admin.py`.

@@ -68,6 +68,27 @@ Terraform uses dedicated fresh state and stores no HMAC/
 TLS Secret/kubeconfig. Helm references existing Secrets only. Private API
 access requires operator private connectivity.
 
+Optional `public_gateway_enabled` Terraform preparation defaults false and
+requires an explicit distinct regional secondary AZ when enabled. It creates
+a dedicated standard APIG/two subnets only, not routes, a default domain or a
+generic MCP endpoint. Omit partial disabled tracing configuration, which native
+APIG rejects; logging and tracing must both read back disabled. A postcondition failure
+may follow creation and requires inspection, never an automatic create retry.
+Private HTTPS verification, stateless/no-retry routing, header/proxy trust and
+full cost review remain operator responsibilities. Explicit operator approval
+may allow infrastructure creation first and billing inspection afterward;
+real BYOK launch still requires TLS/logging/routing acceptance. Regional quota
+failures require verified headroom, not unrelated-network reuse or blind
+create retries. Reconcile accepted tasks, protected state and inventory before
+any fresh plan or new create attempt. The chart defaults to public CLB/Caddy;
+opt-in `service.mode=apig-staging` uses private ClusterIP/ingress policy,
+separate `backendHost`, credential-header refusal and disabled uploads.
+This is synthetic-only, not a public client endpoint or a backend trust fix.
+Keep public application routes disabled; temporary tests require verified
+operator-only exact header matching at APIG and immediate disable/404 readback.
+Never silently substitute CLB for a selected gateway design. Do not enable gateway infrastructure
+as a client-setup side effect.
+
 The optional `deploy-vke.yml` GitHub Actions workflow supplies manual main-only
 Helm delivery through protected `byteplus-staging` approval and a workflow-
 restricted private runner group. A same-VPC runner needs no laptop VPN/CEN;

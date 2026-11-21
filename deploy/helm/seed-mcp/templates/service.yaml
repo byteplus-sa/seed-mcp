@@ -4,6 +4,7 @@ metadata:
   name: {{ include "seed-mcp.name" . }}
   labels:
     {{- include "seed-mcp.selector" . | nindent 4 }}
+  {{- if eq .Values.service.mode "public-clb" }}
   annotations:
     service.beta.kubernetes.io/volcengine-loadbalancer-subnet-id: {{ .Values.service.subnetId | quote }}
     service.beta.kubernetes.io/volcengine-loadbalancer-address-type: "PUBLIC"
@@ -12,17 +13,22 @@ metadata:
     service.beta.kubernetes.io/volcengine-loadbalancer-eip-billing-type: "3"
     service.beta.kubernetes.io/volcengine-loadbalancer-bandwidth: {{ .Values.service.bandwidthMbps | quote }}
     service.beta.kubernetes.io/volcengine-loadbalancer-spec: "small_1"
+  {{- end }}
 spec:
+  {{- if eq .Values.service.mode "public-clb" }}
   type: LoadBalancer
   externalTrafficPolicy: Local
-  ipFamilyPolicy: SingleStack
-  ipFamilies: [IPv4]
   loadBalancerSourceRanges:
     {{- toYaml .Values.service.sourceRanges | nindent 4 }}
+  {{- else }}
+  type: ClusterIP
+  {{- end }}
+  ipFamilyPolicy: SingleStack
+  ipFamilies: [IPv4]
   selector:
     {{- include "seed-mcp.selector" . | nindent 4 }}
   ports:
     - name: https
-      port: 443
+      port: {{ ternary 443 8443 (eq .Values.service.mode "public-clb") }}
       targetPort: https
       protocol: TCP
