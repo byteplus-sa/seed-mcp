@@ -68,7 +68,12 @@ def test_private_render_has_no_public_clb_and_correct_config(tmp_path: Path) -> 
         {"backendHost": ""},
         {"backendHost": PUBLIC},
         {"backendHost": "bad..example.invalid"},
-        {"temporaryUpload": {"enabled": True, "existingSecret": "synthetic-uploads"}},
+        {
+            "temporaryUpload": {
+                "enabled": True,
+                "existingSecret": "synthetic-uploads",  # pragma: allowlist secret
+            }
+        },
         {"service": {"mode": "unknown"}},
         {"service": {"subnetId": "subnet-unwanted"}},
         *[
