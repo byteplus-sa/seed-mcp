@@ -265,9 +265,11 @@ regional headroom and a fresh creates-only plan are the creation gates.
 - [x] Install compatible managed Cluster Autoscaler once through the normal
   console; verify automatic scale-in, 900-second termination timeout and
   maximum one concurrent empty-node deletion, preserving fixed/burst bounds.
-- [ ] Establish scale-from-zero discovery, controlled scale-out/scale-in and
-  application drain acceptance. Managed addon Running/config readback alone
-  does not establish these behaviors.
+- [x] Establish scale-from-zero discovery and controlled scale-out/scale-in.
+  Live synthetic scale-from-zero and automatic application-bearing burst
+  return to zero passed on 2026-11-22; see the correction evidence below.
+- [ ] Establish long-running application-call drain acceptance. Idle eviction
+  and autoscaler rescheduling do not establish active provider-call behavior.
 - [x] Bootstrap group 3's isolated runner and dedicated namespace/RBAC/Secrets,
   implement the private backend delivery path, then run protected `check` and
   one-shot `deploy`. Internal R&D/Codebase/SealSuite access is not a deployment
@@ -926,7 +928,8 @@ in the unchanged exact-main-workflow group. Live prerequisite reads retained
 two Ready workers, metrics, the scoped Role, TLS/identity/pull Secrets and the
 tested CNI policy configuration/rollout. Protected references were configured
 and independently verified with complete pagination. The two readiness
-acknowledgements are now true for synthetic staging, not production launch.
+acknowledgements became true for that synthetic staging delivery, not production
+launch; the runner acknowledgement was reset after each completed delivery.
 
 Protected check run `44977009660` received the configured review approval and
 failed before Helm dispatch with sanitized preflight diagnostics. Its runner
@@ -973,14 +976,14 @@ with 900-second maximum graceful termination. HPA reports valid live CPU metrics
 and maintains two replicas. A reviewed isolated 100m/64 MiB synthetic workload
 was created from verified burst desired/running zero, constrained to that pool,
 without provider calls or pool-configuration changes. Scale-from-zero and return
-to zero are being observed; long-running application-call drain remains untested.
+to zero were then observed; long-running application-call drain remains untested.
 Scale-from-zero passed at `03:09:46Z`: worker `10.80.0.148` and the synthetic
 pod were Ready, with both baseline workers unchanged. The synthetic Deployment
 and NetworkPolicy were then deleted. A PDB-governed idle application eviction
 passed 26 credential-free health requests with no failures, replacement readiness
 and disabled-route/public-404 readback. Its replacement landed on the burst
 worker, extending the scale-in test to application rescheduling.
-The latest selected November settlement rows total USD 2.66: cluster 2.21,
+The initial selected November settlement rows totaled USD 2.66: cluster 2.21,
 private API CLB 0.01, each worker 0.22, and returned NAT/EIP rows 0.00.
 Both baseline disk IDs were resolved from exact worker reads and queried;
 their returned payable rows are USD 0.00. Gateway has no settled rows;
@@ -1016,11 +1019,61 @@ The application image and provider behavior are unchanged.
   CI exposed a stale literal-443 source assertion from the earlier staging
   change. The follow-up test verifies both mode-selective ports and Service
   types; all 65 documentation utility tests and Prettier now pass locally.
-- [ ] Replenish a distinct ephemeral runner for each protected check/update;
+- [x] Replenish a distinct ephemeral runner for each protected check/update;
   dispatch Helm once after terminal check acceptance, then clean both runners.
-- [ ] Verify the live annotation, two Ready pods, private stateless resources,
+- [x] Verify the live annotation, two Ready pods, private stateless resources,
   disabled routes and automatic application rescheduling/burst return to zero.
-  Keep long-running provider-call drain and production backend trust unverified.
+- [ ] Establish long-running provider-call drain and production backend trust
+  under separate approval; synthetic staging does not satisfy these gates.
+
+#### Correction Delivery And Scale-In Evidence
+
+The documentation-test follow-up is
+`cc333af05100e887593f0e2d9b292899c6964019`. Exact-head application CI
+`44981338552`, offline VKE validation `44981406396` and CodeQL `44981338532`
+passed. Application CI ran 3,130 tests and strict mypy over 97 source files.
+Documentation run `44981338492` passed its utility tests, formatting, type
+check, build and link validation; separate GitHub Pages publication failed
+with HTTP 404 and remains an unrelated hosting follow-up.
+
+Protected check `44981739999` and one-shot deploy `44984153597` both succeeded
+on separate ephemeral runners. The existing independently verified image digest
+was retained: application source, dependency, Dockerfile, Caddy and delivery
+workflow/helper inputs were unchanged. Each runner deregistered and its exact
+Pod, registration Secret and ConfigMap were deleted with identity preconditions.
+The runner group is empty and `VKE_RUNNER_READY=false`. Historical terminal
+network-bootstrap probe Pods are not included in this delivery-runner cleanup.
+
+Deployment generation 3 and both live replacement pods carry only
+`app-tmp,proxy-tmp` in the volume-specific annotation. Readback verifies two
+Ready app/proxy replicas with zero restarts, private ClusterIP 8443, unchanged
+gateway ingress ranges, HPA 2-6, PDB minimum one, zero server budget, no hosted
+durable state or uploads, and 660-second pod grace. Synthetic acceptance
+passed health, MCP initialization, seven-tool inventory, static discovery,
+missing/wrong operator-marker refusal, all four credential headers including
+empty values refused with 403, and hidden-path 404. Both diagnostic routes were
+disabled afterward; public `/health` and `/mcp` return trusted-TLS 404.
+
+The original pre-correction 1,500-second scale-in watch ended incomplete; it
+was not treated as success or rerun. A new read-only post-correction watch
+passed. Event readback confirms the autoscaler marked `10.80.0.148` for scale-down
+at `04:27:02Z` and removed its application pod at `04:27:07Z`. By `04:27:28Z`,
+burst desired/running/creating/deleting counts were all zero and no burst
+Kubernetes node remained. The application rescheduled automatically onto
+baseline `10.80.0.147`, alongside the Ready replica on `10.80.0.146`.
+Minimum sampled Ready replicas during the watch was one; final count was two.
+No pool configuration write, forced eviction, provider call or upload occurred.
+This establishes tested idle rescheduling and automatic scale-in, not continuous
+request availability under load or long-running provider-call draining.
+
+At `04:27:47Z`, selected November settlement rows totaled USD 2.89: cluster
+2.40, private API CLB 0.01 and each baseline worker 0.24. Returned baseline
+disk/NAT/EIP rows were 0.00; the gateway had no settled rows. Burst charges,
+settlement delay and other separately billed resources remain coverage gaps.
+This is neither a complete stack total nor a monthly projection. Dedicated
+Terraform state remained unchanged. Private operator evidence is retained
+outside Git; temporary helper safeguards passed 18 offline tests, not an
+independent review.
 
 ## Validation
 
@@ -1059,7 +1112,10 @@ The application image and provider behavior are unchanged.
 
 ## Documentation And Follow-Up
 
-Only infrastructure preparation is shipped by Tasks 1-2. Generic URL, private
-HTTPS verification, gateway routes, complete costs, runner bootstrap and live
-deployment remain explicit release gates. No hosted database, customer registry,
-provider-key environment fallback or per-key concurrency is introduced.
+Synthetic-only staging is deployed and its bounded scale-out/automatic scale-in
+acceptance is complete. Public BYOK launch is not approved: APIG backend
+certificate trust, the exposed registry PAT's rotation, long-running-call drain
+and complete costs remain outstanding. GitHub Pages publication also requires
+separate attention. Temporary uploads and paid generation remain disabled.
+No hosted database, customer registry, provider-key environment fallback or
+per-key concurrency is introduced.
