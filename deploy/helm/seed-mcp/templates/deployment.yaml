@@ -27,6 +27,8 @@ spec:
       annotations:
         checksum/proxy: {{ include "seed-mcp.proxy" . | sha256sum }}
         checksum/runtime: {{ omit .Values "image" "imagePullSecrets" "resources" "autoscaling" "replicaCount" "prerequisitesConfirmed" | toJson | sha256sum }}
+        # These volumes contain disposable scratch, not durable generation state.
+        cluster-autoscaler.kubernetes.io/safe-to-evict-local-volumes: "app-tmp,proxy-tmp"
     spec:
       automountServiceAccountToken: false
       {{- if $irsa }}

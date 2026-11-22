@@ -100,7 +100,8 @@ Key features:
   creates private source copies and runs isolated mock-only validation. Two
   fixed private baseline nodes remain at idle; an opt-in bounded burst pool
   requires administrator-managed Cluster Autoscaler and live validation, not
-  just pod HPA. See the
+  just pod HPA. Only disposable application/proxy scratch volumes are marked
+  evictable; PDB and shutdown grace still apply. See the
   [VKE runbook](docs/byteplus-terraform.md) and
   [deployment contract](specs/SPEC_VKE_DEPLOYMENT.md).
   [Manual GitHub Actions delivery](docs/github-actions-deployment.md) uses a

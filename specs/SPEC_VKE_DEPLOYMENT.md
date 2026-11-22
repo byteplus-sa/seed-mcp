@@ -4,7 +4,7 @@ type: spec
 status: accepted
 horizon: current
 created: 2026-11-17
-updated: 2026-11-21
+updated: 2026-11-22
 tags: [vke, terraform, helm, stateless, security]
 source:
   - https://registry.terraform.io/providers/byteplus-sdk/bytepluscc/0.0.63/docs/resources/vke_cluster
@@ -18,6 +18,7 @@ source:
   - https://docs.byteplus.com/docs/vke/Using_IRSA_in_clusters
   - https://docs.byteplus.com/id/docs/byteplus-platform/reference-assumerole
   - https://gofastmcp.com/deployment/http
+  - https://github.com/kubernetes/autoscaler/blob/cluster-autoscaler-1.30.3/cluster-autoscaler/FAQ.md
 related:
   - specs/SPEC_HOSTED_BYOK.md
   - specs/SPEC_DIRECT_EXECUTION.md
@@ -279,6 +280,14 @@ Helm references existing identity/TLS and optional upload configuration Secrets.
 `DAILY_BUDGET_USD=0`; database inputs are rejected. No PVC, StorageClass, database
 CA, PostgreSQL driver or shared state service is required. Bounded scratch uses
 `emptyDir`. Model bindings remain exact and operator-verified.
+
+The pod template explicitly lists only `app-tmp,proxy-tmp` in
+`cluster-autoscaler.kubernetes.io/safe-to-evict-local-volumes`. Those bounded
+volumes contain disposable scratch only. This permits autoscaler consideration
+of application-bearing burst nodes without disabling local-storage protection
+globally or declaring every volume safe. PDB, topology/capacity constraints and
+the configured termination grace still apply. Live rescheduling, scale-in and
+active-call draining remain acceptance gates.
 
 `models.seedream` and `models.seedance` expose `defaultModel` and explicit
 `bindings: [{model_id, family}]`. IDs are unique, families must match the product

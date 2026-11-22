@@ -196,6 +196,10 @@ Only burst `auto_scaling.desired_replicas` is ignored by Terraform.
 Cluster Autoscaler discovery, scale-from-zero, automatic scale-in and drain
 settings remain VKE-admin owned; HPA does not scale workers. Drain timeout
 must exceed configured application pod grace (660 seconds by default).
+The chart lists only disposable `app-tmp,proxy-tmp` in
+`cluster-autoscaler.kubernetes.io/safe-to-evict-local-volumes`; it does not
+bypass PDB, scheduling constraints or shutdown grace, or disable local-volume
+protection globally. Verify application rescheduling and scale-in live.
 Baseline and networking charges remain at idle; node bounds are not a spend cap.
 Live elasticity and capacity require separate evidence.
 

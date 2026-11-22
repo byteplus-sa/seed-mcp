@@ -62,6 +62,29 @@ def test_private_render_has_no_public_clb_and_correct_config(tmp_path: Path) -> 
     assert checksum != normal["spec"]["template"]["metadata"]["annotations"]["checksum/proxy"]
 
 
+@pytest.mark.parametrize("values", [{}, staging()])
+def test_autoscaler_can_evict_only_disposable_scratch(
+    tmp_path: Path, values: dict[str, Any]
+) -> None:
+    items = documents(render(tmp_path, values))
+    deployment = next(item for item in items if item["kind"] == "Deployment")
+    template = deployment["spec"]["template"]
+    annotations = template["metadata"]["annotations"]
+    assert annotations["cluster-autoscaler.kubernetes.io/safe-to-evict-local-volumes"] == (
+        "app-tmp,proxy-tmp"
+    )
+    assert "cluster-autoscaler.kubernetes.io/safe-to-evict" not in annotations
+    scratch = {volume["name"] for volume in template["spec"]["volumes"] if "emptyDir" in volume}
+    assert scratch == {"app-tmp", "proxy-tmp"}
+    assert template["spec"]["terminationGracePeriodSeconds"] == 660
+    assert deployment["spec"]["strategy"]["rollingUpdate"] == {
+        "maxUnavailable": 0,
+        "maxSurge": 1,
+    }
+    pdb = next(item for item in items if item["kind"] == "PodDisruptionBudget")
+    assert pdb["spec"]["minAvailable"] == 1
+
+
 @pytest.mark.parametrize(
     "override",
     [

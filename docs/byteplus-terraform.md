@@ -352,6 +352,14 @@ interactions, pending-pod scale-out and safe burst scale-in to zero before
 claiming elasticity. Inspect existing addons before any separately approved
 installation or configuration change.
 
+The chart marks only `app-tmp,proxy-tmp` with
+`cluster-autoscaler.kubernetes.io/safe-to-evict-local-volumes`. Both bounded
+`emptyDir` volumes contain disposable scratch, not durable media or submission
+state. This prevents the default local-storage safeguard from pinning an
+application-bearing burst node. It does not bypass PDB, scheduling constraints
+or graceful termination, and does not disable local-storage protection for
+other workloads. Verify application rescheduling and scale-in live.
+
 At low usage the two baseline nodes still cost money. Include cluster management,
 node compute/disks, NAT/EIP, private control-plane load balancing, application
 CLB/EIP when installed, traffic and private management connectivity in the

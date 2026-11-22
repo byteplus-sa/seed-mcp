@@ -106,7 +106,12 @@ to ten nodes. Only the burst live desired count is ignored by Terraform.
 VKE administrators own compatible Cluster Autoscaler installation, discovery,
 automatic scale-in and drain settings; HPA alone does not scale nodes. Verify
 pending-pod scale-out, safe burst return to zero and drain timeout above the
-configured pod grace (660 seconds by default). Baseline/network/cluster charges
+configured pod grace (660 seconds by default). The chart names only disposable
+`app-tmp,proxy-tmp` in `cluster-autoscaler.kubernetes.io/safe-to-evict-local-volumes`
+so disk-backed scratch does not pin burst workers. This does not bypass PDB,
+scheduling constraints or graceful termination, or waive protection for other
+local volumes. Verify live rescheduling and drain behavior.
+Baseline/network/cluster charges
 remain at idle; node bounds are not a spend cap. Do not enable burst, install
 addons or apply resources as a side effect of client setup.
 

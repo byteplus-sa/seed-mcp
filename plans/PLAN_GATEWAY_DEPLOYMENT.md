@@ -3,11 +3,12 @@ title: Dedicated Gateway Deployment Preparation
 type: plan
 status: in-progress
 created: 2026-11-20
-updated: 2026-11-21
+updated: 2026-11-22
 tags: [vke, apig, terraform, stateless, deployment]
 source:
   - https://docs.byteplus.com/en/docs/apig/Fixed_IP_type_Upstream
   - https://registry.terraform.io/providers/byteplus-sdk/bytepluscc/0.0.63/docs/resources/apig_gateway
+  - https://github.com/kubernetes/autoscaler/blob/cluster-autoscaler-1.30.3/cluster-autoscaler/FAQ.md
 related:
   - specs/SPEC_VKE_DEPLOYMENT.md
   - docs/byteplus-terraform.md
@@ -267,7 +268,7 @@ regional headroom and a fresh creates-only plan are the creation gates.
 - [ ] Establish scale-from-zero discovery, controlled scale-out/scale-in and
   application drain acceptance. Managed addon Running/config readback alone
   does not establish these behaviors.
-- [ ] Bootstrap group 3's isolated runner and dedicated namespace/RBAC/Secrets,
+- [x] Bootstrap group 3's isolated runner and dedicated namespace/RBAC/Secrets,
   implement the private backend delivery path, then run protected `check` and
   one-shot `deploy`. Internal R&D/Codebase/SealSuite access is not a deployment
   prerequisite. Never rerun used helpers or apply historical plans.
@@ -869,29 +870,29 @@ implementation and integration; reviewers may not mutate cloud/GitHub systems.
   rejection with the real Caddy adapter, not substring assertions alone.
 - [x] Add helper/workflow flags and hostname-selective certificate preflight;
   preserve one-shot Helm, captured output, private files and no retry/rollback.
-- [ ] Reconcile/create one separate private backend TLS Secret, keeping
+- [x] Reconcile/create one separate private backend TLS Secret, keeping
   identity/provider/IAM/SSH credentials separate and never printing values.
-- [ ] Add only application-namespace NetworkPolicy CRUD to the exact existing
+- [x] Add only application-namespace NetworkPolicy CRUD to the exact existing
   delivery Role with resource-version guards and unchanged other rules.
-- [ ] Bootstrap a fresh workflow-restricted one-job runner for each check/deploy
+- [x] Bootstrap a fresh workflow-restricted one-job runner for each check/deploy
   dispatch, using pinned tools, projected token/CA and private generated files.
   Verify registration, then terminal job/runner deregistration and teardown.
   Kubeconfig references the rotating projected token file; never persist a token
   snapshot or copy kubeconfig/registration/provider credentials into GitHub.
-- [ ] Run protected `check`, approve once, reconcile its terminal result; then
+- [x] Run protected `check`, approve once, reconcile its terminal result; then
   dispatch/approve `deploy` once. Do not repeat uncertain creates or deliveries.
-- [ ] Reconcile two Ready app pods/HPA/PDB/private Service. Determine the actual
+- [x] Reconcile two Ready app pods/HPA/PDB/private Service. Determine the actual
   APIG source at pods before narrowing ingress: inspect dedicated gateway ENIs,
   K8S routing/SNAT and a bounded synthetic source observation. Verify the
   explicit namespace/Service/8443/backend SNI mapping and allowed-APIG plus
   denied-other-source controls. Private CIDRs alone are not isolation evidence.
-- [ ] Create diagnostic routes disabled, exact path and exact synthetic header
+- [x] Create diagnostic routes disabled, exact path and exact synthetic header
   matcher only, no caching/mirroring/retries. Read back exact matchers before
   one guarded enable. Test missing/wrong marker returns 404, valid marker
   reaches health/discovery, and synthetic credential headers are refused.
   Disable immediately after acceptance and verify public 404. Never send real
   provider keys, including on negative tests.
-- [ ] Update status evidence without claiming production/BYOK/trust acceptance.
+- [x] Update status evidence without claiming production/BYOK/trust acceptance.
 
 **Validation:** Run focused chart/helper pytest and Ruff, strict Helm lint and
 private/normal template renders, Caddy adapter/runtime checks, signed resource/
@@ -907,6 +908,115 @@ Private mode cannot remove the key-header refusal or
 enable uploads; existing public CLB mode is not a fallback for this deployment.
 The new Service and chart/helper/workflow interfaces must be integrated before
 registering a runner against the delivered main commit.
+
+### Protected Delivery Progress: 2026-11-22
+
+Published main `4ac5e9efafecb9bc9076ecb1cd39db2288152bb1` passed application CI,
+VKE source checks and CodeQL. Private GHCR access verified its exact image
+index digest
+`sha256:dd5ad5fba264c925a1abf8825802e1ea9c0ead38318ac984412b249d4314e483`
+and the Linux/amd64 manifest. A separate application-namespace registry pull
+Secret was created and privately read back. The user accepted the disclosed
+token-exposure risk temporarily; rotation remains required before launch.
+No token values are recorded here or in tracked files.
+
+The expired first runner was deregistered and its exact terminal Pod,
+ConfigMap and registration Secret removed. A fresh one-job runner registered
+in the unchanged exact-main-workflow group. Live prerequisite reads retained
+two Ready workers, metrics, the scoped Role, TLS/identity/pull Secrets and the
+tested CNI policy configuration/rollout. Protected references were configured
+and independently verified with complete pagination. The two readiness
+acknowledgements are now true for synthetic staging, not production launch.
+
+Protected check run `44977009660` received the configured review approval and
+failed before Helm dispatch with sanitized preflight diagnostics. Its runner
+completed, deregistered and had its exact private scratch resources removed.
+Restricted private diagnostics established inherited setgid directory permissions
+as the rejected file boundary. Explicit mode-0700 chmod after directory creation
+corrected the temporary runner runtime; live private preflight passed every stage.
+Protected check `44977793712` then passed on a fresh ephemeral runner.
+
+Protected deploy `44978371100` was dispatched once, approved through the configured
+reviewer and completed successfully on its separate ephemeral runner. Two
+application/proxy pods are Ready, one per baseline worker, with no restarts.
+Readback verifies the exact image, `STATE_BACKEND=none`, zero server budget,
+disabled uploads, no token mounting or persistent volumes, ClusterIP TCP 8443,
+gateway-range ingress policy, HPA 2-6 and PDB minimum one. Both successful
+delivery runners are deregistered and their exact scratch resources removed.
+The runner-ready acknowledgement was reset to false after delivery and empty
+group readback; a future job must bootstrap and verify a new isolated runner.
+The separate prerequisite acknowledgement remains true for synthetic staging.
+
+Application upstream `udc15lgippshdkifdom6g` maps the exact namespace/Service/8443
+to the separate staging SNI. Routes `rdc15loippshdkifdomm0` and
+`rdc15m8unnrmdh5hbvp30` were created disabled with exact operator-only header
+matching. APIG returns empty advanced-setting objects; a conservative helper
+check initially rejected these defaults after health-route creation. Readback
+verified no active retries, mirroring, rewrites, timeout/header overrides or
+fallback. Only the still-absent MCP route was subsequently created.
+
+Bounded source observation returned `10.80.50.84` and `10.80.78.184`, matching
+both dedicated gateway worker ENIs inside the approved private ranges. Ingress
+denial probes on both baseline workers could reach DNS but not the application
+port. Synthetic application acceptance passed health, MCP initialization,
+seven-tool inventory, credential-free static model discovery, refusal of all
+four credential headers including empty values, and hidden-path 404 controls.
+An initial client test omitted the required nested `input` argument; it failed
+without provider calls, disabled both routes and retained separate evidence.
+The corrected schema-checked test passed. All diagnostic routes are disabled
+and public `/mcp` and `/health` return trusted-TLS 404. Source-observer
+route/upstream/Pod/Service/ConfigMap/Secret/policy and denial Pods are removed.
+The application and its disabled operator routes remain installed.
+
+Managed autoscaler configuration retains fixed baseline two and burst zero-to-two,
+with 900-second maximum graceful termination. HPA reports valid live CPU metrics
+and maintains two replicas. A reviewed isolated 100m/64 MiB synthetic workload
+was created from verified burst desired/running zero, constrained to that pool,
+without provider calls or pool-configuration changes. Scale-from-zero and return
+to zero are being observed; long-running application-call drain remains untested.
+Scale-from-zero passed at `03:09:46Z`: worker `10.80.0.148` and the synthetic
+pod were Ready, with both baseline workers unchanged. The synthetic Deployment
+and NetworkPolicy were then deleted. A PDB-governed idle application eviction
+passed 26 credential-free health requests with no failures, replacement readiness
+and disabled-route/public-404 readback. Its replacement landed on the burst
+worker, extending the scale-in test to application rescheduling.
+The latest selected November settlement rows total USD 2.66: cluster 2.21,
+private API CLB 0.01, each worker 0.22, and returned NAT/EIP rows 0.00.
+Both baseline disk IDs were resolved from exact worker reads and queried;
+their returned payable rows are USD 0.00. Gateway has no settled rows;
+settlement delay, new burst usage and wider stack resource IDs remain gaps.
+This is not a full-stack cost or monthly estimate.
+
+### Disposable Scratch Scale-In Correction
+
+Live application placement on the burst worker exposed a chart configuration
+gap: disk-backed `emptyDir` scratch is protected by the installed autoscaler's
+default local-storage safeguard. Official Cluster Autoscaler 1.30.3 FAQ,
+accessed 2026-11-22, documents the volume-specific annotation as the exception.
+At `03:14:08Z`, the managed autoscaler status was Healthy with three Ready
+workers and `NoCandidates`; cooldown and local-volume protection were not
+independently distinguished by that status alone.
+
+The user approved **Fix, Push And Deploy**. Add only
+`cluster-autoscaler.kubernetes.io/safe-to-evict-local-volumes: app-tmp,proxy-tmp`
+to the pod template. Do not disable safeguards globally, set blanket eviction
+permission, bypass PDB/topology constraints or shorten shutdown grace.
+The application image and provider behavior are unchanged.
+
+- [x] Add the volume-specific pod-template annotation and reconcile the
+  deployment contract, runbook, README, agent rules and setup skill.
+- [x] Add render regressions for public/private modes, exact scratch-volume
+  coverage, absence of blanket permission and unchanged PDB/rollout/grace.
+- [x] Run focused tests, formatting and tracked-file secret checks.
+  Result: 229 passed/12 cached-schema checks skipped; Ruff lint/format and
+  `git diff --check` passed. The secret scan excluded ignored `.env`.
+- [ ] Commit and push the
+  approved correction, preserving private operator evidence outside Git.
+- [ ] Replenish a distinct ephemeral runner for each protected check/update;
+  dispatch Helm once after terminal check acceptance, then clean both runners.
+- [ ] Verify the live annotation, two Ready pods, private stateless resources,
+  disabled routes and automatic application rescheduling/burst return to zero.
+  Keep long-running provider-call drain and production backend trust unverified.
 
 ## Validation
 
@@ -924,13 +1034,19 @@ registering a runner against the delivered main commit.
 - Documentation source tests: 65 passed; Astro check: zero diagnostics;
   build: 59 pages, all internal links valid (non-failing bundle-size warning).
 - `git diff --check`: no whitespace errors.
+- Latest staging delivery regressions: 56 passed with reviewed local Helm/Caddy
+  binaries. Initial run without those binaries: 38 passed/18 skipped.
+  Five offline temporary-helper tests cover synthetic upstream shape, required
+  discovery input, empty-header refusal, inactive route defaults and cleanup on
+  acceptance failure. Live acceptance evidence is recorded above, separately
+  from these offline tests.
 - New temporary operator helpers received syntax/request-delta checks and the
   live reconciliations above, not the historical repository test suite or an
   independent helper review. The live TLS test failed the intended trust gate.
 - Base-head CI at `6018a9c23cbcdb8e9cd057da7ac6ede378f67296`: application CI
   and VKE source checks passed; documentation build passed but Pages publication
   failed with 404. These runs do not cover uncommitted gateway preparation.
-  No Helm delivery has occurred.
+  This historical CI predates the successful 2026-11-22 staging Helm delivery.
 - Independent read-only plan/diff review: Approved for Tasks 1-2, no blocking
   issues or confirmed code defects. Reviewer independently ran nine
   infrastructure tests. Null-expression coverage and CI attribution advisories
