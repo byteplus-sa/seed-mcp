@@ -42,7 +42,14 @@ test("stateless deployment keeps proxy and private-operation boundaries", () => 
   assert.match(proxy, /@public path \/mcp \/health/);
   assert.match(proxy, /header_up X-Forwarded-For \{http.request.remote.host\}/);
   assert.match(service, /externalTrafficPolicy: Local/);
-  assert.match(service, /port: 443/);
+  assert.match(
+    service,
+    /port: \{\{ ternary 443 8443 \(eq \.Values\.service\.mode "public-clb"\) \}\}/,
+  );
+  assert.match(
+    service,
+    /if eq \.Values\.service\.mode "public-clb"[\s\S]+type: LoadBalancer[\s\S]+else[\s\S]+type: ClusterIP/,
+  );
   const notes = source("deploy/helm/seed-mcp/templates/NOTES.txt");
   assert.match(notes, /fresh stateless deployment/);
   assert.doesNotMatch(notes, /WAL\/database backups|live SQLite release/);

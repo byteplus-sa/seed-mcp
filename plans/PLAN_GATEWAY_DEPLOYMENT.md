@@ -1010,8 +1010,12 @@ The application image and provider behavior are unchanged.
 - [x] Run focused tests, formatting and tracked-file secret checks.
   Result: 229 passed/12 cached-schema checks skipped; Ruff lint/format and
   `git diff --check` passed. The secret scan excluded ignored `.env`.
-- [ ] Commit and push the
+- [x] Commit and push the
   approved correction, preserving private operator evidence outside Git.
+  Published as `4a84b5c33fccf5847dd34265e6da63651ec64a1b`. Its documentation
+  CI exposed a stale literal-443 source assertion from the earlier staging
+  change. The follow-up test verifies both mode-selective ports and Service
+  types; all 65 documentation utility tests and Prettier now pass locally.
 - [ ] Replenish a distinct ephemeral runner for each protected check/update;
   dispatch Helm once after terminal check acceptance, then clean both runners.
 - [ ] Verify the live annotation, two Ready pods, private stateless resources,
