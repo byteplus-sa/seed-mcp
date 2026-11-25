@@ -154,6 +154,12 @@ provides a private ClusterIP/ingress-policy backend for synthetic-only tests,
 with separate `backendHost`, no CLB subnet and disabled uploads. It refuses
 credential headers and does not fix the APIG trust gap. Keep public client
 routes disabled; see [private staging](github-actions-deployment.md#private-apig-staging).
+`service.mode=apig-production` adds separate private BYOK source support with
+`service.productionConfirmed=true` and separate protected production delivery
+gates. It preserves host/source restrictions and disabled uploads; it does not
+configure APIG verification or open routes. See
+[production preparation](github-actions-deployment.md#production-apig-preparation)
+and [backend certificate renewal](backend-certificate-renewal.md).
 Do not install the public CLB path as a substitute for a selected gateway design.
 
 Monitoring is disabled explicitly. Tracing is left unset: the native APIG API
@@ -165,8 +171,8 @@ establish either cloud default. A postcondition failure may occur
 after creation: inspect protected state and the gateway before another attempt;
 never blindly repeat creation or attach routes/send BYOK traffic.
 
-Before provisioning for a generic URL, complete the private HTTPS certificate
-verification, host/proxy-trust, stateless/no-retry routing, body/header/streaming/
+Before provisioning for a generic URL, record the private HTTPS trust decision
+(verification by default or an explicitly scoped operator exception), host/proxy-trust, stateless/no-retry routing, body/header/streaming/
 timeout contracts and full cost/quota review in the
 [gateway preparation plan](../plans/PLAN_GATEWAY_DEPLOYMENT.md).
 An operator may explicitly authorize infrastructure creation first and billing
@@ -178,10 +184,13 @@ backend, runner and traffic charges are additional; node limits are not a cap.
 The 2026-11-21 staging probe found that APIG 4.4.4 one-way TLS (`SIMPLE`)
 with SNI accepted an untrusted self-signed K8S backend certificate. Public TLS
 was verified, but backend chain trust failed; the synthetic diagnostic route
-was disabled afterward. Do not treat SNI or encryption as verification or send
-real BYOK credentials through that configuration. Require a supported,
-negatively tested backend trust control or an explicitly reviewed architecture
-change. This finding applies to the tested configuration, not every APIG mode.
+was disabled afterward. Do not treat SNI or encryption as verification.
+The operator subsequently approved
+[keeping HTTPS while waiving backend verification](../specs/SPEC_VKE_DEPLOYMENT.md#accepted-backend-verification-exception)
+for this exact deployment. That makes the native trust control and its negative
+tests deferred hardening rather than launch blockers, without changing the
+historical result. Other deployments retain the default verification requirement.
+Public HTTPS validation, private encryption and all other launch gates remain.
 
 After separately approving authenticated infrastructure planning and privately
 injecting the IAM credentials described below, an operator can run:
@@ -483,7 +492,15 @@ stateful-release migration tooling are not part of this repository.
 ## Local TLS and Load Acceptance
 
 
-Run `uv run python scripts/hosted_acceptance.py --caddy-bin PATH`. This uses isolated loopback TLS and mocked providers, not a database or live credentials. It checks seven/ten tools, BYOK isolation, repeated-create behavior, polling after restart, proxy controls, bounded load and absence of local state. Live VKE/client/provider and capacity validation remain separately authorized gates.
+Run `uv run python scripts/hosted_acceptance.py --caddy-bin PATH`. This uses isolated loopback TLS and mocked providers, not a database or live credentials. It checks seven tools, BYOK isolation, repeated-create behavior, polling after restart, proxy controls, bounded load and absence of local state. Live VKE/client/provider and capacity validation remain separately authorized gates.
+
+`uv run python scripts/hosted_drain_acceptance.py --caddy-bin PATH --profile short`
+checks accepted mock requests through process termination. Explicit
+`--profile production` runs six parallel 590-second calls with production
+deadline/grace budgets. The private production listener negotiates HTTP/1.1,
+including with H2-capable clients, after a reproduced HTTPX H2 GOAWAY failure.
+This does not certify APIG's independent public protocol behavior or Kubernetes
+rollout/node drain. See [local drain checks](github-actions-deployment.md#local-drain-checks).
 
 ## Decommissioning
 

@@ -4,7 +4,7 @@ type: spec
 status: accepted
 horizon: current
 created: 2026-11-17
-updated: 2026-11-22
+updated: 2026-11-25
 tags: [vke, terraform, helm, stateless, security]
 source:
   - https://registry.terraform.io/providers/byteplus-sdk/bytepluscc/0.0.63/docs/resources/vke_cluster
@@ -37,7 +37,7 @@ persistence is separate from this deployment.
 | --- | --- |
 | Terraform `deploy/terraform/vke` | Dedicated VPC/subnets, NAT/EIP/SNAT/routes, private VKE cluster, fixed baseline node pool, optional bounded on-demand burst pool and optional dedicated APIG infrastructure |
 | VKE administrator, outside Terraform and Helm | `cloud-controller-manager`, optional Cluster Autoscaler, node readiness and addon lifecycle; CSI is not an application prerequisite |
-| Helm `deploy/helm/seed-mcp` | Application Deployment, HPA, PDB, proxy ConfigMap; public CLB Service or synthetic-only private ClusterIP/ingress policy; conditional IRSA ServiceAccount/token projection; no state PVC/StorageClass/headless Service |
+| Helm `deploy/helm/seed-mcp` | Application Deployment, HPA, PDB, proxy ConfigMap; public CLB or private APIG ClusterIP/ingress policy with separate staging/production gates; conditional IRSA ServiceAccount/token projection; no state PVC/StorageClass/headless Service |
 
 Terraform does not retrieve kubeconfig or place HMAC keys, TLS Secrets,
 certificates, passwords or customer credentials in state/outputs. Helm
@@ -116,11 +116,18 @@ of kubeconfig alone is insufficient. No public API fallback is supplied.
 ### GitHub Actions Delivery
 
 `.github/workflows/deploy-vke.yml` supplies manual `check`/`deploy` operations
-from `main` only, through the protected `byteplus-staging` environment. CI and
+from `main` only. Explicit `target=staging|production` maps to the protected
+`byteplus-staging|byteplus-production` environment. CI and
 image publishing remain GitHub-hosted; Helm runs on an explicitly configured
 workflow-restricted private runner group. A runner in the VKE VPC does not
 require a laptop VPN or CEN. Public-repository runner isolation is an operator
 prerequisite; labels alone do not isolate credentials or private network access.
+Production requires separate repository enablement and runner-ready/group
+variables plus a protected-environment approval acknowledgement. Provision and
+verify that environment's reviewer/main-only/no-bypass policy before enablement;
+no workflow creates or verifies GitHub environment protections automatically.
+Staging readiness does not authorize production. Both targets retain a single
+concurrency group and the helper/workflow require explicit service mode.
 
 The workflow uses existing private token/certificate kubeconfig and values
 files outside the checkout, not GitHub-to-BytePlus IAM federation. It creates
@@ -224,6 +231,9 @@ Only a nullable `public_gateway_id` is output. No upstream, service, route,
 default domain, certificate or ready endpoint is configured. Helm defaults to
 public CLB/Caddy; opt-in `service.mode=apig-staging` supplies a private
 synthetic-only backend, not a public BYOK gateway path.
+Explicit `service.mode=apig-production` supplies private BYOK source support
+only after `service.productionConfirmed=true`; that acknowledgement is not
+proof of APIG verification or an authorized deployment.
 Do not silently substitute it for an approved gateway design.
 
 Live staging evidence on 2026-11-21 showed APIG 4.4.4 accepting an untrusted
@@ -233,11 +243,12 @@ backend marker through verified public HTTPS; it was subsequently disabled.
 This configuration fails backend chain-trust acceptance. Direct-client
 wrong-host/chain negative controls passed but do not prove gateway hostname
 verification. Mode/SNI alone are not a verification control, and this result
-must not be generalized to every gateway mode. Real BYOK requires supported,
-configured and negatively tested backend trust or an explicitly reviewed
-architecture change; encryption alone does not satisfy the gate.
+must not be generalized to every gateway mode. The default launch requirement
+is supported, configured and negatively tested backend trust. The deployment-
+specific operator exception below waives that requirement without establishing
+trust or changing the observed result.
 
-Verified private HTTPS certificate trust, public/upstream host separation,
+Private HTTPS with the approved backend trust decision, public/upstream host separation,
 forged-forwarded-header handling, stateless routing without session persistence
 or affinity, no caching/mirroring/automatic POST retries, streaming/body/header
 limits and compatible timeouts remain delivery gates. A complete matched cost
@@ -254,6 +265,38 @@ possibly stale quota counter alone establishes headroom.
 Infrastructure preparation and mock plans do not establish these contracts.
 See [the gateway plan](../plans/PLAN_GATEWAY_DEPLOYMENT.md) for the current
 implementation effort.
+
+### Accepted Backend Verification Exception
+
+On 2026-11-25, after the risks and the two TLS hops were distinguished, the
+operator explicitly selected **"Keep HTTPS, waive verification"**.
+This decision applies to the existing Seed MCP deployment in account
+`3000006864`, region `ap-southeast-1`, gateway `gdc0lvqennrmdh5hbe8kg`,
+service `st63a28rvt0o3d9htd28d` and upstream `udc15lgippshdkifdom6g`.
+Preserve APIG and its existing generic client URL.
+
+For that deployment, APIG enforcement of backend certificate chain, DNS SAN
+and validity is **not a launch prerequisite**. Native verification capability
+research and gateway certificate-negative tests are deferred hardening, not
+deployment blockers. No verification control is claimed configured or proven.
+This is a recorded risk acceptance, not a passing trust test or a general
+default for other deployments.
+
+Keep verified public client-to-APIG HTTPS and encrypted private APIG-to-Caddy
+HTTPS. Do not switch the private hop to HTTP, disable Kubernetes/provider/client
+TLS validation, weaken private Service/ingress restrictions or change credential
+handling. An actor able to intercept or redirect the private connection could
+impersonate the backend and obtain or alter credentials and traffic; encryption
+without authenticated backend identity does not prevent that attack. Private
+network restrictions reduce exposure but do not replace identity verification.
+
+The waiver does not waive backend certificate/key, hostname and expiry
+preflight, renewal ownership, protected delivery, disabled logging/tracing,
+no-retry routing, credential recovery, live functional/drain acceptance or
+separate public-launch approval. Keep staging credential-free. This decision
+alone authorizes no deployment, route enablement, credential use/rotation,
+paid provider call, commit or push. Reconfirm the scope if the gateway, service,
+upstream or network boundary changes.
 
 ## Prerequisite Gate
 
@@ -344,12 +387,45 @@ pending. No real generation credentials may cross the unverified TLS hop.
 Delivery helper/workflow select `backendHost` for certificate checks in this
 mode, preserving one-shot Helm and protected main-only approval.
 
+`service.mode=apig-production` preserves the same private Service, ingress
+restrictions, host separation and disabled uploads. It selects a separate
+Caddyfile forwarding supported BYOK/endpoint headers to the app and rejecting
+incoming Authorization, including empty headers, with HTTP 400. Credential
+validation and selected-provider forwarding remain application-owned.
+Canonical Host/forwarded fields, stripped staging marker, body limits and
+disabled logs remain mandatory; unknown hosts/paths return 404.
+The private production listener advertises HTTP/1.1 only: direct HTTPX 0.28.1
+HTTP/2 drain tests against Caddy 2.11.9 reproduced accepted-call failure on
+shutdown GOAWAY. H2-capable clients must negotiate H1 here; no automatic retry
+is enabled. Existing CLB/staging listeners keep their prior protocol settings.
+APIG terminates public TLS independently, so public protocol behavior and its
+private-hop H1 compatibility remain live acceptance gates.
+
+`service.productionConfirmed` defaults false and must be true only for this
+mode. The helper requires `--production-approved` only for production and pins
+that chart acknowledgement from the CLI; a values file cannot bypass it.
+The workflow production target requires `VKE_PRODUCTION_ENABLED`, separate
+runner readiness and protected `VKE_PRODUCTION_APPROVED`, and only accepts
+`apig-production`; staging rejects production mode/approval. These flags
+acknowledge the documented backend trust decision, verified logging/routing, credential recovery,
+certificate lifecycle and launch prerequisites. They do not establish those
+facts. Source preparation has not changed deployed staging or opened routes.
+
+APIG backend identity verification remains unestablished, but is waived for the
+exact deployment in the [accepted exception](#accepted-backend-verification-exception).
+Other deployments retain the default verified-backend requirement. Preserve
+APIG and its generic URL; no substitute ingress, speculative verification fields
+or automatic route changes are supplied.
+
 The application binds `MCP_HOST=127.0.0.1`, `MCP_PORT=3000` and trusts only
 `RATE_LIMIT_TRUSTED_PROXY_CIDRS=127.0.0.1/32`. Caddy replaces forwarded address,
 host and proto headers and removes `Forwarded`. Uvicorn proxy rewriting and
 access logs are disabled. CIDR parsing and right-to-left hop selection follow
 [HTTP BYOK](SPEC_HOSTED_BYOK.md#trusted-proxy-and-private-operations).
 Only actual VKE testing can establish end-to-end client source preservation.
+With APIG, Caddy uses its direct gateway peer for rate limiting; clients behind
+one gateway peer can share a bucket. Do not infer customer IP from untrusted
+headers or add per-key concurrency to compensate.
 
 `MCP_METRICS_PORT=0` is the application default; an enabled HTTP listener binds
 only 127.0.0.1 on a port in 1024-65535. Helm `app.metricsEnabled=true` selects
@@ -362,6 +438,20 @@ Caddy uses the same deadline-plus-30 allowance; Helm pod termination grace
 is `max(tool, provider) + 60` seconds. Defaults are 630/660 seconds.
 Cooperative draining can exceed deadlines; force termination or disconnect
 does not cancel accepted provider work.
+
+### Certificate Lifecycle
+
+There is no issuer or automatic reload controller. Caddy's admin API and
+automatic HTTPS remain off. Same-name external Secret data does not change the
+pod template. Prefer a privately provisioned versioned TLS Secret and a
+protected reference rollout; changing `tlsSecretName` changes both the volume
+reference and runtime checksum. Verify the served chain, SAN, expiry and
+fingerprint on every new replica, not just through the load-balanced Service.
+The helper's key-load/hostname/one-day-expiry checks are not CA verification or
+expiry monitoring. The [renewal procedure](../docs/backend-certificate-renewal.md)
+defines ownership, alert windows, bounded overlap, failure reconciliation and
+separately approved active-call rotation acceptance. No real Secret or issuer
+is created by source implementation.
 
 ## State and Recovery
 
@@ -378,6 +468,20 @@ stateful-release migration tooling are not part of this repository.
 Local acceptance uses isolated real HTTP/Caddy TLS processes, temporary
 synthetic credentials and mocked providers, without a database.
 Its bounded load results are mock measurements, not capacity certification.
+`scripts/hosted_drain_acceptance.py --caddy-bin PATH --profile short` adds
+dispatch-barrier TERM tests for app-first, proxy-first and simultaneous order,
+with both H1 and H2-capable offers negotiating H1 on the private production
+listener. Explicit `--profile production` runs six parallel 590-second mock
+calls with 600/630/660-second tool/grace/observation clocks and 750-second
+process watchdogs. Stalled/disconnected controls always use short clocks.
+Success requires one dispatch, complete synthetic task/request receipts and
+observed graceful exit before cleanup; forced kills fail acceptance.
+Both profiles check actual client/backend connection reuse and replacement
+after more than five seconds idle, without automatic create resubmission.
+The harness uses isolated synthetic credentials and denies unmocked worker
+socket operations. It adds no public tool, provider call or production mock flag.
+No endpoint-withdrawal, certificate-rotation, new-intake or live autoscaler
+guarantee follows from these process tests.
 Real VKE apply, source IP, rollout/drain, TLS/DNS and target-client/
 provider acceptance require separate approval and evidence. Live generation
 requires an explicit spend cap. Durable replay, complete crash recovery and

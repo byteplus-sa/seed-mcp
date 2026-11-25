@@ -40,6 +40,8 @@ def delivery(
         "ghcr.io/byteplus-sa/seed-mcp@sha256:" + "a" * 64,
         "--public-host",
         "mcp.example.com",
+        "--service-mode",
+        "public-clb",
         "--identity-secret",
         "seed-mcp-identity",
         "--tls-secret",
@@ -149,11 +151,15 @@ def test_deploy_dispatches_once_with_no_retry_or_automatic_rollback(
     assert "--create-namespace" not in creates[0]
 
 
-def test_staging_checks_backend_certificate_and_pins_mode(
+@pytest.mark.parametrize("mode", ["apig-staging", "apig-production"])
+def test_apig_checks_backend_certificate_and_pins_mode(
     delivery: tuple[list[str], list[list[str]], Mock],
+    mode: str,
 ) -> None:
     argv, calls, execute = delivery
-    argv.extend(["--service-mode", "apig-staging", "--backend-host", "backend.example.invalid"])
+    argv.extend(["--service-mode", mode, "--backend-host", "backend.example.invalid"])
+    if mode == "apig-production":
+        argv.append("--production-approved")
     original = execute.side_effect
 
     def backend(command: list[str], **options: object) -> subprocess.CompletedProcess[str]:
@@ -169,7 +175,8 @@ def test_staging_checks_backend_certificate_and_pins_mode(
     check = next(command for command in calls if "-checkhost" in command)
     assert check[check.index("-checkhost") + 1] == "backend.example.invalid"
     lint = next(command for command in calls if "lint" in command)
-    assert "service.mode=apig-staging" in lint
+    assert f"service.mode={mode}" in lint
+    assert f"service.productionConfirmed={str(mode == 'apig-production').lower()}" in lint
     assert "backendHost=backend.example.invalid" in lint
 
 
@@ -181,6 +188,17 @@ def test_staging_checks_backend_certificate_and_pins_mode(
         ["--service-mode", "apig-staging", "--backend-host", "mcp.example.com"],
         ["--service-mode", "apig-staging", "--backend-host", "bad,extra=value"],
         ["--service-mode", "apig-staging", "--backend-host", "bad..example.com"],
+        ["--production-approved"],
+        ["--service-mode", "apig-staging", "--production-approved"],
+        ["--service-mode", "apig-production", "--backend-host", "backend.example.invalid"],
+        ["--service-mode", "apig-production", "--production-approved"],
+        [
+            "--service-mode",
+            "apig-production",
+            "--production-approved",
+            "--backend-host",
+            "mcp.example.com",
+        ],
     ],
 )
 def test_invalid_staging_mode_stops_before_commands(
@@ -364,7 +382,12 @@ def test_workflow_is_manual_main_only_protected_and_workflow_group_isolated() ->
     for item in (config, job):
         assert "github.ref == 'refs/heads/main'" in item["if"]
         assert "github.repository == 'byteplus-sa/seed-mcp'" in item["if"]
-    assert job["environment"] == "byteplus-staging"
+    assert job["environment"] == "${{ needs.configuration.outputs.environment }}"
+    assert workflow["on"]["workflow_dispatch"]["inputs"]["target"]["options"] == [
+        "staging",
+        "production",
+    ]
+    assert workflow["on"]["workflow_dispatch"]["inputs"]["target"]["default"] == "staging"
     assert "group" in job["runs-on"]
     assert job["runs-on"]["labels"] == ["self-hosted", "linux", "x64", "seed-mcp-vke"]
     assert "VKE_RUNNER_READY" in source
@@ -376,3 +399,116 @@ def test_workflow_is_manual_main_only_protected_and_workflow_group_isolated() ->
     checkout = job["steps"][0]
     assert checkout["with"]["persist-credentials"] == "false"
     assert "upload-artifact" not in source
+
+
+@pytest.mark.parametrize(
+    "target,enabled,ready,production_ready,expected",
+    [
+        ("staging", "", "true", "", 0),
+        ("production", "", "true", "true", 1),
+        ("production", "true", "true", "", 1),
+        ("production", "true", "", "true", 0),
+        ("unknown", "true", "true", "true", 1),
+        ("", "true", "true", "true", 1),
+    ],
+)
+def test_workflow_configuration_gates_run_before_private_queue(
+    tmp_path: Path,
+    target: str,
+    enabled: str,
+    ready: str,
+    production_ready: str,
+    expected: int,
+) -> None:
+    workflow = yaml.load(
+        (script.CHART.parents[2] / ".github/workflows/deploy-vke.yml").read_text(),
+        Loader=yaml.BaseLoader,
+    )
+    run = workflow["jobs"]["configuration"]["steps"][0]["run"]
+    output = tmp_path / "output"
+    result = subprocess.run(
+        ["bash", "-c", run],
+        env={
+            "PATH": "/usr/bin:/bin",
+            "GITHUB_OUTPUT": str(output),
+            "TARGET": target,
+            "PRODUCTION_ENABLED": enabled,
+            "RUNNER_READY": ready,
+            "PRODUCTION_RUNNER_READY": production_ready,
+            "RUNNER_GROUP": "staging-runners",
+            "PRODUCTION_RUNNER_GROUP": "production-runners",
+            "DEPLOY_IMAGE": "ghcr.io/byteplus-sa/seed-mcp@sha256:" + "a" * 64,
+        },
+        capture_output=True,
+        text=True,
+        timeout=5,
+        check=False,
+    )
+    assert result.returncode == expected
+    if expected == 0:
+        assert f"environment=byteplus-{target}" in output.read_text()
+        assert f"runner_group={target}-runners" in output.read_text()
+    else:
+        assert not output.exists()
+
+
+@pytest.mark.parametrize(
+    "target,mode,approved,expected",
+    [
+        ("production", "apig-production", "true", 0),
+        ("production", "apig-production", "", 1),
+        ("production", "apig-staging", "true", 1),
+        ("production", "public-clb", "true", 1),
+        ("staging", "apig-production", "true", 1),
+        ("staging", "apig-staging", "true", 1),
+        ("staging", "apig-staging", "", 0),
+        ("staging", "public-clb", "", 0),
+        ("staging", "", "", 1),
+    ],
+)
+def test_workflow_delivery_mode_and_approval_pairing(
+    target: str,
+    mode: str,
+    approved: str,
+    expected: int,
+) -> None:
+    workflow = yaml.load(
+        (script.CHART.parents[2] / ".github/workflows/deploy-vke.yml").read_text(),
+        Loader=yaml.BaseLoader,
+    )
+    step = workflow["jobs"]["delivery"]["steps"][1]
+    # A shell function intercepts the final invocation; no Python/helper/cluster runs.
+    run = "python3() { printf '%s\\n' \"$@\"; }\n" + step["run"]
+    env = dict.fromkeys(step["env"], "synthetic-reference")
+    env.update(
+        {
+            "PATH": "/usr/bin:/bin",
+            "TARGET": target,
+            "SERVICE_MODE": mode,
+            "PREREQUISITES": "true",
+            "PRODUCTION_APPROVED": approved,
+        }
+    )
+    result = subprocess.run(
+        ["bash", "-c", run],
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=5,
+        check=False,
+    )
+    assert result.returncode == expected
+    assert ("scripts/deploy_vke.py" in result.stdout) is (expected == 0)
+    if expected == 0:
+        assert ("--production-approved" in result.stdout) is (target == "production")
+
+
+def test_service_mode_has_no_implicit_clb_fallback(
+    delivery: tuple[list[str], list[list[str]], Mock],
+) -> None:
+    argv, _, execute = delivery
+    index = argv.index("--service-mode")
+    del argv[index : index + 2]
+    with pytest.raises(SystemExit):
+        script.main(argv)
+    execute.assert_not_called()

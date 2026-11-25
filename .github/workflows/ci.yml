@@ -112,11 +112,26 @@ jobs:
                   -kubernetes-version "$version" -cache "$schema_cache" \
                   -schema-location "$schema_location" "$manifest"
               done
+              for mode in apig-staging apig-production; do
+                confirmed=false
+                if [ "$mode" = apig-production ]; then confirmed=true; fi
+                manifest="$RUNNER_TEMP/seed-mcp-${version}-${autoscaling}-${mode}.yaml"
+                helm template seed-mcp deploy/helm/seed-mcp \
+                  -f deploy/helm/seed-mcp/values.ci.yaml \
+                  --kube-version "$version" --set "autoscaling.enabled=$autoscaling" \
+                  --set "service.mode=$mode" --set "service.productionConfirmed=$confirmed" \
+                  --set-string backendHost=backend.example.invalid --set-string service.subnetId= \
+                  --set 'service.sourceRanges[0]=10.80.48.0/20' > "$manifest"
+                test -s "$manifest"
+                kubeconform -strict -summary -exit-on-error \
+                  -kubernetes-version "$version" -cache "$schema_cache" \
+                  -schema-location "$schema_location" "$manifest"
+              done
             done
             # Expose the pinned validator's URL-hashed cache as local schemas for offline pytest.
             directory="$schema_cache/v${version}-standalone-strict"
             mkdir -p "$directory"
-            for schema in configmap-v1 deployment-apps-v1 horizontalpodautoscaler-autoscaling-v2 poddisruptionbudget-policy-v1 service-v1 serviceaccount-v1; do
+            for schema in configmap-v1 deployment-apps-v1 horizontalpodautoscaler-autoscaling-v2 poddisruptionbudget-policy-v1 service-v1 serviceaccount-v1 networkpolicy-networking-v1; do
               url="https://raw.githubusercontent.com/yannh/kubernetes-json-schema/${KUBERNETES_SCHEMA_COMMIT}/v${version}-standalone-strict/${schema}.json"
               key="$(printf '%s' "$url" | sha256sum | cut -d ' ' -f 1)"
               test -s "$schema_cache/$key"
@@ -159,6 +174,9 @@ jobs:
 
       - name: Mock-provider HTTPS acceptance and bounded load
         run: uv run python scripts/hosted_acceptance.py --caddy-bin "$CADDY_BIN"
+
+      - name: Mock-only active-call shutdown and connection checks
+        run: uv run python scripts/hosted_drain_acceptance.py --caddy-bin "$CADDY_BIN" --profile short
 
       - name: Static security scan
         run: uv run bandit -q -r src/ark_mcp

@@ -88,7 +88,7 @@
       "type": "string",
       "maxLength": 253,
       "pattern": "^$|^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\\.)+[a-z]([a-z0-9-]{0,61}[a-z0-9])?$",
-      "description": "Distinct private TLS/SNI hostname for synthetic-only apig-staging; empty for public-clb."
+      "description": "Distinct private TLS/SNI hostname for either APIG mode; empty for public-clb."
     },
     "identitySecret": {
       "type": "object",
@@ -172,13 +172,18 @@
       "additionalProperties": false,
       "required": [
         "mode",
+        "productionConfirmed",
         "subnetId",
         "bandwidthMbps",
         "sourceRanges"
       ],
       "properties": {
         "mode": {
-          "enum": ["public-clb", "apig-staging"]
+          "enum": ["public-clb", "apig-staging", "apig-production"]
+        },
+        "productionConfirmed": {
+          "type": "boolean",
+          "description": "Production-only operator acknowledgement of the documented backend trust decision (verified APIG chain/SAN/expiry or an explicit deployment-scoped risk acceptance), logging/routing, credential recovery, certificate lifecycle and launch approval. HTTPS remains required. This flag performs no verification and grants no exception by itself."
         },
         "subnetId": {
           "type": "string",
@@ -381,7 +386,7 @@
   },
   "allOf": [{
     "if": {
-      "properties": {"service": {"properties": {"mode": {"const": "apig-staging"}}}}
+      "properties": {"service": {"properties": {"mode": {"enum": ["apig-staging", "apig-production"]}}}}
     },
     "then": {
       "properties": {
@@ -395,6 +400,16 @@
         "backendHost": {"const": ""},
         "service": {"properties": {"subnetId": {"pattern": "^subnet-[a-z0-9]+$"}}}
       }
+    }
+  }, {
+    "if": {
+      "properties": {"service": {"properties": {"mode": {"const": "apig-production"}}}}
+    },
+    "then": {
+      "properties": {"service": {"properties": {"productionConfirmed": {"const": true}}}}
+    },
+    "else": {
+      "properties": {"service": {"properties": {"productionConfirmed": {"const": false}}}}
     }
   }],
   "definitions": {

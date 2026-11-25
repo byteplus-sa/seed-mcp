@@ -13,11 +13,18 @@ on:
         description: Reviewed ghcr.io/byteplus-sa/seed-mcp@sha256 image reference
         type: string
         required: true
+      target:
+        description: Explicit protected environment; production needs separate verified launch gates
+        type: choice
+        options: [staging, production]
+        default: staging
+        required: true
 
 permissions:
   contents: read
 
 concurrency:
+  # Serialize both targets because they can address the same cluster/release.
   group: byteplus-staging-delivery
   cancel-in-progress: false
 
@@ -28,26 +35,46 @@ jobs:
     timeout-minutes: 5
     outputs:
       runner_group: ${{ steps.config.outputs.runner_group }}
+      environment: ${{ steps.config.outputs.environment }}
     steps:
       - name: Require an isolated deployment runner before queueing private work
         id: config
         env:
+          TARGET: ${{ inputs.target }}
           RUNNER_READY: ${{ vars.VKE_RUNNER_READY }}
           RUNNER_GROUP: ${{ vars.VKE_RUNNER_GROUP }}
+          PRODUCTION_ENABLED: ${{ vars.VKE_PRODUCTION_ENABLED }}
+          PRODUCTION_RUNNER_READY: ${{ vars.VKE_PRODUCTION_RUNNER_READY }}
+          PRODUCTION_RUNNER_GROUP: ${{ vars.VKE_PRODUCTION_RUNNER_GROUP }}
           DEPLOY_IMAGE: ${{ inputs.image }}
         run: |
+          set -euo pipefail
+          case "$TARGET" in
+            staging) environment=byteplus-staging ;;
+            production)
+              if [[ "$PRODUCTION_ENABLED" != true ]]; then
+                echo "::error::Production is disabled. Confirm the documented backend trust decision and the pre-existing protected production environment first."
+                exit 1
+              fi
+              environment=byteplus-production
+              RUNNER_READY="$PRODUCTION_RUNNER_READY"
+              RUNNER_GROUP="$PRODUCTION_RUNNER_GROUP"
+              ;;
+            *) echo "::error::Select an explicit staging or production target."; exit 1 ;;
+          esac
           if [[ "$RUNNER_READY" != true ]]; then
-            echo "::error::Bootstrap the private workflow-restricted runner and set VKE_RUNNER_READY=true first."
+            echo "::error::Bootstrap and verify the selected target's private workflow-restricted runner first."
             exit 1
           fi
           [[ "$RUNNER_GROUP" =~ ^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$ ]]
           [[ "$DEPLOY_IMAGE" =~ ^ghcr\.io/byteplus-sa/seed-mcp@sha256:[0-9a-f]{64}$ ]]
           printf 'runner_group=%s\n' "$RUNNER_GROUP" >> "$GITHUB_OUTPUT"
+          printf 'environment=%s\n' "$environment" >> "$GITHUB_OUTPUT"
 
   delivery:
     needs: configuration
     if: github.repository == 'byteplus-sa/seed-mcp' && github.ref == 'refs/heads/main'
-    environment: byteplus-staging
+    environment: ${{ needs.configuration.outputs.environment }}
     runs-on:
       group: ${{ needs.configuration.outputs.runner_group }}
       labels: [self-hosted, linux, x64, seed-mcp-vke]
@@ -62,6 +89,7 @@ jobs:
 
       - name: Check private connection prerequisites and optionally deliver Helm once
         env:
+          TARGET: ${{ inputs.target }}
           OPERATION: ${{ inputs.operation }}
           DEPLOY_IMAGE: ${{ inputs.image }}
           KUBE_FILE: ${{ vars.VKE_KUBECONFIG_PATH }}
@@ -75,10 +103,11 @@ jobs:
           IDENTITY_SECRET: ${{ vars.VKE_IDENTITY_SECRET }}
           TLS_SECRET: ${{ vars.VKE_TLS_SECRET }}
           PREREQUISITES: ${{ vars.VKE_PREREQUISITES_CONFIRMED }}
+          PRODUCTION_APPROVED: ${{ vars.VKE_PRODUCTION_APPROVED }}
         run: |
           set -euo pipefail
           for name in OPERATION DEPLOY_IMAGE KUBE_FILE VALUES_FILE KUBE_CONTEXT API_SERVER \
-            NAMESPACE PUBLIC_HOST IDENTITY_SECRET TLS_SECRET; do
+            NAMESPACE PUBLIC_HOST SERVICE_MODE IDENTITY_SECRET TLS_SECRET; do
             if [[ -z "${!name}" ]]; then
               echo "::error::Missing protected deployment configuration: $name"
               exit 1
@@ -88,9 +117,19 @@ jobs:
             echo "::error::Verify operator-owned CCM, capacity, DNS/TLS, source ranges and addons first."
             exit 1
           fi
-          SERVICE_MODE="${SERVICE_MODE:-public-clb}"
-          if [[ "$SERVICE_MODE" == apig-staging && -z "$BACKEND_HOST" ]]; then
-            echo "::error::Staging requires an explicit private TLS hostname."
+          approval_args=(--prerequisites-confirmed)
+          if [[ "$TARGET" == production ]]; then
+            if [[ "$SERVICE_MODE" != apig-production || "$PRODUCTION_APPROVED" != true ]]; then
+              echo "::error::Production requires apig-production and independently approved production gates."
+              exit 1
+            fi
+            approval_args+=(--production-approved)
+          elif [[ "$TARGET" != staging || "$SERVICE_MODE" == apig-production || "$PRODUCTION_APPROVED" == true ]]; then
+            echo "::error::Staging cannot supply production mode or approval."
+            exit 1
+          fi
+          if [[ "$SERVICE_MODE" == apig-* && -z "$BACKEND_HOST" ]]; then
+            echo "::error::APIG requires an explicit private TLS hostname."
             exit 1
           fi
           python3 scripts/deploy_vke.py "$OPERATION" \
@@ -99,4 +138,4 @@ jobs:
             --namespace "$NAMESPACE" --image "$DEPLOY_IMAGE" --public-host "$PUBLIC_HOST" \
             --service-mode "$SERVICE_MODE" --backend-host "$BACKEND_HOST" \
             --identity-secret "$IDENTITY_SECRET" --tls-secret "$TLS_SECRET" \
-            --prerequisites-confirmed
+            "${approval_args[@]}"

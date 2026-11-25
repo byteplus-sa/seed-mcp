@@ -109,12 +109,21 @@ Key features:
   GitHub-hosted private API access or automatic IAM federation.
   [Optional dedicated APIG preparation](docs/byteplus-terraform.md#optional-dedicated-gateway-infrastructure)
   adds a gateway and two subnets only: no routes or generic MCP endpoint.
-  Logging and tracing must read back disabled; verified private HTTPS, stateless routing
+  Logging and tracing must read back disabled; the documented backend trust decision, stateless routing
   and host/proxy trust remain launch gates. Explicit operator approval may
   allow provisioning first and billing inspection afterward; regional quotas
   still apply. The chart defaults to CLB/Caddy; opt-in
   [private APIG staging](docs/github-actions-deployment.md#private-apig-staging)
   is synthetic-only, refuses credential headers and keeps public clients blocked.
+  [Production APIG source support](docs/github-actions-deployment.md#production-apig-preparation)
+  uses a separate private proxy and explicit production approval gates; it
+  does not solve APIG backend trust or enable routes. A
+  [certificate-renewal procedure](docs/backend-certificate-renewal.md)
+  covers versioned Secret rollouts and verification on every replica.
+  Default policy verifies backend identity; the existing deployment has a
+  [scoped operator exception](specs/SPEC_VKE_DEPLOYMENT.md#accepted-backend-verification-exception)
+  retaining HTTPS while accepting unverified backend identity. Other launch
+  gates and public HTTPS validation remain.
 - **Offline regression coverage** - unit, contract, integration, HTTP security
   and MCP conformance tests, plus documentation build/link checks.
 

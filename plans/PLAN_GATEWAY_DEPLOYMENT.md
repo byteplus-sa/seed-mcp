@@ -3,10 +3,14 @@ title: Dedicated Gateway Deployment Preparation
 type: plan
 status: in-progress
 created: 2026-11-20
-updated: 2026-11-22
+updated: 2026-11-25
 tags: [vke, apig, terraform, stateless, deployment]
 source:
   - https://docs.byteplus.com/en/docs/apig/Fixed_IP_type_Upstream
+  - https://docs.byteplus.com/en/docs/apig/Creating_a_Vital_Kubernetes_Engine_type_Upstream
+  - https://docs.byteplus.com/en/docs/apig/Annotations_Supported_by_the_Gateway
+  - https://docs.byteplus.com/en/docs/apig/Using_Gateway_API_via_APIG
+  - https://docs.byteplus.com/en/docs/apig/Release_notes
   - https://registry.terraform.io/providers/byteplus-sdk/bytepluscc/0.0.63/docs/resources/apig_gateway
   - https://github.com/kubernetes/autoscaler/blob/cluster-autoscaler-1.30.3/cluster-autoscaler/FAQ.md
 related:
@@ -15,6 +19,194 @@ related:
 ---
 
 # Dedicated Gateway Deployment Preparation
+
+## Current Operator Decision: Keep HTTPS, Waive Verification
+
+On 2026-11-25 the user said "No need for APIG TLS" and, after clarification,
+selected **"Keep HTTPS, waive verification"** rather than private HTTP.
+The durable scope and accepted impersonation/credential-exposure risk are in
+[the deployment contract](../specs/SPEC_VKE_DEPLOYMENT.md#accepted-backend-verification-exception).
+Public verified HTTPS and private backend encryption remain. For this exact
+deployment, APIG backend certificate verification and its negative-test matrix
+are deferred hardening, **not launch blockers**. This supersedes older plan and
+research wording that required obtaining a native APIG verification control.
+
+The other gates remain: registry credential recovery, current certificate/
+renewal checks, protected delivery, disabled logging/tracing, restricted ingress,
+stateless/no-retry routing, live functional/drain/client acceptance and explicit
+launch approval. No deployment, public-route enablement, provider call, token
+rotation, commit or push was authorized by this decision alone. No such action
+was performed while recording it.
+
+Recording changed policy/help text only, not TLS configuration or executable
+deployment logic. Static Python/JSON/YAML checks, disabled-default/permission
+assertions, whitespace and changed-file secret scans passed. Runtime and cloud
+tests were not rerun for this policy-only update.
+
+## Production Preparation Implementation: 2026-11-25
+
+**Goal:** Implement the user's approved recommendation: explicit production APIG
+source configuration, bounded mock-only active-call tests and a certificate
+renewal procedure. No cloud/credential mutation, public-route enablement,
+provider call, commit or push is included. Preserve the current APIG and URL.
+
+**Source context:** Read the proposed
+[readiness research](../specs/SPEC_APIG_PRODUCTION_READINESS.md),
+`SPEC_VKE_DEPLOYMENT.md`, hosted/direct contracts, Actions/terraform runbooks,
+chart values/schema/templates, `scripts/deploy_vke.py`, current workflow and
+`scripts/hosted_acceptance_support/{worker,runtime}.py` and their unit tests.
+FastMCP HTTP/lifespan documentation was checked; no session store is added.
+
+**Architecture decision:** Add `service.mode=apig-production` with
+`service.productionConfirmed=false` by default. Rendering production requires
+explicit acknowledgement of the documented backend trust decision and launch gates;
+other modes reject that acknowledgement. Both APIG modes retain distinct
+backendHost, RFC1918 source policy, ClusterIP:8443, empty subnetId and no uploads.
+A new Caddyfile forwards supported BYOK/endpoint headers, rejects Authorization
+(even empty), strips the operator marker and keeps host/body/logging controls.
+No APIG verification implementation is invented. The existing staging mode
+continues refusing credentials.
+
+Delivery requires `--production-approved` only for production, and pins the
+Helm acknowledgement from that flag rather than trusting a values file.
+The workflow gains `target=staging|production`, default staging, fixed
+`byteplus-staging|byteplus-production` environment mapping, separate production
+runner-ready/group variables, repository `VKE_PRODUCTION_ENABLED` and protected
+environment `VKE_PRODUCTION_APPROVED` gates. Both targets share one delivery
+concurrency group. An explicit service mode is required: no silent CLB fallback.
+Production environment/reviewer/bootstrap configuration remains operator-owned.
+
+**Parallelization:** Main owns chart/proxy/delivery/workflow and integration.
+Worker A owns mock harness and harness tests only; it consumes the production
+Caddyfile once main finishes it. Worker B owns only the certificate runbook.
+An independent read-only plan review precedes implementation. Shared docs,
+CI integration and any evidence-driven runtime fixes remain main-owned.
+
+```mermaid
+flowchart LR
+    Approval["Production approval and backend trust decision"] --> Gate["Explicit production mode"]
+    Gate --> Private["Private Caddy:8443 to loopback app"]
+    Mock["Isolated mock provider and TERM barriers"] --> Local["Local acceptance only"]
+    Renewal["Versioned TLS Secret procedure"] --> Protected["Protected rollout, separately approved"]
+    Local -. "not cloud acceptance" .-> Approval
+```
+
+### File Ownership and Tasks
+
+| Owner | Files | Task and dependency |
+| --- | --- | --- |
+| Main | `deploy/helm/seed-mcp/**`, `scripts/deploy_vke.py`, `.github/workflows/deploy-vke.yml`, `tests/unit/test_vke_{staging,production,chart}.py`, `tests/unit/test_deploy_vke.py` | Production mode, validation, independent delivery guards and all-mode regressions after plan review |
+| Worker A | `scripts/hosted_acceptance.py`, `scripts/hosted_acceptance_support/**`, new `scripts/hosted_drain_acceptance.py`, `tests/unit/test_hosted_acceptance.py`, new `tests/unit/test_hosted_drain_acceptance.py` | Bounded mock-only harness after review; no chart/runtime changes |
+| Worker B | new `docs/backend-certificate-renewal.md` | Operator procedure after review; no automation, certificates or Secret changes |
+| Main | `.github/workflows/ci.yml`, `Makefile`, `pyproject.toml`, `uv.lock`, `tests/unit/test_ci_contract.py`, `README.md`, `AGENTS.md`, `.agents/skills/ark-mcp-setup/SKILL.md`, deployment docs/specs, this plan | Integration, locked test-only dependencies, validation evidence, shipped-source documentation |
+
+- [x] Independent read-only plan review approved this section with no blocking
+  findings; implementation scope only, not production launch.
+- [x] Implement all three chart modes; assert no public CLB in APIG, correct
+  proxy/checksums, no acknowledgement bypass, safe source ranges and unchanged
+  PDB, topology, scratch annotation and grace. Real pinned Caddy must pass header
+  forwarding/rejection, unknown host/path, body-cap and log suppression tests.
+- [x] Test helper guard failures before any subprocess, backend certificate
+  selection for both APIG modes, explicit workflow environment/mode pairing,
+  production gate separation and one-shot Helm with no automatic retry.
+- [x] Add `hosted_drain_acceptance.py --caddy-bin PATH --profile short|production`
+  (short default). Reuse the isolated harness/process primitives, cleared
+  environment, synthetic canaries, mock-only socket-denied provider worker.
+  Test dispatch-barrier-controlled app-first, proxy-first and simultaneous TERM
+  with one dispatch and complete receipt before graceful exit; short stalled
+  and disconnected requests must not resubmit. Production profile runs a
+  590-second accepted mock call with 600/630/660-second clocks and bounded
+  subprocess lifetime/cleanup exceeding the measured interval. Never reuse the
+  old 8-second cleanup kill as success. No public sleep tool or runtime mock flag.
+- [x] Include stale keepalive (>5s), client HTTP/1.1 and HTTP/2 coverage where
+  supported; report actual protocol. Any failed timing case is failure, not an
+  accepted limitation. Only make minimal connection/lifecycle fixes supported
+  by test evidence, under main ownership. Live APIG/rollout/node-drain remain
+  separately approved gates.
+- [x] Document certificate issuer/CA/SAN/full-chain prerequisites, owner and
+  alert lead times; versioned Secret reference rollout, per-replica served
+  fingerprint/expiry verification, active synthetic-call rotation acceptance,
+  uncertain rollout reconciliation and bounded retention. No issuer chosen or
+  automatic Secret reload promised.
+- [x] Run focused pytest for chart/helper/harness with local Helm/Caddy, short
+  mock acceptance and production-duration acceptance, Ruff, strict mypy,
+  documentation utility tests, whitespace and changed-file secret scans.
+  Add short profile to CI; do not silently add a ten-minute default test.
+  Report skipped Kubernetes schema/cloud gates explicitly.
+- [x] Update current contract/docs/skills and distinguish local preparation
+  from deployed state and unresolved APIG trust/PAT/live-drain gates.
+
+**Validation commands:** `uv run pytest tests/unit/test_vke_chart.py
+tests/unit/test_vke_staging.py tests/unit/test_vke_production.py
+tests/unit/test_deploy_vke.py tests/unit/test_hosted_acceptance.py
+tests/unit/test_hosted_drain_acceptance.py`; both hosted acceptance CLIs with
+explicit reviewed Caddy path; `uv run ruff check src tests scripts`;
+`uv run ruff format --check src tests scripts`; `make typecheck`;
+`node --test docs/site/scripts/*.test.mjs`; `git diff --check`.
+
+**Implementation handoff:** Workers must preserve concurrent changes and stay
+inside the disjoint write scopes. Main reviews results and owns integration.
+Do not infer public launch, registry recovery, live certificate validity or
+cloud availability from these source/offline checks.
+
+### Evidence-Driven Protocol Adjustment
+
+The initial real-Caddy short matrix passed H1 drain but failed four active H2
+cases: HTTPX 0.28.1 aborted on Caddy 2.11.9's shutdown GOAWAY. This was not
+accepted as a passing limitation. The new **private production** Caddy listener
+now advertises only HTTP/1.1; H1 and H2-capable clients must demonstrably
+negotiate H1. No retries, new state or runtime mock feature were added, and
+existing staging/CLB protocol settings remain unchanged. APIG still terminates
+public TLS separately; its upstream H1 compatibility and public protocols
+remain untested live gates. The corrected short matrix passed all ten cases.
+
+Test-only `h2` is locked as a dev dependency to exercise actual H2-capable offers,
+not assumed fallback. Caddy's existing upstream idle settings were exercised
+with fresh/reused connections and replacement after more than five seconds;
+no keepalive failure was reproduced and no keepalive change is claimed.
+
+An independent production-slice review found no actionable defects.
+Independent harness review found two acceptance-report defects: an already
+exited process could evade an expired timeout, and an outer cleanup exception
+could leave `ok=true`. Both checks were corrected with regression tests.
+Production-duration evidence must use those corrected guards.
+
+### Local Validation
+
+- Final offline suite: **3,227 passed**, with **93.00%** source branch-inclusive
+  coverage against the 85% gate. Strict Kubernetes schema tests used pinned
+  cached schemas for 1.30.0 and 1.37.2; neither is regional VKE certification.
+- Reviewed tools: Helm 4.3.2, Caddy 2.11.9, kubeconform 0.8.0, each downloaded
+  to isolated temporary storage and checked against its published checksum.
+- Final short drain profile: **10/10 passed** with explicit late-exit and
+  outer-cleanup failure guards. All accepted calls returned exact synthetic
+  receipts after one dispatch; stalled/disconnected controls remained uncertain
+  and did not resubmit.
+- Original hosted mock HTTPS/load acceptance: passed; 40 requests, zero
+  unexpected errors (20 successes and 20 expected admission rejections).
+- Strict mypy, Ruff lint/format, changed/new-file secret scans, Bandit and
+  whitespace checks passed. No secret baseline regeneration.
+- Documentation: **65 tests passed**, 60-page build passed, all internal links
+  valid. This does not repair or publish GitHub Pages.
+- Corrected production-duration profile: **10/10 passed**, including six
+  parallel accepted calls with measured mock work of 590.005-590.006 seconds.
+  Both H1 and H2-capable client offers negotiated H1 in every case. Complete
+  receipts followed exactly one dispatch for app-first, proxy-first and
+  simultaneous TERM. Latest observed process exit was 590.508 seconds after
+  first TERM, within the 660-second observation budget. Four short stalled/
+  disconnected controls retained uncertainty without redispatch. Cleanup,
+  canary scans and exit guards passed; no process force-kill counted as success.
+  An earlier production run also passed but predated the two stricter result
+  guards and is not the final acceptance basis.
+
+All source changes remain local. No cloud state, public routes, provider
+credentials, registry tokens, certificates or GitHub environment settings
+were changed. No commit or push was made. APIG trust was unresolved at preparation
+completion and is now waived by the later operator decision above. Generated-domain
+production-use clarification, registry recovery, live certificate renewal/
+active-call/target-client acceptance and explicit launch approval remain open.
+
+## Original Infrastructure Preparation Scope
 
 **Goal:** Prepare an opt-in dedicated standard APIG and two-zone network for the
 approved generic HTTPS entry, without treating infrastructure preparation as a
@@ -1074,6 +1266,122 @@ This is neither a complete stack total nor a monthly projection. Dedicated
 Terraform state remained unchanged. Private operator evidence is retained
 outside Git; temporary helper safeguards passed 18 offline tests, not an
 independent review.
+
+### Backend Trust Capability Investigation: 2026-11-23
+
+The user authorized proceeding with the TLS fix. Normal-console inspection and
+signed read-only reconciliation were performed without changing routing,
+certificates, gateway version, cluster resources or access scope. At
+`11:56:41Z`, the gateway remained `4.4.4`, both application replicas were Ready,
+all three routes were disabled and public `/health` and `/mcp` returned
+trusted-TLS 404. No provider credentials, generation calls or uploads were used.
+
+The existing application upstream's edit form offered only **Disable TLS** and
+**One-way TLS**; one-way TLS exposed SNI, with no visible CA/trust or hostname
+verification setting. The form was left without submission. Instance overview
+explicitly labeled `v4.4.4` the latest version available. Installed APIG SDK
+create/update `TlsSettings` models expose only `Sni` and `TlsMode`.
+
+Official APIG pages were read in the browser on 2026-11-23:
+
+- VKE and fixed-IP upstream guides describe HTTPS and selecting a corresponding
+  certificate, but do not establish certificate-chain, expiry or hostname
+  validation semantics or explain the mismatch with the observed form.
+- The complete supported-annotations page documents backend protocols
+  HTTP/HTTP2/gRPC and client-facing HTTPS redirection. It does not document an
+  upstream CA or certificate-verification annotation. Do not infer support for
+  arbitrary NGINX annotations from the documented subset.
+- The Gateway API guide marks the feature **Beta, apply for trial**, names
+  GatewayClass, Gateway and HTTPRoute, and specifies a highest compatible CRD
+  version of 1.4.0. It does not establish BackendTLSPolicy support. Installing
+  that CRD alone would not prove controller enforcement, and Gateway API
+  synchronization was not enabled.
+- The release notes, updated 2026-11-10, state that regional availability should
+  be checked in the console. No upstream trust-control release was identified.
+
+**Outcome:** No supported verification control was established through these
+surfaces, so no speculative mutation or repeat negative-certificate probe was
+dispatched. This is not a claim that every APIG mode or provider-managed
+capability lacks verification. The original tested one-way TLS configuration
+still fails the backend chain-trust launch gate.
+
+The exact provider capability question is:
+
+> For a standard APIG 4.4.4 instance in ap-southeast-1 with a K8S upstream,
+> what supported setting enables server certificate-chain and expiry validation,
+> pins the expected DNS SAN, and selects system/private CA trust? Please provide
+> the exact API/console field or documented controller policy, prerequisites
+> and supported version. Does the offered Gateway API controller implement
+> BackendTLSPolicy, with observable acceptance and rejection of invalid backend
+> certificates?
+
+No support case was opened and no team message was sent to an unverified
+recipient. Bounded read-only Lark searches for joined chats named `APIG` or
+`API Gateway` returned no matches; this does not establish that no product
+channel exists. Continuing requires either a confirmed APIG-native configuration
+from an identified product owner or explicit approval to review an alternative
+TLS ingress and its hostname implications. The generic APIG URL must not be
+silently replaced. Any eventual native fix still requires valid-certificate
+acceptance and untrusted-chain, wrong-hostname and expired-certificate rejection
+before real BYOK traffic is permitted.
+
+The operator subsequently selected **Keep APIG**. Preserve the existing gateway
+and generic URL; no alternative-ingress implementation or provisioning is
+authorized. The next input is a named APIG technical owner/chat or an
+authoritative supported verification configuration. Public routing stays
+disabled while this capability question is unresolved.
+
+### Deep Research Scope: 2026-11-24
+
+**Research question:** What evidence-backed changes would complete public
+production deployment, prioritizing the existing APIG gateway and generic URL
+without weakening backend certificate verification or BYOK isolation?
+
+**Scope status:** Accepted; the user selected **Research all four** on
+2026-11-24, before parallel research began.
+Research itself is read-only: no cloud mutations, credential reads/rotation,
+provider calls, message sending, support cases, deployment or public-route
+enablement. Existing uncommitted investigation notes must be preserved.
+
+| Track | Assigned role | Independent scope | Source budget |
+| --- | --- | --- | --- |
+| A | Documentation researcher | Native BytePlus APIG upstream trust controls, public API/SDK/controller support, regional/version constraints and documented gaps | 5-10 primary sources |
+| B | Architecture researcher | Trust-preserving routing alternatives, feasibility of retaining the generic URL, TLS termination boundaries and false fixes; no repeat native-control search | 5-8 primary sources |
+| C | Repository explorer | Exact staging-to-production code/config gaps and bounded graceful-drain/client acceptance design; read-only source analysis | Relevant repository files and 3-5 official references |
+| D | Operations researcher | GHCR least-privilege credential rotation, pull verification, token revocation order and renewal alternatives | 4-6 primary sources |
+
+The supervisor owns billing/documentation follow-up triage, cross-track
+verification, contradictions and the final recommendation. Workers return
+findings, precise evidence, confidence, open questions and search terms; they
+write no source or shared artifacts. Maximum four concurrent workers for this
+round, with a narrow follow-up only for material unresolved evidence.
+
+The supervisor must independently open cited sources before accepting key
+claims. BytePlus, VolcanoEngine, upstream Envoy/Istio and generic Gateway API
+support must be distinguished; shared field names do not establish product
+parity. Historical live results are not fresh cloud observations. Missing
+documentation is not proof of universal lack of support.
+
+**Deliverable:** `specs/SPEC_APIG_PRODUCTION_READINESS.md`, labeled proposed and
+future-facing, with a source-backed option matrix, prioritized recommendation,
+concrete remaining work, safe acceptance criteria, dependencies and explicit
+unsupported hypotheses. No production implementation follows automatically.
+
+**Research outcome:** Complete. Four independent tracks and one narrow
+generated-domain-policy follow-up were synthesized in
+[the proposed remediation report](../specs/SPEC_APIG_PRODUCTION_READINESS.md).
+The supervisor independently checked the key SDK, documentation and repository
+claims; the report indexes 30 primary sources accessed on 2026-11-24.
+
+No supported native APIG trust control was established, and missing
+documentation was not treated as universal non-support. New implementation
+work is separated from that provider dependency: explicit production APIG
+mode, active-call drain/keepalive acceptance, backend certificate lifecycle,
+replacement-only GHCR pull verification and expiring credential ownership.
+The generic hostname's production-use policy remains a clarification question,
+not a proven prohibition. Pages/base-path correction and complete billing
+reconciliation are independent follow-ups. No application source, cloud
+resource, credential, route or repository setting was changed by this research.
 
 ## Validation
 

@@ -1,0 +1,55 @@
+{
+	admin off
+	auto_https off
+	grace_period {$MCP_PROXY_GRACE_PERIOD:630s}
+	log {
+		output discard
+	}
+	servers {
+		# HTTPX aborts active H2 responses on shutdown GOAWAY; keep this private hop H1.
+		protocols h1
+		timeouts {
+			read_header 10s
+			read_body 30s
+			idle 5m
+		}
+	}
+}
+
+https://:{$MCP_PROXY_PORT:8443} {
+	tls {$MCP_TLS_CERT_FILE} {$MCP_TLS_KEY_FILE}
+	respond "Not Found" 404
+}
+
+https://{$MCP_BACKEND_HOST}:{$MCP_PROXY_PORT:8443}, https://{$MCP_PUBLIC_HOST}:{$MCP_PROXY_PORT:8443} {
+	tls {$MCP_TLS_CERT_FILE} {$MCP_TLS_KEY_FILE}
+
+	route {
+		@authorization header Authorization *
+		respond @authorization "Use provider-specific BYOK headers, not Authorization." 400
+
+		@public path /mcp /health
+		handle @public {
+			request_body {
+				max_size {$MCP_HTTP_MAX_BODY_BYTES:2097152}
+			}
+			reverse_proxy 127.0.0.1:{$MCP_PORT:3000} {
+				# BYOK and endpoint headers pass unchanged; only the app selects a provider.
+				header_up Host {$MCP_PUBLIC_HOST}
+				header_up -Forwarded
+				header_up -X-Seed-Staging-Probe
+				header_up X-Forwarded-For {http.request.remote.host}
+				header_up X-Forwarded-Proto https
+				header_up X-Forwarded-Host {$MCP_PUBLIC_HOST}
+				flush_interval -1
+				transport http {
+					dial_timeout 5s
+					response_header_timeout {$MCP_PROXY_GRACE_PERIOD:630s}
+				}
+			}
+		}
+		handle {
+			respond "Not Found" 404
+		}
+	}
+}

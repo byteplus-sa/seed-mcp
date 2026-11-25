@@ -124,6 +124,7 @@ class Harness:
         self.backend_port, self.proxy_port = free_ports(2)
         self.url = f"https://127.0.0.1:{self.proxy_port}"
         self.backend = f"http://127.0.0.1:{self.backend_port}"
+        self.proxy: ManagedProcess | None = None
 
     def launch(
         self,
@@ -153,7 +154,14 @@ class Harness:
             child.stop()
         require(child.process.returncode == 0 and not child.timed_out, "local_command_failed")
 
-    def prepare_proxy(self) -> ssl.SSLContext:
+    def prepare_proxy(
+        self,
+        *,
+        source: Path | None = None,
+        grace_period: float = 8,
+        lifetime: float = 240,
+        body_limit: int = BODY_LIMIT,
+    ) -> ssl.SSLContext:
         openssl = shutil.which("openssl")
         require(openssl, "openssl_unavailable")
         certificate = self.directory / "certificate.pem"
@@ -191,11 +199,11 @@ class Harness:
                 "MCP_PORT": str(self.backend_port),
                 "MCP_TLS_CERT_FILE": str(certificate),
                 "MCP_TLS_KEY_FILE": str(key),
-                "MCP_HTTP_MAX_BODY_BYTES": str(BODY_LIMIT),
-                "MCP_PROXY_GRACE_PERIOD": "8s",
+                "MCP_HTTP_MAX_BODY_BYTES": str(body_limit),
+                "MCP_PROXY_GRACE_PERIOD": f"{grace_period:g}s",
             }
         )
-        shared = ROOT / "deploy" / "helm" / "seed-mcp" / "files" / "Caddyfile"
+        shared = source or ROOT / "deploy" / "helm" / "seed-mcp" / "files" / "Caddyfile"
         adapted = self.directory / "adapted.json"
         self.command(
             [
@@ -214,11 +222,15 @@ class Harness:
         self.command(
             [str(self.options.caddy_bin), "validate", "--config", str(adapted)], "caddy-validate"
         )
-        self.launch([str(self.options.caddy_bin), "run", "--config", str(adapted)], "caddy")
+        self.proxy = self.launch(
+            [str(self.options.caddy_bin), "run", "--config", str(adapted)],
+            "caddy",
+            lifetime=lifetime,
+        )
         self.checks.append("shared_caddy_validated_loopback_tls")
         return tls_context(certificate)
 
-    def server(self, mode: str = "normal") -> ManagedProcess:
+    def server(self, mode: str = "normal", *, lifetime: float = 240) -> ManagedProcess:
         from scripts.hosted_acceptance_support import worker
 
         return self.launch(
@@ -233,6 +245,7 @@ class Harness:
             ],
             "server",
             env={**self.environment, "ACCEPTANCE_FIXTURES": json.dumps(self.values)},
+            lifetime=lifetime,
         )
 
     @staticmethod

@@ -13,6 +13,12 @@ from typing import TYPE_CHECKING, Any, NoReturn
 
 import httpx
 import respx
+from scripts.hosted_acceptance_support.drain import (
+    PRODUCTION_BODY_LIMIT,
+    PROFILES,
+    mark,
+    mock_response,
+)
 from scripts.hosted_acceptance_support.runtime import (
     BODY_LIMIT,
     IMAGE_MODEL,
@@ -33,6 +39,7 @@ def serve(directory: Path, port: int, mode: str) -> None:
     from ark_mcp.server import create_server
 
     values: dict[str, str] = json.loads(os.environ.pop("ACCEPTANCE_FIXTURES"))
+    clocks = PROFILES[mode.removeprefix("drain-")] if mode.startswith("drain-") else None
     lock = threading.Lock()
 
     def record(label: str) -> None:
@@ -55,6 +62,15 @@ def serve(directory: Path, port: int, mode: str) -> None:
 
         async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
             headers = scope.get("headers", [])
+            if clocks and scope["type"] == "http":
+                probe = dict(headers).get(b"x-acceptance-keepalive")
+                if probe in (b"fresh", b"reused", b"stale"):
+                    mark(
+                        directory,
+                        probe.decode(),
+                        port=scope.get("client", ("", 0))[1],
+                        protocol=scope.get("http_version"),
+                    )
             if scope["type"] == "http" and (b"x-acceptance-probe", b"1") in headers:
                 mapped = dict(headers)
                 checks = {
@@ -69,7 +85,18 @@ def serve(directory: Path, port: int, mode: str) -> None:
                     if not valid:
                         record(label + "_failed")
                 record("proxy_verified" if all(checks.values()) else "mock_violation")
-            await self.app(scope, receive, send)
+
+            async def track_send(message: Any) -> None:
+                await send(message)
+                if (
+                    clocks
+                    and scope.get("path") == "/mcp"
+                    and message["type"] == "http.response.body"
+                    and not message.get("more_body", False)
+                ):
+                    mark(directory, "response-complete")
+
+            await self.app(scope, receive, track_send)
 
     async def respond(request: httpx.Request) -> httpx.Response:
         authorization = request.headers.get("authorization")
@@ -112,6 +139,10 @@ def serve(directory: Path, port: int, mode: str) -> None:
         if payload.get("model") != (IMAGE_MODEL if image else VIDEO_MODEL):
             reject()
         prompt = payload["prompt"] if image else payload["content"][0]["text"]
+        if clocks:
+            if image or prompt not in {values["prompt"], "stalled", "disconnected"}:
+                reject()
+            return await mock_response(directory, clocks, prompt, record)
         if prompt in {"slow", "disconnect"}:
             record(prompt)
             await asyncio.Event().wait()
@@ -154,10 +185,11 @@ def serve(directory: Path, port: int, mode: str) -> None:
             "SEEDANCE_DEFAULT_MODEL": VIDEO_MODEL,
             "SEEDANCE_MODEL_BINDINGS": [{"model_id": VIDEO_MODEL, "family": "seedance_2_5"}],
             "MCP_ADMISSION_TIMEOUT_SECONDS": 0.05,
-            "MCP_TOOL_TIMEOUT_SECONDS": TOOL_TIMEOUT,
+            "MCP_TOOL_TIMEOUT_SECONDS": clocks.tool if clocks else TOOL_TIMEOUT,
+            "BYTEPLUS_REQUEST_TIMEOUT_MS": int(clocks.tool * 1000) if clocks else 600000,
             "PROVIDER_MAX_CONCURRENCY": 1,
             "PRINCIPAL_MAX_CONCURRENCY": 1,
-            "MCP_HTTP_MAX_BODY_BYTES": BODY_LIMIT,
+            "MCP_HTTP_MAX_BODY_BYTES": PRODUCTION_BODY_LIMIT if clocks else BODY_LIMIT,
             "MCP_HTTP_MAX_IN_FLIGHT": 1 if mode == "inflight" else 8,
             "RATE_LIMIT_RPM": 1 if mode == "rate" else 60000,
             "RATE_LIMIT_BURST": 2 if mode == "rate" else 10000,
@@ -183,7 +215,7 @@ def serve(directory: Path, port: int, mode: str) -> None:
             uvicorn_config={
                 "proxy_headers": False,
                 "access_log": False,
-                "timeout_graceful_shutdown": 5,
+                "timeout_graceful_shutdown": clocks.grace if clocks else 5,
             },
         )
 

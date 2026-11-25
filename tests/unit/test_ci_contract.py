@@ -37,14 +37,19 @@ def test_readiness_ci_checks_maintained_scripts_and_real_proxy() -> None:
         "live_smoke_test_variations.py",
         "generate_identity_secret.py",
         "hosted_acceptance.py",
+        "hosted_drain_acceptance.py",
     ):
         assert f"scripts/{name}" in types
     assert "inspect_runtime_state.py" not in types
     assert not (ROOT / "scripts/inspect_runtime_state.py").exists()
     assert "$(UV) run mypy src" in types
+    assert "mypy --explicit-package-bases scripts/hosted_drain_acceptance.py" in types
     acceptance = steps["Mock-provider HTTPS acceptance and bounded load"]["run"]
     assert 'scripts/hosted_acceptance.py --caddy-bin "$CADDY_BIN"' in acceptance
     assert "--execute" not in acceptance
+    drain = steps["Mock-only active-call shutdown and connection checks"]["run"]
+    assert 'scripts/hosted_drain_acceptance.py --caddy-bin "$CADDY_BIN" --profile short' in drain
+    assert "--profile production" not in drain
 
 
 def test_ci_secret_scan_enforces_findings_without_regenerating_baseline() -> None:
@@ -107,6 +112,7 @@ def test_ci_offline_tests_exclude_postgres_and_preserve_quality_gates() -> None:
         "Lint and format check",
         "Type check",
         "Mock-provider HTTPS acceptance and bounded load",
+        "Mock-only active-call shutdown and connection checks",
         "Static security scan",
         "Dependency vulnerability audit",
         "Secret scan",
@@ -158,6 +164,9 @@ def test_ci_kubernetes_schema_check_is_strict_pinned_and_floor_aware() -> None:
     assert "for upload_mode in disabled static irsa" in command
     assert "temporaryUpload.irsa.prerequisitesConfirmed=true" in command
     assert "serviceaccount-v1" in command
+    assert "for mode in apig-staging apig-production" in command
+    assert "networkpolicy-networking-v1" in command
+    assert "service.productionConfirmed=$confirmed" in command
     assert "for version in 1.27.0 1.28.0 1.29.0" in command
     assert "grep -F 'requires kubeVersion'" in command
     assert 'test -s "$schema_cache/$key"' in command

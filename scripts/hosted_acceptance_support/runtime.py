@@ -147,6 +147,7 @@ class ManagedProcess:
         self.forced = False
         self.cleanup_failed = False
         self._stopped = False
+        self._terminated = False
         with ExitStack() as stack:
             error_stream = stack.enter_context(log.open("wb"))
             output_stream = stack.enter_context(output.open("wb")) if output else error_stream
@@ -184,11 +185,20 @@ class ManagedProcess:
             except Exception:
                 self.cleanup_failed = True
 
+    def terminate(self) -> None:
+        """Send TERM once without waiting or disarming the lifetime watchdog."""
+        with self._lock:
+            if not self._terminated:
+                self._signal(signal.SIGTERM)
+                self._terminated = True
+
     def stop(self, grace: float = 8) -> None:
+        if not math.isfinite(grace) or grace < 0:
+            raise ValueError("Invalid process grace.")
         with self._lock:
             self._timer.cancel()
             if not self._stopped and self.process.poll() is None:
-                self._signal(signal.SIGTERM)
+                self.terminate()
                 try:
                     self.process.wait(timeout=grace)
                 except subprocess.TimeoutExpired:

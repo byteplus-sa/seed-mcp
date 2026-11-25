@@ -89,10 +89,36 @@ operator-only exact header matching at APIG and immediate disable/404 readback.
 Never silently substitute CLB for a selected gateway design. Do not enable gateway infrastructure
 as a client-setup side effect.
 
+Explicit `service.mode=apig-production` selects a separate private BYOK proxy;
+it retains backendHost/source restrictions and disabled uploads, forwards
+supported BYOK/endpoint headers and rejects Authorization. It requires
+`service.productionConfirmed=true` and helper `--production-approved`, not
+staging readiness. These acknowledge the documented backend trust decision and
+launch prerequisites; no native APIG verification control or route activation
+is supplied. Default policy requires verified backend identity. The existing
+deployment has an explicit "Keep HTTPS, waive verification" operator exception,
+recorded in `specs/SPEC_VKE_DEPLOYMENT.md#accepted-backend-verification-exception`.
+For that exact scope, backend verification is deferred hardening, not a launch
+blocker. Keep public TLS validation and private encryption, and keep routes
+blocked until remaining gates and separate launch approval pass. Do not apply
+the exception automatically to other deployments or treat it as verification.
+Use `docs/backend-certificate-renewal.md` for versioned TLS Secret references,
+expiry ownership and per-replica served-certificate verification. Same-name
+Secret updates do not trigger a rollout or promise Caddy reload.
+This private production listener is HTTP/1.1-only following a reproduced HTTPX
+H2 shutdown failure. Local `hosted_drain_acceptance.py` short/production profiles
+test H1 negotiation, exact mock receipts and no retries; they do not establish
+public APIG behavior, live drain or certificate rotation.
+
 The optional `deploy-vke.yml` GitHub Actions workflow supplies manual main-only
-Helm delivery through protected `byteplus-staging` approval and a workflow-
+Helm delivery with explicit `target=staging|production` mapping to protected
+`byteplus-staging|byteplus-production` approval and a workflow-
 restricted private runner group. A same-VPC runner needs no laptop VPN/CEN;
 ordinary GitHub-hosted runners do not gain private API reachability from keys.
+Production needs a pre-existing verified protected environment, separate
+enablement/runner-ready/group variables and protected production approval.
+Both targets serialize delivery. Service mode is required; there is no
+implicit CLB fallback. Source support does not provision those protections.
 Read `docs/github-actions-deployment.md` in the selected checkout for bootstrap,
 isolation, existing kubeconfig/Secrets and nonsecret reference variables.
 It does not provision VKE, establish GitHub IAM/OIDC federation, synchronize

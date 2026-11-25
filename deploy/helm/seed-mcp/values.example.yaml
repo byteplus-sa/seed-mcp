@@ -23,5 +23,7 @@ temporaryUpload:
 service:
   # Synthetic-only private backend: apig-staging, backendHost, empty subnetId.
   mode: public-clb
+  # apig-production requires a documented backend trust decision and approval.
+  productionConfirmed: false
   subnetId: ""
   sourceRanges: []
