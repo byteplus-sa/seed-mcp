@@ -5,6 +5,8 @@
 {{- define "seed-mcp.proxy" -}}
 {{- if eq .Values.service.mode "apig-staging" -}}
 {{- .Files.Get "files/Caddyfile.apig-staging" -}}
+{{- else if eq .Values.service.mode "apig-production" -}}
+{{- .Files.Get "files/Caddyfile.apig-production" -}}
 {{- else -}}
 {{- .Files.Get "files/Caddyfile" -}}
 {{- end -}}

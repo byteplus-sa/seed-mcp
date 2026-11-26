@@ -10,9 +10,12 @@
 {{- if eq .Values.identitySecret.name .Values.tlsSecretName -}}
 {{- fail "identity and TLS must use different existing Secrets" -}}
 {{- end -}}
-{{- if eq .Values.service.mode "apig-staging" -}}
+{{- if ne (eq .Values.service.mode "apig-production") .Values.service.productionConfirmed -}}
+{{- fail "productionConfirmed must be true only for explicitly approved apig-production; it does not verify APIG trust" -}}
+{{- end -}}
+{{- if has .Values.service.mode (list "apig-staging" "apig-production") -}}
 {{- if or (empty .Values.backendHost) (eq .Values.backendHost .Values.publicHost) (not (empty .Values.service.subnetId)) .Values.temporaryUpload.enabled -}}
-{{- fail "apig-staging requires a distinct backendHost, empty subnetId and disabled temporary uploads" -}}
+{{- fail "APIG modes require a distinct backendHost, empty subnetId and disabled temporary uploads" -}}
 {{- end -}}
 {{- range $cidr := .Values.service.sourceRanges -}}
 {{- $parts := splitList "/" $cidr -}}
@@ -21,7 +24,7 @@
 {{- $second := int (index $octets 1) -}}
 {{- $prefix := int (index $parts 1) -}}
 {{- if not (or (and (eq $first 10) (ge $prefix 8)) (and (eq $first 172) (ge $second 16) (le $second 31) (ge $prefix 12)) (and (eq $first 192) (eq $second 168) (ge $prefix 16))) -}}
-{{- fail "apig-staging sourceRanges must be contained entirely in RFC1918 networks" -}}
+{{- fail "APIG sourceRanges must be contained entirely in RFC1918 networks" -}}
 {{- end -}}
 {{- end -}}
 {{- end -}}

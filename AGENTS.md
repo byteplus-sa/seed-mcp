@@ -178,7 +178,8 @@ existing identity and TLS Secrets plus a distinct optional TOS/enrollment Secret
 Private API access requires operator private connectivity.
 
 Manual `.github/workflows/deploy-vke.yml` Helm delivery uses main-only dispatch,
-protected `byteplus-staging` approval and a workflow-restricted private runner
+explicit `target=staging|production` mapped to protected
+`byteplus-staging|byteplus-production` approval and a workflow-restricted private runner
 group. Labels alone are not isolation for this public repository. A same-VPC
 runner needs no laptop VPN/CEN. `scripts/deploy_vke.py` checks explicit private
 kubeconfig/API, nodes, metrics and existing identity/TLS fields, then optionally
@@ -188,6 +189,10 @@ Raw subprocess output is captured, not logged or uploaded. Preserve separate
 operator state and addon ownership. GitHub OIDC acceptance is not established by
 VKE IRSA docs. See `docs/github-actions-deployment.md`; keep readiness flags false
 until private runner isolation and live prerequisites are independently verified.
+Production needs a pre-existing verified protected environment, separate
+`VKE_PRODUCTION_ENABLED`, runner-ready/group variables and protected
+`VKE_PRODUCTION_APPROVED`. Both targets share delivery concurrency. The helper
+and workflow require explicit service mode; there is no implicit CLB fallback.
 
 Terraform keeps two fixed private on-demand baseline nodes by default.
 `burst_node_max_count=0` disables a separate optional burst pool; positive
@@ -211,12 +216,35 @@ cannot express destination-free disablement; require disabled readback by
 postcondition. Native APIG rejects partial disabled `TraceSpec`; omit tracing
 input and require disabled tracing readback too. Failure may follow creation:
 inspect state/cloud before retries.
-Never attach BYOK routes until logging and private HTTPS verification pass.
+Never attach BYOK routes until logging and the approved backend trust decision
+are satisfied. Default policy requires verified private HTTPS; the exact
+deployment exception below waives backend identity verification only.
 The chart defaults to public CLB/Caddy. Opt-in `service.mode=apig-staging`
 uses private ClusterIP:8443/ingress policy and separate `backendHost`, refuses
 credential headers and forbids uploads. It is synthetic-only, not a BYOK
-launch or backend trust fix. Keep public application routes disabled;
-temporary tests require verified operator-only exact header matching at APIG
+launch or backend trust fix. Keep public application routes disabled.
+`apig-production` is separate private BYOK source support with the same network
+boundaries and uploads disabled. It forwards supported credentials/endpoint
+headers and rejects Authorization, including empty values. It requires
+`service.productionConfirmed=true` and helper `--production-approved`, not
+staging readiness; these are acknowledgements, not APIG verification. No native
+APIG trust control has been established or deployed. Certificate renewal uses
+operator-managed versioned TLS Secrets and protected reference rollouts,
+with per-replica served-certificate checks; same-name data has no automatic
+rollout/reload guarantee. See `docs/backend-certificate-renewal.md`.
+The private production listener is HTTP/1.1-only after a reproduced HTTPX H2
+GOAWAY drain failure; public APIG protocol behavior remains a separate live gate.
+On 2026-11-25 the operator explicitly selected "Keep HTTPS, waive verification"
+for the existing Seed MCP APIG deployment. See
+`specs/SPEC_VKE_DEPLOYMENT.md#accepted-backend-verification-exception` for exact
+scope and accepted private-hop impersonation/credential-exposure risk. Do not
+continue blocking that deployment on a native APIG trust control or certificate-
+negative tests; these are deferred hardening, not verified/passed checks.
+Keep public TLS verification, private HTTPS encryption, restricted ingress,
+certificate preflight/renewal, logging/routing and other launch gates. The
+exception does not authorize deployment, route enablement, paid calls, credential
+use/rotation, commit or push by itself, and is not a default for other deployments.
+Temporary tests require verified operator-only exact header matching at APIG
 and immediate disable/404 readback. Replenish ephemeral runners per job.
 Explicit operator approval can permit provisioning first and
 billing review afterward; real BYOK still requires TLS/logging/stateless routing
@@ -239,6 +267,12 @@ These are explicit per-pod env mappings, not account spend caps.
 `scripts/hosted_acceptance.py --caddy-bin PATH` runs isolated mock-only TLS/load
 checks without a database or live provider calls. Live VKE routing, rollout,
 capacity and client/provider validation remain separate approved gates.
+`scripts/hosted_drain_acceptance.py --caddy-bin PATH --profile short|production`
+tests accepted mock work through TERM with no retries; production uses six
+parallel 590s calls and 600/630/660s clocks. Both H1 and H2-capable client offers
+must negotiate H1 on the private production listener. Only short runs in CI.
+These process checks do not prove APIG trust, new-intake withdrawal, certificate
+rotation or live node drain. Test-only h2 is a dev dependency, not a runtime feature.
 
 ## Repository Layout
 

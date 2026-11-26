@@ -80,6 +80,7 @@ typecheck: ## Type-check with mypy
 		scripts/prepare_vke_terraform.py \
 		scripts/deploy_vke.py \
 		scripts/hosted_acceptance.py
+	MYPYPATH=src:. $(UV) run mypy --explicit-package-bases scripts/hosted_drain_acceptance.py
 
 vke-validate: ## Validate isolated VKE source and mock plans, without cloud credentials
 	$(UV) run python scripts/prepare_vke_terraform.py validate --terraform-bin "$(TERRAFORM)"

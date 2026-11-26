@@ -31,6 +31,8 @@ temporaryUpload:
 service:
   # apig-staging is synthetic-only: private Service, no public client routes.
   mode: public-clb
+  # Production acknowledgement is separate from staging readiness, not a TLS check.
+  productionConfirmed: false
   subnetId: ""
   bandwidthMbps: 25
   sourceRanges: []

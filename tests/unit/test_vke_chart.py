@@ -282,9 +282,22 @@ def test_chart_accepts_supported_kubernetes_source_versions(tmp_path: Path, vers
 
 @pytest.mark.parametrize("hpa", [False, True])
 @pytest.mark.parametrize("selected_version", [False, True])
-@pytest.mark.parametrize("upload_mode", ["disabled", "static", "irsa"])
+@pytest.mark.parametrize(
+    "service_mode,upload_mode",
+    [
+        ("public-clb", "disabled"),
+        ("public-clb", "static"),
+        ("public-clb", "irsa"),
+        ("apig-staging", "disabled"),
+        ("apig-production", "disabled"),
+    ],
+)
 def test_rendered_kubernetes_schemas_offline(
-    tmp_path: Path, hpa: bool, selected_version: bool, upload_mode: str
+    tmp_path: Path,
+    hpa: bool,
+    selected_version: bool,
+    upload_mode: str,
+    service_mode: str,
 ) -> None:
     binary = executable("KUBECONFORM_BIN", "kubeconform")
     version = os.environ.get("KUBERNETES_DEPLOYMENT_VERSION") if selected_version else "1.30.0"
@@ -303,14 +316,21 @@ def test_rendered_kubernetes_schemas_offline(
             "existingSecret": "synthetic-uploads",  # pragma: allowlist secret
         }
     )
-    rendered = render(
-        tmp_path,
-        {
-            "autoscaling": {"enabled": hpa},
-            "temporaryUpload": upload,
-        },
-        kube_version=version,
-    )
+    values: dict[str, Any] = {
+        "autoscaling": {"enabled": hpa},
+        "temporaryUpload": upload,
+    }
+    if service_mode != "public-clb":
+        values.update(
+            backendHost="backend.example.invalid",
+            service={
+                "mode": service_mode,
+                "productionConfirmed": service_mode == "apig-production",
+                "subnetId": "",
+                "sourceRanges": ["10.80.48.0/20"],
+            },
+        )
+    rendered = render(tmp_path, values, kube_version=version)
     documents(rendered)
     validation = subprocess.run(
         [
@@ -686,7 +706,9 @@ def test_chart_rejects_invalid_operator_limits(tmp_path: Path, values: dict[str,
 
 def test_operator_examples_never_acknowledge_readiness() -> None:
     for filename in ("values.yaml", "values.example.yaml"):
-        assert yaml.safe_load((CHART / filename).read_text())["prerequisitesConfirmed"] is False
+        values = yaml.safe_load((CHART / filename).read_text())
+        assert values["prerequisitesConfirmed"] is False
+        assert values["service"]["productionConfirmed"] is False
     ci = yaml.safe_load((CHART / "values.ci.yaml").read_text())
     assert ci["image"].startswith("example.invalid/")
     assert ci["publicHost"].endswith(".invalid")

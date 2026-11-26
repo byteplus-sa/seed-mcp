@@ -18,6 +18,16 @@ Keep public client routes disabled. Operator-only synthetic gateway tests need
 verified exact header matching and immediate route disable/404 readback.
 This mode does not fix APIG backend certificate trust or approve BYOK launch.
 {{- end }}
+{{- if eq .Values.service.mode "apig-production" }}
+This release uses private ClusterIP:8443 and ingress policy with BYOK forwarding.
+productionConfirmed is an operator acknowledgement, not an APIG trust check.
+Before enabling routes, document verified APIG backend identity or an explicit
+deployment-scoped risk acceptance. Keep public and private HTTPS. Verify
+disabled logging/tracing, no caching/mirroring/retries, credential recovery,
+certificate renewal and active-call/client acceptance. Launch approval is separate.
+APIG's peer address is the rate-limit source; original-client IP is not asserted.
+Uploads remain disabled. See docs/backend-certificate-renewal.md.
+{{- end }}
 Temporary upload preparation is disabled by default. If enabled, verify the
 distinct existing TOS/enrollment Secret and private versioning-disabled bucket,
 prefix IAM, browser POST CORS, lifecycle and storage/egress controls separately.
@@ -30,3 +40,5 @@ The chart does not enable cluster IRSA or provision IAM. Live OIDC endpoint
 acceptance remains an operator gate. Default one-hour credentials can shorten
 nominal 24-hour GET URLs; refresh does not renew already issued permissions.
 Roll pods after external Secret changes; no Secret-content checksum is available.
+Prefer a versioned TLS Secret name: changing tlsSecretName changes the pod
+template checksum. Verify the served certificate on every replacement replica.

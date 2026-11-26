@@ -18,7 +18,7 @@ import pytest
 from cryptography import x509
 from cryptography.hazmat.primitives import hashes, serialization
 from cryptography.hazmat.primitives.asymmetric import rsa
-from cryptography.x509.oid import NameOID
+from cryptography.x509.oid import ExtendedKeyUsageOID, NameOID
 
 from tests.unit.test_vke_chart import CHART, documents, executable, render
 
@@ -130,11 +130,14 @@ def test_private_ranges_render(tmp_path: Path, cidr: str) -> None:
     documents(render(tmp_path, values))
 
 
-def test_real_staging_proxy_refuses_credentials_and_canonicalizes_headers(
+@pytest.mark.parametrize("mode", ["apig-staging", "apig-production"])
+def test_real_apig_proxy_credentials_and_canonical_headers(
     tmp_path: Path,
     socket_enabled: None,
+    mode: str,
 ) -> None:
     binary = executable("CADDY_BIN", "caddy")
+    caddyfile = CHART / f"files/Caddyfile.{mode}"
     key = rsa.generate_private_key(public_exponent=65537, key_size=2048)
     name = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, BACKEND)])
     now = datetime.now(UTC)
@@ -147,6 +150,22 @@ def test_real_staging_proxy_refuses_credentials_and_canonicalizes_headers(
         .not_valid_before(now - timedelta(minutes=1))
         .not_valid_after(now + timedelta(minutes=5))
         .add_extension(x509.SubjectAlternativeName([x509.DNSName(BACKEND)]), critical=False)
+        .add_extension(x509.BasicConstraints(ca=True, path_length=None), critical=True)
+        .add_extension(
+            x509.KeyUsage(
+                digital_signature=True,
+                content_commitment=False,
+                key_encipherment=True,
+                data_encipherment=False,
+                key_agreement=False,
+                key_cert_sign=True,
+                crl_sign=True,
+                encipher_only=False,
+                decipher_only=False,
+            ),
+            critical=True,
+        )
+        .add_extension(x509.ExtendedKeyUsage([ExtendedKeyUsageOID.SERVER_AUTH]), critical=False)
         .sign(key, hashes.SHA256())
     )
     cert_path, key_path = tmp_path / "tls.crt", tmp_path / "tls.key"
@@ -163,6 +182,7 @@ def test_real_staging_proxy_refuses_credentials_and_canonicalizes_headers(
 
     class Handler(BaseHTTPRequestHandler):
         def do_GET(self) -> None:
+            self.rfile.read(int(self.headers.get("Content-Length", "0")))
             seen.append(dict(self.headers))
             body = b"synthetic-backend"
             self.send_response(200)
@@ -190,9 +210,10 @@ def test_real_staging_proxy_refuses_credentials_and_canonicalizes_headers(
         "MCP_PORT": str(backend.server_port),
         "MCP_TLS_CERT_FILE": str(cert_path),
         "MCP_TLS_KEY_FILE": str(key_path),
+        "MCP_HTTP_MAX_BODY_BYTES": "1024",
     }
     adapted = subprocess.run(
-        [binary, "adapt", "--config", str(CADDYFILE)],
+        [binary, "adapt", "--config", str(caddyfile)],
         env=env,
         capture_output=True,
         text=True,
@@ -203,15 +224,27 @@ def test_real_staging_proxy_refuses_credentials_and_canonicalizes_headers(
     config = json.loads(adapted.stdout)
     assert config["admin"]["disabled"]
     assert config["logging"]["logs"]["default"]["writer"]["output"] == "discard"
-    process = subprocess.Popen(
-        [binary, "run", "--config", str(CADDYFILE), "--adapter", "caddyfile"],
-        env=env,
-        stdout=subprocess.DEVNULL,
-        stderr=subprocess.DEVNULL,
-    )
+    server = next(iter(config["apps"]["http"]["servers"].values()))
+    assert set(server["protocols"]) == ({"h1"} if mode == "apig-production" else {"h1", "h2"})
+    from scripts.hosted_acceptance_support.runtime import loopback_config
+
+    local_config = tmp_path / "caddy.json"
+    local_config.write_text(json.dumps(loopback_config(config, port)))
+    log_path = tmp_path / "caddy.log"
+    with log_path.open("wb") as log:
+        process = subprocess.Popen(
+            [binary, "run", "--config", str(local_config)],
+            env=env,
+            stdout=log,
+            stderr=log,
+        )
     context = ssl.create_default_context(cafile=str(cert_path))
 
-    def request(path: str, headers: dict[str, str] | None = None) -> int:
+    def request(
+        path: str,
+        headers: dict[str, str] | None = None,
+        body: bytes | None = None,
+    ) -> int:
         connection = http.client.HTTPConnection("127.0.0.1", port, timeout=3)
         connection.sock = context.wrap_socket(
             socket.create_connection(("127.0.0.1", port), timeout=3), server_hostname=BACKEND
@@ -220,6 +253,7 @@ def test_real_staging_proxy_refuses_credentials_and_canonicalizes_headers(
             connection.request(
                 "POST" if path == "/mcp" else "GET",
                 path,
+                body=body,
                 headers={"Host": PUBLIC, **(headers or {})},
             )
             response = connection.getresponse()
@@ -248,8 +282,22 @@ def test_real_staging_proxy_refuses_credentials_and_canonicalizes_headers(
                 "Authorization",
             ):
                 for value in ("synthetic-only", ""):
-                    assert request(path, {header: value}) == 403
-        assert seen == []
+                    before = len(seen)
+                    status = request(path, {header: value})
+                    if mode == "apig-staging":
+                        assert status == 403
+                    elif header == "Authorization":
+                        assert status == 400
+                    else:
+                        assert status == (404 if path == "/ready" else 200)
+                        if status == 200:
+                            assert {k.lower(): v for k, v in seen[-1].items()}[
+                                header.lower()
+                            ] == value
+                    if status != 200:
+                        assert len(seen) == before
+        if mode == "apig-staging":
+            assert seen == []
         assert request("/ready") == 404
         assert request("/metrics") == 404
         assert (
@@ -272,9 +320,27 @@ def test_real_staging_proxy_refuses_credentials_and_canonicalizes_headers(
         assert "Forwarded" not in seen[-1]
         assert "X-Seed-Staging-Probe" not in seen[-1]
         assert request("/health", {"Host": "wrong.invalid"}) == 404
+        assert request("/mcp", {"Host": BACKEND}) == 200
+        assert seen[-1]["Host"] == PUBLIC
+        if mode == "apig-production":
+            headers = {
+                "X-ModelArk-Api-Key": "synthetic-only",
+                "X-Seed-Speech-Api-Key": "synthetic-only",
+                "X-MCP-Client-Secret": "synthetic-only",  # pragma: allowlist secret
+                "X-ModelArk-Seedance-Endpoint": "ep-synthetic-video",
+                "X-ModelArk-Seedream-Endpoint": "ep-synthetic-image",
+            }
+            assert request("/mcp", headers) == 200
+            for name, value in headers.items():
+                assert {key.lower(): value for key, value in seen[-1].items()}[
+                    name.lower()
+                ] == value
+        assert request("/mcp", body=b"x" * 1025) == 413
     finally:
         process.terminate()
         process.wait(timeout=10)
         backend.shutdown()
         backend.server_close()
         thread.join(timeout=5)
+    assert "synthetic-only" not in log_path.read_text()
+    assert "ep-synthetic" not in log_path.read_text()

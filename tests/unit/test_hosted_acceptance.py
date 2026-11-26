@@ -267,8 +267,9 @@ def test_exited_child_is_not_signalled_after_its_pid_can_be_reused(
 
 
 @pytest.mark.parametrize("operation", ["connect", "getaddrinfo", "sendto"])
+@pytest.mark.parametrize("mode", ["normal", "drain-short", "drain-production"])
 def test_worker_rejects_unmocked_network_before_socket_dispatch(
-    tmp_path: Path, operation: str
+    tmp_path: Path, operation: str, mode: str
 ) -> None:
     program = """
 import socket
@@ -293,10 +294,10 @@ class NetworkProbe:
                 raise AssertionError("Worker allowed an unmocked socket operation.")
 
 with patch("ark_mcp.server.create_server", return_value=NetworkProbe()):
-    serve(Path(sys.argv[1]), 9, "normal")
+    serve(Path(sys.argv[1]), 9, sys.argv[3])
 """
     result = subprocess.run(
-        [sys.executable, "-B", "-c", program, str(tmp_path), operation],
+        [sys.executable, "-B", "-c", program, str(tmp_path), operation, mode],
         cwd=tmp_path,
         env={**isolated_environment(tmp_path), "ACCEPTANCE_FIXTURES": json.dumps(fixtures())},
         capture_output=True,
@@ -333,6 +334,47 @@ def test_watchdog_errors_are_contained_and_cleanup_remains_possible(
         child.stop()
     assert child.process.poll() is not None
     assert not child._timer.is_alive()
+
+
+def test_term_is_sent_once_without_disarming_watchdog(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    child = ManagedProcess(
+        [sys.executable, "-I", "-c", "import time; time.sleep(60)"],
+        home=tmp_path,
+        env=isolated_environment(tmp_path),
+        log=tmp_path / "child.log",
+        lifetime=30,
+    )
+    try:
+        with monkeypatch.context() as patch:
+            send = Mock()
+            patch.setattr(child, "_signal", send)
+            child.terminate()
+            child.terminate()
+            send.assert_called_once_with(signal.SIGTERM)
+            assert child._timer.is_alive()
+        # Restore the unsent signal so ordinary cleanup can reap this unit fixture.
+        child._terminated = False
+    finally:
+        child.stop()
+
+
+@pytest.mark.parametrize("grace", [-1, float("nan"), float("inf")])
+def test_stop_rejects_unbounded_or_negative_grace(tmp_path: Path, grace: float) -> None:
+    child = ManagedProcess(
+        [sys.executable, "-I", "-c", "import time; time.sleep(60)"],
+        home=tmp_path,
+        env=isolated_environment(tmp_path),
+        log=tmp_path / "child.log",
+        lifetime=30,
+    )
+    try:
+        with pytest.raises(ValueError, match="Invalid process grace"):
+            child.stop(grace=grace)
+        assert child._timer.is_alive()
+    finally:
+        child.stop()
 
 
 def test_signal_handler_allows_cleanup_and_restores_previous_handlers() -> None:

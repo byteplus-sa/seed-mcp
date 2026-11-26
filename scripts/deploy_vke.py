@@ -141,6 +141,8 @@ class Delivery:
             f"publicHost={self.args.public_host}",
             "--set-string",
             f"service.mode={self.args.service_mode}",
+            "--set",
+            f"service.productionConfirmed={str(self.args.production_approved).lower()}",
             "--set-string",
             f"backendHost={self.args.backend_host}",
             "--set-string",
@@ -217,7 +219,7 @@ class Delivery:
         ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT).load_cert_chain(certificate, private_key)
         tls_host = (
             self.args.backend_host
-            if self.args.service_mode == "apig-staging"
+            if self.args.service_mode in ("apig-staging", "apig-production")
             else self.args.public_host
         )
         hostname_check = self.run(
@@ -273,9 +275,14 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--image", required=True)
     parser.add_argument("--public-host", required=True)
     parser.add_argument(
-        "--service-mode", choices=("public-clb", "apig-staging"), default="public-clb"
+        "--service-mode", choices=("public-clb", "apig-staging", "apig-production"), required=True
     )
     parser.add_argument("--backend-host", default="")
+    parser.add_argument(
+        "--production-approved",
+        action="store_true",
+        help="Acknowledge the documented backend trust decision and remaining production gates; not a TLS test or waiver by itself.",
+    )
     parser.add_argument("--identity-secret", required=True)
     parser.add_argument("--tls-secret", required=True)
     parser.add_argument("--prerequisites-confirmed", action="store_true")
@@ -292,15 +299,17 @@ def main(argv: list[str] | None = None) -> int:
             raise ValueError("Supply an explicit reviewed Kubernetes context.")
         if len(args.public_host) > 253 or not HOST.fullmatch(args.public_host):
             raise ValueError("Supply the reviewed public DNS hostname.")
-        if args.service_mode == "apig-staging":
+        if args.production_approved != (args.service_mode == "apig-production"):
+            raise ValueError("Production mode requires its separate approval acknowledgement.")
+        if args.service_mode in ("apig-staging", "apig-production"):
             if (
                 len(args.backend_host) > 253
                 or not HOST.fullmatch(args.backend_host)
                 or args.backend_host == args.public_host
             ):
-                raise ValueError("Staging requires a distinct reviewed private TLS hostname.")
+                raise ValueError("APIG requires a distinct reviewed private TLS hostname.")
         elif args.backend_host:
-            raise ValueError("backend-host is accepted only for apig-staging.")
+            raise ValueError("backend-host is accepted only for APIG modes.")
         for value in (args.namespace, args.release, args.identity_secret, args.tls_secret):
             if not NAME.fullmatch(value):
                 raise ValueError("Use explicit DNS-label namespace, release and Secret names.")
