@@ -49,6 +49,9 @@ spec:
           minDomains: 2
           topologyKey: kubernetes.io/hostname
           whenUnsatisfiable: DoNotSchedule
+          # Spread each revision independently while old and new pods coexist.
+          matchLabelKeys:
+            - pod-template-hash
           labelSelector:
             matchLabels:
               {{- include "seed-mcp.selector" . | nindent 14 }}

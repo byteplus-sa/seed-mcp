@@ -293,8 +293,12 @@ key bundle or client secret belongs in Terraform, Helm or pod environment.
    regional quotas. Defaults select `ap-southeast-1`, two fixed on-demand nodes
    and no burst pool. Optional `burst_node_max_count` adds a separate bounded
    private on-demand pool starting at zero, not a change to baseline ownership.
-   Hostname spreading needs two schedulable nodes;
-   same-zone nodes are not AZ resilience. NAT/EIP/SNAT supply egress without public
+   Hostname spreading needs two schedulable nodes and the default-enabled
+   `MatchLabelKeysInPodTopologySpread` feature. The chart counts each
+   `pod-template-hash` revision separately during a rollout. Verify final
+   worker diversity after rollout and scale-in: topology constraints schedule
+   incoming pods but do not rebalance survivors after deletion.
+   Same-zone nodes are not AZ resilience. NAT/EIP/SNAT supply egress without public
    node IPs. Infrastructure creation is a separate approved, billable step.
 3. Establish authenticated private management access. Inspect the actual VKE
    cluster and its addons before preparing Helm values.

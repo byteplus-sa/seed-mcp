@@ -150,6 +150,7 @@ def test_ci_values_lint_and_scalable_workload(tmp_path: Path) -> None:
             "minDomains": 2,
             "topologyKey": "kubernetes.io/hostname",
             "whenUnsatisfiable": "DoNotSchedule",
+            "matchLabelKeys": ["pod-template-hash"],
             "labelSelector": {"matchLabels": selector},
         }
     ]
@@ -195,6 +196,35 @@ def test_ci_values_lint_and_scalable_workload(tmp_path: Path) -> None:
     assert "volumeClaimTemplates" not in deployment["spec"]
     assert all("persistentVolumeClaim" not in volume for volume in pod["volumes"])
     assert "nodeSelector" not in pod
+
+
+@pytest.mark.parametrize("mode", ["public-clb", "apig-staging", "apig-production"])
+@pytest.mark.parametrize("kube_version", ["1.30.0", "1.36.1"])
+def test_rollout_spread_counts_each_revision_separately(
+    tmp_path: Path, mode: str, kube_version: str
+) -> None:
+    overrides: dict[str, Any] = {"service": {"mode": mode}}
+    if mode.startswith("apig-"):
+        overrides["backendHost"] = "backend.example.test"
+        overrides["service"].update(
+            subnetId="",
+            sourceRanges=["10.80.48.0/20"],
+            productionConfirmed=mode == "apig-production",
+        )
+    rendered = documents(render(tmp_path, overrides, kube_version=kube_version))
+    deployment = next(item for item in rendered if item["kind"] == "Deployment")
+    template = deployment["spec"]["template"]
+    spread = template["spec"]["topologySpreadConstraints"][0]
+    assert spread["matchLabelKeys"] == ["pod-template-hash"]
+    assert spread["labelSelector"]["matchLabels"] == deployment["spec"]["selector"]["matchLabels"]
+    assert "pod-template-hash" not in template["metadata"]["labels"]
+    assert spread["minDomains"] == 2
+    assert spread["maxSkew"] == 1
+    assert spread["whenUnsatisfiable"] == "DoNotSchedule"
+    assert deployment["spec"]["strategy"]["rollingUpdate"] == {
+        "maxUnavailable": 0,
+        "maxSurge": 1,
+    }
 
 
 @pytest.mark.parametrize("replicas", [2, 4, 6])
