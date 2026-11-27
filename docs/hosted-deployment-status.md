@@ -92,6 +92,48 @@ ledger was introduced.
   Subsequent automatic scale-in maintained at least one available replica.
   Final placement was split across baseline workers without manual rebalance.
 
+## Staging Delivery Retirement
+
+On November 28, 2026, the operator authorized production-only delivery cleanup
+and publication to main. Complete GitHub inventories found eleven completed
+delivery runs, no active delivery, and zero registered private runners.
+The two latest completed runs were the subsequent
+[check](https://github.com/byteplus-sa/seed-mcp/actions/runs/46010530376)
+and [delivery](https://github.com/byteplus-sa/seed-mcp/actions/runs/46011152742)
+for source `7a693e47864793fc76c18edb4f1ab6c48cc2b71a`.
+This run inventory is not a fresh cluster inspection; the earlier live-instance
+and acceptance evidence above remains a dated record.
+
+Verified GitHub quarantine:
+
+- `byteplus-staging` now has exactly one variable:
+  `VKE_PREREQUISITES_CONFIRMED=false`. Its ten deployment references were removed.
+- Its reviewer/main-only/no-administrator-bypass protections remain unchanged.
+  The protected environment itself was not deleted.
+- Production environment variables and both environments' protection policies
+  matched pre-change readbacks. Production enablement and the shared restricted
+  runner group were preserved; production runner readiness remains false.
+- The workflow source accepts only production and keeps the same path, job IDs,
+  runner allowlist and `byteplus-staging-delivery` concurrency key.
+  The live namespace `seed-mcp-staging` and release `seed-mcp` are not renamed.
+
+The repository's legacy `VKE_RUNNER_READY=false` remains an explicit deny
+value for historical runs. Its obsolete `VKE_RUNNER_GROUP` pointer is removable
+only once the production-only source is on main; removing that pointer must not
+delete the shared group or the production pointer.
+
+**Final GitHub environment deletion remains pending.** The conservative
+30-day boundary from the latest pre-cutover run's original creation time is
+after **2026-12-27 13:54:29 UTC**. Refresh all paginated inventories and verify no
+legacy attempts remain active, waiting or queued before any approved deletion;
+this date is not an automatic deletion schedule.
+Old delivery-only reruns can reuse configuration-job outputs, so preserve the
+disabled prerequisite and environment protections throughout the window.
+
+No application rollout, Kubernetes/cloud resource mutation, credential change,
+private-file deletion or paid provider call was performed for this quarantine.
+See the [retirement runbook](github-actions-deployment.md#legacy-staging-retirement).
+
 ## Acceptance Evidence
 
 The operator explicitly approved bounded real tests with client-side keys,

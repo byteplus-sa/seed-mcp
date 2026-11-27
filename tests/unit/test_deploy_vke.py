@@ -377,47 +377,77 @@ def test_workflow_is_manual_main_only_protected_and_workflow_group_isolated() ->
     workflow = yaml.load(source, Loader=yaml.BaseLoader)
     assert set(workflow["on"]) == {"workflow_dispatch"}
     assert workflow["permissions"] == {"contents": "read"}
-    assert workflow["concurrency"]["cancel-in-progress"] == "false"
+    assert workflow["concurrency"] == {
+        "group": "byteplus-staging-delivery",
+        "cancel-in-progress": "false",
+    }
     config, job = workflow["jobs"]["configuration"], workflow["jobs"]["delivery"]
     for item in (config, job):
         assert "github.ref == 'refs/heads/main'" in item["if"]
         assert "github.repository == 'byteplus-sa/seed-mcp'" in item["if"]
-    assert job["environment"] == "${{ needs.configuration.outputs.environment }}"
-    assert workflow["on"]["workflow_dispatch"]["inputs"]["target"]["options"] == [
-        "staging",
-        "production",
-    ]
-    assert workflow["on"]["workflow_dispatch"]["inputs"]["target"]["default"] == "staging"
+    assert job["environment"] == "byteplus-production"
+    assert config["outputs"] == {"runner_group": "${{ steps.config.outputs.runner_group }}"}
+    inputs = workflow["on"]["workflow_dispatch"]["inputs"]
+    assert inputs["target"]["options"] == ["production"]
+    assert inputs["target"]["default"] == "production"
+    assert inputs["target"]["required"] == "true"
+    assert inputs["operation"]["options"] == ["check", "deploy"]
+    assert inputs["operation"]["default"] == "check"
+    assert inputs["image"]["required"] == "true"
+    assert config["timeout-minutes"] == "5"
+    assert job["timeout-minutes"] == "30"
     assert "group" in job["runs-on"]
     assert job["runs-on"]["labels"] == ["self-hosted", "linux", "x64", "seed-mcp-vke"]
-    assert "VKE_RUNNER_READY" in source
+    assert "VKE_RUNNER_READY" not in source
+    assert "VKE_RUNNER_GROUP" not in source
+    assert config["steps"][0]["env"] == {
+        "TARGET": "${{ inputs.target }}",
+        "PRODUCTION_ENABLED": "${{ vars.VKE_PRODUCTION_ENABLED }}",
+        "PRODUCTION_RUNNER_READY": "${{ vars.VKE_PRODUCTION_RUNNER_READY }}",
+        "PRODUCTION_RUNNER_GROUP": "${{ vars.VKE_PRODUCTION_RUNNER_GROUP }}",
+        "DEPLOY_IMAGE": "${{ inputs.image }}",
+    }
     assert "secrets." not in source and "id-token: write" not in source
-    for step in job["steps"]:
-        if "uses" in step:
-            assert len(step["uses"].split("@")[1]) == 40
-        assert "${{ inputs." not in step.get("run", "")
+    for item in (config, job):
+        for step in item["steps"]:
+            if "uses" in step:
+                assert len(step["uses"].split("@")[1]) == 40
+            assert "${{ inputs." not in step.get("run", "")
     checkout = job["steps"][0]
     assert checkout["with"]["persist-credentials"] == "false"
     assert "upload-artifact" not in source
 
 
 @pytest.mark.parametrize(
-    "target,enabled,ready,production_ready,expected",
+    "overrides,expected",
     [
-        ("staging", "", "true", "", 0),
-        ("production", "", "true", "true", 1),
-        ("production", "true", "true", "", 1),
-        ("production", "true", "", "true", 0),
-        ("unknown", "true", "true", "true", 1),
-        ("", "true", "true", "true", 1),
+        ({}, 0),
+        ({"TARGET": "staging"}, 1),
+        ({"TARGET": "unknown"}, 1),
+        ({"TARGET": ""}, 1),
+        ({"TARGET": None}, 1),
+        ({"PRODUCTION_ENABLED": ""}, 1),
+        ({"PRODUCTION_ENABLED": "false"}, 1),
+        ({"PRODUCTION_ENABLED": None}, 1),
+        ({"PRODUCTION_RUNNER_READY": ""}, 1),
+        ({"PRODUCTION_RUNNER_READY": "false"}, 1),
+        ({"PRODUCTION_RUNNER_READY": None}, 1),
+        ({"PRODUCTION_RUNNER_GROUP": ""}, 1),
+        ({"PRODUCTION_RUNNER_GROUP": None}, 1),
+        ({"PRODUCTION_RUNNER_GROUP": "-bad"}, 1),
+        ({"PRODUCTION_RUNNER_GROUP": "runner\ninjected"}, 1),
+        ({"PRODUCTION_RUNNER_GROUP": "a" * 65}, 1),
+        ({"DEPLOY_IMAGE": ""}, 1),
+        ({"DEPLOY_IMAGE": None}, 1),
+        ({"DEPLOY_IMAGE": "ghcr.io/byteplus-sa/seed-mcp:edge"}, 1),
+        ({"DEPLOY_IMAGE": "ghcr.io/other/seed-mcp@sha256:" + "a" * 64}, 1),
+        ({"DEPLOY_IMAGE": "ghcr.io/byteplus-sa/seed-mcp@sha256:" + "A" * 64}, 1),
+        ({"DEPLOY_IMAGE": "ghcr.io/byteplus-sa/seed-mcp@sha256:" + "a" * 63}, 1),
     ],
 )
 def test_workflow_configuration_gates_run_before_private_queue(
     tmp_path: Path,
-    target: str,
-    enabled: str,
-    ready: str,
-    production_ready: str,
+    overrides: dict[str, str | None],
     expected: int,
 ) -> None:
     workflow = yaml.load(
@@ -426,19 +456,26 @@ def test_workflow_configuration_gates_run_before_private_queue(
     )
     run = workflow["jobs"]["configuration"]["steps"][0]["run"]
     output = tmp_path / "output"
+    env = {
+        "PATH": "/usr/bin:/bin",
+        "GITHUB_OUTPUT": str(output),
+        "TARGET": "production",
+        "PRODUCTION_ENABLED": "true",
+        # Legacy values cannot rescue absent production configuration.
+        "RUNNER_READY": "true",
+        "RUNNER_GROUP": "staging-runners",
+        "PRODUCTION_RUNNER_READY": "true",
+        "PRODUCTION_RUNNER_GROUP": "production-runners",
+        "DEPLOY_IMAGE": "ghcr.io/byteplus-sa/seed-mcp@sha256:" + "a" * 64,
+    }
+    for key, value in overrides.items():
+        if value is None:
+            env.pop(key)
+        else:
+            env[key] = value
     result = subprocess.run(
         ["bash", "-c", run],
-        env={
-            "PATH": "/usr/bin:/bin",
-            "GITHUB_OUTPUT": str(output),
-            "TARGET": target,
-            "PRODUCTION_ENABLED": enabled,
-            "RUNNER_READY": ready,
-            "PRODUCTION_RUNNER_READY": production_ready,
-            "RUNNER_GROUP": "staging-runners",
-            "PRODUCTION_RUNNER_GROUP": "production-runners",
-            "DEPLOY_IMAGE": "ghcr.io/byteplus-sa/seed-mcp@sha256:" + "a" * 64,
-        },
+        env=env,
         capture_output=True,
         text=True,
         timeout=5,
@@ -446,31 +483,55 @@ def test_workflow_configuration_gates_run_before_private_queue(
     )
     assert result.returncode == expected
     if expected == 0:
-        assert f"environment=byteplus-{target}" in output.read_text()
-        assert f"runner_group={target}-runners" in output.read_text()
+        assert output.read_text() == "runner_group=production-runners\n"
     else:
         assert not output.exists()
 
 
 @pytest.mark.parametrize(
-    "target,mode,approved,expected",
+    "overrides,expected",
     [
-        ("production", "apig-production", "true", 0),
-        ("production", "apig-production", "", 1),
-        ("production", "apig-staging", "true", 1),
-        ("production", "public-clb", "true", 1),
-        ("staging", "apig-production", "true", 1),
-        ("staging", "apig-staging", "true", 1),
-        ("staging", "apig-staging", "", 0),
-        ("staging", "public-clb", "", 0),
-        ("staging", "", "", 1),
+        ({}, 0),
+        ({"TARGET": ""}, 1),
+        ({"TARGET": None}, 1),
+        ({"TARGET": "staging"}, 1),
+        ({"TARGET": "unknown"}, 1),
+        ({"TARGET": "staging", "SERVICE_MODE": "apig-staging", "PRODUCTION_APPROVED": ""}, 1),
+        ({"TARGET": "staging", "SERVICE_MODE": "public-clb", "PRODUCTION_APPROVED": ""}, 1),
+        ({"SERVICE_MODE": "apig-staging"}, 1),
+        ({"SERVICE_MODE": "public-clb"}, 1),
+        ({"SERVICE_MODE": ""}, 1),
+        ({"SERVICE_MODE": None}, 1),
+        ({"PREREQUISITES": ""}, 1),
+        ({"PREREQUISITES": "false"}, 1),
+        ({"PREREQUISITES": None}, 1),
+        ({"PRODUCTION_APPROVED": ""}, 1),
+        ({"PRODUCTION_APPROVED": "false"}, 1),
+        ({"PRODUCTION_APPROVED": None}, 1),
+        *[
+            ({key: value}, 1)
+            for key in (
+                "OPERATION",
+                "DEPLOY_IMAGE",
+                "KUBE_FILE",
+                "VALUES_FILE",
+                "KUBE_CONTEXT",
+                "API_SERVER",
+                "NAMESPACE",
+                "PUBLIC_HOST",
+                "BACKEND_HOST",
+                "IDENTITY_SECRET",
+                "TLS_SECRET",
+            )
+            for value in ("", None)
+        ],
     ],
 )
+@pytest.mark.parametrize("operation", ["check", "deploy"])
 def test_workflow_delivery_mode_and_approval_pairing(
-    target: str,
-    mode: str,
-    approved: str,
+    overrides: dict[str, str | None],
     expected: int,
+    operation: str,
 ) -> None:
     workflow = yaml.load(
         (script.CHART.parents[2] / ".github/workflows/deploy-vke.yml").read_text(),
@@ -483,12 +544,18 @@ def test_workflow_delivery_mode_and_approval_pairing(
     env.update(
         {
             "PATH": "/usr/bin:/bin",
-            "TARGET": target,
-            "SERVICE_MODE": mode,
+            "TARGET": "production",
+            "OPERATION": operation,
+            "SERVICE_MODE": "apig-production",
             "PREREQUISITES": "true",
-            "PRODUCTION_APPROVED": approved,
+            "PRODUCTION_APPROVED": "true",
         }
     )
+    for key, value in overrides.items():
+        if value is None:
+            env.pop(key)
+        else:
+            env[key] = value
     result = subprocess.run(
         ["bash", "-c", run],
         env=env,
@@ -500,7 +567,12 @@ def test_workflow_delivery_mode_and_approval_pairing(
     assert result.returncode == expected
     assert ("scripts/deploy_vke.py" in result.stdout) is (expected == 0)
     if expected == 0:
-        assert ("--production-approved" in result.stdout) is (target == "production")
+        argv = result.stdout.splitlines()
+        assert argv[:2] == ["scripts/deploy_vke.py", operation]
+        assert argv.count("scripts/deploy_vke.py") == 1
+        assert argv[-2:] == ["--prerequisites-confirmed", "--production-approved"]
+        assert argv[argv.index("--service-mode") + 1] == "apig-production"
+        assert argv[argv.index("--backend-host") + 1] == env["BACKEND_HOST"]
 
 
 def test_service_mode_has_no_implicit_clb_fallback(

@@ -1,4 +1,4 @@
-name: Deploy BytePlus VKE
+name: Deploy BytePlus VKE Production
 
 on:
   workflow_dispatch:
@@ -14,17 +14,17 @@ on:
         type: string
         required: true
       target:
-        description: Explicit protected environment; production needs separate verified launch gates
+        description: Production only; legacy staging requests are rejected
         type: choice
-        options: [staging, production]
-        default: staging
+        options: [production]
+        default: production
         required: true
 
 permissions:
   contents: read
 
 concurrency:
-  # Serialize both targets because they can address the same cluster/release.
+  # Keep the legacy key so historical and current deliveries share one lock.
   group: byteplus-staging-delivery
   cancel-in-progress: false
 
@@ -35,46 +35,43 @@ jobs:
     timeout-minutes: 5
     outputs:
       runner_group: ${{ steps.config.outputs.runner_group }}
-      environment: ${{ steps.config.outputs.environment }}
     steps:
       - name: Require an isolated deployment runner before queueing private work
         id: config
         env:
           TARGET: ${{ inputs.target }}
-          RUNNER_READY: ${{ vars.VKE_RUNNER_READY }}
-          RUNNER_GROUP: ${{ vars.VKE_RUNNER_GROUP }}
           PRODUCTION_ENABLED: ${{ vars.VKE_PRODUCTION_ENABLED }}
           PRODUCTION_RUNNER_READY: ${{ vars.VKE_PRODUCTION_RUNNER_READY }}
           PRODUCTION_RUNNER_GROUP: ${{ vars.VKE_PRODUCTION_RUNNER_GROUP }}
           DEPLOY_IMAGE: ${{ inputs.image }}
         run: |
           set -euo pipefail
-          case "$TARGET" in
-            staging) environment=byteplus-staging ;;
-            production)
-              if [[ "$PRODUCTION_ENABLED" != true ]]; then
-                echo "::error::Production is disabled. Confirm the documented backend trust decision and the pre-existing protected production environment first."
-                exit 1
-              fi
-              environment=byteplus-production
-              RUNNER_READY="$PRODUCTION_RUNNER_READY"
-              RUNNER_GROUP="$PRODUCTION_RUNNER_GROUP"
-              ;;
-            *) echo "::error::Select an explicit staging or production target."; exit 1 ;;
-          esac
-          if [[ "$RUNNER_READY" != true ]]; then
-            echo "::error::Bootstrap and verify the selected target's private workflow-restricted runner first."
+          if [[ "$TARGET" != production ]]; then
+            echo "::error::Only the production target is supported; staging delivery is retired."
             exit 1
           fi
-          [[ "$RUNNER_GROUP" =~ ^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$ ]]
-          [[ "$DEPLOY_IMAGE" =~ ^ghcr\.io/byteplus-sa/seed-mcp@sha256:[0-9a-f]{64}$ ]]
-          printf 'runner_group=%s\n' "$RUNNER_GROUP" >> "$GITHUB_OUTPUT"
-          printf 'environment=%s\n' "$environment" >> "$GITHUB_OUTPUT"
+          if [[ "$PRODUCTION_ENABLED" != true ]]; then
+            echo "::error::Production is disabled. Confirm the documented backend trust decision and the pre-existing protected production environment first."
+            exit 1
+          fi
+          if [[ "$PRODUCTION_RUNNER_READY" != true ]]; then
+            echo "::error::Bootstrap and verify the production private workflow-restricted runner first."
+            exit 1
+          fi
+          if [[ ! "$PRODUCTION_RUNNER_GROUP" =~ ^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$ ]]; then
+            echo "::error::Select a valid production workflow-restricted runner group."
+            exit 1
+          fi
+          if [[ ! "$DEPLOY_IMAGE" =~ ^ghcr\.io/byteplus-sa/seed-mcp@sha256:[0-9a-f]{64}$ ]]; then
+            echo "::error::Select a reviewed sha256-pinned Seed MCP image."
+            exit 1
+          fi
+          printf 'runner_group=%s\n' "$PRODUCTION_RUNNER_GROUP" >> "$GITHUB_OUTPUT"
 
   delivery:
     needs: configuration
     if: github.repository == 'byteplus-sa/seed-mcp' && github.ref == 'refs/heads/main'
-    environment: ${{ needs.configuration.outputs.environment }}
+    environment: byteplus-production
     runs-on:
       group: ${{ needs.configuration.outputs.runner_group }}
       labels: [self-hosted, linux, x64, seed-mcp-vke]
@@ -106,8 +103,12 @@ jobs:
           PRODUCTION_APPROVED: ${{ vars.VKE_PRODUCTION_APPROVED }}
         run: |
           set -euo pipefail
+          if [[ "$TARGET" != production ]]; then
+            echo "::error::Only the production target is supported; staging delivery is retired."
+            exit 1
+          fi
           for name in OPERATION DEPLOY_IMAGE KUBE_FILE VALUES_FILE KUBE_CONTEXT API_SERVER \
-            NAMESPACE PUBLIC_HOST SERVICE_MODE IDENTITY_SECRET TLS_SECRET; do
+            NAMESPACE PUBLIC_HOST SERVICE_MODE BACKEND_HOST IDENTITY_SECRET TLS_SECRET; do
             if [[ -z "${!name}" ]]; then
               echo "::error::Missing protected deployment configuration: $name"
               exit 1
@@ -117,19 +118,8 @@ jobs:
             echo "::error::Verify operator-owned CCM, capacity, DNS/TLS, source ranges and addons first."
             exit 1
           fi
-          approval_args=(--prerequisites-confirmed)
-          if [[ "$TARGET" == production ]]; then
-            if [[ "$SERVICE_MODE" != apig-production || "$PRODUCTION_APPROVED" != true ]]; then
-              echo "::error::Production requires apig-production and independently approved production gates."
-              exit 1
-            fi
-            approval_args+=(--production-approved)
-          elif [[ "$TARGET" != staging || "$SERVICE_MODE" == apig-production || "$PRODUCTION_APPROVED" == true ]]; then
-            echo "::error::Staging cannot supply production mode or approval."
-            exit 1
-          fi
-          if [[ "$SERVICE_MODE" == apig-* && -z "$BACKEND_HOST" ]]; then
-            echo "::error::APIG requires an explicit private TLS hostname."
+          if [[ "$SERVICE_MODE" != apig-production || "$PRODUCTION_APPROVED" != true ]]; then
+            echo "::error::Production requires apig-production and independently approved production gates."
             exit 1
           fi
           python3 scripts/deploy_vke.py "$OPERATION" \
@@ -138,4 +128,4 @@ jobs:
             --namespace "$NAMESPACE" --image "$DEPLOY_IMAGE" --public-host "$PUBLIC_HOST" \
             --service-mode "$SERVICE_MODE" --backend-host "$BACKEND_HOST" \
             --identity-secret "$IDENTITY_SECRET" --tls-secret "$TLS_SECRET" \
-            "${approval_args[@]}"
+            --prerequisites-confirmed --production-approved
