@@ -4,16 +4,25 @@ type: research
 status: proposed
 horizon: future
 created: 2026-11-24
-updated: 2026-11-25
+updated: 2026-11-27
 tags: [apig, vke, tls, byok, deployment, research]
 related:
   - SPEC_VKE_DEPLOYMENT.md
   - SPEC_HOSTED_BYOK.md
   - SPEC_DIRECT_EXECUTION.md
-  - ../plans/PLAN_GATEWAY_DEPLOYMENT.md
+  - ../docs/hosted-deployment-status.md
 ---
 
 # APIG Production Readiness
+
+## Subsequent Deployment: 2026-11-27
+
+The scoped deployment is now public after protected delivery, registry recovery,
+live APIG/VKE mock drain, real client-side provider testing and explicit launch
+approval. Public H1/H2 and private H1 were verified. See the
+[deployment record](../docs/hosted-deployment-status.md) for exact scope and
+limitations. The dated research/preparation sections below remain historical
+snapshots, not current launch blockers or proof of backend identity verification.
 
 ## Subsequent Operator Decision: 2026-11-25
 
@@ -36,7 +45,7 @@ The user approved source preparation after this research. The local checkout
 now contains an explicit `apig-production` chart/proxy mode, separate protected
 production delivery gates and a
 [backend certificate renewal procedure](../docs/backend-certificate-renewal.md).
-The [living plan](../plans/PLAN_GATEWAY_DEPLOYMENT.md#production-preparation-implementation-2026-11-25)
+The [archived execution plan](https://github.com/byteplus-sa/seed-mcp/blob/0b60ea03aa98726b7b71c99abc697ae768504469/plans/PLAN_GATEWAY_DEPLOYMENT.md#production-preparation-implementation-2026-11-25)
 tracks mock drain implementation and validation. Current source contracts live
 in [VKE deployment](SPEC_VKE_DEPLOYMENT.md) and the
 [delivery runbook](../docs/github-actions-deployment.md#production-apig-preparation).
@@ -107,7 +116,7 @@ not a fresh availability assertion.
 | Current repository inspection | Staging-only APIG mode, credential refusals, deadline/grace configuration and identified test gaps | A reproduced shutdown outage or measured keepalive failure |
 | Current primary documentation | TLS semantics, published SDK fields, supported credential types and lifecycle guidance | Enforcement by the deployed managed gateway or regional feature availability |
 
-Historical evidence is in [the deployment plan](../plans/PLAN_GATEWAY_DEPLOYMENT.md#backend-trust-capability-investigation-2026-11-23)
+Historical evidence is in [the archived deployment plan](https://github.com/byteplus-sa/seed-mcp/blob/0b60ea03aa98726b7b71c99abc697ae768504469/plans/PLAN_GATEWAY_DEPLOYMENT.md#backend-trust-capability-investigation-2026-11-23)
 and [the deployment contract](SPEC_VKE_DEPLOYMENT.md).
 
 ## What Must Be Completed

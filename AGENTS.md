@@ -256,7 +256,7 @@ and host/proxy-trust acceptance. Quota failure requires verified headroom, not
 unapproved unrelated-network reuse or deletion. Exact operator-approved
 retirement requires dependency rechecks and confirmed absence; keep its evidence
 separate from the new dedicated state. Reconcile tasks/state/inventory before
-fresh plans or new create attempts. See `plans/PLAN_GATEWAY_DEPLOYMENT.md`;
+fresh plans or new create attempts. See `docs/hosted-deployment-status.md`;
 do not silently substitute the CLB path for an approved gateway design.
 
 Helm `models.seedream`/`models.seedance` expose `defaultModel` and

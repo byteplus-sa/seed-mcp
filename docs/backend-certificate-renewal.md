@@ -2,8 +2,10 @@
 
 This is an operator procedure for the private Caddy certificate referenced by
 `tlsSecretName`, not certificate automation or authorization to deploy. It
-implements the certificate-runbook work in the
-[production preparation plan](../plans/PLAN_GATEWAY_DEPLOYMENT.md#production-preparation-implementation-2026-11-25).
+implements the
+[certificate lifecycle contract](../specs/SPEC_VKE_DEPLOYMENT.md#certificate-lifecycle).
+The [deployment record](hosted-deployment-status.md#renewal-and-follow-ups)
+holds the current instance's renewal dates and acceptance evidence.
 No issuer, domain, CA, credential or cloud change is selected by this document.
 
 Preserve the existing APIG and generic client URL. APIG terminates public TLS;

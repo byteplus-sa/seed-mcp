@@ -174,7 +174,10 @@ never blindly repeat creation or attach routes/send BYOK traffic.
 Before provisioning for a generic URL, record the private HTTPS trust decision
 (verification by default or an explicitly scoped operator exception), host/proxy-trust, stateless/no-retry routing, body/header/streaming/
 timeout contracts and full cost/quota review in the
-[gateway preparation plan](../plans/PLAN_GATEWAY_DEPLOYMENT.md).
+[deployment contract](../specs/SPEC_VKE_DEPLOYMENT.md).
+The existing operator instance has a separate
+[verified deployment record](hosted-deployment-status.md), not blanket
+authorization to provision or reuse its resources.
 An operator may explicitly authorize infrastructure creation first and billing
 review afterward. This does not waive regional quotas or permit real BYOK
 traffic before TLS, disabled logging and routing acceptance.

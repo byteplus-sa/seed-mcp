@@ -1,4 +1,4 @@
-"""Private bounded fixtures for plans/PLAN_GATEWAY_DEPLOYMENT.md Worker A."""
+"""Private bounded fixtures for specs/SPEC_VKE_DEPLOYMENT.md."""
 
 from __future__ import annotations
 

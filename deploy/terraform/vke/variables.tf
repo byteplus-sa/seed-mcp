@@ -52,7 +52,7 @@ variable "kubernetes_version" {
 }
 
 variable "public_gateway_enabled" {
-  description = "Opt in to a new dedicated two-node standard APIG and two gateway subnets. Infrastructure only: no backend, routes, certificate trust or live generic MCP endpoint is configured. Review complete costs and plans/PLAN_GATEWAY_DEPLOYMENT.md before provisioning."
+  description = "Opt in to a new dedicated two-node standard APIG and two gateway subnets. Infrastructure only: no backend, routes, certificate trust or live generic MCP endpoint is configured. Review complete costs and specs/SPEC_VKE_DEPLOYMENT.md before provisioning."
   type        = bool
   default     = false
   nullable    = false

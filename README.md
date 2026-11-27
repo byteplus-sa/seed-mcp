@@ -418,6 +418,7 @@ make check-env     # Validate environment configuration
 | [Transports](docs/transports.md) | stdio vs HTTP deployment |
 | [Deployment](docs/deployment.md) | Container, Kubernetes, and remote HTTP deployment |
 | [GitHub Actions Delivery](docs/github-actions-deployment.md) | Protected Helm delivery from a private VKE runner |
+| [Hosted Deployment Status](docs/hosted-deployment-status.md) | Verified operator endpoint, acceptance evidence, scoped TLS exception and renewal ownership |
 | [Secret Handling](docs/secret-manager.md) | Operator HMAC/client credentials; hosted provider-secret sync superseded |
 | [Troubleshooting](docs/troubleshooting.md) | Common errors and fixes |
 

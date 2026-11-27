@@ -1,4 +1,4 @@
-"""Mock-only TERM acceptance for plans/PLAN_GATEWAY_DEPLOYMENT.md.
+"""Mock-only TERM acceptance for specs/SPEC_VKE_DEPLOYMENT.md.
 
 Run ``uv run python scripts/hosted_drain_acceptance.py --caddy-bin PATH``.
 The explicit production profile runs six parallel 590-second calls, not paid

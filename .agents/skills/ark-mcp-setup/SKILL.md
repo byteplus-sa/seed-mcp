@@ -61,6 +61,9 @@ Do not deploy a server as a side effect. Ask which transport if unresolved.
 
 Hosted operators use the selected checkout's `docs/byteplus-terraform.md`
 and `specs/SPEC_VKE_DEPLOYMENT.md`: dedicated VKE replaces ECS/Compose.
+The checkout's `docs/hosted-deployment-status.md` records one verified operator
+endpoint and its scoped trust exception; it is not an automatically selected
+or universally trusted target for client credentials.
 Do not offer retired helpers. The stateless Deployment uses same-pod Caddy,
 default 2-6 pod HPA, PDB and hostname spread on maintained Kubernetes >=1.30.
 The chart scopes spread to each `pod-template-hash` revision and requires the

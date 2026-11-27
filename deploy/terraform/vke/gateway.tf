@@ -1,4 +1,4 @@
-# Infrastructure preparation only; routing gates are in plans/PLAN_GATEWAY_DEPLOYMENT.md.
+# Infrastructure preparation only; routing gates are in specs/SPEC_VKE_DEPLOYMENT.md.
 resource "bytepluscc_apig_gateway" "public" {
   count = var.public_gateway_enabled ? 1 : 0
 

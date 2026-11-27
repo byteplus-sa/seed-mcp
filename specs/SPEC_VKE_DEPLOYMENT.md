@@ -264,8 +264,8 @@ requires fresh dependency checks and confirmed cloud absence; keep its evidence
 outside the new dedicated Terraform state. Neither deletion acceptance nor a
 possibly stale quota counter alone establishes headroom.
 Infrastructure preparation and mock plans do not establish these contracts.
-See [the gateway plan](../plans/PLAN_GATEWAY_DEPLOYMENT.md) for the current
-implementation effort.
+See [the deployment record](../docs/hosted-deployment-status.md) for the verified
+instance and immutable historical execution evidence.
 
 ### Accepted Backend Verification Exception
 
@@ -419,7 +419,8 @@ runner readiness and protected `VKE_PRODUCTION_APPROVED`, and only accepts
 `apig-production`; staging rejects production mode/approval. These flags
 acknowledge the documented backend trust decision, verified logging/routing, credential recovery,
 certificate lifecycle and launch prerequisites. They do not establish those
-facts. Source preparation has not changed deployed staging or opened routes.
+facts. The flags alone do not roll out an application or open routes; actual
+deployment and launch evidence is recorded separately.
 
 APIG backend identity verification remains unestablished, but is waived for the
 exact deployment in the [accepted exception](#accepted-backend-verification-exception).
