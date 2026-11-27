@@ -4,7 +4,7 @@ type: spec
 status: accepted
 horizon: current
 created: 2026-11-17
-updated: 2026-11-25
+updated: 2026-11-27
 tags: [vke, terraform, helm, stateless, security]
 source:
   - https://registry.terraform.io/providers/byteplus-sdk/bytepluscc/0.0.63/docs/resources/vke_cluster
@@ -19,6 +19,7 @@ source:
   - https://docs.byteplus.com/id/docs/byteplus-platform/reference-assumerole
   - https://gofastmcp.com/deployment/http
   - https://github.com/kubernetes/autoscaler/blob/cluster-autoscaler-1.30.3/cluster-autoscaler/FAQ.md
+  - https://kubernetes.io/docs/concepts/scheduling-eviction/topology-spread-constraints/
 related:
   - specs/SPEC_HOSTED_BYOK.md
   - specs/SPEC_DIRECT_EXECUTION.md
@@ -316,8 +317,17 @@ behavior are additional live gates, not substitutes for baseline headroom.
 The chart renders a stateless `Deployment`, HPA (default 2-6 pods, total-pod
 CPU 70%, 300-second scale-down stabilization) and `PodDisruptionBudget` with
 `minAvailable: 1`. Hostname topology spread uses `minDomains: 2`, `maxSkew: 1`
-and `DoNotSchedule`. Rollouts use `maxSurge: 1` and `maxUnavailable: 0`.
+and `DoNotSchedule`, with `matchLabelKeys: [pod-template-hash]` to count each
+Deployment revision independently. Otherwise old replicas can satisfy the
+spread while both replacement replicas land on one worker. The controller
+supplies the hash; do not hardcode it in pod labels or selectors. Require the
+`MatchLabelKeysInPodTopologySpread` feature (enabled by default since 1.27).
+Rollouts use `maxSurge: 1` and `maxUnavailable: 0`.
 There is no headless Service or application storage-zone pin.
+Scheduling constraints do not rebalance surviving pods after deletion or
+scale-down. Verify final worker diversity after rollouts and scale-in; any
+operator rebalance must respect the PDB and full shutdown grace. See the
+[Kubernetes topology spread contract](https://kubernetes.io/docs/concepts/scheduling-eviction/topology-spread-constraints/).
 
 Helm references existing identity/TLS and optional upload configuration Secrets. `STATE_BACKEND=none` and
 `DAILY_BUDGET_USD=0`; database inputs are rejected. No PVC, StorageClass, database

@@ -63,6 +63,9 @@ Hosted operators use the selected checkout's `docs/byteplus-terraform.md`
 and `specs/SPEC_VKE_DEPLOYMENT.md`: dedicated VKE replaces ECS/Compose.
 Do not offer retired helpers. The stateless Deployment uses same-pod Caddy,
 default 2-6 pod HPA, PDB and hostname spread on maintained Kubernetes >=1.30.
+The chart scopes spread to each `pod-template-hash` revision and requires the
+default-enabled `MatchLabelKeysInPodTopologySpread` feature. Check final worker
+diversity after rollout/scale-in; scheduling does not rebalance surviving pods.
 No state PVC/StorageClass/headless Service renders; Redis is not required.
 Terraform uses dedicated fresh state and stores no HMAC/
 TLS Secret/kubeconfig. Helm references existing Secrets only. Private API

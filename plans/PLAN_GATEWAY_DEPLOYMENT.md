@@ -3,7 +3,7 @@ title: Dedicated Gateway Deployment Preparation
 type: plan
 status: in-progress
 created: 2026-11-20
-updated: 2026-11-25
+updated: 2026-11-27
 tags: [vke, apig, terraform, stateless, deployment]
 source:
   - https://docs.byteplus.com/en/docs/apig/Fixed_IP_type_Upstream
@@ -13,12 +13,125 @@ source:
   - https://docs.byteplus.com/en/docs/apig/Release_notes
   - https://registry.terraform.io/providers/byteplus-sdk/bytepluscc/0.0.63/docs/resources/apig_gateway
   - https://github.com/kubernetes/autoscaler/blob/cluster-autoscaler-1.30.3/cluster-autoscaler/FAQ.md
+  - https://kubernetes.io/docs/concepts/scheduling-eviction/topology-spread-constraints/
 related:
   - specs/SPEC_VKE_DEPLOYMENT.md
   - docs/byteplus-terraform.md
 ---
 
 # Dedicated Gateway Deployment Preparation
+
+## Finalization Authorization: 2026-11-27
+
+The operator requested end-to-end deployment finalization and selected
+**"Test and launch"**: publish/deploy the placement correction, perform bounded
+real provider tests with existing keys on the client only, with an aggregate
+**US$5 maximum**, then enable ordinary public access only after deployment and
+acceptance gates pass. Temporary uploads remain disabled. Never automatically
+resubmit an uncertain create. This authorizes the scoped work, not a claim that
+provider validation, live drain or public launch has already completed.
+
+## Production Promotion Evidence: 2026-11-27
+
+**Current state:** Production-mode application installed, but **not publicly
+launched**. The existing APIG, generic URL, namespace, Service and scoped backend
+verification exception are unchanged. Ordinary public `/mcp` and `/health`
+requests return verified-HTTPS 404. Uploads and paid provider calls remain off.
+This section supersedes the historical local-only preparation state below.
+
+- PR #14 was independently reviewed, passed PR CI and merged as
+  `f8315a54addd3ebc5e29339e6f86cf75d64d36ad`. Main published
+  `ghcr.io/byteplus-sa/seed-mcp@sha256:19bb0bace4f4909bd22c429ed0f7c973e0888cf77ee1755ac643d1b96fbb7b73`.
+  The separate Pages deployment failed after its documentation build passed;
+  do not describe all main workflows as green.
+- Registry recovery completed under the approved 15-minute overlap. The
+  replacement classic PAT belongs to the verified operator and has exactly
+  `read:packages`; replacement-only manifest verification passed. Each baseline
+  node denied the credential-free `Always` pull control and successfully pulled
+  that exact image using the replacement alone. The existing application pull
+  Secret was updated in place. GitHub accepted revocation and the old token
+  returned HTTP 401. Measured overlap: **67.733 seconds**. Pull-test Pods and
+  their temporary policy were subsequently confirmed absent.
+- The `byteplus-production` environment was verified as main-only, with the
+  designated reviewer and administrator bypass disabled. The runner group
+  remains restricted to this repository's exact main deployment workflow.
+  Protected check [45955856779](https://github.com/byteplus-sa/seed-mcp/actions/runs/45955856779)
+  and one-shot deploy
+  [45956483339](https://github.com/byteplus-sa/seed-mcp/actions/runs/45956483339)
+  succeeded on different ephemeral JIT runners. Their registrations, Pods,
+  ConfigMaps and registration Secrets are confirmed absent. The production
+  runner-ready acknowledgement was reset to false.
+- Helm installed `apig-production` and the versioned certificate Secret
+  `seed-mcp-backend-tls-20261126`. Both Ready replicas serve fingerprint
+  `9e93617ade7469d3b527e938b9b29b881f8f0a5674b2ee8cedde4fb8a78feb03`.
+  Direct certificate validation and health passed on each replica through
+  temporary named-pod port-forward permission, without pod exec or ingress
+  changes. H1-only and H2-capable offers both negotiated private HTTP/1.1.
+  Temporary probe/RBAC resources are confirmed absent. This does not prove
+  APIG backend certificate verification.
+- Certificate expiry is `2027-02-24T00:23:58Z`; renew by
+  `2027-01-25T00:23:58Z`, owned by `arthur.lechoncito`. Issuance was
+  operator-managed; no renewal controller or expiry alert was installed.
+  Replacement PAT expiry was not independently verified.
+- Live operator-only edge acceptance passed public H1 and H2, health,
+  seven-tool inventory, anonymous/static discovery, empty resources, Seedream
+  and Seedance dry runs, absent credential boundaries, reuse rejection
+  including an unused provider header, Authorization rejection including empty
+  values, forwarding-header overwrite and private-path 404. A real FastMCP
+  client passed discovery. No real provider credentials or generation calls
+  were used. Both exact-header test routes were disabled afterward, with
+  disabled readback and ordinary public 404 confirmed.
+
+### Placement Finding and Local Correction
+
+The protected rollout completed with two Ready replacement replicas on the
+same baseline worker. Existing topology spread counted both old and new
+ReplicaSets, so readiness alone did not establish final worker diversity.
+One exact idle replica was evicted through the Kubernetes Eviction API after
+checking `disruptionsAllowed=1`; the PDB and 660-second grace were retained.
+The resulting replicas are Ready on `10.80.0.146` and `10.80.0.147`, with zero
+restarts. The observer sampled at least one available replica throughout the
+rollout/rebalance. This was unloaded observation, not active-call availability.
+
+The chart correction in this change adds
+`matchLabelKeys: [pod-template-hash]` to count each Deployment revision
+independently, with mode/version regression coverage and synchronized guidance.
+It does not add anti-affinity, pin pods, reduce HPA bounds or change the PDB.
+The deployed `f8315a5` chart does **not** yet contain this correction. Publish
+and deliver it through a new protected check/deploy under the finalization
+authorization above.
+Kubernetes still does not rebalance survivors automatically after deletion or
+scale-down; final placement remains an explicit acceptance check.
+
+Local validation: **204 focused chart/staging/production tests passed**,
+24 tool-dependent checks were skipped, and Ruff lint/format plus whitespace
+checks passed. All **65 documentation tests passed**. A server-side
+`dryRun=All` accepted the new field on the actual VKE API; subsequent readback
+confirmed the real Deployment spec and generation remained unchanged. This is
+source/API validation, not a scheduler rollout of the placement fix.
+
+### Remaining Launch Work
+
+- Publish and protect-deliver the revision-scoped placement correction.
+- Exercise accepted long calls through live APIG/VKE termination and intake
+  withdrawal. The prior six 590-second **local** mock calls do not establish
+  this live behavior, and the unloaded rollout did not test it.
+- Complete actual target-client/provider acceptance under the US$5 client-side
+  scope approved above; dry runs are not provider authentication evidence.
+- Apply the conditional public-launch approval only after the remaining gates pass.
+  Native APIG certificate verification remains deferred under the exact waiver,
+  not an additional blocker.
+- Record PAT renewal/expiry and implement certificate expiry notification;
+  neither monitoring automation nor an expiry guarantee is claimed.
+
+Bounded diagnostic failures were reconciled separately: an unused JIT
+registration was retired after a local parser guard failed; a pre-registration
+Pod permission failure was corrected after exact failed-Pod deletion; a route
+update was rejected locally for a missing required name, with routes confirmed
+closed; and a direct pod-network certificate probe timed out and was removed.
+The successful replacement checks above, not those failed attempts, establish
+acceptance. No automatic Helm retry, rollback, provider retry or route launch
+was performed.
 
 ## Current Operator Decision: Keep HTTPS, Waive Verification
 
@@ -199,7 +312,8 @@ Production-duration evidence must use those corrected guards.
   An earlier production run also passed but predated the two stricter result
   guards and is not the final acceptance basis.
 
-All source changes remain local. No cloud state, public routes, provider
+Historical preparation state on 2026-11-25, superseded by the promotion evidence
+above: all source changes remained local. No cloud state, public routes, provider
 credentials, registry tokens, certificates or GitHub environment settings
 were changed. No commit or push was made. APIG trust was unresolved at preparation
 completion and is now waived by the later operator decision above. Generated-domain

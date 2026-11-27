@@ -165,7 +165,11 @@ cloud decommissioning. Never automatically requeue uncertain provider work.
 
 The chart uses a stateless Deployment with HPA (default 2-6 pods), PDB and
 hostname spreading, without a database or state volume. Kubernetes >=1.30 is
-required; verify a maintained regional release. Caddy exposes `/mcp` and
+required; verify a maintained regional release. Spread counts each
+`pod-template-hash` revision using the default-enabled
+`MatchLabelKeysInPodTopologySpread` feature. Verify final worker diversity after
+rollout/scale-in; scheduling does not automatically rebalance survivors.
+Caddy exposes `/mcp` and
 `/health` only; `/ready` is lifespan-only and private. The chart contains no
 legacy StatefulSet or StorageClass templates. Local stdio storage remains current
 functionality, separate from hosted deployment.
