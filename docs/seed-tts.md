@@ -107,6 +107,12 @@ resynthesis; `ambiguous_completion=false` means synthesis is known to have
 completed, not that it was free or delivered successfully.
 There is no provider URL to recover. Do not automatically synthesize again.
 
+If the whole-tool deadline expires after dispatch, `TOOL_DEADLINE_EXCEEDED`
+retains the sent `X-Request-Id` as `request_id`, including when persistence
+times out after synthesis completed. Use it for provider-side reconciliation,
+not `gen_task_get`: it is not a task ID or proof of acceptance. Pre-dispatch
+expiry has no dispatched request ID. No request journal is persisted.
+
 Ordinary client-cleanup and post-synthesis progress-notification failures are
 logged without replacing the result, provider error or cancellation.
 External cancellation still propagates, including during persistence or progress.

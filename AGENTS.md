@@ -156,7 +156,9 @@ entry after MCP parsing and before credentials and admission.
 Stdio reserves budget after admission. Active/waiting owner limiters remain pinned.
 `ADMISSION_TIMEOUT` means this attempt did not dispatch, not the whole batch.
 `TOOL_DEADLINE_EXCEEDED` is text-only and preserves mutation uncertainty and
-known safe accepted IDs. External cancellation propagates. SDK/SQLite draining
+known safe accepted IDs. TTS also retains bounded request-only IDs after
+dispatch, including persistence deadlines; these are not tasks or proof of
+acceptance and are cleared at invocation exit. External cancellation propagates. SDK/SQLite draining
 may exceed the cooperative deadline; timeout is not provider cancellation.
 HTTP keeps safe accepted IDs only in the live invocation for deadline diagnostics.
 Stdio cancellation drains local bookkeeping; dispatched reservations commit,

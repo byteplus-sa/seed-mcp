@@ -285,9 +285,73 @@ async def test_cancelled_dispatch_commits_and_releases_stream(
         assert result.is_error
         assert "TOOL_DEADLINE_EXCEEDED" in result.content[0].text
         assert "ambiguous_completion=True" in result.content[0].text
+        assert route.calls.last.request.headers["X-Request-Id"] in result.content[0].text
+        assert "task_id=" not in result.content[0].text
     assert commit.await_count == 1
     assert stream.closed
     assert route.call_count == 1
+
+
+@respx.mock
+async def test_deadline_during_persistence_retains_tts_request_id(
+    fake_ctx: FakeContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runtime = fake_ctx.lifespan_context["runtime"]
+    commit = AsyncMock(wraps=runtime.budget_ledger.commit)
+    monkeypatch.setattr(runtime.budget_ledger, "commit", commit)
+    persisting = asyncio.Event()
+
+    async def blocked_store(**kwargs: Any) -> None:
+        persisting.set()
+        await asyncio.Event().wait()
+
+    store = AsyncMock(side_effect=blocked_store)
+    monkeypatch.setattr(runtime.artifact_store, "put_base64", store)
+    route = respx.post(URL).mock(return_value=response())
+    result = await run_direct_call(
+        lambda: seed_tts_generate(SeedTtsGenerateInput(**VOICE, text="Hello"), fake_ctx),
+        timeout_seconds=0.1,
+        read_only=False,
+    )
+    assert persisting.is_set()
+    assert isinstance(result, ToolResult) and result.is_error
+    text = result.content[0].text
+    assert "TOOL_DEADLINE_EXCEEDED" in text
+    assert route.calls.last.request.headers["X-Request-Id"] in text
+    assert "task_id=" not in text
+    assert commit.await_count == 1
+    assert store.await_count == 1
+    assert route.call_count == 1
+
+
+@respx.mock
+async def test_deadline_before_tts_dispatch_has_no_request_id(
+    fake_ctx: FakeContext, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    runtime = fake_ctx.lifespan_context["runtime"]
+    release = AsyncMock(wraps=runtime.budget_ledger.release)
+    monkeypatch.setattr(runtime.budget_ledger, "release", release)
+
+    async def blocked_client() -> None:
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(
+        "ark_mcp.providers.seed_speech.client.SeedSpeechGateway._ensure_client",
+        AsyncMock(side_effect=blocked_client),
+    )
+    route = respx.post(URL).mock(return_value=response())
+    result = await run_direct_call(
+        lambda: seed_tts_generate(SeedTtsGenerateInput(**VOICE, text="Hello"), fake_ctx),
+        timeout_seconds=0.1,
+        read_only=False,
+    )
+    assert isinstance(result, ToolResult) and result.is_error
+    text = result.content[0].text
+    assert "did not dispatch" in text
+    assert "request_id=" not in text
+    assert "ambiguous_completion=False" in text
+    assert release.await_count == 1
+    assert route.call_count == 0
 
 
 @pytest.mark.parametrize("failure", ["cleanup", "progress_80", "progress_100"])

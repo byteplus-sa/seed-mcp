@@ -133,7 +133,9 @@ flowchart LR
   Local stdio reserves budget after admission; HTTP does not.
 - `ADMISSION_TIMEOUT` means this attempt did not dispatch, not the whole batch.
   `TOOL_DEADLINE_EXCEEDED` is text-only and retains uncertainty and safe accepted
-  IDs. External cancellation propagates; timeout does not cancel provider work.
+  task IDs or dispatched TTS request IDs. Request-only IDs are for reconciliation,
+  not polling or proof of acceptance. External cancellation propagates;
+  timeout does not cancel provider work.
 - SDK/local SQLite draining can exceed the cooperative deadline.
   Direct local writes use live MCP roots or `OUTPUT_ROOTS`; artifact-store
   persistence itself needs no roots. See [local-output.md](references/local-output.md).

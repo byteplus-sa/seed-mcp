@@ -109,6 +109,14 @@ provider-operation semantics, not merely HTTP method or tool annotations.
 Safe accepted IDs are captured before the next await after provider acceptance.
 HTTP holds them only in the live call, not a durable journal.
 
+TTS also captures its client-generated request ID immediately after dispatch
+authorization and before the provider await. Up to five distinct request-only IDs
+are kept separately from accepted task receipts, using the same bounded identifier
+syntax and live-credential exclusion. Deadline text labels these as correlation IDs,
+not task IDs or proof of provider acceptance; they cannot be polled. They survive
+streaming and persistence deadlines and are cleared when the invocation ends.
+Attempts that expire before dispatch do not capture a request ID.
+
 External client cancellation propagates; only the server's own deadline
 becomes `TOOL_DEADLINE_EXCEEDED`. Inner provider timeouts retain their existing
 normalized errors. Expiry is checked before dispatch and after a call that

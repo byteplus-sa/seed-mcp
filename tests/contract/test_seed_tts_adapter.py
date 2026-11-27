@@ -276,6 +276,8 @@ async def test_direct_deadline_records_mutation_and_closes_stream(service: SeedT
     assert result.is_error
     assert "ambiguous_completion=True" in result.content[0].text
     assert "TOOL_DEADLINE_EXCEEDED" in result.content[0].text
+    assert "request_id=req-test" in result.content[0].text
+    assert "task_id=" not in result.content[0].text
     assert stream.closed
     assert route.call_count == 1
 

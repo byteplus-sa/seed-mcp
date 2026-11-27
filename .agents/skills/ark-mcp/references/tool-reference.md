@@ -231,6 +231,9 @@ Call directly with the normal `input` wrapper:
   Word times are seconds; `silence_duration` is milliseconds.
 - A provider `session_id` is for sequential conversation continuity, not
   idempotency. Disconnects/timeouts can be billed; do not synthesize again blindly.
+- Whole-tool deadlines retain the sent TTS `request_id` after dispatch, including
+  persistence timeouts. Use it for provider reconciliation, not `gen_task_get`;
+  it is not a task ID or proof of acceptance. No request journal is saved.
 - Budgeting uses a built-in USD 20 per million characters, including markup,
   not an account quote. See the
   [provider HTTP reference](https://docs.byteplus.com/en/docs/byteplusvoice/seed-tts-3-0-http-streaming).
