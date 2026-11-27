@@ -28,6 +28,7 @@ class _DirectExecution:
     request_started: bool = False
     side_effect_started: bool = False
     receipts: dict[str, str | None] = field(default_factory=dict)
+    request_ids: list[str] = field(default_factory=list)
 
 
 class _DispatchExpired(BaseException):
@@ -38,6 +39,7 @@ _current: ContextVar[_DirectExecution | None] = ContextVar("direct_execution", d
 _slot_mutations: ContextVar[list[bool] | None] = ContextVar("slot_mutations", default=None)
 _state_cleanup: ContextVar[bool] = ContextVar("state_cleanup", default=False)
 _MAX_RECEIPTS = 5
+_MAX_REQUEST_IDS = 5
 
 
 def before_provider_request(*, side_effect: bool = True) -> None:
@@ -130,6 +132,21 @@ def record_accepted_receipt(task_id: str, request_id: str | None) -> None:
         current.receipts[task_id] = request_id
 
 
+def record_dispatched_request(request_id: str) -> None:
+    """Retain safe request-only correlation IDs, never task acceptance claims."""
+    current = _current.get()
+    if current is None or not current.active or not current.request_started:
+        return
+    if (
+        not isinstance(request_id, str)
+        or not re.fullmatch(IDENTIFIER_PATTERN, request_id)
+        or redact_request_secrets(request_id) != request_id
+    ):
+        return
+    if request_id not in current.request_ids and len(current.request_ids) < _MAX_REQUEST_IDS:
+        current.request_ids.append(request_id)
+
+
 def _deadline_result(current: _DirectExecution) -> ToolResult:
     TOOL_DEADLINES.labels(
         dispatch=(
@@ -156,6 +173,11 @@ def _deadline_result(current: _DirectExecution) -> ToolResult:
             for task_id, request_id in current.receipts.items()
         )
         message += ". Poll only where ownership is recorded; otherwise reconcile with the provider."
+    if current.request_ids:
+        message += " Known request IDs: " + "; ".join(
+            f"request_id={request_id}" for request_id in current.request_ids
+        )
+        message += ". These are correlation IDs, not task IDs or proof of provider acceptance."
     return ToolResult(
         content=(
             f"TOOL_DEADLINE_EXCEEDED: {message} "
@@ -205,4 +227,5 @@ async def run_direct_call(
     finally:
         current.active = False
         current.receipts.clear()
+        current.request_ids.clear()
         _current.reset(token)

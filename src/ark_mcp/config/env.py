@@ -165,7 +165,7 @@ class Settings(BaseSettings):
     seed_speech_api_key: str = Field(
         default="",
         validation_alias="BYTEPLUS_SEED_SPEECH_API_KEY",
-        description="Seed Speech API key for full-scene Seed Audio generation.",
+        description="Seed Speech API key for full-scene Seed Audio and stdio Seed TTS 3 synthesis.",
     )
 
     # --- Provider base URLs --------------------------------------------------
@@ -177,6 +177,7 @@ class Settings(BaseSettings):
     seed_audio_base_url: str = Field(
         default="https://voice.ap-southeast-1.bytepluses.com",
         validation_alias="BYTEPLUS_SEED_AUDIO_BASE_URL",
+        description="Seed Speech base URL shared by Seed Audio and Seed TTS 3.",
     )
     # --- Model bindings ------------------------------------------------------
 

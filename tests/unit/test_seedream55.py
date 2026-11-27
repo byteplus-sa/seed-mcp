@@ -73,6 +73,8 @@ def test_seedream55_capabilities_are_distinct_from_pro(registry: CapabilityRegis
     assert caps.family.value == "seedream_5_5"
     assert caps.max_references == 10
     assert caps.supported_output_formats == ("png", "jpeg")
+    assert caps.supported_sizes == ("1K", "1.5K", "2K")
+    assert caps.custom_size_pixels_range == (921600, 8294400)
     assert not caps.supports_batch
     assert not caps.supports_streaming
     assert caps.supports_transparent_background
@@ -187,6 +189,13 @@ def test_seedream55_request_matches_supplied_transparent_example(
         "4880x305",
         "305x4880",
         "2830x1634",
+        "2300x2011",
+        "2091x2212",
+        "3840x2160",
+        "2160x3840",
+        "2880x2880",
+        "11520x720",
+        "720x11520",
     ],
 )
 def test_seedream55_accepts_documented_sizes(
@@ -204,10 +213,13 @@ def test_seedream55_accepts_documented_sizes(
         "auto",
         "3K",
         "4K",
-        "2880x2880",
+        "4k",
+        "3841x2160",
+        "2160x3841",
+        "2881x2880",
+        "4096x2160",
+        "4096x4096",
         "1279x720",
-        "2300x2011",
-        "2091x2212",
         "4881x305",
         "305x4881",
         "0x2048",
@@ -228,6 +240,41 @@ def test_seedream55_rejects_invalid_sizes_before_request_building(
     )
     with pytest.raises(ValueError, match=r"[Ss]ize"):
         registry.validate_image_size(MODEL, size)
+
+
+def test_seedream55_custom_endpoint_shares_high_resolution_limits(
+    registry: CapabilityRegistry, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("SEEDREAM_DEFAULT_MODEL", "ep-image-test")
+    monkeypatch.setenv(
+        "SEEDREAM_MODEL_BINDINGS", '[{"model_id":"ep-image-test","family":"seedream_5_5"}]'
+    )
+    get_settings.cache_clear()
+    registry = refresh_capability_registry()
+    caps = registry.resolve_image_model(None)
+    assert caps.custom_size_pixels_range == (921600, 8294400)
+    assert registry.validate_image_size(None, "3840x2160") == "3840x2160"
+    with pytest.raises(ValueError, match="pixel count"):
+        registry.validate_image_size(None, "3841x2160")
+
+
+@pytest.mark.parametrize("size", ["3840x2160", "2160x3840", "2880x2880"])
+def test_seedream55_high_resolution_request_preserves_dimensions(
+    registry: CapabilityRegistry, size: str
+) -> None:
+    request = SeedreamGenerateInput(prompt="High-resolution landscape", size=size)
+    body = build_seedream_request(
+        request, registry.resolve_image_model(MODEL), None, prompt=request.prompt, seed=None
+    ).model_dump(exclude_none=True)
+    assert body["model"] == MODEL
+    assert body["size"] == size
+    assert body["output_format"] == "png"
+
+
+def test_seedream55_size_schema_explains_uhd_dimensions() -> None:
+    description = SeedreamGenerateInput.model_json_schema()["properties"]["size"]["description"]
+    assert "8294400" in description
+    assert "3840x2160" in description
 
 
 @pytest.mark.parametrize("output_format", [None, "png", "jpeg"])

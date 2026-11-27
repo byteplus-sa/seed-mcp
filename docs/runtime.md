@@ -136,7 +136,7 @@ admission and the cooperative whole-call deadline are separate bounds:
   slots or clients are released, including repeated cancellation. Cleanup can
   exceed the nominal deadline; it is not a hard kill or provider cancellation.
 - `TOOL_DEADLINE_EXCEEDED` is text-only, preserving possible mutation and known
-  safe accepted IDs. Pre-dispatch/read-only expiry does not claim billed work
+  safe accepted task IDs or dispatched TTS request IDs. Pre-dispatch/read-only expiry does not claim billed work
   began. External cancellation propagates; inner provider timeouts retain
   their normalized errors. Never blindly resubmit after a lost response.
 - ModelArk polling and discovery do not wait on saturated generation slots.
@@ -211,8 +211,11 @@ quotes, settlement amounts or guarantees of an actual spend ceiling.
 
 | Constant | Value |
 |---|---|
-| `COST_PER_IMAGE` | `0.03` USD |
+| `COST_PER_IMAGE` | `0.03` USD (families other than Seedream 5.5) |
+| `SEEDREAM_5_5_OUTPUT_TIERS` | `0.020` / `0.035` / `0.079` USD per output image, by pixel count |
+| `COST_PER_SEEDREAM_5_5_INPUT_IMAGE` | `0.008` USD per input image per call |
 | `COST_PER_AUDIO_SECOND` | `0.0031` USD |
+| `COST_PER_TTS_MILLION_CHARACTERS` | `20.0` USD (built-in estimate, not account pricing) |
 | `COST_PER_VIDEO_TASK` | `0.07` USD (`0.35` for Seedance 2.5) |
 | `DEFAULT_MAX_CONCURRENT` | `5` |
 
@@ -220,10 +223,37 @@ quotes, settlement amounts or guarantees of an actual spend ceiling.
 
 | `product` | Formula |
 |---|---|
-| `"image"` | `round(variations * 0.03, 4)` |
+| `"image"` | 5.5: `round(variations * (output_rate + reference_images * 0.008), 4)`; other families: `round(variations * 0.03, 4)` |
 | `"audio"` | `round(variations * max(duration_seconds, 10) * 0.0031, 2)` — **floor of 10 seconds per variation** |
+| `"tts"` | `round(variations * max(characters, 0) * 20 / 1000000, 6)`; includes SSML markup and audio tags |
 | `"video"` | `round(variations * 0.07, 2)`; regular 2.5 and Flash use `0.35` per task, selected by registry family; a registered model-specific override wins |
 | (any other) | `0.0` |
+
+Seed TTS uses direct stdio execution and the normal Seed Speech admission and
+budget reservation. It never retries synthesis. The JSONL stream is bounded
+and closed on cancellation; after dispatch, an interrupted or malformed
+successful stream is ambiguous and its reservation commits. A definitive
+rejection or connection failure releases it. Completed audio is passed to persistence.
+If storage and bounded fallback cannot deliver it, the text-only error retains
+the request ID and confirmed synthesis status, and forbids automatic resynthesis.
+Ordinary post-synthesis notification and client-cleanup failures are best-effort;
+external cancellation still propagates.
+See [Seed TTS](seed-tts.md).
+
+Seedream 5.5 output estimates use the supplied high-resolution pricing table:
+at most 2.61M pixels costs $0.020; above 2.61M through 4.63M costs $0.035;
+above 4.63M through the exact 8,294,400-pixel limit costs $0.079.
+These are rounded pricing thresholds, not additional size-validation limits.
+Named `1K`/`1.5K` use the lower tier; `2K` and omitted size use the middle tier.
+Custom dimensions select the tier by width times height. Each variation repeats
+the input-image charge: two UHD outputs with one reference estimate $0.174.
+The resolved `seedream_5_5` family selects these rates even on a custom endpoint;
+model-ID text alone does not select pricing.
+
+Dry runs, dispatch logging and local budget reservations use the same estimate.
+`price_source` remains `builtin`: this is not live account pricing or a billing
+quote. Source: the operator-supplied 261028 high-resolution table received
+2026-11-27; see [model contract notes](models.md#image-capabilities-imagecapabilities).
 
 Video estimates do not account for resolution or duration. Flash uses the
 static 2.5 per-task estimate, not its token-based provider price.
@@ -445,8 +475,8 @@ the deadline. Preserve partial acceptance; never blindly rerun the batch.
 ## Direct execution state
 
 `execution.py` maintains ephemeral ContextVar state shared with variation
-children: monotonic deadline, possible-mutation flag and bounded safe accepted
-receipts. It is invalidated when the call exits. No credentials, payloads,
+children: monotonic deadline, possible-mutation flag, bounded safe accepted
+receipts and up to five distinct request-only correlation IDs. It is invalidated when the call exits. No credentials, payloads,
 snapshots, durable execution claims or MCP job records are created.
 
 `before_provider_request(side_effect=...)` checks expiry before dispatch.
@@ -454,6 +484,9 @@ snapshots, durable execution claims or MCP job records are created.
 validates HTTP receipts before capture. The wrapper rechecks expiry when a
 handler suppresses cancellation. Neither transport accepts explicit
 `io.modelcontextprotocol/tasks` opt-in.
+`record_dispatched_request` retains TTS request IDs after dispatch authorization,
+without manufacturing accepted tasks. Deadline diagnostics distinguish these
+request IDs from pollable task IDs and clear them when the invocation exits.
 
 ## HTTP Readiness and Recovery
 

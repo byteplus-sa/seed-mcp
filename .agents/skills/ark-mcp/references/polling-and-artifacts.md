@@ -31,7 +31,7 @@ flowchart LR
   `persist_output=true` to download and store them on stdio.
 - **No task augmentation is required or supported.** Persistence uses the
   direct call's live MCP context.
-- **Persistence defaults to false globally.** Local true is explicit; HTTP rejects true.
+- **Seed Audio/Seedream persistence defaults to false globally.** Local true is explicit; HTTP rejects true. Stdio-only Seed TTS always persists and has no switch.
 - **Never resubmit a create tool to poll.** `queued`, `running` and `processing` are not failures, and a second create call starts a second billed task. After a local timeout, disconnect or client restart, poll the same task ID again.
 - **Persistence is cached per task and output.** Concurrent and repeated polls reuse each cached durable copy. Missing or failed generation outputs can be persisted later without copying successful siblings again.
 - Local files written by a persist run (`output_dir`, `output_path`) need live MCP roots or `OUTPUT_ROOTS`; see [local-output.md](local-output.md).
@@ -82,6 +82,7 @@ A mode that does not fit `expected_status` (cancel with `succeeded`, delete with
 Stdio persisted outputs are `ArtifactRef`s with a stable
 `seed-media://artifacts/{artifact_id}` URI. Explicitly request `persist=true` /
 `persist_output=true` locally when needed; defaults are false.
+Seed TTS always persists its completed stream and has no provider URL.
 
 ### Retention and access
 
@@ -97,7 +98,7 @@ Stdio persisted outputs are `ArtifactRef`s with a stable
 - **stdio only.** Over HTTP they are rejected.
 - **Absolute path inside an allowed output root:** the client's MCP roots, else `OUTPUT_ROOTS`. With neither, path writing is disabled.
 - **Validated before any provider call**, so a bad path never costs a billed generation.
-- **Need persistence:** `output_path`/`output_dir` require `persist=true` / `persist_output=true`.
+- **Need persistence:** `output_path`/`output_dir` require `persist=true` / `persist_output=true` for Seed Audio/Seedream/Seedance. Seed TTS always persists.
 - **`output_path` ending in `/` is a directory**, with files named
   `<artifact_id>.<ext>`. A directory is required for Seedream
   `variations > 1` or `max_images > 1`, and Seed Audio `variations > 1`.
@@ -110,7 +111,7 @@ Stdio persisted outputs are `ArtifactRef`s with a stable
 When durable storage fails after the store's own download retries, an
 `ArtifactRef` fallback carries `persistence_error` (`code`, `message`,
 `retryable`, `artifact_limit_bytes`, `source_url_expires_at`). Check this on
-Seedream and Seed Audio artifacts. Provider task success is separate:
+Seedream, Seed Audio and Seed TTS artifacts. Provider task success is separate:
 Seedance reports `outputs[].persistence` and `outputs[].persistence_issue`. On failed
 task-output persistence, keep `source_url` and recover it before expiry;
 do not assume an `ArtifactRef` exists.
@@ -119,9 +120,15 @@ do not assume an `ArtifactRef` exists.
 |---|---|---|
 | a UUID | persisted normally | none |
 | `provider-url` | `uri` is the temporary provider URL; not stored | `seed_media_persist_url` before the URL expires |
-| `inline-fallback` | Base64 bytes in `fallback_data` (Seed Audio, Seedream `b64_json`), used when no provider URL exists and the payload is within `ARTIFACT_INLINE_FALLBACK_MAX_BYTES` (default 8 MB, 0 disables) | decode `fallback_data`, or use `output_path` to write it locally; storage has no copy |
+| `inline-fallback` | Base64 bytes in `fallback_data` (Seed Audio, Seed TTS, Seedream `b64_json`), used when no provider URL exists and the payload is within `ARTIFACT_INLINE_FALLBACK_MAX_BYTES` (default 8 MB, 0 disables) | decode `fallback_data`, or use `output_path` to write it locally; storage has no copy |
 
 Above the inline cap a Base64 output that cannot be stored becomes a tool error. Oversized or invalid Base64 is a validation error, not a storage failure. A `provider-url` artifact cannot be written locally (its `export_error` says to persist it first); an `inline-fallback` artifact can.
+
+Inline provider audio has no store byte cap, so its inline fallback
+`persistence_error.artifact_limit_bytes` is null. This does not remove the
+fallback cap, reference-audio input limits, 10 MiB audio URL-download limit or
+TTS's separate 10 MiB stream-output bound. Object-store reads of persisted audio
+are bounded by the owned artifact's recorded byte count.
 
 ### `seed_media_persist_url`
 

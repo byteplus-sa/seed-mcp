@@ -24,7 +24,7 @@ model-specific, as shown above. Optional `point` or `bbox` coordinates target
 the first image on a normalized 0-999 scale. Ordinary reference edits and
 region prompts do not enable layer decomposition.
 
-5.5 also accepts a positive custom `WIDTHxHEIGHT`: 921,600-4,624,220 pixels
+5.5 also accepts a positive custom `WIDTHxHEIGHT`: 921,600-8,294,400 pixels
 inclusive, with width/height ratio 1/16-16. Every family supports 1-10 independent
 `variations`; only batch-capable families accept `max_images > 1`, and batching
 cannot be combined with multiple variations. On 5.5/Pro, optional
@@ -44,6 +44,35 @@ and `stream: false`. `persist`, `dry_run` and the job envelope are MCP controls,
 not provider payload fields. Keep keys in private server configuration.
 Seedream 5.5 does not document the retained `seed` compatibility field in its
 GA parameters or OpenAPI schema; omit it unless provider acceptance is verified.
+
+### High-Resolution 4K Output
+
+Use `size="3840x2160"` for 16:9 4K UHD on the same 5.5 model, with no extra
+flag. Portrait `2160x3840` and square `2880x2880` also fit the maximum.
+`4096x2160` exceeds the pixel limit. The named tiers remain `1K`, `1.5K`,
+and `2K`; the undocumented `"4K"` shorthand is not accepted.
+
+Preview without generating or billing:
+
+```json
+{
+  "name": "seedream_generate_image",
+  "arguments": {
+    "input": {
+      "model": "dola-seedream-5-5-261028",
+      "prompt": "A detailed panoramic mountain landscape at sunrise",
+      "size": "3840x2160",
+      "dry_run": true
+    }
+  }
+}
+```
+
+The built-in 5.5 estimate is $0.079 per UHD output plus $0.008 per input
+reference per variation, not an account quote. High-resolution limits and
+rates follow the supplied 261028 output table; live provider acceptance and
+account access were not established by offline tests. See the
+[contract notes](/ark-mcp/models/#image-capabilities-imagecapabilities).
 
 ### Output Checks and Scope
 

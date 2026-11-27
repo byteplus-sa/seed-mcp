@@ -49,6 +49,37 @@ def _patch_audio_service(monkeypatch: pytest.MonkeyPatch, response_data: dict[st
 class TestSeedAudioGenerateTool:
     """Full-path integration tests for seed_audio_generate."""
 
+    @pytest.mark.parametrize("variations", [1, 2])
+    async def test_large_inline_output_persists_without_provider_url(
+        self,
+        fake_ctx: FakeContext,
+        temp_store: Any,
+        monkeypatch: pytest.MonkeyPatch,
+        variations: int,
+    ) -> None:
+        raw = b"a" * (10 * 1024 * 1024 + 1)
+        _patch_audio_service(
+            monkeypatch, {"audio": base64.b64encode(raw).decode(), "duration": 120}
+        )
+        result = await seed_audio_generate(
+            SeedAudioGenerateInput(
+                text_prompt="A calm soundscape.", persist=True, variations=variations
+            ),
+            fake_ctx,
+        )
+        assert isinstance(result, SeedAudioGenerateOutput)
+        artifacts = (
+            [item.artifact for item in result.summary.variations]
+            if result.summary is not None
+            else [result.artifact]
+        )
+        for artifact in artifacts:
+            assert artifact is not None
+            assert artifact.uri.startswith("seed-media://artifacts/")
+            assert artifact.persistence_error is None
+            assert artifact.bytes == len(raw)
+            assert (await temp_store.get(artifact.id)).data == raw
+
     @pytest.mark.parametrize(
         ("output", "expected_mime"),
         [

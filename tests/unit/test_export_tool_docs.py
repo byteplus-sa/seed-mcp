@@ -80,7 +80,7 @@ def profile(frame, event, arg):
         event == "call"
         and frame.f_globals.get("__name__") == "ark_mcp.tools._catalog"
         and frame.f_code.co_name in {
-            "_always", "_local", "_modelark", "_seed_audio", "_object_storage", "_temporary_upload",
+            "_always", "_local", "_modelark", "_seed_audio", "_seed_tts", "_object_storage", "_temporary_upload",
         }
     ):
         raise AssertionError("Exporter evaluated a registration gate")
@@ -223,13 +223,14 @@ runpy.run_path = missing_gate
 
 def test_catalog_inventory_and_order_are_exact(exported: dict[str, Any]) -> None:
     assert [tool["name"] for tool in exported["tools"]] == [entry.name for entry in CATALOG]
-    assert len(exported["tools"]) == len(CATALOG) == 13
+    assert len(exported["tools"]) == len(CATALOG) == 14
     assert {tool["name"] for tool in exported["tools"]} == {
         "ark_list_models",
         "seed_media_get_artifact",
         "seed_media_export_artifact",
         "seed_media_persist_url",
         "seed_audio_generate",
+        "seed_tts_generate",
         "media_upload",
         "media_presign",
         "media_prepare_upload",
@@ -439,6 +440,7 @@ def test_all_registration_gates_name_the_exact_environment_variables(
         "_local": set(),
         "_modelark": {"BYTEPLUS_MODELARK_API_KEY"},
         "_seed_audio": {"BYTEPLUS_SEED_SPEECH_API_KEY"},
+        "_seed_tts": {"BYTEPLUS_SEED_SPEECH_API_KEY"},
         "_object_storage": {
             "OBJECT_STORAGE_BACKEND",
             "TOS_ACCESS_KEY",

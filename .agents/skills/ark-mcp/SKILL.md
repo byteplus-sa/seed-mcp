@@ -1,6 +1,6 @@
 ---
 name: ark-mcp
-description: Generate media with Seed MCP. Use for Seedream, Seedance and Seed Audio through direct HTTP BYOK or stdio calls, including opt-in temporary TOS reference preparation.
+description: Generate media with Seed MCP. Use for Seedream, Seedance and Seed Audio through direct HTTP BYOK or stdio calls, plus stdio Seed TTS 3 and opt-in temporary TOS reference preparation.
 ---
 
 # Ark Seed Multimodal MCP Server
@@ -20,7 +20,7 @@ Determine the transport before choosing a workflow. HTTP BYOK has 7 tools
 and runs provider tools directly in the foreground.
 Opt-in `media_prepare_upload` adds one HTTP tool for enrolled clients (8 total).
 It has no jobs, native tasks, local storage/artifact tools or resources. Local stdio
-retains the 12-entry conditional catalog and storage/artifacts, with direct calls.
+retains the 13-entry conditional catalog and storage/artifacts, with direct calls.
 Asset administration is unavailable on either transport. Setup and rotation:
 [environment.md](references/environment.md#transport-and-auth).
 
@@ -35,6 +35,7 @@ or server-issued key exists; `Authorization` is rejected.
 | **Seedance** video (2.0, regular 2.5 with 4K, and 2.5 Flash) | `seedance_create_task` | `gen_task_get`, `gen_task_list`, `gen_task_cancel_or_delete` | `BYTEPLUS_MODELARK_API_KEY` |
 | **Seedream** images (generate and edit) | `seedream_generate_image` | artifacts in the result | `BYTEPLUS_MODELARK_API_KEY` |
 | **Seed Audio** | `seed_audio_generate` | artifact in the result | `BYTEPLUS_SEED_SPEECH_API_KEY` |
+| **Seed TTS 3.0 (stdio only)** | `seed_tts_generate` | complete persisted audio and optional word alignment | `BYTEPLUS_SEED_SPEECH_API_KEY` |
 | **Object storage** | `media_upload`, `media_presign` | URLs in the result | TOS or S3 credentials |
 | **Always registered (four local tools)** | `ark_list_models`, `seed_media_*` | — | — |
 
@@ -132,7 +133,9 @@ flowchart LR
   Local stdio reserves budget after admission; HTTP does not.
 - `ADMISSION_TIMEOUT` means this attempt did not dispatch, not the whole batch.
   `TOOL_DEADLINE_EXCEEDED` is text-only and retains uncertainty and safe accepted
-  IDs. External cancellation propagates; timeout does not cancel provider work.
+  task IDs or dispatched TTS request IDs. Request-only IDs are for reconciliation,
+  not polling or proof of acceptance. External cancellation propagates;
+  timeout does not cancel provider work.
 - SDK/local SQLite draining can exceed the cooperative deadline.
   Direct local writes use live MCP roots or `OUTPUT_ROOTS`; artifact-store
   persistence itself needs no roots. See [local-output.md](references/local-output.md).
@@ -191,7 +194,11 @@ flowchart LR
 - Seedream 5.5 does not document the retained `seed` compatibility field;
   omit it unless provider acceptance is verified.
 - 5.5 sizes: `1K`, `1.5K`, `2K` (default), or positive `WIDTHxHEIGHT` with
-  921600-4624220 pixels and width/height ratio 1/16-16, inclusive. No `auto` size.
+  921600-8294400 pixels and width/height ratio 1/16-16, inclusive.
+  For 4K UHD use `size="3840x2160"` on the same model, not `"4K"`.
+  Portrait `2160x3840` and square `2880x2880` also fit. No `auto` size.
+  Built-in estimates use pixel tiers ($0.020/$0.035/$0.079) plus $0.008 per
+  input image per variation; UHD uses $0.079 per output, not an account quote.
 - 5.5 `prompt_optimization` accepts `standard` only (provider default);
   `background` defaults to `auto` (JPEG always opaque). Pro's operator
   optimization setting never applies to 5.5.
@@ -214,6 +221,19 @@ flowchart LR
   for the image model table and shared editing guidance; discovery remains
   authoritative for your connection.
 
+### Seed TTS 3.0 (stdio only)
+
+- Use `seed_tts_generate` to speak supplied `text` or `ssml`, not a scene prompt.
+  Exactly one is required, up to 10,000 characters. Supply a compatible,
+  authorized `voice_id` from the
+  [official voice list](https://docs.byteplus.com/en/docs/byteplusvoice/voicelist-3-0).
+- Call directly. The only model is `dola-seed-tts-3.0`. Supports MP3/PCM/Ogg Opus,
+  delivery controls, pronunciation rules and optional word alignment in seconds.
+- Always persists the complete bounded stream; no `persist` switch or provider URL.
+  HTTP never registers TTS. Use `output_path` or local export for large outputs.
+- No automatic synthesis retry. A timeout or incomplete stream may be billed;
+  retain diagnostics and reconcile. See [TTS details](references/tool-reference.md#seed-tts-3).
+
 ### Polling and persistence
 
 - Poll Seedance with `persist_output=false`; pass every task ID in one
@@ -221,6 +241,8 @@ flowchart LR
   `persist_output=true` to keep the outputs on stdio only.
   Seed Audio/Seedream `persist` default to
   false globally. HTTP rejects explicit true; local explicit true is allowed.
+- Inline provider audio has no store byte cap; reference input and URL-download
+  limits remain unchanged. TTS stream collection and inline fallback remain bounded.
 - `queued` / `running` / `processing` is not a failure. Wait
   `recommended_poll_after_ms` (default 5000).
 - Provider URLs expire: **2 hours for Seed Audio, 24 hours for Seedream and

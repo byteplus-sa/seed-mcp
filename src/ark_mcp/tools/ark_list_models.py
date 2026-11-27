@@ -13,13 +13,14 @@ from ark_mcp.config.model_capabilities import (
     VideoCapabilities,
     get_capability_registry,
 )
+from ark_mcp.domain.tts import TTS_MAX_CHARACTERS, TTS_MODEL
 from ark_mcp.security.credentials import (
     endpoint_default,
     has_client_secret,
     has_provider_credential,
 )
 
-ModelKind = Literal["video", "image"]
+ModelKind = Literal["video", "image", "audio"]
 EndpointTool = Literal["seedance_create_task", "seedream_generate_image"]
 ConnectionIssueCode = Literal["missing_modelark_key", "missing_client_secret"]
 
@@ -32,14 +33,14 @@ class ArkListModelsInput(BaseModel):
 
     kind: ModelKind | None = Field(
         None,
-        description="Filter to video or image. Omit to list both configured kinds.",
+        description="Filter to video, image, or audio (stdio Seed TTS). Omit to list all available kinds.",
     )
     check_connection: bool = Field(
         False,
         description=(
             "HTTP-only configuration check: ModelArk key/client-secret presence and exact "
             "endpoint bindings; no provider calls or authentication proof. Image/video kind "
-            "checks that route; omitted kind checks both."
+            "checks that route; omitted kind checks both. Audio checks are not supported."
         ),
     )
 
@@ -111,6 +112,17 @@ class ImageModelLimits(BaseModel):
     )
 
 
+class TtsModelLimits(BaseModel):
+    """Seed TTS limits; the synthesis tool validates format combinations."""
+
+    max_text_characters: int = Field(description="Maximum text characters per request.")
+    max_ssml_characters: int = Field(description="Local safety limit for SSML characters.")
+    output_formats: list[str] = Field(description="Available audio encodings.")
+    requires_voice_id: bool = Field(
+        True, description="An authorized, compatible voice ID is required."
+    )
+
+
 class ModelInfo(BaseModel):
     """One configured model binding."""
 
@@ -126,6 +138,7 @@ class ModelInfo(BaseModel):
     tool: str = Field(..., description="Tool serving this configured model.")
     video: VideoModelLimits | None = Field(None, description="Limits for video models.")
     image: ImageModelLimits | None = Field(None, description="Limits for image models.")
+    tts: TtsModelLimits | None = Field(None, description="Limits for stdio speech synthesis.")
 
 
 class ServiceStatus(BaseModel):
@@ -216,6 +229,7 @@ async def ark_list_models(input: ArkListModelsInput, ctx: Context) -> ArkListMod
     presence and configured image/video endpoint defaults, not upstream authorization or
     live lineage. Unknown endpoints need verified operator bindings. Explicit create-tool
     model arguments override endpoint headers. Default discovery is static and anonymous.
+    Local stdio also lists Seed TTS when its Seed Speech key is configured.
     """
     settings = get_settings()
     return ArkListModelsOutput(
@@ -230,6 +244,8 @@ def _connection_check(input: ArkListModelsInput, settings: Settings) -> HttpConn
         raise ValueError(
             "check_connection requires live HTTP requests; it is not available on stdio."
         )
+    if input.kind == "audio":
+        raise ValueError("check_connection supports image/video only; Seed TTS is stdio only.")
     key_present = has_provider_credential("modelark")
     secret_present = has_client_secret()
     issues: list[ConnectionIssueCode] = []
@@ -274,11 +290,27 @@ def _endpoint_selection(kind: str) -> EndpointSelectionCheck:
 
 def describe_models(settings: Settings) -> list[ModelInfo]:
     """Describe every configured binding whose service is enabled."""
+    models = []
+    if settings.mcp_transport == "stdio" and settings.has_seed_audio:
+        models.append(
+            ModelInfo(
+                model_id=TTS_MODEL,
+                family="seed_tts_3",
+                kind="audio",
+                is_default=True,
+                tool="seed_tts_generate",
+                tts=TtsModelLimits(
+                    max_text_characters=TTS_MAX_CHARACTERS,
+                    max_ssml_characters=TTS_MAX_CHARACTERS,
+                    output_formats=["mp3", "pcm", "ogg_opus"],
+                ),
+            )
+        )
     if settings.mcp_transport != "http" and not settings.has_modelark:
-        return []
+        return models
     with settings_scope(settings):
         image_caps, video_caps = get_capability_registry().configured_models()
-    models = [_video_info(caps, settings) for caps in video_caps.values()]
+    models += [_video_info(caps, settings) for caps in video_caps.values()]
     models += [_image_info(caps, settings) for caps in image_caps.values()]
     return models
 
@@ -357,6 +389,7 @@ def describe_services(settings: Settings) -> list[ServiceStatus]:
     services = (
         ("modelark", settings.has_modelark, "Set BYTEPLUS_MODELARK_API_KEY."),
         ("seed_audio", settings.has_seed_audio, "Set BYTEPLUS_SEED_SPEECH_API_KEY."),
+        ("seed_tts", settings.has_seed_audio, "Set BYTEPLUS_SEED_SPEECH_API_KEY (stdio only)."),
         ("object_storage", settings.has_object_storage, f"Set {storage_vars}."),
     )
     return [

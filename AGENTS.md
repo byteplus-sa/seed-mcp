@@ -19,9 +19,18 @@ separate tools. The flow is discovery → create → poll:
   It never proves authentication, live lineage, entitlement or reachability.
 - **Seed Audio** — full-scene audio generation through Seed Speech
   (`seed_audio_generate`, including parallel variations).
+- **Seed TTS 3.0** — stdio-only `seed_tts_generate` speaks text or SSML with an
+  authorized voice through Seed Speech. Direct call, bounded JSONL collection,
+  MP3/PCM/Ogg Opus, pronunciation/delivery controls and optional word alignment.
+  Always persists; no provider URL, `persist` flag, jobs or automatic retries.
+  Local discovery includes `kind="audio"` for TTS; HTTP preflight remains image/video only.
 - **Seedream** — image generation and editing through ModelArk with one
   tool, `seedream_generate_image` (generate, edit with point/bbox,
   transparent background, variations, dry run).
+  Seedream 5.5 high-resolution output uses explicit `size="3840x2160"` for
+  4K UHD on the same model, with a maximum of 8,294,400 pixels. Named tiers
+  remain 1K/1.5K/2K; no undocumented `4K` alias. Built-in 5.5 estimates use
+  output pixel tiers plus input-image charges per variation, not account quotes.
 - **Seedance** — asynchronous video generation through ModelArk with one
   create tool, `seedance_create_task`. Supports two model generations: 2.0
   (legacy, 15s, 4K) and 2.5 (default, 30s, 4K, structured editing, native
@@ -55,6 +64,8 @@ separate tools. The flow is discovery → create → poll:
   queues remain asynchronous; retain their task IDs and poll.
 - **Local durable artifacts** — stdio-only MCP resources for generated media whose provider URLs
   expire (2h for Seed Audio, 24h for ModelArk image/video).
+  Inline provider audio has no store byte cap; input references, URL downloads,
+  inline fallback and TTS stream collection retain their separate bounds.
 - **Transports** — local stdio retains storage/artifacts.
   HTTP is forward-only BYOK: 7 provider/discovery tools,
   direct foreground calls, no jobs/native tasks/local storage/artifact tools/resources.
@@ -64,13 +75,13 @@ separate tools. The flow is discovery → create → poll:
   operator `MCP_IDENTITY_HMAC_KEY` (64 lowercase hex) and positive
   `MCP_IDENTITY_KEY_VERSION` (default 1), not customer credentials.
 
-Seedance and Seedream share the ModelArk data-plane host and Bearer authentication. Seed Audio
+Seedance and Seedream share the ModelArk data-plane host and Bearer authentication. Seed Audio and Seed TTS
 uses Seed Speech and `X-Api-Key`. These two provider gateways sit behind one normalized domain
 layer. See `docs/architecture.md` for current behavior.
 
-The catalog contains **13 definitions**, with **12 local tools** and four always registered on stdio. Enabled
-tools depend on the three service gates: `modelark`, `seed_audio`,
-and `object_storage`. VOD processing, 3D generation, dedicated ASR, asset
+The catalog contains **14 definitions**, with **13 local tools** and four always registered on stdio. Enabled
+provider/storage tools depend on `modelark`, `seed_audio`, stdio-only `seed_tts`,
+and `object_storage` gates. VOD processing, 3D generation, dedicated ASR, asset
 administration and operator-account live pricing are not part of this server.
 Local provider keys are startup configuration. HTTP uses only live
 `X-ModelArk-Api-Key` or `X-Seed-Speech-Api-Key` for the
@@ -145,7 +156,9 @@ entry after MCP parsing and before credentials and admission.
 Stdio reserves budget after admission. Active/waiting owner limiters remain pinned.
 `ADMISSION_TIMEOUT` means this attempt did not dispatch, not the whole batch.
 `TOOL_DEADLINE_EXCEEDED` is text-only and preserves mutation uncertainty and
-known safe accepted IDs. External cancellation propagates. SDK/SQLite draining
+known safe accepted IDs. TTS also retains bounded request-only IDs after
+dispatch, including persistence deadlines; these are not tasks or proof of
+acceptance and are cleared at invocation exit. External cancellation propagates. SDK/SQLite draining
 may exceed the cooperative deadline; timeout is not provider cancellation.
 HTTP keeps safe accepted IDs only in the live invocation for deadline diagnostics.
 Stdio cancellation drains local bookkeeping; dispatched reservations commit,

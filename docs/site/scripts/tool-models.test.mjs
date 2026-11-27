@@ -17,6 +17,7 @@ test("model-backed tool pages each show one supported-model table", () => {
     "seedream_generate_image",
     "seedance_create_task",
     "seed_audio_generate",
+    "seed_tts_generate",
   ]) {
     const page = toolPage(tool(name));
     assert.equal(page.match(/^## Supported Models$/gm)?.length, 1, name);
@@ -81,6 +82,15 @@ test("fixed-service tools do not advertise a per-call model selector", () => {
     assert.match(toolPage(tool(name)), /no per-call `model` argument/i);
   }
   assert.match(toolPage(tool("seed_audio_generate")), /seed-audio-1\.0/);
+});
+
+test("TTS is documented as direct and local with voice selection", () => {
+  const page = toolPage(tool("seed_tts_generate"));
+  assert.match(page, /dola-seed-tts-3\.0/);
+  assert.match(page, /stdio/i);
+  assert.match(page, /voice_id/);
+  assert.match(page, /unavailable over hosted HTTP/);
+  assert.doesNotMatch(page, /ark_job_submit/);
 });
 
 test("utility and unknown tools do not inherit unrelated model tables", () => {

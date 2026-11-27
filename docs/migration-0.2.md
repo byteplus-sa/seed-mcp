@@ -37,7 +37,7 @@ is provided.
    Ordinary TOS/S3 uploads do not register provider assets.
 
 Current HTTP is a forward-only BYOK foundation with 7 tools, anonymous static discovery and foreground provider calls.
-Local stdio retains the conditional 12-tool catalog and storage, using direct
+Local stdio retains the conditional 13-tool catalog (including Seed TTS) and storage, using direct
 calls without MCP workers. Removing jobs does not delete current provider
 ownership or journal state; preserve it. No old-auth compatibility or ownership
 migration exists. See [direct execution](../specs/SPEC_DIRECT_EXECUTION.md),

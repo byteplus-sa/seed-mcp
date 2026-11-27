@@ -4,7 +4,7 @@ type: spec
 status: accepted
 horizon: current
 created: 2026-11-16
-updated: 2026-11-18
+updated: 2026-11-27
 tags: [byok, http, security, ownership]
 related:
   - specs/SPEC_DIRECT_EXECUTION.md
@@ -24,7 +24,7 @@ is not public-launch or deployed-capacity certification.
 
 | Transport | Inventory | Execution and storage |
 | --- | --- | --- |
-| Local stdio | 12 catalog tools, conditionally registered; four always available | Direct calls, local provider settings, optional storage and artifacts |
+| Local stdio | 13 catalog tools, conditionally registered; four always available | Direct calls, local provider settings, storage and artifacts; TTS always persists |
 | HTTP | 7 tools; optional temporary upload adds one | Direct foreground calls; provider-managed video tasks; no jobs, native tasks, local storage/artifact tools or resources |
 
 HTTP exposes `ark_list_models`, `seed_audio_generate`, `seedream_generate_image`,
@@ -39,7 +39,7 @@ described below; it is not a provider-authentication check.
 `ark_list_models` returns the receiving server's configured bindings even
 without an environment provider key. `services[].enabled` reports registration,
 not customer entitlement, provider-key validity or model activation.
-The 11 [catalog scope strings](../docs/security.md#scope-taxonomy) are metadata,
+The 9 [catalog scope strings](../docs/security.md#scope-taxonomy) are metadata,
 not auth grants or customer-selected roles.
 
 ## Request Credentials
@@ -80,8 +80,8 @@ is supported. HTTP uses these fixed official origins:
 
 ## Temporary Upload Preparation
 
-`media_prepare_upload` is one opt-in HTTP-only tool; the catalog has 13
-definitions, while stdio has 12 and baseline HTTP has 7.
+`media_prepare_upload` is one opt-in HTTP-only tool; the catalog has 14
+definitions, while stdio has 13 and baseline HTTP has 7.
 HTTP `services[]` availability for the entry with `service="object_storage"`
 reflects this gate, not enrollment or bucket validity.
 `MCP_TEMPORARY_UPLOAD_ENABLED=false` is the default. Enabling requires TOS
@@ -299,6 +299,8 @@ that FastMCP's `task=forbidden` mode alone rejects client opt-in.
 HTTP rejects explicit `true`, local paths and stored artifact references
 before dispatch. Explicit local persistence remains supported.
 Seedream `b64_json` needs persistence and therefore is not an HTTP output mode.
+Seed TTS is also excluded from HTTP: its provider returns streamed audio bytes,
+not a provider URL. TTS discovery and synthesis are stdio-only.
 HTTP returns provider URLs and metadata, not durable MCP media resources.
 Missing/unusable URL-only Seed Audio output is a nonretryable per-item
 `NO_DELIVERABLE_OUTPUT`, never an empty success or automatic regeneration.

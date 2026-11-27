@@ -6,7 +6,7 @@ description: Find the right Ark MCP capability and learn its credentials, execut
 Ark MCP has one tool per capability. Models, variations, edits and previews
 are parameters, not separate tool names. Start with `ark_list_models`.
 HTTP has 7 tools, plus optional upload preparation; anonymous static discovery
-and direct foreground provider calls. Local stdio has a 12-tool conditional
+and direct foreground provider calls. Local stdio has a 13-tool conditional
 catalog, four always registered. It also calls directly, with local
 storage/artifacts retained. Neither transport exposes MCP jobs/native tasks.
 
@@ -26,6 +26,8 @@ execution guidance. The tables below help you choose a starting point.
 [Seedream 5.5](/ark-mcp/tool-reference/seedream-generate-image/#seedream-5-5) is the built-in image default
 (`dola-seedream-5-5-261028`). It supports text-to-image, reference and point/bbox
 editing, and transparent PNG generation without an already-transparent input.
+High-resolution 4K UHD uses `size="3840x2160"` on the same model; custom
+dimensions support up to 8,294,400 pixels. `"4K"` is not a named size tier.
 Explicit operator defaults remain unchanged. Layer decomposition and native OCR
 are not supported by the MCP integration.
 
@@ -42,13 +44,16 @@ available in Ark MCP.
 | Task | Tool | Credential |
 | --- | --- | --- |
 | Generate full-scene audio | [seed_audio_generate](/ark-mcp/tool-reference/seed-audio-generate/) | Seed Speech key |
+| Speak supplied text or SSML | [seed_tts_generate](/ark-mcp/tool-reference/seed-tts-generate/) | Seed Speech key; stdio only; compatible authorized voice required |
 
 ## Uploads and Outputs
 
 Local upload/artifact tools are stdio-only. HTTP has no local storage/artifact
 tools or resources; clients host references externally or use optional
 [temporary TOS preparation](temporary-uploads.md), and retrieve expiring provider URLs.
-Persistence defaults to false globally; HTTP rejects true.
+Seed Audio/Seedream persistence defaults to false globally; HTTP rejects true.
+Seed TTS is local-only and always persists because its provider returns audio
+bytes, not a URL. See [TTS controls and voice selection](seed-tts.md).
 
 | Task | Tool |
 | --- | --- |

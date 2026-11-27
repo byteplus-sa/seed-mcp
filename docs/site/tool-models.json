@@ -6,7 +6,7 @@
         "name": "Seedream 5.5",
         "id": "`dola-seedream-5-5-261028`",
         "availability": "Built-in default; account authorization required.",
-        "capabilities": "10 references; `1K`, `1.5K`, `2K` (default); PNG (default) or JPEG; text-to-transparent PNG; `auto`, `opaque`, `transparent` backgrounds; `standard` optimization only; independent variations, no provider batch."
+        "capabilities": "10 references; `1K`, `1.5K`, `2K` (default); custom dimensions up to 8,294,400 pixels, including 4K UHD via `3840x2160`; PNG (default) or JPEG; text-to-transparent PNG; `auto`, `opaque`, `transparent` backgrounds; `standard` optimization only; independent variations, no provider batch."
       },
       {
         "name": "Seedream 5.0 Pro",
@@ -60,6 +60,17 @@
         "id": "Authorized custom ID; no built-in ID",
         "availability": "Configure a `mini` family binding.",
         "capabilities": "480p/720p; 4-15 s or auto; 9 images / 3 videos / 3 audios; audio references require image/video; no Draft or native edit/extend."
+      }
+    ]
+  },
+  "seed_tts_generate": {
+    "selection": "Stdio only. The only accepted model is `dola-seed-tts-3.0`. Supply a compatible, authorized `voice_id` from the [Seed TTS 3.0 voice list](https://docs.byteplus.com/en/docs/byteplusvoice/voicelist-3-0). This tool speaks supplied text; use Seed Audio for full-scene generation.",
+    "models": [
+      {
+        "name": "Seed TTS 3.0",
+        "id": "`dola-seed-tts-3.0`",
+        "availability": "Local stdio with BYTEPLUS_SEED_SPEECH_API_KEY; unavailable over hosted HTTP.",
+        "capabilities": "Text or SSML, up to 10,000 characters; voice delivery and pronunciation controls; optional word alignment; MP3, PCM or Ogg Opus; direct call that collects and persists one complete audio artifact, not live MCP audio."
       }
     ]
   },

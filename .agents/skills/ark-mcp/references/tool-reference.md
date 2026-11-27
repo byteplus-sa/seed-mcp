@@ -155,7 +155,9 @@ without alpha. It defaults to PNG even for ordinary generation.
 `background="auto"` is the 5.5 default and follows the prompt; JPEG is always opaque.
 
 Use 5.5 size tiers `1K`, `1.5K`, `2K` (default), or positive `WIDTHxHEIGHT`
-with 921600-4624220 pixels and width/height ratio 1/16-16, inclusive.
+with 921600-8294400 pixels and width/height ratio 1/16-16, inclusive.
+For 4K UHD use `size="3840x2160"` on the same model or bound endpoint.
+`"4K"` is not a named tier; `4096x2160` exceeds the pixel limit.
 Optional `safety_identifier` on 5.5/Pro must be a stable hashed user ID,
 1-64 non-space printable ASCII characters. Previews and logs redact it.
 `generations` preserves per-call usage, identifier echo, and provider-reported
@@ -195,7 +197,46 @@ The following example selects Pro, which must be bound by the operator:
   before accepting text, counts or geometry; publishing previews are a separate check.
 - `output_path` (stdio local export) needs `persist=true` and **must be a directory ending in `/`** when `variations > 1` or `max_images > 1`.
 - `asset://` references are rejected by Seedream; there is no asset-to-URL resolution fallback.
-- Dry-run cost covers `variations x max_images` images.
+- Dry-run cost covers `variations x max_images` images. 5.5 uses output pixel
+  tiers plus $0.008 per input image per variation; a UHD output estimates
+  $0.079 before references. Other families retain the flat estimate.
+
+## Seed TTS 3
+
+`seed_tts_generate` is stdio-only with a local Seed Speech key. It speaks supplied
+text/SSML using `dola-seed-tts-3.0`; it does not generate a full audio scene.
+Exactly one of `text` or `ssml` is required, plus a compatible authorized
+`voice_id` from the [voice list](https://docs.byteplus.com/en/docs/byteplusvoice/voicelist-3-0).
+There is no voice enrollment or automatic voice selection.
+
+Call directly with the normal `input` wrapper:
+
+```json
+{"input":{"voice_id":"multi_female_skye_v3_uranus_bigtts","text":"Welcome to the demonstration.","language_code":"en","enable_subtitle":true}}
+```
+
+- MP3 (default), PCM and Ogg Opus are supported. Output carries the resolved
+  encoding, `session_id`, request/log IDs, an artifact and optional word alignments.
+- `voice_settings` controls speed, volume, pitch, instructions and similarity.
+  `pronunciation_dictionary.tone` accepts `term/replacement` rules.
+- One bounded JSONL stream becomes one complete persisted artifact, not live MCP
+  audio. There is no provider URL, polling, `persist` switch or automatic retry.
+- Use `output_path` under live MCP roots or `OUTPUT_ROOTS`; otherwise use artifact
+  export. Storage fallback is bounded by `ARTIFACT_INLINE_FALLBACK_MAX_BYTES`.
+- If fallback is disabled or too small after storage failure, a text-only
+  `persist_speech` error retains the request ID and states synthesis completed.
+  `retryable=false` means do not resynthesize. `ambiguous_completion=false`
+  confirms synthesis completion, not successful delivery or absence of billing.
+- Stream output is capped at 10 MiB. Text/SSML is capped at 10,000 characters.
+  Word times are seconds; `silence_duration` is milliseconds.
+- A provider `session_id` is for sequential conversation continuity, not
+  idempotency. Disconnects/timeouts can be billed; do not synthesize again blindly.
+- Whole-tool deadlines retain the sent TTS `request_id` after dispatch, including
+  persistence timeouts. Use it for provider reconciliation, not `gen_task_get`;
+  it is not a task ID or proof of acceptance. No request journal is saved.
+- Budgeting uses a built-in USD 20 per million characters, including markup,
+  not an account quote. See the
+  [provider HTTP reference](https://docs.byteplus.com/en/docs/byteplusvoice/seed-tts-3-0-http-streaming).
 
 ## Seed Audio
 

@@ -23,6 +23,8 @@ from ark_mcp.artifacts.store import (
     ArtifactMetadata,
     ArtifactPersistenceError,
     StoredArtifact,
+    artifact_base64_limit_bytes,
+    artifact_limit_bytes,
 )
 from ark_mcp.config.env import get_settings
 from ark_mcp.domain.artifacts import ArtifactRef, MediaType
@@ -35,7 +37,6 @@ from ark_mcp.providers.retry import call_with_retry
 from ark_mcp.security.auth_context import AuthContext
 from ark_mcp.security.media_policy import (
     decode_base64_safely,
-    get_media_limits,
     validate_audio_mime,
     validate_image_mime,
     validate_video_mime,
@@ -47,15 +48,6 @@ from ark_mcp.security.safe_downloader import (
 
 if TYPE_CHECKING:
     from ark_mcp.config.env import Settings
-    from ark_mcp.security.media_policy import MediaLimits
-
-
-def _max_bytes_for(limits: MediaLimits, media_type: MediaType) -> int:
-    return {
-        "image": limits.image_max_bytes,
-        "audio": limits.audio_max_bytes,
-        "video": limits.video_max_bytes,
-    }[media_type]
 
 
 def _validate_mime(media_type: MediaType, mime_type: str) -> None:
@@ -115,8 +107,7 @@ class ObjectStorageArtifactStore:
         source_expires_at: str | None = None,
         auth: AuthContext | None = None,
     ) -> ArtifactRef:
-        limits = get_media_limits()
-        raw = decode_base64_safely(data, _max_bytes_for(limits, media_type), label=media_type)
+        raw = decode_base64_safely(data, artifact_base64_limit_bytes(media_type), label=media_type)
         return await self._store_bytes(raw, media_type, mime_type, source_expires_at, auth)
 
     async def copy_from_trusted_url(
@@ -128,8 +119,7 @@ class ObjectStorageArtifactStore:
         auth: AuthContext | None = None,
     ) -> ArtifactRef:
         """Download media from the fixed provider host allowlist and store it."""
-        limits = get_media_limits()
-        max_bytes = _max_bytes_for(limits, media_type)
+        max_bytes = artifact_limit_bytes(media_type)
         try:
             downloaded = await self._downloader.download(
                 url,
@@ -177,12 +167,6 @@ class ObjectStorageArtifactStore:
         source_expires_at: str | None,
         auth: AuthContext | None,
     ) -> ArtifactRef:
-        limits = get_media_limits()
-        max_bytes = _max_bytes_for(limits, media_type)
-        if len(raw) > max_bytes:
-            raise ValueError(
-                f"{media_type} size ({len(raw)} bytes) exceeds limit ({max_bytes} bytes)."
-            )
         _validate_mime(media_type, mime_type)
 
         owner = auth or AuthContext()
@@ -271,12 +255,15 @@ class ObjectStorageArtifactStore:
         if metadata.principal_id != owner.principal_id or metadata.tenant_id != owner.tenant_id:
             raise PermissionError("Artifact is not owned by the current principal.")
 
-        limits = get_media_limits()
-        ext = _mime_to_ext(metadata.ref.mime_type)
+        ref = metadata.ref
+        max_bytes = artifact_limit_bytes(ref.media_type)
+        if ref.media_type == MediaType.AUDIO and ref.bytes is not None:
+            max_bytes = max(1, ref.bytes)
+        ext = _mime_to_ext(ref.mime_type)
         try:
             data = await self._download_object(
                 self._data_key(artifact_id, ext),
-                _max_bytes_for(limits, metadata.ref.media_type),
+                max_bytes,
             )
         except SafeDownloadError as exc:
             raise FileNotFoundError(f"Artifact '{artifact_id}' not found.") from exc

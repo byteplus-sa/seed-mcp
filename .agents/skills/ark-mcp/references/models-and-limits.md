@@ -10,8 +10,8 @@ Model discovery with `ark_list_models`, how the server binds model IDs to famili
 
 **Call it before any generation tool.** It is read-only and idempotent, needs no auth scope, and **makes no provider calls**; it reads the server's own configuration.
 
-- **`kind`** (`video`, `image`) filters the list; omit it for both.
-- **`models[]`** lists configured bindings on HTTP even without environment provider keys or client credentials. On stdio it is empty when ModelArk is not configured. Each entry carries `model_id`, `family`, `kind`, `is_default`, `tool`, and one limits object (`video` or `image`).
+- **`kind`** (`video`, `image`, `audio`) filters the list; omit it for all available kinds. Audio currently lists stdio Seed TTS only.
+- **`models[]`** lists configured image/video bindings on HTTP even without provider credentials. Local stdio also lists Seed TTS with a Seed Speech key, independently of ModelArk. Each entry carries `model_id`, `family`, `kind`, `is_default`, `tool`, and a limits object (`video`, `image`, or `tts`).
 - **`model_id` is the exact value the `model` argument accepts.** `is_default`
   marks the server default; on HTTP an endpoint header can override it when
   create-tool `model` is omitted.
@@ -19,7 +19,7 @@ Model discovery with `ark_list_models`, how the server binds model IDs to famili
   `X-ModelArk-Seedream-Endpoint` must be exact registry bindings. Explicit tool
   `model` wins; no arbitrary opaque endpoint lineage is inferred.
 - **`tool`** names the image/video generation tool that serves the model.
-- **`services[]`** reports `modelark`, `seed_audio`, and
+- **`services[]`** reports `modelark`, `seed_audio`, stdio-only `seed_tts`, and
   `object_storage`, with `enabled` and a safe disabled `reason` naming required
   settings. Use it to check the running server; documentation alone does not
   prove a capability is available. On HTTP, `enabled` means registered, not
@@ -54,6 +54,7 @@ See `specs/SPEC_HOSTED_BYOK.md#http-configuration-preflight` in the selected che
 |---|---|---|
 | `video` | `seedance_create_task` | One default (`SEEDANCE_DEFAULT_MODEL`) |
 | `image` | `seedream_generate_image` | One default (`SEEDREAM_DEFAULT_MODEL`) |
+| `audio` | `seed_tts_generate` | Stdio only; fixed `dola-seed-tts-3.0`, family `seed_tts_3` |
 
 ### Exact IDs and typos
 
@@ -153,13 +154,23 @@ before paid 4K use. See the [contract caveat](https://byteplus-sa.github.io/ark-
 | Lite | 14 | Yes | `png`, `jpeg` | Yes; provider default when omitted | No |
 | 4.x | 14 | Yes | `jpeg` only | Yes; provider default when omitted | No |
 
-- **5.5 sizes:** `1K`, `1.5K`, `2K` (default), or positive `WIDTHxHEIGHT` with inclusive pixel count 921600-4624220 and width/height ratio 1/16-16. `auto`, `3K`, and `4K` are rejected for generation. Older families keep `supported_sizes=null` (provider validation).
+- **5.5 sizes:** `1K`, `1.5K`, `2K` (default), or positive `WIDTHxHEIGHT` with inclusive pixel count 921600-8294400 and width/height ratio 1/16-16. 4K UHD uses `3840x2160` on the same model or custom 5.5 endpoint; portrait `2160x3840` and square `2880x2880` also fit. `4096x2160` is too large. `auto`, `3K`, and the undocumented `4K` shorthand remain rejected. Older families keep `supported_sizes=null` (provider validation).
+- **5.5 estimates:** output pixel tiers are $0.020 through 2.61M, $0.035 above 2.61M through 4.63M, and $0.079 above 4.63M through the 8294400-pixel limit; add $0.008 per input image per variation. These static estimates follow the supplied 261028 high-resolution table, not account pricing or live 4K validation.
 - **`max_images` vs `variations`.** `max_images` is one provider batch (one request, one usage record) and only works where batch is supported (Lite, 4.x). `variations` (1-10) runs separate calls in parallel and works on every model. **On 5.5 and Pro use `variations`.** Passing both is rejected.
 - **`background="transparent"`** requires `output_format` omitted or `png`. 5.5 supports text-only and reference-based generation without existing alpha. Pro edits exactly one already-transparent PNG; it does not remove an opaque background.
 - **5.5 background:** `auto` (default), `opaque`, `transparent`; JPEG in auto mode is always opaque. Pro accepts only `opaque` and `transparent`.
 - **Safety IDs:** optional `safety_identifier` on 5.5/Pro, 1-64 non-space printable ASCII characters; use a stable hash, not personal data.
 - **5.5 `seed`:** retained as an explicit compatibility field but absent from the current provider parameter docs and OpenAPI schema; omit unless provider acceptance is verified.
 - Discovery reports transparency, named/custom size limits, `background_modes`, `prompt_optimization_modes`, and `supports_safety_identifier`. Source and remaining live-alpha validation: [model capabilities](https://byteplus-sa.github.io/ark-mcp/models/#image-capabilities-imagecapabilities). Layer-decomposition/OCR inputs are rejected.
+
+## Seed TTS (`kind: audio`, stdio only)
+
+`dola-seed-tts-3.0` requires an authorized compatible voice and exactly one of
+text/SSML, up to 10,000 characters. Encodings are MP3, PCM and Ogg Opus.
+Opus requires 48000 Hz; MP3/PCM default to 24000 Hz. Compressed audio defaults
+to 64000 bits/s; omit bitrate for PCM. The create tool validates combinations.
+Voice compatibility is not proven by discovery; there is no ModelArk binding.
+See [TTS controls](tool-reference.md#seed-tts-3).
 
 ## Health
 
