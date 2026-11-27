@@ -55,7 +55,7 @@ async def test_seedream55_discovery_reports_default_and_transparency(configured:
     assert model["image"]["supports_prompt_optimization"]
     assert model["image"]["prompt_optimization_modes"] == ["standard"]
     assert model["image"]["supported_sizes"] == ["1K", "1.5K", "2K"]
-    assert model["image"]["custom_size_pixels_range"] == [921600, 4624220]
+    assert model["image"]["custom_size_pixels_range"] == [921600, 8294400]
     assert model["image"]["custom_size_aspect_ratio_range"] == [0.0625, 16]
     assert model["image"]["background_modes"] == ["opaque", "transparent", "auto"]
     assert model["image"]["supports_safety_identifier"]
@@ -93,6 +93,105 @@ async def test_seedream55_transparent_dry_run_matches_example(configured: None) 
             "stream": False,
         }
     ]
+
+
+@pytest.mark.parametrize("size", ["3840x2160", "2160x3840", "2880x2880"])
+@pytest.mark.parametrize("variations", [1, 2])
+@pytest.mark.parametrize("references", [0, 2])
+async def test_seedream55_high_resolution_dry_run(
+    configured: None, size: str, variations: int, references: int
+) -> None:
+    with respx.mock(assert_all_called=False) as router:
+        async with Client(create_server(get_settings())) as client:
+            result = await _image_call(
+                client,
+                {
+                    "prompt": "A high-resolution landscape",
+                    "size": size,
+                    "variations": variations,
+                    "images": [{"kind": "url", "url": "https://example.com/reference.png"}]
+                    * references,
+                    "dry_run": True,
+                },
+            )
+    assert not router.calls
+    assert not result["is_error"]
+    preview = result["structured_content"]["preview"]
+    assert len(preview["requests"]) == variations
+    assert all(body["size"] == size and body["model"] == MODEL for body in preview["requests"])
+    assert preview["estimated_cost_usd"] == round(variations * (0.079 + references * 0.008), 4)
+    assert preview["price_source"] == "builtin"
+
+
+@pytest.mark.parametrize("variations", [1, 2])
+@pytest.mark.parametrize("edit", [False, True])
+async def test_seedream55_uhd_dispatch_and_metadata(
+    configured: None, variations: int, edit: bool
+) -> None:
+    arguments: dict[str, Any] = {
+        "prompt": "A high-resolution landscape",
+        "size": "3840x2160",
+        "variations": variations,
+    }
+    if edit:
+        arguments.update(
+            images=[{"kind": "url", "url": "https://example.com/input.png"}],
+            bbox={"x1": 0, "y1": 0, "x2": 500, "y2": 500},
+        )
+    with respx.mock:
+        route = respx.post(f"{ARK_BASE}/images/generations").mock(
+            return_value=httpx.Response(
+                200,
+                json={"data": [{"url": "https://example.com/output.png", "size": "3840x2160"}]},
+            )
+        )
+        async with Client(create_server(get_settings())) as client:
+            result = await _image_call(client, arguments)
+    assert not result["is_error"]
+    assert route.call_count == variations
+    for call in route.calls:
+        body = json.loads(call.request.content)
+        assert body["model"] == MODEL
+        assert body["size"] == "3840x2160"
+        if edit:
+            assert body["image"] == "https://example.com/input.png"
+            assert body["prompt"].startswith("Image 1<bbox>0 0 500 500</bbox>")
+    for generation in result["structured_content"]["generations"]:
+        assert generation["request_options"]["size"] == "3840x2160"
+        assert generation["images"][0]["size"] == "3840x2160"
+
+
+@pytest.mark.parametrize("variations", [1, 2])
+@pytest.mark.parametrize(("size", "references"), [("3840x2160", 0), ("1K", 10)])
+async def test_seedream55_budget_uses_output_and_reference_rates(
+    configured: None,
+    monkeypatch: pytest.MonkeyPatch,
+    variations: int,
+    size: str,
+    references: int,
+) -> None:
+    monkeypatch.setenv("DAILY_BUDGET_USD", "0.05")
+    get_settings.cache_clear()
+    with respx.mock(assert_all_called=False) as router:
+        async with Client(create_server(get_settings())) as client:
+            result = await _image_call(
+                client,
+                {
+                    "prompt": "test",
+                    "size": size,
+                    "variations": variations,
+                    "images": [{"kind": "url", "url": "https://example.com/input.png"}]
+                    * references,
+                },
+            )
+    assert not router.calls
+    if variations == 1:
+        assert result["is_error"]
+        assert "Daily budget" in str(result["content"])
+    else:
+        summary = result["structured_content"]["summary"]
+        assert summary["failed"] == variations
+        assert all("Daily budget" in item["error"]["message"] for item in summary["variations"])
 
 
 @pytest.mark.parametrize("variations", [1, 2])
@@ -311,7 +410,10 @@ async def test_seedream55_dry_run_redacts_safety_identifier(configured: None) ->
     "arguments",
     [
         {"size": "auto"},
-        {"size": "2880x2880"},
+        {"size": "4K"},
+        {"size": "3841x2160"},
+        {"size": "2881x2880"},
+        {"size": "4096x2160"},
         {"prompt_optimization": "fast"},
     ],
 )

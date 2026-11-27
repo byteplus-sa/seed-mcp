@@ -160,7 +160,7 @@ def _seedream_capabilities() -> dict[str, ImageCapabilities]:
                 supports_streaming=False,
                 supported_output_formats=("png", "jpeg"),
                 supported_sizes=("1K", "1.5K", "2K"),
-                custom_size_pixels_range=(921600, 4624220),
+                custom_size_pixels_range=(921600, 8294400),
                 custom_size_aspect_ratio_range=(1 / 16, 16),
                 prompt_optimization_modes=("standard",),
                 supports_transparent_background=True,

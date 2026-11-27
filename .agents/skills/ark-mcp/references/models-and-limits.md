@@ -153,7 +153,8 @@ before paid 4K use. See the [contract caveat](https://byteplus-sa.github.io/ark-
 | Lite | 14 | Yes | `png`, `jpeg` | Yes; provider default when omitted | No |
 | 4.x | 14 | Yes | `jpeg` only | Yes; provider default when omitted | No |
 
-- **5.5 sizes:** `1K`, `1.5K`, `2K` (default), or positive `WIDTHxHEIGHT` with inclusive pixel count 921600-4624220 and width/height ratio 1/16-16. `auto`, `3K`, and `4K` are rejected for generation. Older families keep `supported_sizes=null` (provider validation).
+- **5.5 sizes:** `1K`, `1.5K`, `2K` (default), or positive `WIDTHxHEIGHT` with inclusive pixel count 921600-8294400 and width/height ratio 1/16-16. 4K UHD uses `3840x2160` on the same model or custom 5.5 endpoint; portrait `2160x3840` and square `2880x2880` also fit. `4096x2160` is too large. `auto`, `3K`, and the undocumented `4K` shorthand remain rejected. Older families keep `supported_sizes=null` (provider validation).
+- **5.5 estimates:** output pixel tiers are $0.020 through 2.61M, $0.035 above 2.61M through 4.63M, and $0.079 above 4.63M through the 8294400-pixel limit; add $0.008 per input image per variation. These static estimates follow the supplied 261028 high-resolution table, not account pricing or live 4K validation.
 - **`max_images` vs `variations`.** `max_images` is one provider batch (one request, one usage record) and only works where batch is supported (Lite, 4.x). `variations` (1-10) runs separate calls in parallel and works on every model. **On 5.5 and Pro use `variations`.** Passing both is rejected.
 - **`background="transparent"`** requires `output_format` omitted or `png`. 5.5 supports text-only and reference-based generation without existing alpha. Pro edits exactly one already-transparent PNG; it does not remove an opaque background.
 - **5.5 background:** `auto` (default), `opaque`, `transparent`; JPEG in auto mode is always opaque. Pro accepts only `opaque` and `transparent`.

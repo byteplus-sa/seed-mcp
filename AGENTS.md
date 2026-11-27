@@ -22,6 +22,10 @@ separate tools. The flow is discovery → create → poll:
 - **Seedream** — image generation and editing through ModelArk with one
   tool, `seedream_generate_image` (generate, edit with point/bbox,
   transparent background, variations, dry run).
+  Seedream 5.5 high-resolution output uses explicit `size="3840x2160"` for
+  4K UHD on the same model, with a maximum of 8,294,400 pixels. Named tiers
+  remain 1K/1.5K/2K; no undocumented `4K` alias. Built-in 5.5 estimates use
+  output pixel tiers plus input-image charges per variation, not account quotes.
 - **Seedance** — asynchronous video generation through ModelArk with one
   create tool, `seedance_create_task`. Supports two model generations: 2.0
   (legacy, 15s, 4K) and 2.5 (default, 30s, 4K, structured editing, native

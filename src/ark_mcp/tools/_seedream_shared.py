@@ -269,7 +269,14 @@ async def run_seedream_variations(
 ) -> tuple[VariationSummary, list[SeedreamGenerationMetadata]]:
     """Generate one image per prompt in parallel, capturing failures per variation."""
     settings = get_settings()
-    log_cost_estimate(product="image", variations=len(prompts), model_id=caps.model_id)
+    log_cost_estimate(
+        product="image",
+        variations=len(prompts),
+        model_id=caps.model_id,
+        image_family=caps.family,
+        image_size=request.size,
+        reference_images=len(images or []),
+    )
     store = get_runtime(ctx).artifact_store
     owner = get_principal(ctx)
     service = SeedreamService(gateway=modelark_gateway(ctx))
@@ -285,7 +292,12 @@ async def run_seedream_variations(
                 provider="modelark",
                 product="image",
                 estimated_cost_usd=estimate_cost(
-                    product="image", variations=1, model_id=caps.model_id
+                    product="image",
+                    variations=1,
+                    model_id=caps.model_id,
+                    image_family=caps.family,
+                    image_size=request.size,
+                    reference_images=len(images or []),
                 ),
             ):
                 progress.phase = "generating"

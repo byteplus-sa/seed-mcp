@@ -7,6 +7,7 @@ variation tool handler.
 
 from __future__ import annotations
 
+import re
 from typing import Literal
 
 from ark_mcp.observability.logger import info as log_info
@@ -16,6 +17,9 @@ COST_PER_IMAGE = 0.03
 COST_PER_AUDIO_SECOND = 0.0031
 COST_PER_VIDEO_TASK = 0.07
 COST_PER_VIDEO_TASK_2_5 = 0.35
+COST_PER_SEEDREAM_5_5_INPUT_IMAGE = 0.008
+# Rounded pixel tiers from the supplied 261028 high-resolution output contract.
+SEEDREAM_5_5_OUTPUT_TIERS = ((2_610_000, 0.020), (4_630_000, 0.035), (8_294_400, 0.079))
 
 # Default max concurrent provider calls.
 DEFAULT_MAX_CONCURRENT = 5
@@ -43,9 +47,34 @@ def _video_cost_for_model(model_id: str | None, family: str | None = None) -> fl
     return COST_PER_VIDEO_TASK
 
 
-def image_cost_estimate(model_id: str | None, count: int) -> tuple[float, Literal["builtin"]]:
-    """Return a built-in estimate, never an account-specific billing quote."""
-    return round(count * COST_PER_IMAGE, 4), "builtin"
+def image_cost_estimate(
+    model_id: str | None,
+    count: int,
+    *,
+    family: str | None = None,
+    size: str | None = None,
+    reference_images: int = 0,
+) -> tuple[float, Literal["builtin"]]:
+    """Estimate each output and its references, using the resolved registry family."""
+    if family != "seedream_5_5":
+        return round(count * COST_PER_IMAGE, 4), "builtin"
+    pixels = {None: 2048 * 2048, "1K": 1024 * 1024, "1.5K": 1536 * 1536, "2K": 2048 * 2048}.get(
+        size
+    )
+    if pixels is None and size is not None:
+        dimensions = re.fullmatch(r"([1-9][0-9]{0,6})x([1-9][0-9]{0,6})", size)
+        if dimensions:
+            width, height = map(int, dimensions.groups())
+            pixels = width * height
+    # Callers validate size first; unknown sizes conservatively use the highest tier.
+    output_cost = SEEDREAM_5_5_OUTPUT_TIERS[-1][1]
+    if pixels is not None:
+        output_cost = next(
+            (rate for maximum, rate in SEEDREAM_5_5_OUTPUT_TIERS if pixels <= maximum),
+            output_cost,
+        )
+    per_call = output_cost + reference_images * COST_PER_SEEDREAM_5_5_INPUT_IMAGE
+    return round(count * per_call, 4), "builtin"
 
 
 def price_source(product: str, model_id: str | None) -> str:
@@ -60,6 +89,9 @@ def estimate_cost(
     duration_seconds: float = 0.0,
     model_id: str | None = None,
     video_family: str | None = None,
+    image_family: str | None = None,
+    image_size: str | None = None,
+    reference_images: int = 0,
 ) -> float:
     """Estimate the cost of a parallel generation batch.
 
@@ -69,12 +101,21 @@ def estimate_cost(
         duration_seconds: Expected output duration (audio only).
         model_id: Model ID for an optional static video cost override.
         video_family: Registry family for video pricing (e.g. "seedance_2_5").
+        image_family: Resolved registry family for image pricing.
+        image_size: Validated image size; omitted uses the family's provider default.
+        reference_images: Input images per image generation call, repeated for each variation.
 
     Returns:
         Estimated cost in USD.
     """
     if product == "image":
-        return image_cost_estimate(model_id, variations)[0]
+        return image_cost_estimate(
+            model_id,
+            variations,
+            family=image_family,
+            size=image_size,
+            reference_images=reference_images,
+        )[0]
     if product == "audio":
         return round(variations * max(duration_seconds, 10) * COST_PER_AUDIO_SECOND, 2)
     if product == "video":
@@ -89,6 +130,9 @@ def log_cost_estimate(
     duration_seconds: float = 0.0,
     model_id: str | None = None,
     video_family: str | None = None,
+    image_family: str | None = None,
+    image_size: str | None = None,
+    reference_images: int = 0,
 ) -> float:
     """Log a cost estimate before dispatching a batch."""
     cost = estimate_cost(
@@ -97,6 +141,9 @@ def log_cost_estimate(
         duration_seconds=duration_seconds,
         model_id=model_id,
         video_family=video_family,
+        image_family=image_family,
+        image_size=image_size,
+        reference_images=reference_images,
     )
     log_info(
         "cost_estimate",

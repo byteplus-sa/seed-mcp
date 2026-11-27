@@ -155,7 +155,9 @@ without alpha. It defaults to PNG even for ordinary generation.
 `background="auto"` is the 5.5 default and follows the prompt; JPEG is always opaque.
 
 Use 5.5 size tiers `1K`, `1.5K`, `2K` (default), or positive `WIDTHxHEIGHT`
-with 921600-4624220 pixels and width/height ratio 1/16-16, inclusive.
+with 921600-8294400 pixels and width/height ratio 1/16-16, inclusive.
+For 4K UHD use `size="3840x2160"` on the same model or bound endpoint.
+`"4K"` is not a named tier; `4096x2160` exceeds the pixel limit.
 Optional `safety_identifier` on 5.5/Pro must be a stable hashed user ID,
 1-64 non-space printable ASCII characters. Previews and logs redact it.
 `generations` preserves per-call usage, identifier echo, and provider-reported
@@ -195,7 +197,9 @@ The following example selects Pro, which must be bound by the operator:
   before accepting text, counts or geometry; publishing previews are a separate check.
 - `output_path` (stdio local export) needs `persist=true` and **must be a directory ending in `/`** when `variations > 1` or `max_images > 1`.
 - `asset://` references are rejected by Seedream; there is no asset-to-URL resolution fallback.
-- Dry-run cost covers `variations x max_images` images.
+- Dry-run cost covers `variations x max_images` images. 5.5 uses output pixel
+  tiers plus $0.008 per input image per variation; a UHD output estimates
+  $0.079 before references. Other families retain the flat estimate.
 
 ## Seed Audio
 

@@ -468,7 +468,7 @@ catalog capability label `seedream:generate`. Call directly on either transport.
 | `point` | EditCoordinate | No | — | `x`, `y` in 0-999 (normalized) on the **first** image; requires `images` |
 | `bbox` | EditBbox | No | — | `x1`, `y1`, `x2`, `y2` in 0-999 on the **first** image, `x1 <= x2`, `y1 <= y2`; requires `images` |
 | `model` | string | No | `SEEDREAM_DEFAULT_MODEL` | Exact configured ID from `ark_list_models(kind='image')` |
-| `size` | string | No | `2K` on 5.5 | 5.5: `1K`, `1.5K`, `2K`, or positive `WIDTHxHEIGHT` with 921600-4624220 pixels and ratio 1/16-16, inclusive. No generation `auto`; older families remain provider-validated |
+| `size` | string | No | `2K` on 5.5 | 5.5: `1K`, `1.5K`, `2K`, or positive `WIDTHxHEIGHT` with 921600-8294400 pixels and ratio 1/16-16, inclusive. For 4K UHD use `3840x2160`, not `"4K"`. No generation `auto`; older families remain provider-validated |
 | `seed` | integer | No | — | -1 to 2147483647; undocumented compatibility field on 5.5, omit unless verified; the **base seed** when `variations > 1` (see below) |
 | `max_images` | integer | No | — | 1-15 images from **one provider call**; batch-capable models only. **Cannot be combined with `variations > 1`** |
 | `output_format` | `"png"` \| `"jpeg"` | No | `png` on 5.5 and transparent output; provider default otherwise | Model-dependent |

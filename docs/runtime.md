@@ -211,7 +211,9 @@ quotes, settlement amounts or guarantees of an actual spend ceiling.
 
 | Constant | Value |
 |---|---|
-| `COST_PER_IMAGE` | `0.03` USD |
+| `COST_PER_IMAGE` | `0.03` USD (families other than Seedream 5.5) |
+| `SEEDREAM_5_5_OUTPUT_TIERS` | `0.020` / `0.035` / `0.079` USD per output image, by pixel count |
+| `COST_PER_SEEDREAM_5_5_INPUT_IMAGE` | `0.008` USD per input image per call |
 | `COST_PER_AUDIO_SECOND` | `0.0031` USD |
 | `COST_PER_VIDEO_TASK` | `0.07` USD (`0.35` for Seedance 2.5) |
 | `DEFAULT_MAX_CONCURRENT` | `5` |
@@ -220,10 +222,25 @@ quotes, settlement amounts or guarantees of an actual spend ceiling.
 
 | `product` | Formula |
 |---|---|
-| `"image"` | `round(variations * 0.03, 4)` |
+| `"image"` | 5.5: `round(variations * (output_rate + reference_images * 0.008), 4)`; other families: `round(variations * 0.03, 4)` |
 | `"audio"` | `round(variations * max(duration_seconds, 10) * 0.0031, 2)` — **floor of 10 seconds per variation** |
 | `"video"` | `round(variations * 0.07, 2)`; regular 2.5 and Flash use `0.35` per task, selected by registry family; a registered model-specific override wins |
 | (any other) | `0.0` |
+
+Seedream 5.5 output estimates use the supplied high-resolution pricing table:
+at most 2.61M pixels costs $0.020; above 2.61M through 4.63M costs $0.035;
+above 4.63M through the exact 8,294,400-pixel limit costs $0.079.
+These are rounded pricing thresholds, not additional size-validation limits.
+Named `1K`/`1.5K` use the lower tier; `2K` and omitted size use the middle tier.
+Custom dimensions select the tier by width times height. Each variation repeats
+the input-image charge: two UHD outputs with one reference estimate $0.174.
+The resolved `seedream_5_5` family selects these rates even on a custom endpoint;
+model-ID text alone does not select pricing.
+
+Dry runs, dispatch logging and local budget reservations use the same estimate.
+`price_source` remains `builtin`: this is not live account pricing or a billing
+quote. Source: the operator-supplied 261028 high-resolution table received
+2026-11-27; see [model contract notes](models.md#image-capabilities-imagecapabilities).
 
 Video estimates do not account for resolution or duration. Flash uses the
 static 2.5 per-task estimate, not its token-based provider price.

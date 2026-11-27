@@ -367,7 +367,7 @@ Explicit existing defaults stay unchanged. See the
 | `point` | EditCoordinate | No | Edit mode: `{x, y}` in normalized `0..999` space on the **first** image. Requires `images` |
 | `bbox` | EditBbox | No | Edit mode: `{x1, y1, x2, y2}` in normalized `0..999` space (`x1 <= x2`, `y1 <= y2`) on the **first** image. Requires `images` |
 | `model` | string | No | Exact configured model ID; omit for the default |
-| `size` | string | No | 5.5: `1K`, `1.5K`, `2K` (default), or positive `WIDTHxHEIGHT` with 921600-4624220 pixels and width/height ratio 1/16-16, inclusive. `auto` is not a generation size. Older families remain provider-validated |
+| `size` | string | No | 5.5: `1K`, `1.5K`, `2K` (default), or positive `WIDTHxHEIGHT` with 921600-8294400 pixels and width/height ratio 1/16-16, inclusive. For 4K UHD use `3840x2160`, not `"4K"`. `auto` is not a generation size. Older families remain provider-validated |
 | `seed` | integer | No | `-1` to `2147483647`. For a single call it is sent as is. **With `variations > 1` it is the base seed**: omitted lets the provider randomize each variation, `-1` picks a random seed per variation (recorded in `summary`), and `N` uses `N`, `N+1`, `N+2`, ... |
 | `max_images` | integer | No | Images from one provider call (1-15), batch-capable models only. **Cannot be combined with `variations > 1`** |
 | `output_format` | `"png"` \| `"jpeg"` | No | Defaults to `png` on 5.5 and for transparent output; otherwise provider default |

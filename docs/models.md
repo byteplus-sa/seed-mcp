@@ -38,7 +38,7 @@ The binding enums (`config/env.py`):
 | `supported_output_formats` | `("png", "jpeg")` | `("png", "jpeg")` | `("png", "jpeg")` | `("jpeg",)` |
 | `default_output_format` | `"png"` | `None` | `None` | `None` |
 | `supported_sizes` | `("1K", "1.5K", "2K")` | `None` | `None` | `None` |
-| `custom_size_pixels_range` | `(921600, 4624220)` | `None` | `None` | `None` |
+| `custom_size_pixels_range` | `(921600, 8294400)` | `None` | `None` | `None` |
 | `custom_size_aspect_ratio_range` | `(1/16, 16)` | `None` | `None` | `None` |
 | `supports_watermark` | `True` | `True` | `True` | `True` |
 | `supports_prompt_optimization` | `True` | `True` | `True` | `True` |
@@ -59,9 +59,14 @@ its requirement for exactly one already-transparent PNG. Transparent output
 uses PNG when `output_format` is omitted; JPEG is rejected locally.
 
 5.5 accepts named tiers `1K`, `1.5K`, `2K` (provider default), or positive
-`WIDTHxHEIGHT` dimensions with inclusive pixel count 921,600-4,624,220 and
-width/height ratio 1/16-16. `auto`, `3K`, and `4K` sizes are rejected for generation.
-Older-family size validation is unchanged and remains provider-side.
+`WIDTHxHEIGHT` dimensions with inclusive pixel count 921,600-8,294,400 and
+width/height ratio 1/16-16. **For 4K UHD use `size="3840x2160"`** (16:9)
+on the same `dola-seedream-5-5-261028` model or an endpoint bound to
+`seedream_5_5`. Portrait `2160x3840` and square `2880x2880` also fit the
+maximum. `4096x2160` exceeds it. No extra model or high-resolution flag is needed.
+`auto`, `3K`, and the undocumented `4K` shorthand remain rejected; use explicit
+dimensions for high-resolution output. Older-family size validation is unchanged
+and remains provider-side.
 
 `background` defaults to `auto` on 5.5: the prompt determines transparency,
 except JPEG is always opaque. Explicit `prompt_optimization="standard"` is
@@ -75,9 +80,17 @@ ASCII characters on 5.5 and Pro. Use a stable hashed user identifier, not raw
 personal data. Dry-run previews and structured logs redact it; generation
 metadata preserves the provider's echo.
 
-The generation controls and size/reference bounds match the GA
+The baseline generation controls and reference bounds follow the GA
 [image API](https://ai.byteplus.com/ark/region:ap-southeast-1/docs/image-generation-api)
-(accessed 2026-11-16). Seedream 5.5 does not document `seed` in either the
+(accessed 2026-11-16). The raised 8,294,400-pixel limit and static image price
+tiers come from the operator-supplied **Dola-Seedream-5.5 / 261028
+High-resolution output** table (received 2026-11-27). That table specifies
+`widthxheight`, not a new named `4K` tier. This update has offline validation
+and mocked provider coverage, not live 4K generation evidence.
+See [cost estimation](runtime.md#cost-estimation-tools_costpy) for the tiered
+estimates, including input-image charges.
+
+Seedream 5.5 does not document `seed` in either the
 parameter reference or the official OpenAPI schema. The MCP retains it as an
 explicit compatibility field; omit it unless provider acceptance has been
 verified. The schema also lags GA fields such as `background="auto"`, so schema
@@ -294,7 +307,8 @@ see [shared-server setup](setup/shared-server.md#optional-imagevideo-configurati
 
 - It is **not a cost table.** Cost estimation (see
   [runtime.md](runtime.md#cost-estimation-tools_costpy)) is per product and
-  per variation; video families select a static per-task fallback, not a
+  per variation; 5.5 images use pixel tiers and input-image counts. Video
+  families select a static per-task fallback, not a
   resolution-, duration-, or token-based provider quote.
 - It does **not** infer size or ratio limits for families without configured bounds.
 - It does **not** call the provider — it is a local, pre-flight validation

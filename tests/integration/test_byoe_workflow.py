@@ -140,6 +140,44 @@ def assert_forwarded(request: httpx.Request, key: str, *, model: str | None = No
         assert "idempotency_key" not in body
 
 
+@pytest.mark.parametrize("variations", [1, 2])
+@provider_mock
+async def test_seedream55_http_endpoint_high_resolution(tmp_path: Path, variations: int) -> None:
+    route = provider_mock.post(IMAGES_URL).respond(
+        200, json={"data": [{"url": IMAGE_URL, "size": "3840x2160"}]}
+    )
+    headers = {**credentials(), **endpoint_headers()}
+    arguments = {
+        "prompt": "A UHD landscape",
+        "size": "3840x2160",
+        "variations": variations,
+        "images": [{"kind": "url", "url": "https://example.com/input.png"}],
+    }
+    async with http_server(tmp_path, settings=byoe_settings(tmp_path)) as (_, _, client):
+        discovery = successful(await call_tool(client, "ark_list_models", {"kind": "image"}))
+        model = next(item for item in discovery["models"] if item["model_id"] == IMAGE_ENDPOINT)
+        assert model["image"]["custom_size_pixels_range"] == [921600, 8294400]
+        preview = successful(
+            await call_tool(client, IMAGE_TOOL, {**arguments, "dry_run": True}, headers=headers)
+        )["preview"]
+        assert preview["estimated_cost_usd"] == round(variations * 0.087, 4)
+        assert all(
+            body["size"] == "3840x2160" and body["model"] == IMAGE_ENDPOINT
+            for body in preview["requests"]
+        )
+        assert not provider_mock.calls
+        result = successful(await call_tool(client, IMAGE_TOOL, arguments, headers=headers))
+        assert len(result["generations"]) == variations
+        assert all(
+            generation["images"][0]["size"] == "3840x2160" for generation in result["generations"]
+        )
+        assert_empty_state(tmp_path)
+    assert route.call_count == variations
+    for call in route.calls:
+        assert_forwarded(call.request, MODELARK_KEY, model=IMAGE_ENDPOINT)
+        assert json.loads(call.request.content)["size"] == "3840x2160"
+
+
 @pytest.mark.parametrize("operator_key", [None, OPERATOR_KEY])
 @provider_mock
 async def test_custom_endpoints_preflight_image_video_poll_and_recovery(

@@ -108,7 +108,10 @@ For Seedance:
   to read the actual returned background, not infer it from the request.
   `prompt_optimization` is omitted or `standard`, never `fast`.
 - 5.5 supports size tiers `1K`, `1.5K`, `2K` and bounded custom dimensions;
-  consult discovery. `auto` size and layer-decomposition/OCR controls are rejected.
+  consult discovery. For 4K UHD pass `size="3840x2160"`, not `"4K"`;
+  custom dimensions allow up to 8,294,400 pixels. Preview with `dry_run=true`
+  to see the output-tier and repeated input-image cost before paid generation.
+  `auto` size and layer-decomposition/OCR controls are rejected.
 - Use only a stable hashed `safety_identifier` (5.5/Pro, 1-64 non-space ASCII);
   previews/logs redact it, while `generations` preserves the provider echo.
 - To iterate on a generated image, pass its provider URL (valid 24 h) or

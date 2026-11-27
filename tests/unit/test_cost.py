@@ -128,7 +128,7 @@ class TestEstimateCostUnknown:
 class TestBuiltinEstimates:
     @pytest.mark.parametrize("model_id", [None, "dola-seedream-5-5-261028", "ep-custom-model"])
     @pytest.mark.parametrize("count", [0, 1, 1000])
-    def test_image_estimate_is_static_for_every_model(
+    def test_image_estimate_without_family_keeps_flat_fallback(
         self, model_id: str | None, count: int
     ) -> None:
         assert image_cost_estimate(model_id, count) == (round(count * COST_PER_IMAGE, 4), "builtin")
@@ -139,6 +139,73 @@ class TestBuiltinEstimates:
         self, product: str, model_id: str | None
     ) -> None:
         assert price_source(product, model_id) == "builtin"
+
+
+class TestSeedream55Cost:
+    @pytest.mark.parametrize(
+        ("size", "output_cost"),
+        [
+            (None, 0.035),
+            ("1K", 0.020),
+            ("1.5K", 0.020),
+            ("2K", 0.035),
+            ("1800x1450", 0.020),  # 2.61M, inclusive lower tier.
+            ("1801x1450", 0.035),
+            ("2315x2000", 0.035),  # 4.63M, inclusive middle tier.
+            ("2316x2000", 0.079),
+            ("3840x2160", 0.079),
+            ("2160x3840", 0.079),
+            ("2880x2880", 0.079),
+        ],
+    )
+    @pytest.mark.parametrize("count", [0, 1, 3])
+    @pytest.mark.parametrize("references", [0, 1, 10])
+    def test_pixel_tiers_and_repeated_reference_cost(
+        self, size: str | None, output_cost: float, count: int, references: int
+    ) -> None:
+        expected = round(count * (output_cost + references * 0.008), 4)
+        assert image_cost_estimate(
+            "ep-image-test",
+            count,
+            family="seedream_5_5",
+            size=size,
+            reference_images=references,
+        ) == (expected, "builtin")
+        assert (
+            estimate_cost(
+                product="image",
+                variations=count,
+                model_id="ep-image-test",
+                image_family="seedream_5_5",
+                image_size=size,
+                reference_images=references,
+            )
+            == expected
+        )
+
+    @pytest.mark.parametrize("family", [None, "seedream_pro", "seedream_lite", "seedream_4x"])
+    def test_other_families_keep_flat_rate_even_with_55_model_id(self, family: str | None) -> None:
+        assert image_cost_estimate(
+            "dola-seedream-5-5-261028",
+            2,
+            family=family,
+            size="3840x2160",
+            reference_images=10,
+        ) == (0.06, "builtin")
+
+    def test_high_resolution_logging_uses_the_same_estimate(
+        self, capsys: pytest.CaptureFixture[str]
+    ) -> None:
+        capsys.readouterr()
+        cost = log_cost_estimate(
+            product="image",
+            variations=2,
+            image_family="seedream_5_5",
+            image_size="3840x2160",
+            reference_images=1,
+        )
+        assert cost == 0.174
+        assert json.loads(capsys.readouterr().err)["estimated_cost_usd"] == cost
 
 
 class TestCostConstants:

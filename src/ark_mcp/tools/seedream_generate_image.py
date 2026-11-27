@@ -98,7 +98,10 @@ class SeedreamGenerateInput(BaseModel):
     )
     size: str | None = Field(
         None,
-        description="5.5: 1K, 1.5K, 2K (default), or WIDTHxHEIGHT: 921600-4624220 pixels, ratio 1:16-16:1.",
+        description=(
+            "5.5: 1K, 1.5K, 2K (default), or WIDTHxHEIGHT: 921600-8294400 pixels, "
+            "ratio 1:16-16:1. For 4K UHD use 3840x2160, not the undocumented 4K shorthand."
+        ),
     )
     seed: int | None = Field(
         None,
@@ -222,7 +225,10 @@ class SeedreamGeneratePreview(BaseModel):
     )
     estimated_cost_usd: float = Field(
         ...,
-        description="Estimated USD using the built-in image rate; not an account billing quote.",
+        description=(
+            "Built-in USD estimate: 5.5 uses output pixel tiers plus input images per "
+            "variation; other families use a flat image rate. Not an account billing quote."
+        ),
     )
     price_source: Literal["builtin"] = Field(
         "builtin", description="builtin: static image cost estimate."
@@ -285,6 +291,7 @@ async def seedream_generate_image(
     image. variations (up to 10) run in parallel; max_images is one provider batch on models
     that support it. background='transparent' generates transparent PNGs from text or
     references on 5.5; 5.0 Pro requires an already-transparent PNG input.
+    For 5.5 high-resolution 4K UHD output use size='3840x2160' on the same model.
     5.5 supports auto background and standard optimization only. Layer decomposition
     and rich-text OCR are not supported; unknown input fields are rejected.
     Model limits: ark_list_models(kind='image'); requests outside them
@@ -337,7 +344,12 @@ async def _generate_single(
     await ctx.report_progress(progress=30, total=100)
     request = build_seedream_request(input, caps, images, prompt=prompt, seed=input.seed)
     estimated_cost = log_cost_estimate(
-        product="image", variations=input.max_images or 1, model_id=caps.model_id
+        product="image",
+        variations=input.max_images or 1,
+        model_id=caps.model_id,
+        image_family=caps.family,
+        image_size=input.size,
+        reference_images=len(images or []),
     )
     service = SeedreamService(gateway=modelark_gateway(ctx))
     try:
@@ -405,7 +417,13 @@ def _preview(
         )
         for prompt, seed in zip(prompts, seeds, strict=True)
     ]
-    cost, source = image_cost_estimate(caps.model_id, len(prompts) * (input.max_images or 1))
+    cost, source = image_cost_estimate(
+        caps.model_id,
+        len(prompts) * (input.max_images or 1),
+        family=caps.family,
+        size=input.size,
+        reference_images=len(images or []),
+    )
     return SeedreamGenerateOutput(
         model=caps.model_id,
         created_at=datetime.now(UTC).isoformat(),

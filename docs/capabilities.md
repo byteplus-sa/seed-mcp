@@ -26,6 +26,8 @@ execution guidance. The tables below help you choose a starting point.
 [Seedream 5.5](/ark-mcp/tool-reference/seedream-generate-image/#seedream-5-5) is the built-in image default
 (`dola-seedream-5-5-261028`). It supports text-to-image, reference and point/bbox
 editing, and transparent PNG generation without an already-transparent input.
+High-resolution 4K UHD uses `size="3840x2160"` on the same model; custom
+dimensions support up to 8,294,400 pixels. `"4K"` is not a named size tier.
 Explicit operator defaults remain unchanged. Layer decomposition and native OCR
 are not supported by the MCP integration.
 
