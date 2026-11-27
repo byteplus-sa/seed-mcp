@@ -331,13 +331,15 @@ For repeat runs, keep an already-current installation unchanged unless repair
 is needed. Preserve credentials and user-selected flags during updates.
 
 Both transports execute directly and reject explicit native task opt-in.
-Local stdio has 12 conditional tools, four always registered, with storage
+Local stdio has 13 conditional tools, four always registered, with storage
 and artifacts retained. Configure client timeout 660 seconds for the default
 600-second cooperative tool deadline. Admission defaults to 2 seconds,
 owner-first then provider; operator maxima are 30 seconds for admission and
 3600 for the whole tool. SDK/SQLite draining may exceed the deadline.
 Timeout does not cancel provider work: retain safe accepted IDs and never
 blindly resubmit. Local outputs use live MCP roots or `OUTPUT_ROOTS`.
+Seed TTS 3 is stdio-only and shares the Seed Speech key; it always persists
+completed audio and is not part of the seven-tool HTTP inventory.
 
 For HTTP, verify default anonymous/static `ark_list_models` with
 `{"input":{}}` and `connection=null`, and 7 tools,

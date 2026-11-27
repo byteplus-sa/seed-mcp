@@ -7,7 +7,10 @@ const categories = [
       name.startsWith("seedance_") ||
       name.startsWith("gen_task_"),
   ],
-  ["Audio", (name) => name === "seed_audio_generate"],
+  [
+    "Audio",
+    (name) => name === "seed_audio_generate" || name === "seed_tts_generate",
+  ],
   [
     "Uploads and artifacts",
     (name) => name.startsWith("media_") || name.startsWith("seed_media_"),

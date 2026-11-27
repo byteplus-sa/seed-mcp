@@ -48,7 +48,7 @@ test("current handbook and shipped skills exclude retired tool and configuration
   }
 });
 
-test("all 13 exported tools retain direct metadata and exclude retired contracts", () => {
+test("all 14 exported tools retain direct metadata and exclude retired contracts", () => {
   const python =
     process.env.ARK_DOCS_PYTHON ||
     fileURLToPath(
@@ -66,9 +66,9 @@ test("all 13 exported tools retain direct metadata and exclude retired contracts
   );
   assert.equal(exported.status, 0, "Isolated catalog export must succeed");
   const { tools } = JSON.parse(exported.stdout);
-  assert.equal(tools.length, 13);
+  assert.equal(tools.length, 14);
   const groups = toolReferenceGroups(tools);
-  assert.equal(groups.flatMap((group) => group.items).length, 13);
+  assert.equal(groups.flatMap((group) => group.items).length, 14);
   for (const tool of tools) {
     assert.equal(tool.execution, "direct", tool.name);
     assert.equal("background" in tool, false, tool.name);

@@ -15,6 +15,7 @@ from ark_mcp.observability.logger import info as log_info
 # Provider cost estimates (USD per unit).
 COST_PER_IMAGE = 0.03
 COST_PER_AUDIO_SECOND = 0.0031
+COST_PER_TTS_MILLION_CHARACTERS = 20.0
 COST_PER_VIDEO_TASK = 0.07
 COST_PER_VIDEO_TASK_2_5 = 0.35
 COST_PER_SEEDREAM_5_5_INPUT_IMAGE = 0.008
@@ -87,6 +88,7 @@ def estimate_cost(
     product: str,
     variations: int,
     duration_seconds: float = 0.0,
+    characters: int = 0,
     model_id: str | None = None,
     video_family: str | None = None,
     image_family: str | None = None,
@@ -96,9 +98,10 @@ def estimate_cost(
     """Estimate the cost of a parallel generation batch.
 
     Args:
-        product: "image", "audio", or "video".
+        product: "image", "audio", "tts", or "video".
         variations: Number of variations.
         duration_seconds: Expected output duration (audio only).
+        characters: TTS input characters, including SSML markup and audio tags.
         model_id: Model ID for an optional static video cost override.
         video_family: Registry family for video pricing (e.g. "seedance_2_5").
         image_family: Resolved registry family for image pricing.
@@ -118,6 +121,10 @@ def estimate_cost(
         )[0]
     if product == "audio":
         return round(variations * max(duration_seconds, 10) * COST_PER_AUDIO_SECOND, 2)
+    if product == "tts":
+        return round(
+            variations * max(characters, 0) * COST_PER_TTS_MILLION_CHARACTERS / 1_000_000, 6
+        )
     if product == "video":
         return round(variations * _video_cost_for_model(model_id, video_family), 2)
     return 0.0
@@ -128,6 +135,7 @@ def log_cost_estimate(
     product: str,
     variations: int,
     duration_seconds: float = 0.0,
+    characters: int = 0,
     model_id: str | None = None,
     video_family: str | None = None,
     image_family: str | None = None,
@@ -139,6 +147,7 @@ def log_cost_estimate(
         product=product,
         variations=variations,
         duration_seconds=duration_seconds,
+        characters=characters,
         model_id=model_id,
         video_family=video_family,
         image_family=image_family,

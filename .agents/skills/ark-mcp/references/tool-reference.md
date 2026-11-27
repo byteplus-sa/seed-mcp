@@ -201,6 +201,40 @@ The following example selects Pro, which must be bound by the operator:
   tiers plus $0.008 per input image per variation; a UHD output estimates
   $0.079 before references. Other families retain the flat estimate.
 
+## Seed TTS 3
+
+`seed_tts_generate` is stdio-only with a local Seed Speech key. It speaks supplied
+text/SSML using `dola-seed-tts-3.0`; it does not generate a full audio scene.
+Exactly one of `text` or `ssml` is required, plus a compatible authorized
+`voice_id` from the [voice list](https://docs.byteplus.com/en/docs/byteplusvoice/voicelist-3-0).
+There is no voice enrollment or automatic voice selection.
+
+Call directly with the normal `input` wrapper:
+
+```json
+{"input":{"voice_id":"multi_female_skye_v3_uranus_bigtts","text":"Welcome to the demonstration.","language_code":"en","enable_subtitle":true}}
+```
+
+- MP3 (default), PCM and Ogg Opus are supported. Output carries the resolved
+  encoding, `session_id`, request/log IDs, an artifact and optional word alignments.
+- `voice_settings` controls speed, volume, pitch, instructions and similarity.
+  `pronunciation_dictionary.tone` accepts `term/replacement` rules.
+- One bounded JSONL stream becomes one complete persisted artifact, not live MCP
+  audio. There is no provider URL, polling, `persist` switch or automatic retry.
+- Use `output_path` under live MCP roots or `OUTPUT_ROOTS`; otherwise use artifact
+  export. Storage fallback is bounded by `ARTIFACT_INLINE_FALLBACK_MAX_BYTES`.
+- If fallback is disabled or too small after storage failure, a text-only
+  `persist_speech` error retains the request ID and states synthesis completed.
+  `retryable=false` means do not resynthesize. `ambiguous_completion=false`
+  confirms synthesis completion, not successful delivery or absence of billing.
+- Stream output is capped at 10 MiB. Text/SSML is capped at 10,000 characters.
+  Word times are seconds; `silence_duration` is milliseconds.
+- A provider `session_id` is for sequential conversation continuity, not
+  idempotency. Disconnects/timeouts can be billed; do not synthesize again blindly.
+- Budgeting uses a built-in USD 20 per million characters, including markup,
+  not an account quote. See the
+  [provider HTTP reference](https://docs.byteplus.com/en/docs/byteplusvoice/seed-tts-3-0-http-streaming).
+
 ## Seed Audio
 
 Needs a Seed Speech key, local configuration or HTTP `X-Seed-Speech-Api-Key`.

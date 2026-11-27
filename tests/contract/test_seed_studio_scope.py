@@ -29,6 +29,7 @@ SUPPORTED_TOOLS = {
     "seed_media_export_artifact",
     "seed_media_persist_url",
     "seed_audio_generate",
+    "seed_tts_generate",
     "media_upload",
     "media_presign",
     "seedream_generate_image",
@@ -50,7 +51,7 @@ HTTP_PROVIDER_TOOLS = {
 
 
 def test_catalog_exposes_only_seed_studio_services() -> None:
-    assert len(CATALOG) == 13
+    assert len(CATALOG) == 14
     assert {entry.name for entry in CATALOG} == SUPPORTED_TOOLS | {"media_prepare_upload"}
 
 
@@ -157,10 +158,10 @@ def test_retired_provider_environment_aliases_are_absent() -> None:
 
 def test_discovery_does_not_offer_removed_services() -> None:
     names = {service.service for service in describe_services(get_settings())}
-    assert names == {"modelark", "seed_audio", "object_storage"}
+    assert names == {"modelark", "seed_audio", "seed_tts", "object_storage"}
 
 
-@pytest.mark.parametrize("kind", ["3d", "audio", "vod", "asr", "understanding"])
+@pytest.mark.parametrize("kind", ["3d", "vod", "asr", "understanding"])
 def test_discovery_rejects_unsupported_kinds(kind: str) -> None:
     with pytest.raises(ValidationError):
         ArkListModelsInput.model_validate({"kind": kind})
@@ -232,14 +233,14 @@ def test_preview_rejects_account_pricing_claims(source: str) -> None:
         )
 
 
-@pytest.mark.parametrize("kind", [None, "video", "image"])
+@pytest.mark.parametrize("kind", [None, "video", "image", "audio"])
 async def test_discovery_is_offline_and_filters_retained_models(
     all_services_enabled: None, kind: str | None
 ) -> None:
     refresh_capability_registry()
     result = await ark_list_models(ArkListModelsInput.model_validate({"kind": kind}), FakeContext())
     assert result.models
-    expected_kinds = {kind} if kind else {"video", "image"}
+    expected_kinds = {kind} if kind else {"video", "image", "audio"}
     assert {model.kind for model in result.models} == expected_kinds
     assert all(model.tool in SUPPORTED_TOOLS for model in result.models)
     assert all(service.enabled for service in result.services)

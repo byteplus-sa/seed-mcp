@@ -5,7 +5,7 @@ forward-only BYOK surface, including on loopback.
 
 | Transport | Tools | Execution |
 | --- | --- | --- |
-| stdio | 12 catalog tools, conditional on local credentials/flags; four always available | Direct calls; storage and artifacts retained |
+| stdio | 13 catalog tools, conditional on local credentials/flags; four always available | Direct calls; storage and artifacts retained |
 | HTTP | 7; temporary upload adds one | Direct foreground calls; no jobs, native tasks, local storage/artifact tools or resources |
 
 ## stdio
@@ -22,6 +22,8 @@ uv run --locked --no-sync python -m ark_mcp
 Call the original tool directly, without native task opt-in. Local SQLite
 supports storage/artifacts and bookkeeping, not saved-response replay.
 Seedance calls must omit the unsupported legacy `idempotency_key`.
+Seed TTS 3 is stdio-only and always persists its completed audio stream; HTTP
+does not expose it. See [Seed TTS](seed-tts.md).
 
 ## Streamable HTTP
 

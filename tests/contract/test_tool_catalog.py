@@ -60,7 +60,7 @@ def test_every_scope_is_documented() -> None:
 
 def test_catalog_excludes_jobs_and_understanding() -> None:
     names = {entry.name for entry in CATALOG}
-    assert len(names) == 13
+    assert len(names) == 14
     assert not any(name.startswith("ark_job_") for name in names)
     assert not {"seed_understand", "seed_audio_understand"} & names
 
@@ -75,7 +75,7 @@ async def test_all_catalog_tools_register_with_every_service(all_services_enable
     assert server.auth is None
     tools = {tool.name: tool for tool in await server.list_tools()}
     assert set(tools) == {entry.name for entry in CATALOG if entry.gate(settings)}
-    assert len(tools) == 12
+    assert len(tools) == 13
     assert "media_prepare_upload" not in tools
     for tool in tools.values():
         assert tool.task_config.mode == "forbidden", tool.name

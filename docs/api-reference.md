@@ -3,9 +3,9 @@
 Complete schemas, inputs, outputs, and examples for the conditional MCP tool
 surface.
 
-The static catalog has 12 local stdio tools, four always registered locally.
+The static catalog has 13 local stdio tools, four always registered locally.
 HTTP exposes tools 1-7 below, and the
-13th definition `media_prepare_upload` when temporary uploads are enabled.
+additional definition `media_prepare_upload` when temporary uploads are enabled (14 definitions total).
 Generation-tool registration does not require operator generation keys; discovery
 is anonymous/static. Temporary preparation requires operator TOS configuration
 and client enrollment.
@@ -49,6 +49,7 @@ Generated per-tool pages show both transports and exact current schemas.
 | 10 | `seed_media_persist_url` | Artifacts | Direct call | Local stdio only |
 | 11 | `media_upload` | Object storage (optional) | Direct call (1-50 files) | TOS / S3 |
 | 12 | `media_presign` | Object storage (optional) | Read-only (1-100 keys) | TOS / S3 |
+| 13 | `seed_tts_generate` | Seed TTS 3.0 | Direct synthesis and persistence | Seed Speech; stdio only |
 
 Read the [breaking-capability migration](migration-0.2.md#breaking-capability-migration)
 before upgrading; the 0.2 consolidation tables on that page are historical.
@@ -79,6 +80,7 @@ See [security.md](security.md) for the full scope list.
 |---|---|---|---|---|
 | `ark_list_models` | true | false | true | false |
 | `seed_audio_generate` | false | false | false | true |
+| `seed_tts_generate` | false | false | false | true |
 | `seedream_generate_image` | false | false | false | true |
 | `seedance_create_task` | false | false | false | true |
 | `gen_task_get` | false | false | true | false |
@@ -195,7 +197,7 @@ A durable reference to persisted media.
 | `code` | string | `untrusted_output_host`, `output_too_large`, `invalid_output_mime`, `source_expired`, `download_failed`, or `storage_failed` |
 | `message` | string | Credential- and URL-safe failure message |
 | `retryable` | boolean | Whether persistence may succeed if attempted again |
-| `artifact_limit_bytes` | integer | Maximum size accepted by the durable artifact policy |
+| `artifact_limit_bytes` | integer \| null | Source byte cap; null for inline audio. The inline-fallback cap remains separate |
 | `source_url_expires_at` | string \| null | When the unpersisted provider URL (the artifact's `uri`) expires |
 
 Recover a `provider-url` artifact with `seed_media_persist_url` before
@@ -261,7 +263,7 @@ configuration only.
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `kind` | string | No | — | Filter to `video` or `image`. Omit to list both |
+| `kind` | string | No | — | Filter to `video`, `image`, or `audio` (stdio TTS). Omit to list all available kinds |
 | `check_connection` | boolean | No | `false` | Live HTTP only: check ModelArk/client-secret header presence and exact image/video bindings without provider calls. Omit `kind` for both routes |
 
 ### Output
@@ -277,14 +279,14 @@ configuration only.
 model), and one limits object matching the kind: `video` (resolutions,
 `duration_seconds` range, ratios, reference counts, Draft support, task types,
 output formats), `image` (reference count, output formats, batch support,
-sizes, transparent background).
+sizes, transparent background), or `tts` (text/SSML limits, encodings and required voice selection).
 
 Discovery returns no prices. Cost estimates are built-in budgeting heuristics,
 not account-specific rates. See [Runtime](runtime.md#cost-estimation-tools_costpy).
 
 **ServiceStatus:** `service`, `enabled`, and `reason` (the env var or flag that
 enables a disabled service; never a secret value). Services: `modelark`,
-`seed_audio`, `object_storage`.
+`seed_audio`, `object_storage`, plus `seed_tts` on stdio.
 
 ### HTTP Connection Fields
 
@@ -332,6 +334,20 @@ HTTP-only video route check, without generation:
 ```
 
 ---
+
+## seed_tts_generate
+
+Direct stdio-only speech synthesis using `dola-seed-tts-3.0`, enabled by the
+Seed Speech key. Requires `voice_id` and exactly one of `text` or `ssml`.
+Supports pronunciation rules, delivery controls, word alignment and
+MP3/PCM/Ogg Opus output. Always collects and persists one complete stream;
+there is no `persist` flag, provider URL, MCP job or automatic synthesis retry.
+Optional `output_path` uses standard stdio root validation.
+
+The result has `artifact`, `output_format`, `session_id`, `alignments`,
+`request_id` and optional `provider_log_id`. Word timestamps are in seconds.
+See [Seed TTS 3.0](seed-tts.md) for input limits, encoding combinations,
+voice-list guidance, examples and failure semantics.
 
 ## 2. seed_audio_generate
 
