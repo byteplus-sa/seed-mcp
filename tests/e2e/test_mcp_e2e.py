@@ -104,6 +104,7 @@ class TestToolDiscovery:
             assert tool_names == {
                 "ark_list_models",
                 "seed_audio_generate",
+                "seed_tts_generate",
                 "seed_media_export_artifact",
                 "seed_media_get_artifact",
                 "seed_media_persist_url",

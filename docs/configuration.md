@@ -30,9 +30,9 @@ client is missing tools and that warning is absent, look at
 | Variable | Default | Purpose |
 |---|---|---|
 | `BYTEPLUS_MODELARK_API_KEY` | empty | Enables Seedream and Seedance; sent as Bearer auth |
-| `BYTEPLUS_SEED_SPEECH_API_KEY` | empty | Enables Seed Audio generation; sent as `X-Api-Key` |
+| `BYTEPLUS_SEED_SPEECH_API_KEY` | empty | Enables Seed Audio and stdio Seed TTS 3; sent as `X-Api-Key` |
 | `BYTEPLUS_MODELARK_BASE_URL` | AP Southeast ModelArk URL | HTTPS data-plane base URL |
-| `BYTEPLUS_SEED_AUDIO_BASE_URL` | AP Southeast Seed Speech URL | HTTPS service base URL |
+| `BYTEPLUS_SEED_AUDIO_BASE_URL` | AP Southeast Seed Speech URL | Shared HTTPS service base URL for Seed Audio and Seed TTS 3 |
 | `SEEDREAM_DEFAULT_MODEL` | `dola-seedream-5-5-261028` | Default image model/endpoint ID (Seedream 5.5; account authorization required) |
 | `SEEDREAM_PROMPT_OPTIMIZATION_MODE` | `standard` | Mode 5.0 Pro sends when a caller omits `prompt_optimization`: `standard` (prompt-following quality) or `fast` (lower latency). Both are provider-accepted; an explicit per-call value wins |
 | `SEEDANCE_DEFAULT_MODEL` | `dreamina-seedance-2-5-260628` | Default video model/endpoint ID used by `seedance_create_task` when `model` is omitted (Seedance 2.5; was 2.0 before the tool consolidation, see the [upgrade note](#seedance-default-model-upgrade-note)) |
@@ -324,7 +324,7 @@ no persistence; provider/principal concurrency remains per pod.
 | `MCP_INLINE_MEDIA_MAX_BYTES` | `8388608` | Maximum inline MCP media size |
 | `ARTIFACT_DOWNLOAD_TIMEOUT_SECONDS` | `120` | Timeout for each attempt to download provider output into artifact storage (filesystem and object-storage backends) |
 | `ARTIFACT_DOWNLOAD_MAX_ATTEMPTS` | `3` | Attempts (1-10) for a retryable output download (timeouts, network errors, 408/429/5xx), with 1s, 2s, 4s, ... backoff. Expired, untrusted, or oversized sources are never retried |
-| `ARTIFACT_INLINE_FALLBACK_MAX_BYTES` | `8388608` (8 MiB) | When inline Base64 output (Seed Audio, Seedream `b64_json`) cannot be stored, return it inline in `ArtifactRef.fallback_data` up to this decoded size; `0` disables |
+| `ARTIFACT_INLINE_FALLBACK_MAX_BYTES` | `8388608` (8 MiB) | When inline output (Seed Audio, Seed TTS, Seedream `b64_json`) cannot be stored, return it inline in `ArtifactRef.fallback_data` up to this decoded size; `0` disables |
 | `PROVIDER_MAX_CONCURRENCY` | `5` | Process-wide slots per provider |
 | `PRINCIPAL_MAX_CONCURRENCY` | `3` | Per-pod slots per credential/client-derived HTTP owner; skipped for local stdio |
 | `DAILY_BUDGET_USD` | `0` | Local UTC daily estimate limit; zero records only on stdio. HTTP requires zero and performs no accounting. Not an account-wide spend guarantee |
@@ -337,6 +337,9 @@ Draft eligibility still follows the model/provider creation window.
 Seed Audio/Seedream `persist` default to
 false on every transport. HTTP rejects explicit true and returns temporary
 provider URLs; local callers can explicitly opt into persistence.
+Seed TTS is stdio-only and always persists its completed stream, with no
+`persist` switch. Inline provider audio has no store byte cap, while reference
+inputs, URL downloads, TTS stream collection and inline fallback stay bounded.
 A local billed output retains fallback delivery when storage fails; see
 [Artifacts](artifacts.md#persistence-failures).
 

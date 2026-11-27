@@ -18,7 +18,7 @@ effect of client setup.
 | --- | --- | --- |
 | Provider credentials | Private local environment file | Client request headers; never persisted by the server |
 | Identity | Trusted local principal | Provider-key authorization; client secret scopes admission only |
-| Tools | 12 conditional catalog entries, four always registered | 7; temporary preparation adds one |
+| Tools | 13 conditional catalog entries, four always registered | 7; temporary preparation adds one |
 | Long operations | Direct calls | Direct calls |
 | Storage/artifacts | Optional local persistence and resources | No local persistence/resources; optional temporary TOS preparation; client retrieves provider URLs |
 

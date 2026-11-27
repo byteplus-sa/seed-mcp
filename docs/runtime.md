@@ -215,6 +215,7 @@ quotes, settlement amounts or guarantees of an actual spend ceiling.
 | `SEEDREAM_5_5_OUTPUT_TIERS` | `0.020` / `0.035` / `0.079` USD per output image, by pixel count |
 | `COST_PER_SEEDREAM_5_5_INPUT_IMAGE` | `0.008` USD per input image per call |
 | `COST_PER_AUDIO_SECOND` | `0.0031` USD |
+| `COST_PER_TTS_MILLION_CHARACTERS` | `20.0` USD (built-in estimate, not account pricing) |
 | `COST_PER_VIDEO_TASK` | `0.07` USD (`0.35` for Seedance 2.5) |
 | `DEFAULT_MAX_CONCURRENT` | `5` |
 
@@ -224,8 +225,20 @@ quotes, settlement amounts or guarantees of an actual spend ceiling.
 |---|---|
 | `"image"` | 5.5: `round(variations * (output_rate + reference_images * 0.008), 4)`; other families: `round(variations * 0.03, 4)` |
 | `"audio"` | `round(variations * max(duration_seconds, 10) * 0.0031, 2)` — **floor of 10 seconds per variation** |
+| `"tts"` | `round(variations * max(characters, 0) * 20 / 1000000, 6)`; includes SSML markup and audio tags |
 | `"video"` | `round(variations * 0.07, 2)`; regular 2.5 and Flash use `0.35` per task, selected by registry family; a registered model-specific override wins |
 | (any other) | `0.0` |
+
+Seed TTS uses direct stdio execution and the normal Seed Speech admission and
+budget reservation. It never retries synthesis. The JSONL stream is bounded
+and closed on cancellation; after dispatch, an interrupted or malformed
+successful stream is ambiguous and its reservation commits. A definitive
+rejection or connection failure releases it. Completed audio is passed to persistence.
+If storage and bounded fallback cannot deliver it, the text-only error retains
+the request ID and confirmed synthesis status, and forbids automatic resynthesis.
+Ordinary post-synthesis notification and client-cleanup failures are best-effort;
+external cancellation still propagates.
+See [Seed TTS](seed-tts.md).
 
 Seedream 5.5 output estimates use the supplied high-resolution pricing table:
 at most 2.61M pixels costs $0.020; above 2.61M through 4.63M costs $0.035;

@@ -3,12 +3,12 @@ import { test } from "node:test";
 import { toolReferenceGroups } from "./navigation.mjs";
 
 test("audio has its own tool section", () => {
-  const names = ["seed_audio_generate"];
+  const names = ["seed_audio_generate", "seed_tts_generate"];
   const groups = toolReferenceGroups(names.map((name) => ({ name })));
   const entries = Object.fromEntries(
     groups.map((group) => [group.label, group.items.map((item) => item.label)]),
   );
-  assert.deepEqual(entries.Audio, ["seed_audio_generate"]);
+  assert.deepEqual(entries.Audio, ["seed_audio_generate", "seed_tts_generate"]);
   assert.equal(entries.Understanding, undefined);
   assert.equal(entries["3D"], undefined);
   assert.equal(entries["VOD AI MediaKit"], undefined);

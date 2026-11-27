@@ -6,7 +6,7 @@ description: Find the right Ark MCP capability and learn its credentials, execut
 Ark MCP has one tool per capability. Models, variations, edits and previews
 are parameters, not separate tool names. Start with `ark_list_models`.
 HTTP has 7 tools, plus optional upload preparation; anonymous static discovery
-and direct foreground provider calls. Local stdio has a 12-tool conditional
+and direct foreground provider calls. Local stdio has a 13-tool conditional
 catalog, four always registered. It also calls directly, with local
 storage/artifacts retained. Neither transport exposes MCP jobs/native tasks.
 
@@ -44,13 +44,16 @@ available in Ark MCP.
 | Task | Tool | Credential |
 | --- | --- | --- |
 | Generate full-scene audio | [seed_audio_generate](/ark-mcp/tool-reference/seed-audio-generate/) | Seed Speech key |
+| Speak supplied text or SSML | [seed_tts_generate](/ark-mcp/tool-reference/seed-tts-generate/) | Seed Speech key; stdio only; compatible authorized voice required |
 
 ## Uploads and Outputs
 
 Local upload/artifact tools are stdio-only. HTTP has no local storage/artifact
 tools or resources; clients host references externally or use optional
 [temporary TOS preparation](temporary-uploads.md), and retrieve expiring provider URLs.
-Persistence defaults to false globally; HTTP rejects true.
+Seed Audio/Seedream persistence defaults to false globally; HTTP rejects true.
+Seed TTS is local-only and always persists because its provider returns audio
+bytes, not a URL. See [TTS controls and voice selection](seed-tts.md).
 
 | Task | Tool |
 | --- | --- |

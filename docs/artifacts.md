@@ -13,6 +13,8 @@ Local callers may explicitly request true; HTTP rejects it and local paths.
 HTTP clients download temporary provider URLs themselves.
 Persistence uses direct calls on stdio, with live MCP roots or `OUTPUT_ROOTS`
 for explicit local paths. No task augmentation is needed or supported.
+Seed TTS is stdio-only and always persists its completed stream; it has no
+provider URL or `persist` switch. Its `source_expires_at` is null.
 
 > **Breaking capability removal:** old saved 3D artifacts are no longer served
 > by the narrowed image/audio/video schema. Export needed 3D outputs using the
@@ -104,8 +106,10 @@ artifacts **sharded by the first 2 characters of the UUIDv4 id**:
 
 ### `put_base64` / `copy_from_trusted_url` flow (`_store_bytes`)
 
-1. Enforce `get_media_limits()` per media category against `len(raw)`
-   (image/audio 10 MiB, video 200 MiB).
+1. Validate strict Base64 or a bounded trusted-URL download before storage.
+   Inline provider audio has no persistence byte cap; input-audio limits do not
+   apply to already received generation output. Image/video limits remain
+   enforced, and audio URL downloads remain bounded to 10 MiB.
 2. Validate the MIME via `validate_image_mime` / `validate_audio_mime` /
    `validate_video_mime`.
 3. Resolve `owner = auth or AuthContext()`.
@@ -123,6 +127,11 @@ use this fixed policy, with no per-call extensions. If the downloaded
 `content_type` differs from the supplied `mime_type`, it logs
 `artifact_mime_mismatch` and overrides the MIME with the actual content type.
 
+Object-store reads use the owned artifact's recorded byte count for audio,
+allowing large inline outputs to be retrieved without an unbounded download.
+Reference audio still has its 10 MiB input limit. TTS separately bounds decoded
+stream output to 10 MiB. These limits are distinct from the inline fallback cap.
+
 ### Download and upload retries
 
 A GET on a provider output URL has no side effects, so `SafeDownloader`
@@ -139,7 +148,7 @@ idempotent); a final failure surfaces as `storage_failed`.
 
 ## Persistence failures
 
-For Seedream and Seed Audio, recoverable persistence failures return an
+For Seedream, Seed Audio and Seed TTS, recoverable persistence failures return an
 `ArtifactRef` carrying `persistence_error` (`ArtifactPersistenceIssue`).
 Inline output without a provider URL must fit the fallback cap described below.
 Seedance uses distinct task-output fields described after the table.
@@ -149,7 +158,7 @@ Seedance uses distinct task-output fields described after the table.
 | `code` | `untrusted_output_host`, `output_too_large`, `invalid_output_mime`, `source_expired`, `download_failed`, or `storage_failed` |
 | `message` | credential- and URL-safe explanation |
 | `retryable` | whether persisting again may succeed |
-| `artifact_limit_bytes` | size limit of the durable artifact policy for this media type |
+| `artifact_limit_bytes` | Source byte cap; null for inline audio. Inline fallback has a separate cap |
 | `source_url_expires_at` | when the unpersisted provider URL expires |
 
 The reference takes one of two shapes:
@@ -157,7 +166,7 @@ The reference takes one of two shapes:
 | `id` | Used for | Where the bytes are |
 |---|---|---|
 | `provider-url` | Seedream URL outputs and inline outputs that also came with a provider URL | `uri` is the temporary provider URL, valid until `source_expires_at` |
-| `inline-fallback` | Inline Base64 outputs with no provider URL (Seed Audio, Seedream `b64_json`) | `fallback_data`, up to `ARTIFACT_INLINE_FALLBACK_MAX_BYTES` (default 8 MiB; `0` disables) |
+| `inline-fallback` | Inline outputs with no provider URL (Seed Audio, Seed TTS, Seedream `b64_json`) | `fallback_data`, up to `ARTIFACT_INLINE_FALLBACK_MAX_BYTES` (default 8 MiB; `0` disables) |
 
 Inline Base64 is retried once against the store before falling back. An inline
 output larger than `ARTIFACT_INLINE_FALLBACK_MAX_BYTES` with no provider URL

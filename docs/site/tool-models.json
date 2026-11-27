@@ -63,6 +63,17 @@
       }
     ]
   },
+  "seed_tts_generate": {
+    "selection": "Stdio only. The only accepted model is `dola-seed-tts-3.0`. Supply a compatible, authorized `voice_id` from the [Seed TTS 3.0 voice list](https://docs.byteplus.com/en/docs/byteplusvoice/voicelist-3-0). This tool speaks supplied text; use Seed Audio for full-scene generation.",
+    "models": [
+      {
+        "name": "Seed TTS 3.0",
+        "id": "`dola-seed-tts-3.0`",
+        "availability": "Local stdio with BYTEPLUS_SEED_SPEECH_API_KEY; unavailable over hosted HTTP.",
+        "capabilities": "Text or SSML, up to 10,000 characters; voice delivery and pronunciation controls; optional word alignment; MP3, PCM or Ogg Opus; direct call that collects and persists one complete audio artifact, not live MCP audio."
+      }
+    ]
+  },
   "seed_audio_generate": {
     "selection": "This tool has no per-call `model` argument. The Seed Speech adapter uses the fixed model below; this is not a ModelArk model binding.",
     "models": [

@@ -41,7 +41,7 @@ def _by_id(payload: dict[str, Any]) -> dict[str, dict[str, Any]]:
 
 async def test_lists_every_configured_kind(configured: None) -> None:
     models = _by_id(await _list_models({}))
-    assert {model["kind"] for model in models.values()} == {"video", "image"}
+    assert {model["kind"] for model in models.values()} == {"video", "image", "audio"}
     seedance_2_5 = models["dreamina-seedance-2-5-260628"]
     assert seedance_2_5["tool"] == "seedance_create_task"
     assert seedance_2_5["video"]["duration_seconds"] == [4, 30]
@@ -63,7 +63,7 @@ async def test_kind_filter_limits_results(configured: None) -> None:
 async def test_disabled_services_explain_how_to_enable_them(configured: None) -> None:
     services = {item["service"]: item for item in (await _list_models({}))["services"]}
     assert services["modelark"] == {"service": "modelark", "enabled": True, "reason": None}
-    assert set(services) == {"modelark", "seed_audio", "object_storage"}
+    assert set(services) == {"modelark", "seed_audio", "seed_tts", "object_storage"}
 
 
 async def test_reasons_never_contain_secret_values(configured: None) -> None:
@@ -90,7 +90,7 @@ async def test_no_models_without_modelark_key(
         refresh_capability_registry()
 
 
-@pytest.mark.parametrize("kind", ["audio", "understanding"])
+@pytest.mark.parametrize("kind", ["speech", "understanding"])
 async def test_invalid_kind_is_rejected(configured: None, kind: str) -> None:
     async with Client(create_server(get_settings())) as client:
         result = await client.call_tool(

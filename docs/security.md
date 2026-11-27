@@ -81,7 +81,7 @@ Catalog scope strings remain capability metadata, not customer-selected roles,
 OAuth grants or a common team identity. HTTP admission enforces the selected
 provider key and client owner. Local stdio trusts its local principal.
 
-All 8 scope strings in the catalog are retained below as metadata, not auth
+All 9 scope strings in the catalog are retained below as metadata, not auth
 grants. A label does not register a tool or grant access to provider accounts.
 
 | Catalog scope metadata | Tools |
@@ -90,6 +90,7 @@ grants. A label does not register a tool or grant access to provider accounts.
 | `media:upload` | `media_upload`, `seed_media_persist_url` (stdio only); opt-in HTTP `media_prepare_upload` |
 | `media:presign` | `media_presign` (stdio only) |
 | `seed:audio:generate` | `seed_audio_generate` |
+| `seed:tts:generate` | `seed_tts_generate` (stdio only) |
 | `seedream:generate` | `seedream_generate_image` |
 | `seedance:create` | `seedance_create_task` |
 | `gen:read` | `gen_task_get`, `gen_task_list` |
@@ -100,7 +101,7 @@ requiring operator provider keys. Anonymous `ark_list_models` lists configured
 model bindings even without an environment provider key. `services[].enabled`
 describes registration, not customer entitlement or key validity. Jobs, native tasks, local storage/artifact tools and all MCP
 resources are absent on HTTP. Storage/artifacts remain local stdio capabilities
-among the 12 local tools. The catalog has 13 definitions including optional
+among the 13 local tools. The catalog has 14 definitions including optional
 HTTP upload preparation. No asset administration exists on either transport.
 
 Opt-in `media_prepare_upload` adds one HTTP tool. Operator-enrolled SHA-256

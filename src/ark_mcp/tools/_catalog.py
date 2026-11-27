@@ -36,6 +36,10 @@ def _seed_audio(settings: Settings) -> bool:
     return settings.mcp_transport == "http" or settings.has_seed_audio
 
 
+def _seed_tts(settings: Settings) -> bool:
+    return _local(settings) and settings.has_seed_audio
+
+
 def _object_storage(settings: Settings) -> bool:
     return _local(settings) and settings.has_object_storage
 
@@ -83,7 +87,11 @@ def _entry(
         gate=gate,
         annotations=annotations,
         provider=(
-            "modelark" if gate is _modelark else "seed-speech" if gate is _seed_audio else None
+            "modelark"
+            if gate is _modelark
+            else "seed-speech"
+            if gate in (_seed_audio, _seed_tts)
+            else None
         ),
     )
 
@@ -105,6 +113,12 @@ CATALOG: tuple[CatalogEntry, ...] = (
         "SeedAudioGenerateOutput",
         "seed:audio:generate",
         gate=_seed_audio,
+    ),
+    _entry(
+        "seed_tts_generate",
+        "SeedTtsGenerateOutput",
+        "seed:tts:generate",
+        gate=_seed_tts,
     ),
     _entry(
         "media_upload",

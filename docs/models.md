@@ -6,6 +6,16 @@ the provider. It validates image sizes, output formats, video resolutions,
 and durations against family-specific rules, so unsupported requests fail fast
 with an actionable `ValueError`.
 
+## Seed TTS Discovery
+
+Local stdio `ark_list_models(kind="audio")` lists `dola-seed-tts-3.0`,
+family `seed_tts_3`, served by `seed_tts_generate` when a Seed Speech key
+is configured. Its `tts` limits report 10,000 text/SSML characters,
+MP3/PCM/Ogg Opus output and required voice selection. This is a fixed speech
+model, not a ModelArk endpoint binding. HTTP does not list TTS, and
+`check_connection=true` still supports image/video only.
+See [Seed TTS 3.0](seed-tts.md).
+
 ## Families
 
 `ModelFamily` (`StrEnum`) includes:

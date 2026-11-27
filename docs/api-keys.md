@@ -20,7 +20,7 @@ HTTP registration is credential-independent.
 | Service | Env var | Auth header | Tools it enables |
 |---|---|---|---|
 | ModelArk | `BYTEPLUS_MODELARK_API_KEY` | `Authorization: Bearer <key>` | Seedream and Seedance |
-| Seed Speech | `BYTEPLUS_SEED_SPEECH_API_KEY` | `X-Api-Key: <key>` | Seed Audio generation |
+| Seed Speech | `BYTEPLUS_SEED_SPEECH_API_KEY` | `X-Api-Key: <key>` | Seed Audio and stdio Seed TTS 3 |
 | TOS | `TOS_ACCESS_KEY` + `TOS_SECRET_KEY` + `TOS_BUCKET` | AK/SK signing | `media_upload`, `media_presign` |
 | S3 | `S3_ACCESS_KEY` + `S3_SECRET_KEY` + `S3_BUCKET` | AK/SK signing | `media_upload`, `media_presign` |
 
@@ -67,14 +67,15 @@ base; HTTP fixes official origins and never accepts arbitrary endpoint hosts.
 
 ## Seed Speech
 
-Seed Speech provides **Seed Audio** (full-scene audio generation / TTS).
+Seed Speech provides **Seed Audio** (full-scene audio generation) and
+**Seed TTS 3** (text/SSML speech synthesis, stdio only).
 It is separate from ModelArk and uses `X-Api-Key`, not Bearer.
 
 **Env vars:**
 
 | Variable | Default | Purpose |
 |---|---|---|
-| `BYTEPLUS_SEED_SPEECH_API_KEY` | empty | Seed Audio generation key |
+| `BYTEPLUS_SEED_SPEECH_API_KEY` | empty | Shared Seed Audio / Seed TTS key |
 | `BYTEPLUS_SEED_AUDIO_BASE_URL` | `https://voice.ap-southeast-1.bytepluses.com` | Seed Speech host |
 
 **How to get the key:**
@@ -84,7 +85,8 @@ It is separate from ModelArk and uses `X-Api-Key`, not Bearer.
 3. Navigate to API key or application management and create a key.
 4. Copy the key. It is distinct from your ModelArk key.
 
-The key must belong to an application with Seed Audio access. Without that
+The key must belong to an application with access to the selected product and,
+for TTS, the selected compatible voice. Without that
 entitlement, provider calls are rejected with an auth/resource error even
 when the key itself is valid.
 
@@ -195,7 +197,7 @@ Discovery confirms configuration, not provider-key validity or account access.
 BYTEPLUS_MODELARK_API_KEY=
 BYTEPLUS_MODELARK_BASE_URL=https://ark.ap-southeast.bytepluses.com/api/v3
 
-# Seed Speech — Seed Audio generation
+# Seed Speech — Seed Audio and stdio Seed TTS 3
 BYTEPLUS_SEED_SPEECH_API_KEY=
 BYTEPLUS_SEED_AUDIO_BASE_URL=https://voice.ap-southeast-1.bytepluses.com
 

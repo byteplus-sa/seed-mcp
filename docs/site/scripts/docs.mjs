@@ -200,7 +200,7 @@ ${tool.description}
 | HTTP execution | ${http ? "Direct foreground only; no native tasks." : "Unavailable."} |
 | Catalog capability label | ${tool.scope ? `\`${tool.scope}\`` : "None"} |
 
-This site lists 13 catalog entries: 12 conditional local tools (four always registered) plus HTTP-only upload preparation. HTTP exposes 7 tools, plus one when temporary uploads are enabled. Generation registration is independent of operator provider keys. Use [model discovery](${SITE_BASE}/tool-reference/ark-list-models/) and tools/list for your connection. Credentials never belong in tool arguments. HTTP has no OAuth, signup or server-issued key and never falls back to operator generation-provider keys.
+This site lists 14 catalog entries: 13 conditional local tools (four always registered) plus HTTP-only upload preparation. HTTP exposes 7 tools, plus one when temporary uploads are enabled. HTTP generation registration is independent of operator provider keys; Seed TTS is stdio only. Use [model discovery](${SITE_BASE}/tool-reference/ark-list-models/) and tools/list for your connection. Credentials never belong in tool arguments. HTTP has no OAuth, signup or server-issued key and never falls back to operator generation-provider keys.
 
 Catalog capability labels are metadata, not auth grants. See the [scope taxonomy](${SITE_BASE}/security/#scope-taxonomy).
 

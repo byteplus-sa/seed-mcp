@@ -4,7 +4,7 @@ type: spec
 status: accepted
 horizon: current
 created: 2026-11-17
-updated: 2026-11-18
+updated: 2026-11-27
 tags: [mcp, direct-execution, admission, deadlines]
 source:
   - https://gofastmcp.com/servers/tools
@@ -30,17 +30,26 @@ including discovery, before provider dispatch.
 
 ## Surface
 
-The catalog contains 12 conditionally registered local tools. Four are always
+The catalog contains 13 conditionally registered local tools. Four are always
 available: `ark_list_models`, `seed_media_get_artifact`,
 `seed_media_export_artifact`, and `seed_media_persist_url`.
 HTTP exposes seven discovery/provider tools.
 HTTP has no local storage/artifact tools or resources; local stdio retains them.
-The 13th catalog definition is opt-in HTTP-only `media_prepare_upload`, adding
+The additional catalog definition is opt-in HTTP-only `media_prepare_upload` (14 definitions total), adding
 one tool to the baseline HTTP inventory. It signs locally under the same direct
 deadline and owner-first `tos` admission, without dispatching a storage mutation
 or reserving budget. Client binary upload occurs separately; see
 [temporary uploads](SPEC_HOSTED_BYOK.md#temporary-upload-preparation).
-Discovery supports image/video bindings only and makes no provider calls.
+Discovery supports image/video bindings and local stdio Seed TTS (`kind="audio"`),
+and makes no provider calls. HTTP connection checks remain image/video only.
+
+`seed_tts_generate` is stdio-only because Seed Speech returns streamed audio
+bytes, not a URL. It collects a bounded JSONL response in one direct call,
+always persists the completed audio, and has no `persist` flag. It uses the
+same deadline, admission, dispatch tracking and local budget semantics as other
+mutations, without automatic synthesis retries. This is an explicit exception
+to opt-in persistence on Seed Audio/Seedream, not an HTTP storage capability.
+See [Seed TTS](../docs/seed-tts.md).
 
 Provider video queues remain asynchronous. Retain provider task IDs and poll;
 direct MCP execution does not mean a video finishes within the create call.

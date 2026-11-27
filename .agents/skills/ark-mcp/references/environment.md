@@ -8,7 +8,7 @@ inventory or hosted contract. No release or public endpoint is assumed.
 
 | Transport | Tools | Credentials and execution |
 | --- | --- | --- |
-| Local stdio | 12 conditional entries; four always registered | Private startup provider keys; direct calls; storage/artifacts retained |
+| Local stdio | 13 conditional entries; four always registered | Private startup provider keys; direct calls; storage/artifacts retained |
 | HTTP BYOK | 7; opt-in upload adds one | Selected live provider key plus client secret for generation; enrolled secret alone for preparation; direct foreground calls |
 
 HTTP has no ordinary jobs, native tasks, local storage/artifact tools, media resources
@@ -30,6 +30,10 @@ HTTP provider calls, including dry runs, require only the selected header:
 Enter them privately through the client's supported mechanism. Never put
 credentials in tool arguments, chat, command-line flags, logs or Git.
 No HTTP environment-provider fallback exists; keys are not persisted.
+
+Local `BYTEPLUS_SEED_SPEECH_API_KEY` also enables `seed_tts_generate`.
+TTS shares `BYTEPLUS_SEED_AUDIO_BASE_URL` and always persists its completed
+stream. It is not available on HTTP and needs no new credential setting.
 
 Optional `media_prepare_upload` uses operator TOS signing configuration with
 `MCP_TEMPORARY_UPLOAD_ENABLED=true` and `MCP_UPLOAD_CLIENT_SECRET_SHA256`

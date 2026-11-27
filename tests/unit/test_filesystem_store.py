@@ -321,7 +321,7 @@ async def test_copy_preserves_artifact_size_ceiling(
         downloader=downloader,  # type: ignore[arg-type]
     )
     monkeypatch.setattr(
-        "ark_mcp.artifacts.filesystem_store.get_media_limits",
+        "ark_mcp.artifacts.store.get_media_limits",
         lambda: SimpleNamespace(
             image_max_bytes=4,
             audio_max_bytes=4,

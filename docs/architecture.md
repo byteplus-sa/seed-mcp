@@ -1,9 +1,9 @@
 # Architecture
 
-Seed MCP is a direct-call Python/FastMCP server. The catalog contains 12 local
+Seed MCP is a direct-call Python/FastMCP server. The catalog contains 13 local
 tools; HTTP exposes seven discovery/provider tools.
 Opt-in HTTP-only `media_prepare_upload` adds one signing capability; its client
-uploads directly to private TOS. The full catalog has 13 definitions.
+uploads directly to private TOS. The full catalog has 14 definitions.
 There are no MCP jobs, native tasks or inference workers.
 
 ## Request Flow
@@ -35,7 +35,7 @@ a pod restart. Provider work remains asynchronous independently of the pods.
 | Provider | Fixed HTTP origin | Upstream auth |
 | --- | --- | --- |
 | ModelArk | `https://ark.ap-southeast.bytepluses.com/api/v3` | Bearer; Seedream and Seedance |
-| Seed Speech | `https://voice.ap-southeast-1.bytepluses.com` | `X-Api-Key`; Seed Audio |
+| Seed Speech | `https://voice.ap-southeast-1.bytepluses.com` | `X-Api-Key`; Seed Audio and stdio Seed TTS 3 |
 
 Clients privately send `X-ModelArk-Api-Key` or `X-Seed-Speech-Api-Key`,
 plus `X-MCP-Client-Secret`. Credentials live only for the
@@ -58,6 +58,9 @@ through to the provider.
 HTTP is URL-only. It rejects binary/local uploads, artifact resources, stored artifact
 references and persistence requests. Local stdio keeps explicit persistence
 and writes constrained by live MCP roots or `OUTPUT_ROOTS`.
+The stdio-only TTS tool always persists its bounded JSONL audio stream.
+It uses direct-call deadlines and dispatch tracking, with no automatic synthesis
+retry or provider URL. See [Seed TTS](seed-tts.md).
 
 Temporary uploads use a separate enrolled client-secret authorization scope and
 operator TOS signer, with exact-key POST permissions and a GET URL. No object

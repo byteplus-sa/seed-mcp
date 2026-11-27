@@ -26,6 +26,7 @@ _REGISTRATION_GATES = {
     "_local": "Local stdio only; no provider credentials required.",
     "_modelark": "Requires BYTEPLUS_MODELARK_API_KEY.",
     "_seed_audio": "Requires BYTEPLUS_SEED_SPEECH_API_KEY.",
+    "_seed_tts": "Local stdio only; requires BYTEPLUS_SEED_SPEECH_API_KEY.",
     "_object_storage": (
         "Requires the selected object-storage backend: OBJECT_STORAGE_BACKEND=tos (default) "
         "with TOS_ACCESS_KEY, TOS_SECRET_KEY and TOS_BUCKET; or OBJECT_STORAGE_BACKEND=s3 "

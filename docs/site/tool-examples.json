@@ -28,6 +28,14 @@
       "dry_run": true
     }
   },
+  "seed_tts_generate": {
+    "input": {
+      "voice_id": "multi_female_skye_v3_uranus_bigtts",
+      "text": "Welcome to the demonstration.",
+      "language_code": "en",
+      "enable_subtitle": true
+    }
+  },
   "seed_audio_generate": {
     "input": {
       "text_prompt": "Gentle rain on a window. Max duration: 5 seconds"
@@ -35,9 +43,7 @@
   },
   "gen_task_get": {
     "input": {
-      "task_ids": [
-        "cgt-example-replace-me"
-      ],
+      "task_ids": ["cgt-example-replace-me"],
       "persist_output": false
     }
   }
