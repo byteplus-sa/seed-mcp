@@ -349,25 +349,35 @@ seedance_create_task({
 gen_task_get({"task_ids": ["<provider task ID from direct result>"]})
 ```
 
-## 16. Batch Storyboard with Seedream
+## 16. Storyboard Variations with Seedream
 
-Generate a coherent set of related images using the provider's native batch
-mode (not parallel variations — these share visual continuity).
+Generate four independent storyboard frames in one call using Seedream 5.5
+variations. This is the current 5.5-safe replacement for the old native batch
+mode.
 
 **Tool:** `seedream_generate_image`
 
 ```json
 {
-  "prompt": "A set of four seasons landscape illustrations: spring, summer, autumn, winter",
-  "max_images": 4,
+  "model": "dola-seedream-5-5-261028",
+  "prompt": "Storyboard frames for a product reveal video",
+  "variations": 4,
+  "variation_prompts": [
+    "Wide establishing shot of the studio before the reveal",
+    "Medium shot as the product rises from shadow into key light",
+    "Close-up on the product surface details with dramatic rim light",
+    "Final hero shot with clean background and space for title text"
+  ],
   "size": "1024x1024",
+  "dry_run": true,
   "persist": true
 }
 ```
 
-This requires an explicitly selected bound Lite/4.x model; the 5.5 default
-and Pro reject `max_images > 1`. It uses `sequential_image_generation: "auto"`
-for related outputs; visual coherence still needs review.
+Each variation is an independent request; Visual continuity is not guaranteed.
+Use explicit per-frame prompts and review the outputs before moving to
+Seedance. Do not use `max_images > 1` or the retired native batch controls
+with the current 5.5-only contract.
 
 ## 17. Reference Video Upload via Object Storage
 

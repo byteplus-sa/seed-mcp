@@ -15,6 +15,7 @@ import httpx
 from ark_mcp.config.env import get_settings
 from ark_mcp.domain.errors import NormalizedProviderError, ProviderError
 from ark_mcp.domain.tts import TtsAlignment, TtsWord
+from ark_mcp.execution import record_dispatched_request
 from ark_mcp.providers.base import safe_provider_text
 
 if TYPE_CHECKING:
@@ -156,6 +157,7 @@ class SeedTtsService:
         try:
             async with asyncio.timeout(self._timeout):
                 async with self._gateway.stream_tts(path, body, request_id=request_id) as response:
+                    record_dispatched_request(request_id)
                     log_id = self._gateway.extract_log_id(response)
                     if response.status_code != 200:
                         response_error = _provider_error(

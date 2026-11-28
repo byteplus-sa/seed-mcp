@@ -29,6 +29,7 @@ class _DirectExecution:
     side_effect_started: bool = False
     receipts: dict[str, str | None] = field(default_factory=dict)
     file_receipts: dict[str, str | None] = field(default_factory=dict)
+    request_ids: list[str] = field(default_factory=list)
 
 
 class _DispatchExpired(BaseException):
@@ -137,6 +138,27 @@ def record_accepted_receipt(
         receipts[task_id] = request_id
 
 
+def record_dispatched_request(request_id: str) -> None:
+    """Retain bounded safe request IDs for tools without task or file receipts."""
+    current = _current.get()
+    if current is None or not current.active:
+        return
+    if (
+        not isinstance(request_id, str)
+        or not re.fullmatch(IDENTIFIER_PATTERN, request_id)
+        or redact_request_secrets(request_id) != request_id
+    ):
+        return
+    if request_id in current.request_ids:
+        return
+    if (
+        len(current.receipts) + len(current.file_receipts) + len(current.request_ids)
+        >= _MAX_RECEIPTS
+    ):
+        return
+    current.request_ids.append(request_id)
+
+
 def _deadline_result(current: _DirectExecution) -> ToolResult:
     TOOL_DEADLINES.labels(
         dispatch=(
@@ -169,6 +191,11 @@ def _deadline_result(current: _DirectExecution) -> ToolResult:
             for file_id, request_id in current.file_receipts.items()
         )
         message += ". Retrieve these IDs with ark_file_get; do not upload again."
+    if current.request_ids:
+        message += " Known request IDs: " + "; ".join(
+            f"request_id={request_id}" for request_id in current.request_ids
+        )
+        message += ". Reconcile through the provider using these request IDs."
     return ToolResult(
         content=(
             f"TOOL_DEADLINE_EXCEEDED: {message} "
@@ -219,4 +246,5 @@ async def run_direct_call(
         current.active = False
         current.receipts.clear()
         current.file_receipts.clear()
+        current.request_ids.clear()
         _current.reset(token)

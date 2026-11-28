@@ -34,7 +34,7 @@ URL = "https://media.example.com/sample.png?signature=synthetic"
 @pytest.fixture
 async def service():
     gateway = ModelArkFilesGateway(
-        api_key="synthetic-file-key",
+        api_key="synthetic-file-key",  # pragma: allowlist secret
         base_url=BASE,
         timeout=5,
         connect_timeout=2,
@@ -50,7 +50,7 @@ async def service():
         {"url": URL, "file_path": "/tmp/a"},
         {"url": "tos://bucket/a"},
         {"url": "http://example.com/a"},
-        {"url": "https://user:password@example.com/a"},
+        {"url": "https://user:password@example.com/a"},  # pragma: allowlist secret
         {"url": URL, "tos": {"bucket": "forbidden"}},
         {"url": URL, "expire_at": 1},
         {"url": URL, "data": "AAAA"},

@@ -15,6 +15,7 @@ from ark_mcp.domain.errors import ProviderError
 from ark_mcp.execution import (
     before_provider_request,
     record_accepted_receipt,
+    record_dispatched_request,
     run_direct_call,
 )
 from ark_mcp.providers.modelark.client import ModelArkGateway
@@ -256,6 +257,88 @@ async def test_file_receipts_are_reported_separately_and_bounded() -> None:
     assert "private" not in text and "unsafe" not in text
     assert "task_id=" not in text and "Known accepted tasks" not in text
     assert len(text) < 1500
+
+
+async def test_request_only_ids_are_safe_bounded_and_deduplicated() -> None:
+    record_dispatched_request("unscoped-request")
+
+    async def child(index: int) -> None:
+        record_dispatched_request(f"request-{index}")
+        record_dispatched_request(f"request-{index}")
+
+    async def call() -> None:
+        before_provider_request()
+        for invalid in (
+            "",
+            "x" * 257,
+            "unsafe\nrequest",
+            "https://private.invalid/",
+            "req-private-key",
+        ):
+            record_dispatched_request(invalid)
+        record_dispatched_request("r" * 256)
+        await asyncio.gather(*(child(index) for index in range(20)))
+        await asyncio.Event().wait()
+
+    with request_credentials_scope([(b"x-modelark-api-key", b"private-key")]):
+        result = await run_direct_call(call, timeout_seconds=0.02, read_only=False)
+    text = deadline_text(result, ambiguous=True)
+    assert "Known request IDs" in text
+    assert text.count("request_id=") == 5
+    assert "request_id=" + "r" * 256 in text
+    assert "request_id=request-0" in text
+    assert "request_id=request-4" not in text
+    assert "unscoped" not in text
+    assert "private" not in text and "unsafe" not in text
+    assert "task_id=" not in text and "Known accepted tasks" not in text
+    assert len(text) < 1500
+
+
+@pytest.mark.parametrize("outcome", ["success", "error", "cancel", "deadline"])
+async def test_request_only_ids_are_cleared_when_invocation_ends(outcome: str) -> None:
+    state = None
+    entered = asyncio.Event()
+    release = asyncio.Event()
+    child = None
+
+    async def late_child() -> None:
+        await release.wait()
+        record_dispatched_request("late-request")
+
+    async def call() -> None:
+        nonlocal state, child
+        before_provider_request()
+        record_dispatched_request("original-request")
+        from ark_mcp import execution as execution_module
+
+        state = execution_module._current.get()
+        child = asyncio.create_task(late_child())
+        entered.set()
+        if outcome == "error":
+            raise ValueError("Synthetic failure.")
+        if outcome != "success":
+            await asyncio.Event().wait()
+
+    pending = asyncio.create_task(
+        run_direct_call(call, timeout_seconds=0.02 if outcome == "deadline" else 1, read_only=False)
+    )
+    await entered.wait()
+    if outcome == "cancel":
+        pending.cancel()
+        with pytest.raises(asyncio.CancelledError):
+            await pending
+    elif outcome == "error":
+        with pytest.raises(ValueError, match="Synthetic"):
+            await pending
+    else:
+        await pending
+    assert state is not None and child is not None
+    assert not state.active and state.request_ids == []
+    release.set()
+    await child
+    assert state.request_ids == []
+    result = await run_direct_call(asyncio.Event().wait, timeout_seconds=0.01, read_only=True)
+    assert "request_id=" not in deadline_text(result, ambiguous=False)
 
 
 async def test_inherited_context_cannot_dispatch_after_root_finishes() -> None:

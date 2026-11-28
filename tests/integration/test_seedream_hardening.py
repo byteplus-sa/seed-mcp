@@ -349,7 +349,7 @@ async def test_storage_presign_error_during_inspection_retains_billed_output(
     raw = image_bytes()
     failure = ProviderError(
         NormalizedProviderError(
-            provider="tos",
+            provider="s3",
             operation="presign_get",
             code="STORAGE_READ_FAILED",
             message="https://private.example/?token=secret",
