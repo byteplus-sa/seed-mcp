@@ -19,20 +19,18 @@ test("primary onboarding connects to hosted MCP without installing a server", ()
   }
   const install = page("setup/install.md");
   assert.match(install, /You only connect your AI client/);
-  assert.match(
-    install,
-    /No local server, software installation or Kubernetes access is needed/,
-  );
+  assert.match(install, /No local MCP server or Kubernetes access is needed/);
   assert.match(install, /service\.md#privacy/);
   assert.match(page("service.md"), /credential-exposure risk/);
   assert.match(install, /id="guided-local-setup"/);
   assert.match(install, /shared-server\.md/);
   assert.match(page("service.md"), /Managed Files import HTTPS URLs/);
-  assert.match(install, /Local file tools are\s+not hosted/);
+  assert.match(install, /cloud uploads import HTTPS URLs/);
   assert.match(
     install,
-    /Seed TTS 3 returns\s+native audio directly without TOS/,
+    /local uploads require installing `seed-mcp-upload` on the client/,
   );
+  assert.match(install, /returns native audio without TOS/);
 });
 
 test("first use leads with a generation prompt rather than tool orchestration", () => {

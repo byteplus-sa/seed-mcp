@@ -109,6 +109,36 @@ saving, voice entitlement and audio quality remain unverified. A 30 MiB audio
 block is 40 MiB Base64 before metadata. A lost response has no recovery API;
 do not automatically repeat synthesis.
 
+## Managed Files Source Validation
+
+On November 28, 2026, at 10:52 UTC, a live smoke tested
+[PR #20](https://github.com/byteplus-sa/seed-mcp/pull/20) at source `fa8cf76`
+against the official ModelArk Files API, without mocked provider responses.
+This tested local processes, **not the deployed public APIG endpoint**.
+The deployed-instance table above remains the earlier verified snapshot.
+
+- A synthetic 579-byte PNG was uploaded through each of three paths: the
+  stdio `ark_file_upload` tool, URL import through a local HTTP BYOK server,
+  and the client-side `seed-mcp-upload` executable.
+- All three files became active, appeared in `ark_file_list`, and returned
+  working download URLs through `ark_file_get`. Downloaded SHA-256 digests
+  matched the original bytes.
+- HTTP exposed twelve tools and used live ModelArk/client-secret headers,
+  with no provider credentials in the HTTP server environment. Missing
+  credentials, a missing client secret, client-local HTTP paths, and deletion
+  without confirmation were rejected.
+- All three smoke files were deleted through `ark_file_delete(confirm=true)`;
+  subsequent get returned not-found and list excluded them. No HTTP artifact
+  state directory was created. No TOS setup was used.
+
+No deployment or generation calls were made in this smoke. It does not prove
+other accounts' permissions, large-file limits, every media format, desktop
+client integration, or live gateway routing. **Post-deployment Files validation
+remains pending.** After an approved rollout, check the public tool inventory
+and repeat the authorized synthetic upload/get/list/download/delete lifecycle
+through that endpoint. Keep credentials and signed URLs private, retain IDs,
+and never automatically repeat uncertain uploads or deletes.
+
 ## Delivery Evidence
 
 - [PR #14](https://github.com/byteplus-sa/seed-mcp/pull/14) introduced protected

@@ -12,7 +12,12 @@ You only need the provider for the media you want to create.
 
 1. Open **ModelArk > API Key** in the BytePlus console.
 2. Create a key and save it privately when shown.
-3. Confirm your account has access to the Seedream or Seedance model you need.
+3. Confirm your key has access to the Files API or generation models you need.
+
+All four [managed Files tools](files.md) use your own ModelArk key plus the
+independent client secret on hosted HTTP. No TOS bucket, storage AK/SK or
+operator upload enrollment is needed. File access follows provider permissions;
+sharing a key shares whatever file access ModelArk permits.
 
 ## Seed Speech
 

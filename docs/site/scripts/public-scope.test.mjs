@@ -252,3 +252,52 @@ test("short guides preserve the essential billing, privacy and recovery boundari
     assert.ok(checks.includes(text), text);
   }
 });
+
+test("Files guidance preserves cloud BYOK setup and source-only smoke evidence", () => {
+  const files = read("docs/files.md");
+  for (const name of [
+    "ark_file_upload",
+    "ark_file_get",
+    "ark_file_list",
+    "ark_file_delete",
+  ]) {
+    assert.ok(files.includes(`\`${name}\``), name);
+  }
+  assert.match(files, /your own `X-ModelArk-Api-Key`/);
+  assert.match(files, /`X-MCP-Client-Secret`[\s\S]*all four Files tools/);
+  assert.match(files, /does not persist these credentials/);
+  assert.match(files, /No TOS bucket, storage AK\/SK or upload enrollment/);
+  assert.match(files, /HTTP rejects local paths and Base64/);
+  assert.match(files, /seed-mcp-upload --file/);
+  assert.match(files, /whatever file access the provider permits/);
+  assert.match(files, /post-deployment smoke[\s\S]*still required/);
+
+  const setup = read("docs/setup/install.md");
+  assert.match(setup, /ModelArk API key for images, video and managed Files/);
+  assert.match(
+    setup,
+    /local uploads require installing `seed-mcp-upload` on the client/,
+  );
+  const environment = read(".agents/skills/ark-mcp/references/environment.md");
+  assert.match(
+    environment,
+    /\| HTTP BYOK \| 12, including four Files tools \|/,
+  );
+  assert.doesNotMatch(
+    environment,
+    /opt-in upload adds one|enrolled secret alone/,
+  );
+  const media = read(".agents/skills/ark-mcp/references/media-assets.md");
+  assert.doesNotMatch(
+    media,
+    /optional temporary preparation|Needed whenever a tool/,
+  );
+  assert.match(media, /client secret separates admission, not file ownership/);
+
+  const evidence = read("docs/hosted-deployment-status.md")
+    .split("## Managed Files Source Validation")[1]
+    .split("## Delivery Evidence")[0];
+  assert.match(evidence, /not the deployed public APIG endpoint/);
+  assert.match(evidence, /No deployment or generation calls were made/);
+  assert.match(evidence, /Post-deployment Files validation\s+remains pending/);
+});

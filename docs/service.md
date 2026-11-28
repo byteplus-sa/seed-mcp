@@ -15,6 +15,9 @@ administration are not hosted features. Managed Files import HTTPS URLs;
 the [client-side helper](files.md) streams local files to ModelArk without a bucket.
 Chat attachments do not upload automatically.
 
+All four Files operations use your own ModelArk API key plus the independent
+client secret. No storage credentials or upload enrollment are needed.
+
 Seed TTS 3 returns complete native audio directly, up to 30 MiB decoded audio.
 Save the audio using your client; playback support varies.
 No TOS, download URL or later recovery is provided.
@@ -55,6 +58,6 @@ and [dated deployment evidence](hosted-deployment-status.md#connect).
 
 Your provider key controls access to provider tasks and files. Clients sharing a key
 share whatever access that provider permits. The independent client secret
-separates admission limits; it is not a separate task-ownership boundary.
+separates admission limits; it is not a separate task or file ownership boundary.
 
 Local setup and operations: [repository handbook](https://github.com/byteplus-sa/seed-mcp/tree/main/docs).

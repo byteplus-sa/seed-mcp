@@ -4,7 +4,7 @@ description: Connect your AI client to the hosted endpoint. No server installati
 ---
 
 **Seed MCP runs on BytePlus. You only connect your AI client.**
-No local server, software installation or Kubernetes access is needed.
+No local MCP server or Kubernetes access is needed.
 
 <span id="prerequisites"></span>
 <span id="choose-an-installation"></span>
@@ -29,12 +29,12 @@ sending credentials.
 
 ## 2. Configure Private Headers
 
-Generation uses **your own provider key** and may incur charges.
+Provider calls use **your own provider key**; generation may incur charges.
 Use your client's protected secret settings or environment-backed headers.
 
 | Header | Value you supply privately |
 | --- | --- |
-| `X-ModelArk-Api-Key` | Your ModelArk API key for Seedream images and Seedance video |
+| `X-ModelArk-Api-Key` | Your ModelArk API key for images, video and managed Files |
 | `X-Seed-Speech-Api-Key` | Your Seed Speech API key for Seed Audio and enabled TTS |
 | `X-MCP-Client-Secret` | An independent client-generated secret, required for every provider call |
 
@@ -238,9 +238,11 @@ Then [create your first image, video or audio clip](first-run.md).
 
 ### Hosted Availability
 
-Seedream, Seedance and Seed Audio are available. Seed TTS 3 returns
-native audio directly without TOS; client playback support varies. Local file tools are
-not hosted. See [TTS](/seed-mcp/tool-reference/seed-tts-generate/) and [service limits](../service.md).
+Check tools/list for the deployed revision. [Managed Files](../files.md) use
+your ModelArk key without a TOS bucket: cloud uploads import HTTPS URLs;
+local uploads require installing `seed-mcp-upload` on the client.
+[Seed TTS 3](/seed-mcp/tool-reference/seed-tts-generate/) returns native audio without TOS;
+playback varies. See [service limits](../service.md).
 
 <span id="guided-local-setup"></span>
 

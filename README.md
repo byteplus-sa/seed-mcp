@@ -40,7 +40,8 @@ products plus artifact access and managed reference files. The catalog has
 **17 conditional local stdio tools**, four always registered, and **12 HTTP
 provider/discovery tools**. Discovery is anonymous; provider calls use live BYOK
 headers. Managed reference files use `ark_file_upload`, `ark_file_get`,
-`ark_file_list`, and `ark_file_delete` with the ModelArk API key. Default
+`ark_file_list`, and `ark_file_delete` with your own ModelArk API key and,
+on HTTP, an independent client secret. Default
 `purpose="agent"` uses provider-managed storage without bucket setup. Retrieve
 the accepted file ID until active with a `download_url`, then pass that URL
 to generation. The client-side `seed-mcp-upload` streams local files directly
@@ -49,7 +50,9 @@ Reads do not renew the documented 24-hour/100-download URL limit. No upload
 enrollment, TOS signer, IRSA, application file database or cleanup worker remains.
 Never automatically retry an uncertain upload/delete; keep file/request IDs.
 
-See [managed reference files](docs/files.md).
+See [managed reference files](docs/files.md). Check the connected deployment's
+tools/list before use; the [live source smoke](docs/hosted-deployment-status.md#managed-files-source-validation)
+does not establish rollout through the public cloud endpoint.
 
 HTTP has no jobs, native tasks, local storage/artifact tools or resources.
 Both transports execute directly. General artifact persistence is stdio-only;

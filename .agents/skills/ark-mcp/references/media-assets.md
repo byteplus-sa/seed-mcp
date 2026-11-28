@@ -11,7 +11,7 @@ For parameters see the tool schema and
 
 The table is **stdio-only**. HTTP has no local upload/presign renewal,
 job/native-task or artifact/resource surface. Host reference URLs externally
-or use optional temporary preparation below.
+or use [managed Files](#managed-files) below with the user's ModelArk key.
 
 | Tool | Mode | Needs |
 |---|---|---|
@@ -25,8 +25,8 @@ uncertain upload. See [local-output.md](local-output.md).
 
 ## Object storage (`media_upload`, `media_presign`)
 
-Needed whenever a tool takes media as a URL only (Seedance video/audio
-references). S3 is an optional local alternative to managed Files.
+For URL-only references (such as Seedance video/audio), S3 is an optional
+local alternative to managed Files or an existing public HTTPS URL.
 
 ### `media_upload`
 
@@ -83,6 +83,12 @@ to ModelArk; HTTP MCP accepts HTTPS source URLs, not local paths or Base64.
 Reads do not renew the documented 24-hour/100-download URL limit. No upload
 enrollment, TOS signer, IRSA, application file database or cleanup worker remains.
 Never automatically retry an uncertain upload/delete; keep file/request IDs.
+
+On HTTP, all four Files tools require the user's own `X-ModelArk-Api-Key`
+and independent `X-MCP-Client-Secret`; neither is persisted by the MCP server.
+The client secret separates admission, not file ownership. No TOS bucket or
+operator upload enrollment is needed. Check tools/list before use: source
+support and local smoke results do not establish public cloud availability.
 
 Use `seed-mcp-upload --file /absolute/reference.mp4 --api-key-env
 BYTEPLUS_MODELARK_API_KEY --confirm-upload` only after exact-file consent.

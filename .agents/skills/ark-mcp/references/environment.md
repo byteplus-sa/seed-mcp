@@ -10,7 +10,7 @@ does not establish a stable release or provide a trusted MCP endpoint.
 | Transport | Tools | Credentials and execution |
 | --- | --- | --- |
 | Local stdio | 17 conditional entries; four always registered | Private startup provider keys; direct calls; storage/artifacts retained |
-| HTTP BYOK | 7; opt-in upload adds one | Selected live provider key plus client secret for generation; enrolled secret alone for preparation; direct foreground calls |
+| HTTP BYOK | 12, including four Files tools | Selected live provider key plus independent client secret for every provider call; direct foreground calls |
 
 HTTP has no ordinary jobs, native tasks, local storage/artifact tools, media resources
 or configuration-detail resource. Discovery is anonymous/static and makes no
@@ -47,13 +47,16 @@ to ModelArk; HTTP MCP accepts HTTPS source URLs, not local paths or Base64.
 Reads do not renew the documented 24-hour/100-download URL limit. No upload
 enrollment, TOS signer, IRSA, application file database or cleanup worker remains.
 Never automatically retry an uncertain upload/delete; keep file/request IDs.
+Use the user's own ModelArk key plus client secret for all four HTTP Files tools.
+Check the connected deployment's tools/list; a local live-provider smoke does
+not prove public endpoint rollout. No server-side customer key setup is needed.
 
 ## Identity and Models
 
 The admission tenant derives from the selected key, provider, fixed official
 origin and HMAC version; the principal additionally derives from the client
 secret. These scopes are ephemeral per-pod limits, not task ownership.
-HTTP task access follows the selected provider credential. Clients sharing a
+HTTP task and file access follows the selected provider credential. Clients sharing a
 provider key share whatever access the provider permits; use separate provider
 credentials when independent authorization is required.
 
@@ -117,7 +120,7 @@ and reconcile uncertain creates with the provider instead of repeating them.
 
 Read the checkout's `docs/setup/install.md`. Use a reviewed locked environment,
 private `ARK_MCP_ENV_FILE`, and requested provider keys only. ModelArk enables
-image/video; Seed Speech enables audio.
+image/video and managed Files; Seed Speech enables audio.
 S3 storage is optional and stdio-only.
 
 Both transports execute directly with no MCP jobs, worker, snapshots or

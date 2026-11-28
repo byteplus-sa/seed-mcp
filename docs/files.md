@@ -8,11 +8,16 @@ have been removed. Independent local S3 storage and artifacts remain optional.
 
 ## Basic Setup
 
-- **Hosted HTTP:** configure `X-ModelArk-Api-Key` and your independent
-  `X-MCP-Client-Secret` privately in the MCP client.
+- **Hosted HTTP:** configure your own `X-ModelArk-Api-Key` and independent
+  `X-MCP-Client-Secret` privately in the MCP client for all four Files tools.
 - **Local stdio:** configure `BYTEPLUS_MODELARK_API_KEY`.
 - **Client-side uploader:** supply the ModelArk key through the named environment
   variable. It talks directly to ModelArk, not MCP, and needs no client secret.
+
+The server does not persist these credentials or fall back to operator keys.
+No TOS bucket, storage AK/SK or upload enrollment is needed. Confirm the
+connected deployment exposes all four tools; source support is not deployment
+evidence. Access remains subject to your key's ModelArk permissions.
 
 Seed Audio generation still uses a separate Seed Speech key. A Files upload
 does not grant generation entitlement or authorize a voice.
@@ -137,6 +142,11 @@ automatically resubmit. The client uploader has a 600-second cooperative bound.
 HTTP retains accepted IDs only in the live invocation for deadline diagnostics.
 
 ## Evidence
+
+The 2026-11-28 live smoke on `fa8cf76` passed stdio upload, local HTTP BYOK
+URL import, and client-helper upload, with byte-identical downloads and verified
+deletion. No deployment or generation calls were made. A post-deployment smoke
+is still required; see [the evidence record](hosted-deployment-status.md#managed-files-source-validation).
 
 On 2026-11-28, approved synthetic tests successfully used Files
 `purpose=agent` download URLs with Seedream 5.5, regular Seedance 2.5
