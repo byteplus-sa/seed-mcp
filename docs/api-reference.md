@@ -3,14 +3,12 @@
 Complete schemas, inputs, outputs, and examples for the conditional MCP tool
 surface.
 
-The static catalog has 13 local stdio tools, four always registered locally.
-HTTP exposes tools 1-7 below, and the
-additional definition `media_prepare_upload` when temporary uploads are enabled (14 definitions total).
+The static catalog has 17 conditional local stdio tools, four always registered locally.
+HTTP exposes 12 discovery/provider tools, including TTS and managed Files.
 Generation-tool registration does not require operator generation keys; discovery
-is anonymous/static. Temporary preparation requires operator TOS configuration
-and client enrollment.
+is anonymous/static. Managed Files use the caller's ModelArk key without bucket setup.
 Provider calls run directly in the foreground with selected BYOK headers and
-required client secret. No jobs/native tasks/local storage/artifact tools/resources
+optional client secret. No jobs/native tasks/local storage/artifact tools/resources
 exist on HTTP. No OAuth, signup, server-issued key or provider-key fallback.
 See [HTTP setup](setup/shared-server.md). Catalog scope strings below are
 metadata, not customer-selected roles.
@@ -20,14 +18,14 @@ creation. Omit task opt-in; ordinary jobs are not an HTTP fallback.
 
 **Artifact and startup-key guidance below is stdio-only.**
 
-## Temporary Upload Preparation
+## Managed Files
 
-`media_prepare_upload` is HTTP-only and opt-in. It takes category, exact MIME
-and byte count, returns restricted TOS POST fields and a GET reference URL,
-and requires operator enrollment of the live client secret, not a generation
-key. The client uploads directly before using the reference. See
-[tool details](tools.md#media_prepare_upload) and
-[operator/client workflow](temporary-uploads.md).
+`ark_file_upload` imports a public HTTPS URL on either transport, or an absolute
+regular-file path on stdio. Hosted local files use the client-side
+`seed-mcp-upload` helper. `ark_file_get` retrieves processing status and any
+download URL; `ark_file_list` returns one page; `ark_file_delete` requires
+explicit boolean confirmation. Default `purpose=agent` supports reference URLs.
+See [workflow, limits and examples](files.md). Get/list do not renew download URLs.
 Seed Audio/Seedream `persist` default to
 false globally. HTTP rejects true, local paths and stored artifact references;
 local explicit true remains supported. HTTP clients download expiring URLs.
@@ -47,9 +45,13 @@ Generated per-tool pages show both transports and exact current schemas.
 | 8 | `seed_media_get_artifact` | Artifacts | Read-only | Local stdio only |
 | 9 | `seed_media_export_artifact` | Artifacts | Locate (read-only) or copy (stdio only) | Local stdio |
 | 10 | `seed_media_persist_url` | Artifacts | Direct call | Local stdio only |
-| 11 | `media_upload` | Object storage (optional) | Direct call (1-50 files) | TOS / S3 |
-| 12 | `media_presign` | Object storage (optional) | Read-only (1-100 keys) | TOS / S3 |
+| 11 | `media_upload` | Local S3 (optional) | Direct call (1-50 files) | S3 |
+| 12 | `media_presign` | Local S3 (optional) | Read-only (1-100 keys) | S3 |
 | 13 | `seed_tts_generate` | Seed TTS 3.0 | Direct synthesis; native HTTP audio or local artifact | Seed Speech; HTTP needs no output storage |
+| 14 | `ark_file_upload` | Managed Files | Single-attempt upload | ModelArk |
+| 15 | `ark_file_get` | Managed Files | Read-only retrieval | ModelArk |
+| 16 | `ark_file_list` | Managed Files | Read-only pagination | ModelArk |
+| 17 | `ark_file_delete` | Managed Files | Permanent deletion | ModelArk |
 
 Read the [breaking-capability migration](migration-0.2.md#breaking-capability-migration)
 before upgrading; the 0.2 consolidation tables on that page are historical.
@@ -79,6 +81,10 @@ See [security.md](security.md) for the full scope list.
 | Tool | readOnly | destructive | idempotent | openWorld |
 |---|---|---|---|---|
 | `ark_list_models` | true | false | true | false |
+| `ark_file_upload` | false | false | false | true |
+| `ark_file_get` | true | false | true | true |
+| `ark_file_list` | true | false | true | true |
+| `ark_file_delete` | false | true | false | true |
 | `seed_audio_generate` | false | false | false | true |
 | `seed_tts_generate` | false | false | false | true |
 | `seedream_generate_image` | false | false | false | true |
@@ -292,12 +298,12 @@ enables a disabled service; never a secret value). Services: `modelark`,
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `configuration_valid` | boolean | Both required headers present and all checked routes configured |
+| `configuration_valid` | boolean | The ModelArk key header present and all checked routes configured |
 | `modelark_key_present` | boolean | Live `X-ModelArk-Api-Key` present |
-| `client_secret_present` | boolean | Live independent `X-MCP-Client-Secret` present |
+| `client_secret_present` | boolean | Optional independent `X-MCP-Client-Secret` present; false is valid |
 | `authentication_verified` | literal `false` | Authentication, entitlement and balance are not tested |
 | `provider_calls_made` | literal `false` | No provider or endpoint-metadata requests |
-| `issues` | list[string] | `missing_modelark_key` and/or `missing_client_secret`, otherwise empty |
+| `issues` | list[string] | `missing_modelark_key` when the key is absent, otherwise empty |
 | `routes` | list[EndpointSelectionCheck] | Requested route(s), video then image when both are checked |
 
 **EndpointSelectionCheck:**
@@ -863,9 +869,10 @@ Video references are URL-only. Unlike image and audio references, there is no
 Base64 path — videos must be uploaded to a publicly reachable HTTPS endpoint
 before the tool is called, or referenced as an existing authorized
 `asset://<asset_id>`. The server does not check asset status, type or rights.
-Use the `media_upload` tool to upload Base64 or a local
-file (stdio only) to object storage (TOS or S3) and receive a presigned HTTPS
-GET URL. Alternatively, host the video on your own HTTPS endpoint. The URL
+Use [managed Files](files.md) for bucket-free uploads, then retrieve the
+`download_url`. The optional `media_upload` tool uploads Base64 or a local
+file (stdio only) to S3 and returns a presigned HTTPS GET URL.
+Alternatively, host the video on your own HTTPS endpoint. The URL
 must resolve to a public IP (loopback, private, and link-local addresses are
 rejected by the SSRF policy). A bare URL string or `{"url": "..."}` is
 accepted.
@@ -1385,7 +1392,7 @@ Always registered; catalog capability label `artifacts:read`.
   "artifact_id": "71e9c2a8-...",
   "media_type": "video",
   "mime_type": "video/mp4",
-  "sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+  "sha256": "9f86d081...",
   "bytes": 1748096,
   "data": "AAAAIGZ0cBAAA..."
 }
@@ -1441,7 +1448,7 @@ file is never silently overwritten (identical content is accepted).
   "media_type": "video",
   "mime_type": "video/mp4",
   "bytes": 1748096,
-  "sha256": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+  "sha256": "9f86d081...",
   "copied": false
 }
 ```
@@ -1488,10 +1495,9 @@ retryable.
 
 ## 11. media_upload
 
-Upload **1-50 files** to object storage (TOS or S3) in one call and return a
-presigned HTTPS GET URL per file. Registered when the selected object-storage
-backend credentials are set (`TOS_*` with default `OBJECT_STORAGE_BACKEND=tos`,
-or `S3_*` with `OBJECT_STORAGE_BACKEND=s3`); catalog capability label `media:upload`.
+Upload **1-50 files** to optional S3 storage in one call and return a
+presigned HTTPS GET URL per file. Registered when S3 credentials are configured
+(`S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET`); catalog capability label `media:upload`.
 Call directly on stdio; the tool is unavailable on HTTP.
 
 Use it for media that cannot be inlined as Base64, most notably Seedance video
@@ -1580,7 +1586,7 @@ recorded for `media_presign` ownership checks. Both storage tools are stdio-only
     {
       "index": 0,
       "file_path": "/Users/me/clips/ref.mp4",
-      "url": "https://test-bucket.tos-ap-southeast-1.bytepluses.com/references/video/abc?X-Tos-Signature=...",
+      "url": "https://test-bucket.s3.amazonaws.com/references/video/abc?X-Amz-Signature=...",
       "object_key": "references/video/abc",
       "expires_at": "2026-07-24T07:30:00+00:00",
       "mime_type": "video/mp4",
@@ -1591,7 +1597,7 @@ recorded for `media_presign` ownership checks. Both storage tools are stdio-only
     {
       "index": 1,
       "file_path": null,
-      "url": "https://test-bucket.tos-ap-southeast-1.bytepluses.com/references/image/def?X-Tos-Signature=...",
+      "url": "https://test-bucket.s3.amazonaws.com/references/image/def?X-Amz-Signature=...",
       "object_key": "references/image/def",
       "expires_at": "2026-07-24T07:30:00+00:00",
       "mime_type": "image/png",
@@ -1614,8 +1620,8 @@ recorded for `media_presign` ownership checks. Both storage tools are stdio-only
 
 ## 12. media_presign
 
-Mint fresh presigned HTTPS GET URLs for **1-100 objects** already in storage
-(TOS or S3), without re-uploading. Use it when a reference URL from
+Mint fresh presigned HTTPS GET URLs for **1-100 objects** already in S3,
+without re-uploading. This cannot renew Files API URLs. Use it when a reference URL from
 `media_upload` has expired or is about to. **No data is transferred.**
 Registered with object storage; catalog capability label `media:presign`.
 Foreground (read-only).
@@ -1669,7 +1675,7 @@ other keys succeed, so check `failed`.
   "items": [
     {
       "object_key": "references/video/abc-123-def",
-      "url": "https://test-bucket.tos-ap-southeast-1.bytepluses.com/references/video/abc-123-def?X-Tos-Signature=...",
+      "url": "https://test-bucket.s3.amazonaws.com/references/video/abc-123-def?X-Amz-Signature=...",
       "expires_at": "2026-07-24T07:30:00+00:00",
       "code": null,
       "error": null,

@@ -16,18 +16,6 @@ identitySecret:
   hmacKey: MCP_IDENTITY_HMAC_KEY
   versionKey: MCP_IDENTITY_KEY_VERSION
 tlsSecretName: ""
-temporaryUpload:
-  enabled: false
-  credentialsMode: static
-  # Dedicated existing Secret: bucket/region/endpoint/enrollment; AK/SK only in static mode.
-  existingSecret: ""
-  irsa:
-    # Separate operator gate: enabled cluster IRSA, exact trust and BytePlus STS verified.
-    prerequisitesConfirmed: false
-    serviceAccountName: ""
-    roleTrn: ""
-    stsEndpoint: https://sts.byteplusapi.com
-    durationSeconds: 3600
 service:
   # apig-staging is synthetic-only: private Service, no public client routes.
   mode: public-clb

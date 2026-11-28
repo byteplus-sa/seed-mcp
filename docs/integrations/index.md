@@ -21,9 +21,10 @@ Use only clients that can supply credentials privately. Unsupported or
 unverified remote-header handling is not a reason to inline secrets or
 silently switch to a locally installed server.
 
-HTTP has eight tools, anonymous static discovery and direct foreground calls.
-The hosted deployment has temporary uploads disabled, no local storage/artifact
-tools or resources, and no Seed TTS. No MCP jobs or native tasks are exposed.
+This source revision has twelve HTTP tools, including managed Files and Seed TTS,
+with anonymous static discovery and direct foreground calls. Check the connected
+deployment's tool list for availability. HTTP has no local storage/artifact
+tools or resources, MCP jobs or native tasks.
 
 Default to user-level registration so Seed MCP is available across projects.
 Choose project-only scope when you need it. Your agent should preserve other
@@ -41,7 +42,7 @@ belongs in the hosted connection.
 
 ## Keep Credentials Private
 
-Enter only the [keys you need](../api-keys.md) and the independent client secret
+Enter only the [keys you need](../api-keys.md), and optionally a client secret,
 through the client's protected environment or secret mechanism. Templates
 contain variable names, not values. Preserve existing credentials. Never paste
 populated configuration, raw logs or validation errors into chat.
@@ -91,8 +92,8 @@ or blindly resubmit after a lost response. Technical result handling is in
   support, network access and service availability.
 - **Discovery works but generation fails:** check private header mappings and
   provider account access. Discovery does not verify credentials.
-- **A tool is missing:** verify it is available on HTTP. TTS and local artifact
-  tools are not; do not substitute a new local installation automatically.
+- **A tool is missing:** verify the connected deployment's inventory. Local artifact
+  tools are stdio-only; do not substitute a new local installation automatically.
 - **A provider task ID is unavailable:** use the original credentials and
   ownership scope; reconcile acceptance instead of recreating it.
 - **Edition rejects the configuration:** use that client's guide and official

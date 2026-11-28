@@ -24,9 +24,10 @@ does not implement automatic secret rotation or a secret-management portal.
 
 ## Client Secrets
 
-Clients use private provider-header configuration plus a client-generated
-`X-MCP-Client-Secret`. The secret is 32 random bytes encoded as 64 lowercase
-hex; keep it stable to retain access to the same owner scope.
+Clients need only private provider-header configuration. Optional
+`X-MCP-Client-Secret` separates per-client admission, not file/task permissions.
+Generate 32 random bytes encoded as 64 lowercase hex and keep it stable
+only if opting in. Otherwise clients sharing a key share principal concurrency.
 Follow [private HTTP setup](setup/shared-server.md).
 
 Use an OS secret store or a private file/injector supported by the client.

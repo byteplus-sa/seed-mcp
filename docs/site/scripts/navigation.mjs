@@ -13,7 +13,10 @@ const categories = [
   ],
   [
     "Uploads and artifacts",
-    (name) => name.startsWith("media_") || name.startsWith("seed_media_"),
+    (name) =>
+      name.startsWith("ark_file_") ||
+      name.startsWith("media_") ||
+      name.startsWith("seed_media_"),
   ],
 ];
 

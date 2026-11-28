@@ -99,12 +99,8 @@ def assert_connection(
     issues = []
     if not key_present:
         issues.append("missing_modelark_key")
-    if not secret_present:
-        issues.append("missing_client_secret")
     assert connection == {
-        "configuration_valid": key_present
-        and secret_present
-        and all(route["configured"] for route in routes),
+        "configuration_valid": key_present and all(route["configured"] for route in routes),
         "modelark_key_present": key_present,
         "client_secret_present": secret_present,
         "authentication_verified": False,
@@ -359,8 +355,11 @@ async def test_preflight_missing_live_credentials_never_uses_startup_or_previous
             denied = await call_tool(
                 client, tool, {"prompt": "A square", "dry_run": True}, headers=headers
             )
-            assert_denied(denied)
-            assert "Configure" in str(denied)
+            if supplied == "key_only":
+                successful(denied)
+            else:
+                assert_denied(denied)
+                assert "Configure" in str(denied)
             assert_no_canaries(json.dumps(denied))
         assert_empty_state(tmp_path)
     assert not provider_mock.calls

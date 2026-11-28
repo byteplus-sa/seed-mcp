@@ -85,7 +85,8 @@ retain their existing provider-URL delivery. Stdio persistence remains intact.
   and [one-shot rollout](https://github.com/byteplus-sa/seed-mcp/actions/runs/46124895457)
   passed on different fresh ephemeral runners. Runner registrations, Pods,
   ConfigMaps and registration Secrets were removed; readiness is false again.
-- Public H1/H2 health, eight-tool inventory, TTS discovery and its 31,457,280-byte
+- Public H1/H2 health, eight-tool inventory, TTS discovery and its 30 MiB
+  (31,457,280-byte)
   limit passed. Anonymous TTS/image calls were rejected, Authorization remained
   rejected, and private routes remained 404. A real FastMCP client verified discovery.
 - Both final replicas use the verified image, `STATE_BACKEND=none`, no PVC,
@@ -106,6 +107,36 @@ through public APIG, concurrent maximum-size production capacity, IDE playback/
 saving, voice entitlement and audio quality remain unverified. A 30 MiB audio
 block is 40 MiB Base64 before metadata. A lost response has no recovery API;
 do not automatically repeat synthesis.
+
+## Managed Files Source Validation
+
+On November 28, 2026, at 10:52 UTC, a live smoke tested
+[PR #20](https://github.com/byteplus-sa/seed-mcp/pull/20) at source `fa8cf76`
+against the official ModelArk Files API, without mocked provider responses.
+This tested local processes, **not the deployed public APIG endpoint**.
+The deployed-instance table above remains the earlier verified snapshot.
+
+- A synthetic 579-byte PNG was uploaded through each of three paths: the
+  stdio `ark_file_upload` tool, URL import through a local HTTP BYOK server,
+  and the client-side `seed-mcp-upload` executable.
+- All three files became active, appeared in `ark_file_list`, and returned
+  working download URLs through `ark_file_get`. Downloaded SHA-256 digests
+  matched the original bytes.
+- HTTP exposed twelve tools and used live ModelArk/client-secret headers,
+  with no provider credentials in the HTTP server environment. Missing
+  credentials, a missing client secret, client-local HTTP paths, and deletion
+  without confirmation were rejected.
+- All three smoke files were deleted through `ark_file_delete(confirm=true)`;
+  subsequent get returned not-found and list excluded them. No HTTP artifact
+  state directory was created. No TOS setup was used.
+
+No deployment or generation calls were made in this smoke. It does not prove
+other accounts' permissions, large-file limits, every media format, desktop
+client integration, or live gateway routing. **Post-deployment Files validation
+remains pending.** After an approved rollout, check the public tool inventory
+and repeat the authorized synthetic upload/get/list/download/delete lifecycle
+through that endpoint. Keep credentials and signed URLs private, retain IDs,
+and never automatically repeat uncertain uploads or deletes.
 
 ## Delivery Evidence
 
@@ -208,6 +239,42 @@ Real paid tests used the final deployed image through the FastMCP client.
 Model-driven Codex/Claude sessions, disabled upload workflows, every model/
 variation, full capacity and visual/audio quality were not certified.
 The service does not promise durable replay, crash recovery or exactly-once billing.
+
+### Native TRAE Client Acceptance
+
+On November 27, 2026, at 11:44-11:47 UTC, the operator separately approved
+three additional paid tests with a US$5 test budget. These calls used the
+actual TRAE session's user-level `seed-mcp-remote` connection to the public
+endpoint above, not the earlier Python FastMCP test client or the retained
+local `ark-mcp` connection.
+
+The native preflight reported valid configuration with no issues. Provider
+keys and an independent client secret were supplied through client headers,
+never tool arguments. Image/video dry runs had already passed. The live
+calls then established successful provider authorization for these specific
+models and requests:
+
+| Native call | Observed result |
+| --- | --- |
+| `seedream_generate_image` | One Seedream 5.5 PNG, 1024x1024, 1,189,301 downloaded bytes; 4,096 reported total tokens |
+| `seedance_create_task` | One regular Seedance 2.5 task, `cgt-20261127194458-57c0z`, accepted once and succeeded; requested four seconds at 480p without audio |
+| `gen_task_get` | Same accepted task polled to terminal success; downloaded H.264 MP4 is 854x480, 4.041667 seconds, 1,019,337 bytes, without an audio stream |
+| `gen_task_list` | Exact-ID filtered result matched the succeeded task; unchanged-filter cursor pagination ended with an empty page and null cursor |
+| `seed_audio_generate` | One Seed Audio 1.0 MP3, 30,137 bytes, stereo 44.1 kHz; provider generation/billing duration 1.80045 seconds, container duration 1.828571 seconds |
+
+All three media URLs were downloaded client-side with HTTPS certificate
+verification and without forwarding provider-key headers. Each full file
+passed FFprobe inspection and FFmpeg decoding. The video reported 38,830
+total tokens. There were exactly three new create calls and no automatic
+resubmissions. The successful video task was retained; cancellation/deletion
+was not part of this native-client batch.
+
+This establishes working native TRAE-to-remote image, video, audio and task
+read workflows for the tested configuration. It is not certification of all
+TRAE versions, other clients, all model features or subjective media quality.
+The additional US$5 approval is not an enforced provider spend cap or a
+settled charge; account billing remains unverified. No credentials, signed
+URLs or generated media are committed with this evidence.
 
 ## Renewal and Follow-Ups
 

@@ -5,14 +5,19 @@ You only need the provider for the media you want to create.
 
 | Media | Provider key | Header sent to Seed MCP |
 | --- | --- | --- |
-| Images and video | ModelArk | `X-ModelArk-Api-Key` |
+| Images, video and managed reference files | ModelArk | `X-ModelArk-Api-Key` |
 | Scene audio and enabled TTS | Seed Speech | `X-Seed-Speech-Api-Key` |
 
 ## ModelArk
 
 1. Open **ModelArk > API Key** in the BytePlus console.
 2. Create a key and save it privately when shown.
-3. Confirm your account has access to the Seedream or Seedance model you need.
+3. Confirm your key has access to the Files API or generation models you need.
+
+All four [managed Files tools](files.md) use your own ModelArk key with an optional
+independent client secret on hosted HTTP. No TOS bucket, storage AK/SK or
+operator upload enrollment is needed. File access follows provider permissions;
+sharing a key shares whatever file access ModelArk permits.
 
 ## Seed Speech
 
@@ -25,8 +30,8 @@ This key is separate from your ModelArk key.
 ## Add the Keys to Your Client
 
 Follow [private-header setup](setup/install.md#enter-credentials-privately).
-You also need an independent `X-MCP-Client-Secret`; it is generated privately
-by you, not issued by BytePlus.
+`X-MCP-Client-Secret` is optional. With it omitted, clients sharing a provider
+key share principal concurrency limits. See [optional setup](setup/install.md#optional-client-secret).
 
 Never paste keys into chat or send them as tool arguments. Do not use
 `Authorization` with Seed MCP. You do not need storage AK/SK or Kubernetes

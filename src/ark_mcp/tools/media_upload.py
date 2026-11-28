@@ -1,7 +1,7 @@
 """``media_upload`` tool — upload media to object storage, return presigned URLs.
 
 Accepts Base64-encoded bytes or local file paths (stdio transport only),
-uploads each item to a configured TOS or S3 bucket, and returns a presigned
+uploads each item to a configured S3 bucket, and returns a presigned
 HTTPS GET URL per item that can be passed to other tools (e.g.
 ``seedance_create_task`` video references). This is the integrated path for
 media that cannot be inlined as Base64, most notably Seedance video
@@ -205,8 +205,8 @@ def require_object_storage(settings: Settings) -> None:
     """Raise when no object storage backend is configured."""
     if not settings.has_object_storage:
         raise ValueError(
-            "Object storage is not configured. Set TOS_* or S3_* credentials and "
-            "OBJECT_STORAGE_BACKEND (tos|s3)."
+            "Object storage is not configured. Set local S3_* credentials, or use "
+            "ark_file_upload for ModelArk-managed storage without a bucket."
         )
 
 

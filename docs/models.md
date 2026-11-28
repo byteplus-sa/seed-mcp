@@ -283,7 +283,7 @@ Unknown or wrong-product defaults yield `configured=false`,
 `issue="endpoint_not_configured"` and null `model_id`/`family`, without echoing
 the unknown ID. The operator must verify and bind it. A configured route
 returns its ID and operator-selected family, not live provider lineage.
-`configuration_valid=true` requires both headers and all checked bindings;
+`configuration_valid=true` requires the ModelArk key header and all checked bindings;
 `authentication_verified` and `provider_calls_made` always remain false.
 This does not prove activation, permissions, balance, existence or reachability.
 

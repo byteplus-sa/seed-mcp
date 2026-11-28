@@ -5,6 +5,62 @@ import { test } from "node:test";
 const source = (path) =>
   readFileSync(new URL(`../../../${path}`, import.meta.url), "utf8");
 
+test("deployment guidance preserves the production-only Actions contract", () => {
+  const workflow = source(".github/workflows/deploy-vke.yml");
+  assert.match(workflow, /options: \[production\]\s+default: production/);
+  assert.match(workflow, /environment: byteplus-production/);
+  assert.match(workflow, /default: check/);
+  assert.match(workflow, /group: byteplus-staging-delivery/);
+  assert.doesNotMatch(workflow, /vars\.VKE_RUNNER_(READY|GROUP)/);
+  for (const path of [
+    "docs/github-actions-deployment.md",
+    "specs/SPEC_VKE_DEPLOYMENT.md",
+    "AGENTS.md",
+    ".agents/skills/ark-mcp-setup/SKILL.md",
+  ]) {
+    const text = source(path).replace(/\s+/g, " ");
+    assert.match(
+      text,
+      /sole (?:accepted )?target.*`production`|production-only `target=production`|with `target=production`/,
+      path,
+    );
+    assert.match(text, /`byteplus-production`/, path);
+    assert.match(text, /defaults to `(?:operation=)?check`/, path);
+    assert.match(text, /generic (?:chart\/helper|helper\/chart|helper)/i, path);
+    assert.doesNotMatch(
+      text,
+      /target=staging\|production|target=staging` \(default\)|Both targets (?:share|retain|serialize)/,
+      path,
+    );
+  }
+});
+
+test("staging retirement remains quarantined and historical, not cloud deletion", () => {
+  const guide = source("docs/github-actions-deployment.md").replace(
+    /\s+/g,
+    " ",
+  );
+  const status = source("docs/hosted-deployment-status.md").replace(
+    /\s+/g,
+    " ",
+  );
+  assert.match(guide, /## Legacy Staging Retirement/);
+  assert.match(guide, /VKE_RUNNER_READY=false/);
+  assert.match(guide, /VKE_PREREQUISITES_CONFIRMED=false/);
+  assert.match(guide, /Retain the protected disabled environment/);
+  assert.match(guide, /30-day window measured from original creation/);
+  assert.match(guide, /Do not delete or rename/);
+  assert.match(guide, /synthetic test-mode support/);
+  assert.match(status, /## Staging Delivery Retirement/);
+  assert.match(status, /not a fresh cluster inspection/);
+  assert.match(status, /Final GitHub environment deletion remains pending/);
+  assert.match(status, /2026-12-27 13:54:29 UTC/);
+  assert.match(
+    status,
+    /No application rollout, Kubernetes\/cloud resource mutation/,
+  );
+});
+
 test("hosted chart is database-free and preserves bounded pod scaling", () => {
   const pod = source("deploy/helm/seed-mcp/templates/deployment.yaml");
   const values = source("deploy/helm/seed-mcp/values.yaml");
@@ -86,7 +142,7 @@ test("fresh stateless deployment has no database provisioning or credential gate
   for (const path of ["docs/byteplus-terraform.md", "docs/self-hosting.md"]) {
     const text = source(path).replace(/\s+/g, " ");
     assert.match(text, /identity and TLS Secrets/, path);
-    assert.match(text, /TOS\/enrollment Secret/, path);
+    assert.doesNotMatch(text, /TOS\/enrollment Secret/, path);
     assert.match(
       text,
       /No database Secret or database CA ConfigMap is required/,

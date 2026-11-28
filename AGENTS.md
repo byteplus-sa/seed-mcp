@@ -60,12 +60,12 @@ separate tools. The flow is discovery → create → poll:
   `gen_task_cancel_or_delete` poll, list and cancel Seedance tasks
   (scopes `gen:read` / `gen:delete`).
 - **Local object storage upload** — stdio-only `media_upload` / `media_presign` take lists and
-  return presigned URLs for URL-only media workflows (TOS or S3 backend).
-- **Temporary HTTP references** — opt-in `media_prepare_upload` signs exact-key
-  TOS multipart POST/GET permissions for operator-enrolled client secrets.
-  Metadata only; clients upload directly, file last, before using the GET URL.
-  Fixed 15-minute upload / 24-hour reference / one-day scheduled object expiry.
-  No database, byte inspection, upload receipt, renewal or global storage quota.
+  return presigned URLs for URL-only media workflows (S3 backend).
+- **Managed reference files** — `ark_file_upload/get/list/delete` use ModelArk
+  with default `purpose=agent`, no bucket setup. Retrieve `download_url` before
+  generation. HTTP imports HTTPS sources; `seed-mcp-upload` streams client
+  local files directly. No automatic retries or URL renewal.
+
 - **Native asset references** — Seedance accepts existing authorized
   `asset://<id>` references natively with the ModelArk Bearer key. The server
   does not create, verify, administer, resolve or preflight provider assets.
@@ -77,9 +77,8 @@ separate tools. The flow is discovery → create → poll:
   Inline provider audio has no store byte cap; input references, URL downloads,
   inline fallback and TTS stream collection retain their separate bounds.
 - **Transports** — local stdio retains storage/artifacts.
-  HTTP is BYOK: 8 baseline provider/discovery tools,
+  HTTP is BYOK: 12 provider/discovery tools,
   direct foreground calls, no jobs/native tasks/local storage/artifact tools/resources.
-  Temporary upload preparation adds one optional tool (9 total).
   `MCP_AUTH_MODE=byok` is the default; explicit `local` is stdio-only and
   `api_key` is removed. No OAuth/signup/server-issued key. HTTP requires
   operator `MCP_IDENTITY_HMAC_KEY` (64 lowercase hex) and positive
@@ -89,42 +88,30 @@ Seedance and Seedream share the ModelArk data-plane host and Bearer authenticati
 uses Seed Speech and `X-Api-Key`. These two provider gateways sit behind one normalized domain
 layer. See `docs/architecture.md` for current behavior.
 
-The catalog contains **14 definitions**, with **13 local tools** and four always registered on stdio. Enabled
+The catalog contains **17 definitions**, with **17 local tools** and four always registered on stdio. Enabled
 provider/storage tools depend on `modelark`, `seed_audio`, `seed_tts`,
 and `object_storage` gates. VOD processing, 3D generation, dedicated ASR, asset
 administration and operator-account live pricing are not part of this server.
 Local provider keys are startup configuration. HTTP uses only live
 `X-ModelArk-Api-Key` or `X-Seed-Speech-Api-Key` for the
-selected provider plus required `X-MCP-Client-Secret` (client-generated 32
+selected provider plus optional `X-MCP-Client-Secret` (client-generated 32
 random bytes, 64 lowercase hex), including dry runs. Discovery is anonymous/static.
+When omitted, a domain-separated HMAC derives a stable provider-key principal;
+same-key callers share per-pod principal concurrency. Explicit secrets keep
+their existing scopes and remain strictly validated, never empty or reused.
+Client snippets omit the header unless `--client-secret-env VAR` is selected.
+Preflight reports optional `client_secret_present`; only missing ModelArk keys
+are credential issues. Neither mode changes provider file/task authorization.
 Keys are not persisted and never fall back to environment provider keys.
-Temporary upload signing alone uses operator TOS credentials,
-never generation keys. `MCP_TEMPORARY_UPLOAD_ENABLED=false` by default; enabling requires HTTP,
-TOS configuration and `MCP_UPLOAD_CLIENT_SECRET_SHA256` (1-1000 unique lowercase
-SHA-256 digests of exact ASCII client-secret header values, not decoded bytes).
-Only enrolled secrets authorize signing; no provider key is required for this
-tool. Require a dedicated private versioning-disabled bucket, restricted IAM,
-CORS where needed, lifecycle backstop and operator storage/egress controls.
-Helm `temporaryUpload.enabled`/`existingSecret` reference a distinct existing
-TOS/enrollment Secret. No automatic storage provisioning. See
-`docs/temporary-uploads.md` and the hosted contract.
-
-TOS signing defaults to `TOS_CREDENTIAL_MODE=static`. Explicit `irsa` is
-HTTP-temporary-upload-only and rejects configured AK/SK/session tokens.
-Use exact `TOS_IRSA_ROLE_TRN`, absolute `TOS_IRSA_TOKEN_FILE`, allowlisted
-BytePlus STS origin and requested session 3600-43200 seconds (default 3600).
-No ambient metadata/environment fallback. Runtime-owned single-flight refresh
-is lazy after enrollment/admission, five minutes early with ten-second failure
-backoff; never reuse the final sixty seconds. Freeze one triplet for POST/form/
-GET. Discovery/readiness do not read tokens or exchange with STS.
-Helm `temporaryUpload.credentialsMode=irsa` requires acknowledged prerequisites
-and an explicit non-default ServiceAccount. It manually projects audience
-`sts.volcengine.com` only into the app, never Caddy, with automatic mounting off.
-Cluster OIDC enablement, exact issuer/namespace/ServiceAccount trust, least
-privilege and webhook exclusions remain operator-owned; no IAM provisioning.
-STS expiry can shorten nominal 24-hour references to an hour or less; refresh
-does not renew issued URLs. Live BytePlus OIDC endpoint acceptance and token
-rotation remain staging gates, not established by offline tests.
+Managed reference files use `ark_file_upload`, `ark_file_get`,
+`ark_file_list`, and `ark_file_delete` with the ModelArk API key. Default
+`purpose="agent"` uses provider-managed storage without bucket setup. Retrieve
+the accepted file ID until active with a `download_url`, then pass that URL
+to generation. The client-side `seed-mcp-upload` streams local files directly
+to ModelArk; HTTP MCP accepts HTTPS source URLs, not local paths or Base64.
+Reads do not renew the documented 24-hour/100-download URL limit. No upload
+enrollment, TOS signer, IRSA, application file database or cleanup worker remains.
+Never automatically retry an uncertain upload/delete; keep file/request IDs.
 
 HTTP endpoint defaults `X-ModelArk-Seedance-Endpoint` and
 `X-ModelArk-Seedream-Endpoint` require exact registry bindings; explicit tool
@@ -201,7 +188,7 @@ functionality, separate from hosted deployment.
 ports bind 127.0.0.1. Helm enables 9000 only via `app.metricsEnabled`; no public
 metrics Service. `scripts/generate_identity_secret.py` remains standalone.
 Terraform stores no HMAC/TLS Secret/kubeconfig; Helm references distinct
-existing identity and TLS Secrets plus a distinct optional TOS/enrollment Secret.
+existing identity and TLS Secrets without an upload/storage Secret.
 Private API access requires operator private connectivity.
 
 Manual `.github/workflows/deploy-vke.yml` Helm delivery uses main-only dispatch,
@@ -259,7 +246,7 @@ uses private ClusterIP:8443/ingress policy and separate `backendHost`, refuses
 credential headers and forbids uploads. It is synthetic-only, not a BYOK
 launch or backend trust fix. Keep public application routes disabled.
 `apig-production` is separate private BYOK source support with the same network
-boundaries and uploads disabled. It forwards supported credentials/endpoint
+boundaries and no binary upload proxy. It forwards supported credentials/endpoint
 headers and rejects Authorization, including empty values. It requires
 `service.productionConfirmed=true` and helper `--production-approved`, not
 staging readiness; these are acknowledgements, not APIG verification. No native
@@ -402,7 +389,7 @@ explicitly when it matters.
 User- and contributor-facing documentation for the project as it exists today.
 This is the project handbook: how to connect, configure, run, deploy, and
 troubleshoot the server. GitHub Pages publishes only the curated hosted guide
-and eight baseline hosted tool pages selected in `docs/site/scripts/publication.mjs`.
+and twelve hosted tool pages selected in `docs/site/scripts/publication.mjs`.
 Operator/local material remains in the repository, outside site search and
 navigation. Keep old public URLs redirected when consolidating pages.
 

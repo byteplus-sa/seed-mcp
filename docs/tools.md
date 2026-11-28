@@ -1,24 +1,22 @@
 # Tools Reference
 
-The local stdio server exposes a conditional set of 13 typed tools. `ark_list_models`, `seed_media_get_artifact`,
+The local stdio server exposes a conditional set of 17 typed tools. `ark_list_models`, `seed_media_get_artifact`,
 `seed_media_export_artifact`, and `seed_media_persist_url` are always
 available, provider tools are registered only when their credentials
 are configured, and `media_upload` and `media_presign` are registered when
-object storage credentials (TOS or S3) are present. Each
+object storage credentials (S3) are present. Each
 tool accepts a Pydantic input model and returns a Pydantic output model as
 structured content. All tools accept a `ctx: Context` parameter for progress
 reporting and logging.
 
-HTTP exposes 8 discovery/provider tools, without
+HTTP exposes 12 discovery/provider tools, without
 operator provider keys. Discovery is anonymous/static. Provider calls use the
-selected BYOK header plus `X-MCP-Client-Secret` and run directly in the foreground.
+selected BYOK header and optional `X-MCP-Client-Secret` and run directly in the foreground.
 HTTP has no jobs/native tasks/local storage/artifact tools/resources. No OAuth,
 signup, server-issued key or environment-key fallback exists.
 See [HTTP setup](setup/shared-server.md) and [Security](security.md).
 
-Optional HTTP-only `media_prepare_upload` adds one tool (9 total).
-Operator enrollment authorizes preparation without a generation-provider key;
-the client uploads directly to TOS. See [temporary uploads](temporary-uploads.md).
+Managed reference uploads use `ark_file_upload/get/list/delete` with the ModelArk key, without storage enrollment. Hosted local files use `seed-mcp-upload` on the client; retrieve the accepted ID for an active `download_url` before generation. Signed URLs are private and are not renewed by metadata reads.
 
 Startup-key/artifact guidance below is **stdio-only**. Catalog
 scope labels are metadata, not customer-selected roles. Seed Audio/Seedream
@@ -157,7 +155,7 @@ For an optional HTTP configuration check, use this MCP arguments object:
 {"input": {"check_connection": true}}
 ```
 
-Missing headers are reported as `missing_modelark_key` / `missing_client_secret`.
+A missing key is reported as `missing_modelark_key`; the client secret is optional.
 Unbound defaults have `routes[].issue="endpoint_not_configured"` and null
 ID/family; unknown IDs are not echoed. Ask the operator to verify and bind them.
 Preflight does not authenticate, check live lineage, entitlement, balance or
@@ -252,7 +250,7 @@ code and whether it is retryable.
 ## seed_tts_generate
 
 Enabled by `BYTEPLUS_SEED_SPEECH_API_KEY` on stdio; always registered on HTTP
-with live Seed Speech/client-secret headers required for invocation. No TOS is needed.
+with the live Seed Speech key required for invocation and an optional client secret. No TOS is needed.
 Catalog scope: `seed:tts:generate`. Speaks supplied text or SSML using Seed TTS 3.0 and a
 compatible, authorized `voice_id`. Call directly; no jobs, polling or retries.
 The JSONL provider stream becomes one complete output, not real-time MCP audio.
@@ -940,29 +938,27 @@ separate billed provider task. The direct result lists every variation in
 `tasks` (with `task_id` and/or `error`); retain all known IDs and poll them
 in one `gen_task_get` call, subject to the ownership rules above.
 
-## media_prepare_upload
+## Managed Files Tools
 
-HTTP-only, opt-in restricted TOS signing for one image, audio or video reference.
-Input fields are `media_type`, exact allowlisted `mime_type`, and strict positive
-`size_bytes` (10 MiB image/audio, 200 MiB video). No bytes/local path or extras.
-An operator-enrolled live `X-MCP-Client-Secret` is required; no generation key.
+Managed reference files use `ark_file_upload`, `ark_file_get`,
+`ark_file_list`, and `ark_file_delete` with the ModelArk API key. Default
+`purpose="agent"` uses provider-managed storage without bucket setup. Retrieve
+the accepted file ID until active with a `download_url`, then pass that URL
+to generation. The client-side `seed-mcp-upload` streams local files directly
+to ModelArk; HTTP MCP accepts HTTPS source URLs, not local paths or Base64.
+Reads do not renew the documented 24-hour/100-download URL limit. No upload
+enrollment, TOS signer, IRSA, application file database or cleanup worker remains.
+Never automatically retry an uncertain upload/delete; keep file/request IDs.
 
-Returns `upload_url`, `method="POST"`, `form_fields`, `file_field="file"`,
-`upload_expires_at`, `reference_url`, `reference_expires_at`, `object_key`,
-`size_bytes`, `object_expires_days=1` and instructions. Upload directly with all
-fields unchanged and file LAST; wait for success before using the GET URL.
-Nominal 15-minute POST / 24-hour GET / one-day scheduled object expiry.
-Signing uses static AK/SK or explicit operator VKE IRSA. STS expiry can shorten
-both permissions; the default one-hour IRSA session may leave an hour or less.
-Refresh never renews issued URLs. IRSA exchange is lazy after enrollment/
-admission; it adds no readiness probes, database or client-side credentials.
-Signed permissions are sensitive; declared MIME is not byte inspection.
-No upload receipt, DB, URL renewal or global quota. Full workflow and operator
-prerequisites: [temporary uploads](temporary-uploads.md).
+`ark_file_upload` takes exactly one of `url` or stdio-only `file_path`, plus
+optional `purpose` and Unix `expire_at`. `ark_file_get` takes `file_id`.
+`ark_file_list` takes `after`, `limit` (1-100), `order`, and optional `purpose`.
+`ark_file_delete` takes `file_id` and required `confirm=true`.
+Full examples, limits and transport setup: [Managed Files](files.md).
 
 ## media_upload
 
-Upload 1-50 image, audio, or video files to object storage (TOS or S3) and
+Upload 1-50 image, audio, or video files to object storage (S3) and
 receive a presigned HTTPS URL for each. Registered with object storage and
 has catalog capability label `media:upload`.
 

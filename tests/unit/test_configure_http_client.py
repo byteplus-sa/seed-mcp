@@ -100,7 +100,6 @@ def test_default_configuration_is_one_parseable_snippet(tmp_path: Path, client: 
         client,
         {
             "X-ModelArk-Api-Key": "SEED_MCP_MODELARK_KEY",
-            "X-MCP-Client-Secret": "SEED_MCP_CLIENT_SECRET",  # pragma: allowlist secret
         },
     )
 
@@ -113,8 +112,27 @@ def test_each_provider_combination_emits_only_selected_headers(
     arguments = [argument for provider in providers for argument in ("--provider", provider)]
     result = invoke(tmp_path, "--client", client, "--url", URL, *arguments)
     headers = dict(PROVIDERS[provider] for provider in providers)
-    headers["X-MCP-Client-Secret"] = "SEED_MCP_CLIENT_SECRET"  # pragma: allowlist secret
     assert parse_config(result, client) == expected_config(client, headers)
+
+
+@pytest.mark.parametrize("client", CLIENTS)
+def test_client_secret_is_an_explicit_opt_in(tmp_path: Path, client: str) -> None:
+    result = invoke(
+        tmp_path,
+        "--client",
+        client,
+        "--url",
+        URL,
+        "--client-secret-env",
+        "SEED_MCP_CLIENT_SECRET",
+    )
+    assert parse_config(result, client) == expected_config(
+        client,
+        {
+            "X-ModelArk-Api-Key": "SEED_MCP_MODELARK_KEY",
+            "X-MCP-Client-Secret": "SEED_MCP_CLIENT_SECRET",  # pragma: allowlist secret
+        },
+    )
 
 
 @pytest.mark.parametrize("client", CLIENTS)
@@ -169,7 +187,6 @@ def test_endpoint_sources_are_independently_optional(
         client,
         {
             "X-ModelArk-Api-Key": "SEED_MCP_MODELARK_KEY",
-            "X-MCP-Client-Secret": "SEED_MCP_CLIENT_SECRET",  # pragma: allowlist secret
             f"X-ModelArk-{product}-Endpoint": "PRODUCT_ENDPOINT",
         },
     )
@@ -271,7 +288,6 @@ def test_timeout_boundaries(tmp_path: Path, client: str, timeout: str) -> None:
         client,
         {
             "X-ModelArk-Api-Key": "SEED_MCP_MODELARK_KEY",
-            "X-MCP-Client-Secret": "SEED_MCP_CLIENT_SECRET",  # pragma: allowlist secret
         },
         timeout=int(timeout),
     )
@@ -300,7 +316,6 @@ def test_environment_name_boundaries(tmp_path: Path, client: str, variable: str)
         client,
         {
             "X-ModelArk-Api-Key": variable,
-            "X-MCP-Client-Secret": "SEED_MCP_CLIENT_SECRET",  # pragma: allowlist secret
         },
     )
 
@@ -641,6 +656,7 @@ GUARDED_RUNNER = textwrap.dedent(
     "arguments",
     (
         ("--client", "codex", "--url", URL),
+        ("--client", "codex", "--url", URL, "--client-secret-env", "PRIVATE_CLIENT_SECRET"),
         ("--client", "claude-code", "--url", URL, "--seedance-endpoint-env", "VIDEO_EP"),
         ("--help",),
         (),

@@ -25,9 +25,9 @@ def configured_server(
     """Set test env vars and re-register tools with fake credentials."""
     monkeypatch.setenv("BYTEPLUS_MODELARK_API_KEY", "sk-test")
     monkeypatch.setenv("BYTEPLUS_SEED_SPEECH_API_KEY", "sk-test")
-    monkeypatch.setenv("TOS_ACCESS_KEY", "ak-test-tos")
-    monkeypatch.setenv("TOS_SECRET_KEY", "sk-test-tos")
-    monkeypatch.setenv("TOS_BUCKET", "test-bucket")
+    monkeypatch.setenv("S3_ACCESS_KEY", "ak-test-s3")
+    monkeypatch.setenv("S3_SECRET_KEY", "sk-test-s3")
+    monkeypatch.setenv("S3_BUCKET", "test-bucket")
 
     # Clear cached settings.
     get_settings.cache_clear()
@@ -86,7 +86,7 @@ class TestToolDiscovery:
 
     async def test_all_retained_tools_are_direct(self, configured_server: None) -> None:
         tools = await configured_server.mcp.list_tools()
-        assert len({tool.name for tool in tools}) == 13
+        assert len({tool.name for tool in tools}) == 17
         for tool in tools:
             assert tool.task_config.mode == "forbidden"
             assert tool.to_mcp_tool().execution is None
@@ -107,6 +107,10 @@ class TestToolDiscovery:
             "ark_list_models",
             "seed_audio_generate",
             "seed_tts_generate",
+            "ark_file_upload",
+            "ark_file_get",
+            "ark_file_list",
+            "ark_file_delete",
             "seed_media_export_artifact",
             "seed_media_get_artifact",
             "seed_media_persist_url",

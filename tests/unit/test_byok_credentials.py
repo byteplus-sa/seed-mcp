@@ -145,20 +145,45 @@ def test_independent_secret_allows_equal_provider_keys() -> None:
                 assert provider_api_key(context(settings), provider) == "ab" * 32
 
 
-def test_provider_scope_requires_client_secret_and_matching_provider_key() -> None:
+def test_provider_scope_accepts_key_only_but_requires_matching_provider_key() -> None:
     settings = http_settings()
     with (
         request_credentials_scope([(b"x-modelark-api-key", b"customer-a")]),
-        pytest.raises(PermissionError),
         provider_scope(settings, "modelark"),
     ):
-        pytest.fail("Missing client secret accepted")
+        assert provider_api_key(context(settings), "modelark") == "customer-a"
     with (
         request_credentials_scope(headers()),
         pytest.raises(PermissionError),
         provider_scope(settings, "seed-speech"),
     ):
         pytest.fail("A ModelArk key authorized Seed Speech")
+
+
+def test_key_only_identity_is_stable_separated_and_never_contains_the_key() -> None:
+    settings = http_settings()
+    supplied = [(b"x-modelark-api-key", b"customer-a")]
+    first = identity(settings, supplied)
+    assert first == identity(http_settings(), supplied)
+    assert first == identity(settings, [*supplied, (b"x-seed-speech-api-key", b"unrelated")])
+    assert first[0] == identity(settings, headers())[0]
+    assert first[1] != identity(settings, headers())[1]
+    other = identity(settings, [(b"x-modelark-api-key", b"customer-b")])
+    assert first[0] != other[0] and first[1] != other[1]
+    assert all(len(value) == 64 and "customer" not in value for value in first)
+    with (
+        request_credentials_scope([(b"x-seed-speech-api-key", b"customer-a")]),
+        provider_scope(settings, "seed-speech"),
+    ):
+        speech = request_principal()
+        assert (speech.tenant_id, speech.principal_id) != first
+        assert provider_api_key(context(settings), "seed-speech") == "customer-a"
+
+
+@pytest.mark.parametrize("secret", ["", " ", "A" * 64, "a" * 63, "a" * 65, "not-hex"])
+def test_supplied_invalid_secret_is_not_treated_as_omitted(secret: str) -> None:
+    with pytest.raises(ValueError), request_credentials_scope(headers(secret=secret)):
+        pytest.fail("Invalid optional secret accepted")
 
 
 def test_http_never_falls_back_to_operator_key() -> None:
@@ -191,7 +216,10 @@ async def test_simultaneous_requests_keep_keys_and_principals_separate() -> None
         request_principal()
 
 
-async def test_copied_task_context_cannot_use_credentials_after_request_ends() -> None:
+@pytest.mark.parametrize("with_secret", [False, True])
+async def test_copied_task_context_cannot_use_credentials_after_request_ends(
+    with_secret: bool,
+) -> None:
     settings = http_settings()
     resume = asyncio.Event()
 
@@ -200,7 +228,8 @@ async def test_copied_task_context_cannot_use_credentials_after_request_ends() -
         with pytest.raises(PermissionError):
             provider_api_key(context(settings), "modelark")
 
-    with request_credentials_scope(headers()), provider_scope(settings, "modelark"):
+    supplied = headers() if with_secret else headers()[:1]
+    with request_credentials_scope(supplied), provider_scope(settings, "modelark"):
         task = asyncio.create_task(delayed())
     resume.set()
     await task

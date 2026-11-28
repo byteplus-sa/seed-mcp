@@ -14,9 +14,9 @@ def all_services_enabled(monkeypatch: pytest.MonkeyPatch) -> Iterator[None]:
     for name, value in {
         "BYTEPLUS_MODELARK_API_KEY": "sk-test",  # pragma: allowlist secret
         "BYTEPLUS_SEED_SPEECH_API_KEY": "sk-test",  # pragma: allowlist secret
-        "TOS_ACCESS_KEY": "ak-test-tos",  # pragma: allowlist secret
-        "TOS_SECRET_KEY": "sk-test-tos",  # pragma: allowlist secret
-        "TOS_BUCKET": "test-bucket",
+        "S3_ACCESS_KEY": "ak-test-s3",  # pragma: allowlist secret
+        "S3_SECRET_KEY": "sk-test-s3",  # pragma: allowlist secret
+        "S3_BUCKET": "test-bucket",
     }.items():
         monkeypatch.setenv(name, value)
     get_settings.cache_clear()

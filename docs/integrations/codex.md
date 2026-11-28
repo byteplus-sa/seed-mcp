@@ -97,29 +97,22 @@ tool_timeout_sec = 660
 
 [mcp_servers."ark-seed".env_http_headers]
 "X-ModelArk-Api-Key" = "SEED_MCP_MODELARK_KEY"
-"X-MCP-Client-Secret" = "SEED_MCP_CLIENT_SECRET" # pragma: allowlist secret
 ```
 
 Use `X-Seed-Speech-Api-Key` with separately named private
 environment variables when needed. The generator's repeatable `--provider`
 selects `modelark` (default) or `seed-speech`; `--help` lists
 variable-name overrides. Selected headers must use independent variable names.
-Generate the client secret privately from 32 random bytes as 64 lowercase hex,
-once per intended owner. No `Authorization`, OAuth, signup or server-issued key
+Optionally add `X-MCP-Client-Secret` via `--client-secret-env VAR`.
+Generate it privately from 32 random bytes as 64 lowercase hex once per client;
+otherwise the same key shares principal concurrency. No `Authorization`, OAuth, signup or server-issued key
 is used. Do not use `bearer_token_env_var`. `tool_timeout_sec` is in seconds
 (generator default 660, configurable from 1-3600); it does not extend proxy
 or provider timeouts.
 
-Default discovery is anonymous/static with `connection=null`. HTTP has 8 tools, direct
+Default discovery is anonymous/static with `connection=null`. HTTP has 12 tools, direct
 foreground calls and no jobs/native tasks/local storage/artifacts/resources.
-Optional [temporary TOS preparation](../temporary-uploads.md) adds one tool
-for enrolled clients; it requires a separate multipart-capable client integration.
-Keep persistence false and retrieve expiring URLs yourself. Optional endpoint
-headers need operator-verified exact bindings; explicit create-tool `model` wins.
-Add `--seedance-endpoint-env SEED_MCP_SEEDANCE_ENDPOINT` and/or
-`--seedream-endpoint-env SEED_MCP_SEEDREAM_ENDPOINT` only for bindings you use;
-these options require `modelark` and take variable names, not endpoint values.
-An unknown endpoint is not echoed; ask the operator to verify and bind it.
+Managed reference uploads use `ark_file_upload/get/list/delete` with the ModelArk key, without storage enrollment. Hosted local files use `seed-mcp-upload` on the client; retrieve the accepted ID for an active `download_url` before generation. Signed URLs are private and are not renewed by metadata reads.
 
 Use the HTTP-only [configuration check](../setup/shared-server.md#optional-imagevideo-configuration-check)
 with `{"input":{"check_connection":true}}` to inspect image/video header

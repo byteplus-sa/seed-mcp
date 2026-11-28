@@ -34,7 +34,7 @@ def _gateway(fail_keys: tuple[str, ...] = ()) -> AsyncMock:
         if any(marker in mime_type for marker in fail_keys):
             raise ProviderError(
                 NormalizedProviderError(
-                    provider="tos",
+                    provider="s3",
                     operation="upload",
                     code="SERVER_ERROR",
                     message="bucket unavailable",
@@ -44,7 +44,7 @@ def _gateway(fail_keys: tuple[str, ...] = ()) -> AsyncMock:
 
     gw.upload_bytes = AsyncMock(side_effect=upload_bytes)
     gw.upload_file = AsyncMock(return_value=None)
-    gw.presign_get = AsyncMock(return_value="https://tos.example.com/presigned")
+    gw.presign_get = AsyncMock(return_value="https://s3.example.com/presigned")
     gw.close = AsyncMock()
     return gw
 
@@ -82,7 +82,7 @@ async def test_batch_uploads_items_and_reports_failures_per_item(
     assert (result.succeeded, result.failed) == (2, 2)
     first, second, third, fourth = result.items
     assert first.mime_type == "video/mp4"  # inferred from the extension
-    assert first.url == "https://tos.example.com/presigned"
+    assert first.url == "https://s3.example.com/presigned"
     assert second.object_key is not None
     assert third.error == "bucket unavailable"
     assert fourth.error == "File not found."

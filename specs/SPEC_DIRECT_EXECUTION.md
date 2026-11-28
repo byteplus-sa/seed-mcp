@@ -30,16 +30,16 @@ including discovery, before provider dispatch.
 
 ## Surface
 
-The catalog contains 13 conditionally registered local tools. Four are always
+The catalog contains 17 conditionally registered local tools. Four are always
 available: `ark_list_models`, `seed_media_get_artifact`,
 `seed_media_export_artifact`, and `seed_media_persist_url`.
-HTTP exposes eight baseline discovery/provider tools, including Seed TTS.
+HTTP exposes twelve discovery/provider tools, including Seed TTS.
 HTTP has no local storage/artifact tools or resources; local stdio retains them.
-The additional catalog definition is opt-in HTTP-only `media_prepare_upload` (14 definitions total), adding
-one tool to the baseline HTTP inventory. It signs locally under the same direct
-deadline and owner-first `tos` admission, without dispatching a storage mutation
-or reserving budget. Client binary upload occurs separately; see
-[temporary uploads](SPEC_HOSTED_BYOK.md#temporary-upload-preparation).
+The catalog has 17 definitions and HTTP exposes 12 tools, including the four
+ModelArk Files operations. Files calls use owner-first ModelArk admission,
+single-attempt provider requests, and safe accepted file IDs in deadline
+diagnostics; reads neither download bytes nor renew references.
+
 Discovery supports image/video bindings and Seed TTS (`kind="audio"`),
 and makes no provider calls. HTTP connection checks remain image/video only.
 
@@ -110,14 +110,6 @@ provider-operation semantics, not merely HTTP method or tool annotations.
 Safe accepted IDs are captured before the next await after provider acceptance.
 HTTP holds them only in the live call, not a durable journal.
 
-TTS also captures its client-generated request ID immediately after dispatch
-authorization and before the provider await. Up to five distinct request-only IDs
-are kept separately from accepted task receipts, using the same bounded identifier
-syntax and live-credential exclusion. Deadline text labels these as correlation IDs,
-not task IDs or proof of provider acceptance; they cannot be polled. They survive
-streaming and persistence deadlines and are cleared when the invocation ends.
-Attempts that expire before dispatch do not capture a request ID.
-
 External client cancellation propagates; only the server's own deadline
 becomes `TOOL_DEADLINE_EXCEEDED`. Inner provider timeouts retain their existing
 normalized errors. Expiry is checked before dispatch and after a call that
@@ -125,7 +117,7 @@ suppresses cancellation. Best-effort local budget finalization errors do
 not erase known successful provider results.
 
 The deadline is **cooperative, not a hard wall-clock bound**. Local stdio SQLite
-operations and blocking S3/TOS SDK threads drain before locks, admission slots or clients
+operations and blocking S3 SDK threads drain before locks, admission slots or clients
 are released, even after repeated cancellation. Cleanup may exceed the nominal
 deadline. A cancelled in-progress budget reservation is drained and any known
 reservation released best-effort before cancellation propagates, without
@@ -144,7 +136,8 @@ HTTP has no task ledger, submission journal, durable replay or budget ledger.
 startup. Local stdio still selects SQLite for its persistence features.
 
 Task get/list/cancel and Draft lookup are authorized by the supplied provider
-key. `X-MCP-Client-Secret` separates per-pod admission scopes, not task access.
+key. Optional `X-MCP-Client-Secret` separates per-pod admission scopes, not task access.
+Without it, callers using the same provider key share one per-pod principal concurrency allowance.
 Clients sharing a provider key can access whatever that key authorizes.
 Use separate provider credentials when independent authorization is required.
 

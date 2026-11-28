@@ -46,9 +46,9 @@ def e2e_server(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> object:
     monkeypatch.setenv("MCP_AUTH_MODE", "local")
     monkeypatch.setenv("BYTEPLUS_MODELARK_API_KEY", "sk-test-modelark")
     monkeypatch.setenv("BYTEPLUS_SEED_SPEECH_API_KEY", "sk-test-speech")
-    monkeypatch.setenv("TOS_ACCESS_KEY", "ak-test-tos")
-    monkeypatch.setenv("TOS_SECRET_KEY", "sk-test-tos")
-    monkeypatch.setenv("TOS_BUCKET", "test-bucket")
+    monkeypatch.setenv("S3_ACCESS_KEY", "ak-test-s3")
+    monkeypatch.setenv("S3_SECRET_KEY", "sk-test-s3")
+    monkeypatch.setenv("S3_BUCKET", "test-bucket")
     monkeypatch.setenv("BYTEPLUS_MODELARK_BASE_URL", ARK_BASE)
     monkeypatch.setenv("BYTEPLUS_SEED_AUDIO_BASE_URL", "https://voice.test.example.com")
     monkeypatch.setenv("SEEDREAM_DEFAULT_MODEL", "dola-seedream-5-5-261028")
@@ -105,6 +105,10 @@ class TestToolDiscovery:
                 "ark_list_models",
                 "seed_audio_generate",
                 "seed_tts_generate",
+                "ark_file_upload",
+                "ark_file_get",
+                "ark_file_list",
+                "ark_file_delete",
                 "seed_media_export_artifact",
                 "seed_media_get_artifact",
                 "seed_media_persist_url",

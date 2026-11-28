@@ -12,7 +12,8 @@ Use only ark-seed. List its tools and call ark_list_models with {"input": {}}.
 Report the available services and models. Do not generate or upload.
 ```
 
-Expect eight tools and `connection=null`. This confirms discovery, not
+This source revision exposes twelve tools and `connection=null`. A hosted
+deployment may still run an earlier revision; tools/list is authoritative. This confirms discovery, not
 provider-key validity or account entitlement.
 
 ## Optional Image/Video Configuration Check
@@ -30,7 +31,7 @@ calls and does not check Seed Speech credentials.
 | Result | Action |
 | --- | --- |
 | `missing_modelark_key` | Check the private `X-ModelArk-Api-Key` mapping |
-| `missing_client_secret` | Check the independent `X-MCP-Client-Secret` mapping |
+| `client_secret_present=false` | Valid: the optional secret is omitted; admission is shared by provider key |
 | `endpoint_not_configured` | Ask the operator to verify and bind the exact model/endpoint |
 | `configuration_valid=true` | Headers and bindings are configured, not authenticated |
 | `authentication_verified=false`, `provider_calls_made=false` | Expected: no provider was contacted |

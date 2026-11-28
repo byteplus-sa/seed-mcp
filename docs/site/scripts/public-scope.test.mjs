@@ -19,13 +19,16 @@ const root = new URL("../../../", import.meta.url);
 const read = (path) => readFileSync(new URL(path, root), "utf8");
 
 test("the public site is a small explicit hosted guide, not the whole handbook", () => {
-  assert.equal(PUBLIC_PAGES.length, 11);
+  assert.equal(PUBLIC_PAGES.length, 12);
   assert.equal(new Set(PUBLIC_PAGES).size, PUBLIC_PAGES.length);
   for (const source of PUBLIC_PAGES) {
     assert.ok(existsSync(new URL(`docs/${source}`, root)), source);
     const text = read(`docs/${source}`);
-    // Connection setup includes five client-specific, collapsible templates.
-    const limit = source === "setup/install.md" ? 900 : 450;
+    // Connection setup includes five templates and optional manual client-secret setup.
+    // Files covers four operations, a local client helper and destructive/retention rules.
+    const limit = ["files.md", "setup/install.md"].includes(source)
+      ? 1000
+      : 450;
     assert.ok(
       text.split(/\s+/).length <= limit,
       `${source}: keep the guide concise`,
@@ -140,14 +143,14 @@ test("public tool pages retain exact schemas and one unchanged example", () => {
   const selected = selectHostedTools(tools);
   assert.equal(
     tools.length,
-    14,
+    17,
     "Publication cannot narrow the runtime catalog",
   );
   assert.deepEqual(
     selected.map((tool) => tool.name),
     HOSTED_TOOLS,
   );
-  assert.equal(selected.length, 8);
+  assert.equal(selected.length, 12);
   for (const tool of selected) {
     const page = hostedToolPage(tool);
     for (const [, target] of page
@@ -221,7 +224,8 @@ test("short guides preserve the essential billing, privacy and recovery boundari
   assert.match(service, /keys are not persisted/);
   assert.match(service, /credential-exposure risk/);
   assert.match(service, /not a promise about provider retention/);
-  assert.match(service, /Temporary uploads are disabled/);
+  assert.match(service, /Managed Files import HTTPS URLs/);
+  assert.match(service, /source changes are not deployment evidence/);
   assert.match(service, /built-in estimates, not account quotes/);
   const calls = read("docs/calling-tools.md");
   for (const text of [
@@ -240,7 +244,7 @@ test("short guides preserve the essential billing, privacy and recovery boundari
   for (const text of [
     "check_connection",
     "missing_modelark_key",
-    "missing_client_secret",
+    "client_secret_present=false",
     "endpoint_not_configured",
     "configuration_valid",
     "authentication_verified=false",
@@ -248,4 +252,53 @@ test("short guides preserve the essential billing, privacy and recovery boundari
   ]) {
     assert.ok(checks.includes(text), text);
   }
+});
+
+test("Files guidance preserves cloud BYOK setup and source-only smoke evidence", () => {
+  const files = read("docs/files.md");
+  for (const name of [
+    "ark_file_upload",
+    "ark_file_get",
+    "ark_file_list",
+    "ark_file_delete",
+  ]) {
+    assert.ok(files.includes(`\`${name}\``), name);
+  }
+  assert.match(files, /your own `X-ModelArk-Api-Key`/);
+  assert.match(files, /`X-MCP-Client-Secret` is optional/);
+  assert.match(files, /does not persist these credentials/);
+  assert.match(files, /No TOS bucket, storage AK\/SK or upload enrollment/);
+  assert.match(files, /HTTP rejects local paths and Base64/);
+  assert.match(files, /seed-mcp-upload --file/);
+  assert.match(files, /whatever file access the provider permits/);
+  assert.match(files, /post-deployment smoke[\s\S]*still required/);
+
+  const setup = read("docs/setup/install.md");
+  assert.match(setup, /ModelArk API key for images, video and managed Files/);
+  assert.match(
+    setup,
+    /local uploads require installing `seed-mcp-upload` on the client/,
+  );
+  const environment = read(".agents/skills/ark-mcp/references/environment.md");
+  assert.match(
+    environment,
+    /\| HTTP BYOK \| 12, including four Files tools \|/,
+  );
+  assert.doesNotMatch(
+    environment,
+    /opt-in upload adds one|enrolled secret alone/,
+  );
+  const media = read(".agents/skills/ark-mcp/references/media-assets.md");
+  assert.doesNotMatch(
+    media,
+    /optional temporary preparation|Needed whenever a tool/,
+  );
+  assert.match(media, /client secret separates admission, not file ownership/);
+
+  const evidence = read("docs/hosted-deployment-status.md")
+    .split("## Managed Files Source Validation")[1]
+    .split("## Delivery Evidence")[0];
+  assert.match(evidence, /not the deployed public APIG endpoint/);
+  assert.match(evidence, /No deployment or generation calls were made/);
+  assert.match(evidence, /Post-deployment Files validation\s+remains pending/);
 });

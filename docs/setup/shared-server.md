@@ -34,16 +34,17 @@ Connecting to a server does not mean generation is free.
 4. Review the server/tool permissions and enable the connection.
 
 There is no OAuth, signup or server-issued key. `Authorization` is rejected.
-Use only the selected provider header plus the client secret:
+Use only the selected provider header with an optional client secret:
 
 | Header | Use |
 | --- | --- |
-| `X-ModelArk-Api-Key` | Images and video |
-| `X-Seed-Speech-Api-Key` | Seed Audio generation |
-| `X-MCP-Client-Secret` | Required for every provider call, including dry runs |
+| `X-ModelArk-Api-Key` | Images, video and managed Files |
+| `X-Seed-Speech-Api-Key` | Seed Audio and TTS generation |
+| `X-MCP-Client-Secret` | Optional separate client admission; omit for key-only setup |
 
-Only the selected key is needed; discovery needs none. The client secret must
-be **client-generated 32 random bytes encoded as 64 lowercase hex**. Generate
+Only the selected key is needed; discovery needs none. Without a client secret,
+callers sharing that key share one per-pod principal concurrency allowance.
+If you opt in, the client secret must be **client-generated 32 random bytes encoded as 64 lowercase hex**. Generate
 it once using your OS cryptographic RNG or a trusted password/secret manager
 in a private local session. For example, privately run `openssl rand -hex 32`,
 with terminal sharing, agent capture and shell tracing off. Do not run this
@@ -53,11 +54,10 @@ Never paste credentials into chat, tool arguments, screenshots or Git.
 
 The client secret must differ from every provider key supplied in the request,
 even an unused provider key. Reuse returns HTTP 400 `CREDENTIAL_REUSE` before
-tool execution, including discovery, dry runs and upload preparation.
+tool execution, including discovery, dry runs and Files operations.
 Generate an independent client secret and change only its private client
-environment/secret-store entry, not your provider keys. If you use temporary
-uploads, ask the operator to enroll the replacement secret's SHA-256 digest;
-the old enrollment does not transfer. Never share the raw secret.
+environment/secret-store entry, not your provider keys. Alternatively omit the
+optional header entirely. No upload enrollment exists. Never share the raw secret.
 
 Use private environment-backed header configuration where supported:
 [Codex](../integrations/codex.md#http-byok) and
@@ -106,7 +106,7 @@ must be available to the actual client process, not just the setup terminal.
 | `--name` | Server name; default `seed-mcp`. Use `--name ark-seed` to match the client guides |
 | `--provider` | Repeat for `modelark`, `seed-speech`; omitted means `modelark` |
 | `--modelark-key-env`, `--seed-speech-key-env` | Variable names, defaulting to `SEED_MCP_MODELARK_KEY`, `SEED_MCP_SEED_SPEECH_KEY` |
-| `--client-secret-env` | Independent variable name, default `SEED_MCP_CLIENT_SECRET` |
+| `--client-secret-env VAR` | Opt in to an independent client-secret variable; omitted by default |
 | `--seedance-endpoint-env`, `--seedream-endpoint-env` | Optional endpoint variable names; require `modelark` among selected providers |
 | `--tool-timeout-seconds` | 1-3600 seconds; default 660. Codex `tool_timeout_sec`; Claude `timeout` in milliseconds |
 
@@ -145,9 +145,9 @@ and confirm connection is null.
 Do not generate or upload.
 ```
 
-HTTP lists 8 tools, independently of operator keys.
-Optional temporary upload preparation adds one (9); its presence in
-tools/list does not prove that your client secret is enrolled.
+HTTP lists 12 tools, independently of operator keys.
+Managed Files tools are included; their presence in
+tools/list does not prove provider authorization. No client-secret enrollment exists.
 Anonymous discovery returns configured model bindings even without environment
 provider keys. `services[].enabled` means registered, not entitled.
 Default discovery is static/anonymous: `check_connection=false` returns
@@ -177,11 +177,11 @@ Seed Speech credentials.
 | --- | --- |
 | `connection=null` | Check was not requested; normal anonymous discovery |
 | `issues` includes `missing_modelark_key` | ModelArk header absent; check the client's private variable mapping |
-| `issues` includes `missing_client_secret` | Client-secret header absent; supply the independent private variable |
+| `client_secret_present=false` | Valid key-only setup; clients sharing the key share principal concurrency |
 | `routes[].issue="endpoint_not_configured"` | Exact product binding missing; operator must verify and bind it. Unknown ID/family are null, not echoed |
 | `routes[].source="request_header"` | The product's endpoint header selected the checked default |
 | `routes[].source="server_default"` | No endpoint header; the operator default was checked |
-| `configuration_valid=true` | Both required headers present and every checked route configured, not proof of upstream access |
+| `configuration_valid=true` | The ModelArk key header present and every checked route configured, not proof of upstream access |
 | `authentication_verified=false`, `provider_calls_made=false` | Always false; no provider authentication, lineage or entitlement check took place |
 
 Malformed headers can fail HTTP validation before diagnostics. A valid result
@@ -214,12 +214,8 @@ Continue with [Your First Tool Call](first-run.md).
 
 ## Local Files and Outputs
 
-A remote server cannot read or write files on your computer using a local
-file attachment. Optional [temporary TOS upload preparation](../temporary-uploads.md)
-requires an operator-enrolled client secret and a multipart-capable client:
-prepare metadata, upload bytes directly to TOS, wait for success, then use
-the GET URL with normal generation headers. No generation key is needed
-for preparation itself. A chat attachment does not upload automatically.
+Managed reference uploads use `ark_file_upload/get/list/delete` with the ModelArk key, without storage enrollment. Hosted local files use `seed-mcp-upload` on the client; retrieve the accepted ID for an active `download_url` before generation. Signed URLs are private and are not renewed by metadata reads.
+See [managed reference files](../files.md).
 
 A remote server cannot read or write files on your computer using a local
 path. HTTP has no local storage/artifact tools or resources. Use supported URLs

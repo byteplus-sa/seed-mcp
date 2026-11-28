@@ -9,8 +9,8 @@ does not establish a stable release or provide a trusted MCP endpoint.
 
 | Transport | Tools | Credentials and execution |
 | --- | --- | --- |
-| Local stdio | 13 conditional entries; four always registered | Private startup provider keys; direct calls; storage/artifacts retained |
-| HTTP BYOK | 7; opt-in upload adds one | Selected live provider key plus client secret for generation; enrolled secret alone for preparation; direct foreground calls |
+| Local stdio | 17 conditional entries; four always registered | Private startup provider keys; direct calls; storage/artifacts retained |
+| HTTP BYOK | 12, including four Files tools | Selected live provider key; optional client secret for separate admission; direct foreground calls |
 
 HTTP has no ordinary jobs, native tasks, local storage/artifact tools, media resources
 or configuration-detail resource. Discovery is anonymous/static and makes no
@@ -26,7 +26,7 @@ Explicit per-call `io.modelcontextprotocol/tasks` opt-in is rejected before
 provider dispatch, snapshot capture/save or queue creation, including discovery.
 
 HTTP provider calls, including dry runs, require only the selected header:
-`X-ModelArk-Api-Key` or `X-Seed-Speech-Api-Key`, plus
+`X-ModelArk-Api-Key` or `X-Seed-Speech-Api-Key`, and optional
 `X-MCP-Client-Secret` (client-generated 32 random bytes as 64 lowercase hex).
 Enter them privately through the client's supported mechanism. Never put
 credentials in tool arguments, chat, command-line flags, logs or Git.
@@ -34,44 +34,29 @@ No HTTP environment-provider fallback exists; keys are not persisted.
 
 Local `BYTEPLUS_SEED_SPEECH_API_KEY` also enables `seed_tts_generate`.
 TTS shares `BYTEPLUS_SEED_AUDIO_BASE_URL` and persists its completed stream on
-stdio. HTTP returns native audio directly with live Seed Speech/client-secret
-headers. No TTS storage flag, TOS credentials, Helm Secret or upload enrollment
+stdio. HTTP returns native audio directly with the live Seed Speech key and an
+optional client secret. No TTS storage flag, TOS credentials, Helm Secret or upload enrollment
 is required. Clients must handle up to 40 MiB Base64 plus response metadata.
 
-Optional `media_prepare_upload` uses operator TOS signing configuration with
-`MCP_TEMPORARY_UPLOAD_ENABLED=true` and `MCP_UPLOAD_CLIENT_SECRET_SHA256`
-(1-1000 unique lowercase SHA-256 digests of exact ASCII client-secret values).
-No generation-provider key is needed for preparation. It signs restricted
-POST/GET permissions only; no bytes, upload receipt, DB or global quota.
-Helm `temporaryUpload.enabled`/`existingSecret` reference a distinct existing
-TOS/enrollment Secret. Bucket/IAM/CORS/versioning/lifecycle setup and live
-acceptance are separate operator gates. See [media-assets.md](media-assets.md#temporary-http-references).
-
-`TOS_CREDENTIAL_MODE=static` retains configured AK/SK and optional matching STS
-token. Explicit `irsa` is HTTP-preparation-only: exact `TOS_IRSA_ROLE_TRN`,
-absolute `TOS_IRSA_TOKEN_FILE`, allowlisted BytePlus STS endpoint and session
-3600-43200 seconds (default 3600). No static/metadata fallback. Refresh is lazy
-after enrollment/admission, single-flight and runtime-memory-only, not a
-discovery/readiness probe. Helm `temporaryUpload.credentialsMode=irsa`
-requires acknowledged prerequisites and an explicit non-default ServiceAccount;
-manual audience `sts.volcengine.com` token projection is app-only, not Caddy.
-The existing upload Secret holds bucket/region/endpoint/enrollment, not AK/SK.
-Cluster OIDC/IAM trust, least privilege, webhook exclusion and live STS/token
-rotation acceptance require separate approved operator setup. Default one-hour
-credentials can shorten signed references to an hour or less; refresh never
-renews already issued URLs. See `docs/temporary-uploads.md` in the checkout.
-
-The operator supplies `MCP_AUTH_MODE=byok` (default),
-`MCP_IDENTITY_HMAC_KEY` (64 lowercase hex) and positive
-`MCP_IDENTITY_KEY_VERSION` (default `1`). The HMAC key is operator identity
-configuration, not a customer credential. Explicit `local` is stdio-only.
+Managed reference files use `ark_file_upload`, `ark_file_get`,
+`ark_file_list`, and `ark_file_delete` with the ModelArk API key. Default
+`purpose="agent"` uses provider-managed storage without bucket setup. Retrieve
+the accepted file ID until active with a `download_url`, then pass that URL
+to generation. The client-side `seed-mcp-upload` streams local files directly
+to ModelArk; HTTP MCP accepts HTTPS source URLs, not local paths or Base64.
+Reads do not renew the documented 24-hour/100-download URL limit. No upload
+enrollment, TOS signer, IRSA, application file database or cleanup worker remains.
+Never automatically retry an uncertain upload/delete; keep file/request IDs.
+Use the user's own ModelArk key for all four HTTP Files tools; the client secret is optional.
+Check the connected deployment's tools/list; a local live-provider smoke does
+not prove public endpoint rollout. No server-side customer key setup is needed.
 
 ## Identity and Models
 
 The admission tenant derives from the selected key, provider, fixed official
 origin and HMAC version; the principal additionally derives from the client
 secret. These scopes are ephemeral per-pod limits, not task ownership.
-HTTP task access follows the selected provider credential. Clients sharing a
+HTTP task and file access follows the selected provider credential. Clients sharing a
 provider key share whatever access the provider permits; use separate provider
 credentials when independent authorization is required.
 
@@ -135,8 +120,8 @@ and reconcile uncertain creates with the provider instead of repeating them.
 
 Read the checkout's `docs/setup/install.md`. Use a reviewed locked environment,
 private `ARK_MCP_ENV_FILE`, and requested provider keys only. ModelArk enables
-image/video; Seed Speech enables audio.
-TOS/S3 storage is optional and stdio-only.
+image/video and managed Files; Seed Speech enables audio.
+S3 storage is optional and stdio-only.
 
 Both transports execute directly with no MCP jobs, worker, snapshots or
 execution claims. Local writes use live MCP roots or `OUTPUT_ROOTS`;

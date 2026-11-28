@@ -126,6 +126,14 @@ export function schemaTable(schema) {
 export const EXAMPLES = examples;
 
 const hostedNotes = {
+  ark_file_upload:
+    "Import a public HTTPS source into ModelArk-managed storage. Default purpose=agent; no bucket setup. For a local client file, use seed-mcp-upload instead of sending a path to hosted MCP. Keep the returned ID and retrieve it for readiness and download_url. No automatic retries. See [managed files](../files.md).",
+  ark_file_get:
+    "Retrieve the same file ID until active with a download_url. Pass the complete URL to generation, not file_id. Reads do not renew the documented 24-hour/100-download URL limits.",
+  ark_file_list:
+    "Return one page of provider-authorized files. Default purpose=agent, limit=20. When has_more is true, pass last_id as after. Shared provider keys share file access; keep returned signed URLs private.",
+  ark_file_delete:
+    "Permanently delete one provider-authorized file with explicit confirm=true. Wait for all generation tasks using it to finish. No automatic delete retries or local ownership filter.",
   ark_list_models:
     "Ordinary discovery needs no credentials and returns `connection=null`. It does not verify account access. For optional image/video header checks, see [connection checks](../setup/shared-server.md).",
   seedream_generate_image: `Use \`images\` for reference edits; \`point\` or \`bbox\` targets the first image on a 0-999 scale.
@@ -174,20 +182,22 @@ export function hostedToolPage(tool) {
   );
   const exampleNote = preview
     ? "This is a non-billable preview (`dry_run=true`), not generated media. Generation may incur charges."
-    : tool.name === "gen_task_cancel_or_delete"
+    : ["gen_task_cancel_or_delete", "ark_file_delete"].includes(tool.name)
       ? "This is a destructive call, not a preview. Replace the example ID and confirm the intended task before running it."
       : ["seed_audio_generate", "seed_tts_generate"].includes(tool.name)
         ? "This example generates audio and may incur charges."
-        : "This is a read-only example. Replace example task IDs with your own.";
+        : tool.name === "ark_file_upload"
+          ? "This uploads a file and changes provider storage. Replace the source URL with the exact file you authorize for upload."
+          : "This is a read-only example. Replace example IDs with your own.";
   return `---
 title: ${JSON.stringify(tool.name)}
 description: ${JSON.stringify(`Usage, inputs and outputs for ${tool.name}.`)}
-editUrl: ${JSON.stringify(`${SOURCE_BASE.replace("/blob/", "/edit/")}src/ark_mcp/tools/${tool.name}.py`)}
+editUrl: ${JSON.stringify(`${SOURCE_BASE.replace("/blob/", "/edit/")}${tool.module.replaceAll(".", "/").replace(/^ark_mcp/, "src/ark_mcp")}.py`)}
 ---
 
 ${tool.description.trim().split(/\n\s*\n/)[0]}
 
-${credential ? `**Private headers:** \`${credential}\` and \`X-MCP-Client-Secret\`. [Connection setup](../setup/install.md).` : "**Credentials:** none for ordinary discovery."}
+${credential ? `**Private headers:** \`${credential}\` is required; \`X-MCP-Client-Secret\` is optional for separate client admission. [Connection setup](../setup/install.md).` : "**Credentials:** none for ordinary discovery."}
 
 ## Usage
 
@@ -206,7 +216,7 @@ ${models ? `<details>\n<summary>Supported models</summary>\n\n${models}\n</detai
 
 ## Inputs
 
-The MCP arguments use an \`input\` wrapper. ${tool.name === "seed_tts_generate" ? "TTS has no persist switch; output_path and overwrite are stdio only." : "Hosted calls keep persistence false."}
+The MCP arguments use an \`input\` wrapper. ${tool.name.startsWith("ark_file_") ? "Files tools have no persistence switch; file_path uploads are stdio only." : tool.name === "seed_tts_generate" ? "TTS has no persist switch; output_path and overwrite are stdio only." : "Hosted calls keep persistence false."}
 
 ${schemaTable(fields)}
 
@@ -275,7 +285,7 @@ export function toolPage(tool) {
   const name = tool.name;
   const http = tool.transports?.http;
   const stdio = tool.transports?.stdio;
-  const upload = name === "media_prepare_upload";
+  const files = name.startsWith("ark_file_");
   if (
     tool.execution !== "direct" ||
     "background" in tool ||
@@ -302,12 +312,12 @@ export function toolPage(tool) {
       : "Call this tool directly on either supported transport, keeping its `input` wrapper. Inspect `is_error` before using `structured_content`. No MCP jobs, worker queue or native tasks exist. Local stdio supports explicit persistence; HTTP remains URL-only.";
   const httpExecution = !http
     ? "**HTTP: unavailable.** This is a local stdio tool."
-    : upload
-      ? `**HTTP: opt-in upload preparation.** Supply only operator-enrolled \`X-MCP-Client-Secret\` privately. No generation-provider key is needed for preparation. The upload-capable client sends binary data directly to TOS using every signed field unchanged and the file field LAST. Wait for upload success before using \`reference_url\`. This tool does not upload, inspect bytes or verify the object. See [temporary uploads](${SITE_BASE}/temporary-uploads/).`
+    : files
+      ? `**HTTP: ModelArk-managed files.** Supply the live ModelArk key; the client-secret header is optional. Upload imports HTTPS sources; local client files use seed-mcp-upload directly to ModelArk. No bucket setup or URL renewal. See [managed files](${SITE_BASE}/files/).`
       : name === "seed_tts_generate"
-        ? "**HTTP: native audio output, no storage.** Supply live `X-Seed-Speech-Api-Key` and independent `X-MCP-Client-Secret` headers. The result contains an AudioContent block at content[0] and separate audio metadata, not a download URL. Client playback and saving UI vary. No persistence flag or local path is accepted."
+        ? "**HTTP: native audio output, no storage.** Supply live `X-Seed-Speech-Api-Key`; `X-MCP-Client-Secret` is optional. The result contains an AudioContent block at content[0] and separate audio metadata, not a download URL. Client playback and saving UI vary. No persistence flag or local path is accepted."
         : http.credential_header
-          ? `**HTTP: direct foreground calls only.** Supply \`${http.credential_header}\` and \`X-MCP-Client-Secret\` privately in request headers, including dry runs. The client secret is client-generated 32 random bytes encoded as 64 lowercase hex. Only the selected provider key is needed. Keep persistence false; HTTP rejects true, local paths and stored artifact references. No jobs, native tasks, local storage/artifact tools or resources exist on HTTP. Optional temporary upload preparation is separate.`
+          ? `**HTTP: direct foreground calls only.** Supply \`${http.credential_header}\` privately in request headers, including dry runs. Optional \`X-MCP-Client-Secret\` separates per-client admission; if supplied, use client-generated 32 random bytes encoded as 64 lowercase hex. Otherwise callers of the same key share principal concurrency. Only the selected provider key is needed. Keep persistence false; HTTP rejects true, local paths and stored artifact references. No jobs, native tasks, local storage/artifact tools or resources exist on HTTP.`
           : "**HTTP: anonymous static discovery.** No provider key or client secret is required; it lists configured model bindings even without environment provider keys. `services[].enabled` reports registration, not entitlement. No provider calls are made.";
   const providerTasks = ["seedance_", "gen_task_"].some((prefix) =>
     name.startsWith(prefix),
@@ -330,7 +340,7 @@ ${tool.description}
 | HTTP execution | ${http ? "Direct foreground only; no native tasks." : "Unavailable."} |
 | Catalog capability label | ${tool.scope ? `\`${tool.scope}\`` : "None"} |
 
-This site lists 14 catalog entries: 13 conditional local tools (four always registered) plus HTTP-only upload preparation. HTTP exposes 8 baseline tools including Seed TTS, plus one when temporary uploads are enabled. HTTP generation registration is independent of operator provider keys. Use [model discovery](${SITE_BASE}/tool-reference/ark-list-models/) and tools/list for your connection. Credentials never belong in tool arguments. HTTP has no OAuth, signup or server-issued key and never falls back to operator generation-provider keys.
+The catalog contains 17 conditional local tools, four always registered. HTTP exposes 12 tools including Seed TTS and managed Files, independently of operator provider keys. Use [model discovery](${SITE_BASE}/tool-reference/ark-list-models/) and tools/list for your connection. Credentials never belong in tool arguments. HTTP has no OAuth, signup or server-issued key and never falls back to operator generation-provider keys.
 
 Catalog capability labels are metadata, not auth grants. See the [scope taxonomy](${SITE_BASE}/security/#scope-taxonomy).
 
@@ -429,7 +439,7 @@ ${JSON.stringify(tool.outputSchema, null, 2)}
 
 ## Troubleshooting
 
-- Missing tool: check transport first; local storage/artifacts are stdio-only. Temporary upload preparation needs its operator enable flag and enrollment. HTTP generation-provider tools are credential-independent at registration. Local tools depend on [provider credentials](${SITE_BASE}/api-keys/).
+- Missing tool: check transport first; local S3 storage/artifacts are stdio-only. HTTP provider tools are credential-independent at registration. Local tools depend on [provider credentials](${SITE_BASE}/api-keys/).
 - Invalid arguments: keep the correct wrapper and follow current model limits from discovery. A valid schema alone does not prove the chosen model supports the combination.
 - A direct call returns an error: inspect safe task/request IDs, including partial acceptance. Never automatically resubmit potentially billable work on either transport.
 - Local output writes require live MCP roots or server-configured \`OUTPUT_ROOTS\`; HTTP cannot write to a client's local disk.

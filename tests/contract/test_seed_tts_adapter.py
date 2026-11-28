@@ -283,6 +283,48 @@ async def test_direct_deadline_records_mutation_and_closes_stream(service: SeedT
 
 
 @respx.mock
+async def test_direct_deadline_before_headers_retains_sent_request_id(
+    service: SeedTtsService,
+) -> None:
+    sent_ids: list[str] = []
+
+    async def delayed_headers(request: httpx.Request) -> httpx.Response:
+        sent_ids.append(request.headers["X-Request-Id"])
+        await asyncio.Event().wait()
+        raise AssertionError("The outer deadline must interrupt the header wait.")
+
+    respx.post(BASE + PATH).mock(side_effect=delayed_headers)
+    await service._gateway._ensure_client()
+    result = await run_direct_call(
+        lambda: synthesize(service), timeout_seconds=0.05, read_only=False
+    )
+    assert sent_ids == ["req-test"]
+    assert result.is_error
+    assert "ambiguous_completion=True" in result.content[0].text
+    assert "request_id=req-test" in result.content[0].text
+    assert "task_id=" not in result.content[0].text
+
+
+@respx.mock
+async def test_direct_deadline_before_authorization_omits_request_id(
+    service: SeedTtsService, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    async def blocked_authorization(**kwargs):
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(
+        "ark_mcp.providers.seed_speech.client.authorize_provider_request",
+        blocked_authorization,
+    )
+    result = await run_direct_call(
+        lambda: synthesize(service), timeout_seconds=0.05, read_only=False
+    )
+    assert "ambiguous_completion=False" in result.content[0].text
+    assert "request_id=" not in result.content[0].text
+    assert not respx.calls
+
+
+@respx.mock
 async def test_provider_deadline_closes_stream() -> None:
     stream = WaitingStream()
     respx.post(BASE + PATH).mock(return_value=httpx.Response(200, stream=stream))

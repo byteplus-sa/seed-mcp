@@ -6,20 +6,6 @@ backendHost: ""
 identitySecret:
   name: ""
 tlsSecretName: ""
-temporaryUpload:
-  enabled: false
-  credentialsMode: static
-  # Dedicated configuration/enrollment Secret; AK/SK only in static mode.
-  existingSecret: ""
-  # Opt into irsa only after separate regional OIDC/trust/TOS verification.
-  # Do not combine with static credentials. No automatic IAM or cluster changes.
-  irsa:
-    prerequisitesConfirmed: false
-    serviceAccountName: ""
-    roleTrn: ""
-    stsEndpoint: https://sts.byteplusapi.com
-    # Credentials can shorten the nominal 24h GET; refresh cannot renew issued URLs.
-    durationSeconds: 3600
 service:
   # Synthetic-only private backend: apig-staging, backendHost, empty subnetId.
   mode: public-clb

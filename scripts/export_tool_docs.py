@@ -28,23 +28,16 @@ _REGISTRATION_GATES = {
     "_seed_audio": "Requires BYTEPLUS_SEED_SPEECH_API_KEY.",
     "_seed_tts": "Requires BYTEPLUS_SEED_SPEECH_API_KEY.",
     "_object_storage": (
-        "Requires the selected object-storage backend: OBJECT_STORAGE_BACKEND=tos (default) "
-        "with TOS_ACCESS_KEY, TOS_SECRET_KEY and TOS_BUCKET; or OBJECT_STORAGE_BACKEND=s3 "
-        "with S3_ACCESS_KEY, S3_SECRET_KEY and S3_BUCKET."
+        "Requires optional local S3 storage: S3_ACCESS_KEY, S3_SECRET_KEY and S3_BUCKET."
     ),
-    "_temporary_upload": "Unavailable on local stdio.",
 }
 _HTTP_REGISTRATION_GATES = {
     "_always": "Anonymous static discovery; no provider credentials required.",
     "_modelark": "Always registered on HTTP; invocation requires the selected request key.",
     "_seed_audio": "Always registered on HTTP; invocation requires the selected request key.",
     "_seed_tts": (
-        "Always registered on HTTP; invocation requires the live Seed Speech key and client secret. "
+        "Always registered on HTTP; invocation requires the live Seed Speech key; client secret is optional. "
         "Returns native MCP audio without object storage."
-    ),
-    "_temporary_upload": (
-        "Requires MCP_TEMPORARY_UPLOAD_ENABLED=true, TOS configuration and "
-        "MCP_UPLOAD_CLIENT_SECRET_SHA256 operator enrollment; no generation-provider key."
     ),
 }
 _PROVIDER_HEADERS = {
@@ -83,18 +76,12 @@ def export_tool_docs() -> dict[str, Any]:
                 "execution": "direct",
             }
         }
-        if gate_name == "_temporary_upload":
-            transports = {}
         if gate_name in _HTTP_REGISTRATION_GATES:
             transports["http"] = {
                 "registration_gate": _HTTP_REGISTRATION_GATES[gate_name],
                 "execution": "direct",
                 "credential_header": (
-                    "X-MCP-Client-Secret"
-                    if gate_name == "_temporary_upload"
-                    else _PROVIDER_HEADERS[entry.provider]
-                    if entry.provider
-                    else None
+                    _PROVIDER_HEADERS[entry.provider] if entry.provider else None
                 ),
             }
         definition = resolve_tool_definition(entry)

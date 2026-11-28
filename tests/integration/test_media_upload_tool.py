@@ -1,7 +1,7 @@
 """Integration tests for the ``media_upload`` tool.
 
 Uses the shared ``test_env`` / ``fake_ctx`` fixtures so the runtime
-(budget ledger, provider limiters) is real.  The ``TosGateway`` is mocked
+(budget ledger, provider limiters) is real. The ``S3Gateway`` is mocked
 via ``patch`` so no SDK client or network is involved.
 """
 
@@ -30,7 +30,7 @@ def _mock_gateway() -> AsyncMock:
     gw = AsyncMock()
     gw.upload_bytes = AsyncMock(return_value=None)
     gw.upload_file = AsyncMock(return_value=None)
-    gw.presign_get = AsyncMock(return_value="https://tos.example.com/presigned-url")
+    gw.presign_get = AsyncMock(return_value="https://s3.example.com/presigned-url")
     gw.close = AsyncMock()
     return gw
 
@@ -71,7 +71,7 @@ class TestMediaUploadBase64:
         assert item.index == 0
         assert item.error is None
         assert item.retryable is None
-        assert item.url == "https://tos.example.com/presigned-url"
+        assert item.url == "https://s3.example.com/presigned-url"
         assert item.bytes == len(b"fake-video-bytes")
         assert item.mime_type == "video/mp4"
         assert item.expires_at
@@ -393,9 +393,6 @@ class TestMediaUploadErrors:
 
         no_storage = get_settings().model_copy(
             update={
-                "tos_access_key": "",
-                "tos_secret_key": "",
-                "tos_bucket": "",
                 "s3_access_key": "",
                 "s3_secret_key": "",
                 "s3_bucket": "",
@@ -417,11 +414,11 @@ class TestMediaUploadErrors:
         mock_gw.upload_bytes = AsyncMock(
             side_effect=ProviderError(
                 NormalizedProviderError(
-                    provider="tos",
+                    provider="s3",
                     operation="upload",
                     http_status=500,
                     code="INTERNAL",
-                    message="TOS internal error",
+                    message="S3 internal error",
                     retryable=False,
                 )
             )
@@ -436,23 +433,20 @@ class TestMediaUploadErrors:
         assert result.succeeded == 0
         assert result.failed == 1
         assert result.total_bytes == 0
-        assert result.items[0].error == "TOS internal error"
+        assert result.items[0].error == "S3 internal error"
         assert result.items[0].retryable is False
         assert result.items[0].url is None
         mock_gw.close.assert_called_once()
 
 
 class TestMediaUploadS3Backend:
-    async def test_s3_backend_uses_s3_provider_slot(
+    async def test_default_backend_slot(
         self, test_env: None, fake_ctx: FakeContext, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         from ark_mcp.config.env import get_settings
 
         s3_settings = get_settings().model_copy(
             update={
-                "tos_access_key": "",
-                "tos_secret_key": "",
-                "tos_bucket": "",
                 "s3_access_key": "ak-s3",
                 "s3_secret_key": "sk-s3",  # pragma: allowlist secret
                 "s3_bucket": "s3-bucket",
@@ -468,4 +462,4 @@ class TestMediaUploadS3Backend:
         )
 
         assert isinstance(result, MediaUploadOutput)
-        assert result.items[0].url == "https://tos.example.com/presigned-url"
+        assert result.items[0].url == "https://s3.example.com/presigned-url"

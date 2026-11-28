@@ -33,7 +33,8 @@ releasing locks or propagating cancellation, including repeated cancellation.
 These local stores are single-process only, not shared state for HTTP replicas.
 
 Task get/list/cancel and Draft lookup are authorized by the supplied provider
-key. `X-MCP-Client-Secret` separates per-pod admission scopes, not task access.
+key. Optional `X-MCP-Client-Secret` separates per-pod admission scopes, not task access.
+Without it, callers using the same provider key share one per-pod principal concurrency allowance.
 Clients sharing a provider key can access whatever that key authorizes.
 Use separate provider credentials when independent authorization is required.
 
@@ -71,7 +72,7 @@ and drains through repeated cancellation, reusing the same close task.
 Two per-pod layers, acquired owner-first for billable calls:
 
 - **Provider-level** — one global `asyncio.Semaphore` per provider bucket:
-  `"modelark"`, `"seed-speech"`, `"tos"`, and `"s3"`.
+  `"modelark"` (including managed Files), `"seed-speech"`, and `"s3"`.
   Each is independently sized to `provider_limit`, so the default cap is five
   concurrent calls per provider rather than five shared across all providers.
 - **Principal-level** — one `asyncio.Semaphore(principal_limit)` per
@@ -92,7 +93,8 @@ bounded only by the provider limit. Without this, the default
 every provider at 3 — below the per-provider limit of 5 — making parallel
 local generation appear to "serialize under load." The per-principal bound
 applies to HTTP owners derived from the selected provider credential and
-client secret. Unrelated provider keys do not change that scope.
+optional client secret. Without a secret, callers of that key share the owner
+limit. Unrelated provider keys do not change that scope.
 
 | Env var | Default | Constraint | Used as |
 |---|---|---|---|
@@ -136,7 +138,7 @@ admission and the cooperative whole-call deadline are separate bounds:
   slots or clients are released, including repeated cancellation. Cleanup can
   exceed the nominal deadline; it is not a hard kill or provider cancellation.
 - `TOOL_DEADLINE_EXCEEDED` is text-only, preserving possible mutation and known
-  safe accepted task IDs or dispatched TTS request IDs. Pre-dispatch/read-only expiry does not claim billed work
+  safe accepted IDs. Pre-dispatch/read-only expiry does not claim billed work
   began. External cancellation propagates; inner provider timeouts retain
   their normalized errors. Never blindly resubmit after a lost response.
 - ModelArk polling and discovery do not wait on saturated generation slots.
@@ -408,8 +410,8 @@ recording failure retains accepted IDs in an `AcceptedTaskError`.
 | `RuntimeError` | builtin | `get_runtime`, `BudgetLedger.reserve` | missing runtime services / reservation ID |
 | `PermissionError` | builtin | `get_principal`, `require_owner` | missing token, missing principal/tenant claims, ownership mismatch |
 
-`NormalizedProviderError` carries: `provider` (including `modelark`, `seed-speech`,
-`tos` and `s3`),
+`NormalizedProviderError` carries: `provider` (including `modelark`, `seed-speech`
+and `s3`),
 `operation`, `http_status`, `code`, `message`, `request_id`, `retryable`,
 `ambiguous_completion`, `retry_after_seconds`. Transport-layer normalizers in
 `BaseHttpGateway` follow the table below.
@@ -479,8 +481,8 @@ the deadline. Preserve partial acceptance; never blindly rerun the batch.
 ## Direct execution state
 
 `execution.py` maintains ephemeral ContextVar state shared with variation
-children: monotonic deadline, possible-mutation flag, bounded safe accepted
-receipts and up to five distinct request-only correlation IDs. It is invalidated when the call exits. No credentials, payloads,
+children: monotonic deadline, possible-mutation flag and bounded safe accepted
+receipts. It is invalidated when the call exits. No credentials, payloads,
 snapshots, durable execution claims or MCP job records are created.
 
 `before_provider_request(side_effect=...)` checks expiry before dispatch.
@@ -488,9 +490,6 @@ snapshots, durable execution claims or MCP job records are created.
 validates HTTP receipts before capture. The wrapper rechecks expiry when a
 handler suppresses cancellation. Neither transport accepts explicit
 `io.modelcontextprotocol/tasks` opt-in.
-`record_dispatched_request` retains TTS request IDs after dispatch authorization,
-without manufacturing accepted tasks. Deadline diagnostics distinguish these
-request IDs from pollable task IDs and clear them when the invocation exits.
 
 ## HTTP Readiness and Recovery
 

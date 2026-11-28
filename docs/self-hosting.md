@@ -18,9 +18,9 @@ effect of client setup.
 | --- | --- | --- |
 | Provider credentials | Private local environment file | Client request headers; never persisted by the server |
 | Identity | Trusted local principal | Provider-key authorization; client secret scopes admission only |
-| Tools | 13 conditional catalog entries, four always registered | 7; temporary preparation adds one |
+| Tools | 17 conditional catalog entries, four always registered | 12 |
 | Long operations | Direct calls | Direct calls |
-| Storage/artifacts | Optional local persistence and resources | No local persistence/resources; optional temporary TOS preparation; client retrieves provider URLs |
+| Storage/artifacts | Optional local persistence and resources | No local persistence/resources; managed Files metadata; client retrieves provider URLs |
 
 ## Operator Configuration
 
@@ -35,16 +35,21 @@ Keep operator configuration outside Git in an owner-only file. Set
 `MCP_TRANSPORT=http`, the bind address, and explicit Host/Origin allowlists.
 Load configuration through `ARK_MCP_ENV_FILE` or a protected runtime injector.
 Do not configure hosted generation-provider keys or a Redis task backend.
-Operator TOS credentials are required only for opt-in temporary upload preparation.
-These may be configured static AK/SK or explicit VKE IRSA with app-only OIDC
-projection and automatic in-memory refresh. Cluster/IAM setup and live
-acceptance remain separate operator gates. STS can shorten reference URLs;
-refresh does not renew them. See [IRSA setup](temporary-uploads.md#vke-iam-roles-for-service-accounts).
+Managed reference files use `ark_file_upload`, `ark_file_get`,
+`ark_file_list`, and `ark_file_delete` with the ModelArk API key. Default
+`purpose="agent"` uses provider-managed storage without bucket setup. Retrieve
+the accepted file ID until active with a `download_url`, then pass that URL
+to generation. The client-side `seed-mcp-upload` streams local files directly
+to ModelArk; HTTP MCP accepts HTTPS source URLs, not local paths or Base64.
+Reads do not renew the documented 24-hour/100-download URL limit. No upload
+enrollment, TOS signer, IRSA, application file database or cleanup worker remains.
+Never automatically retry an uncertain upload/delete; keep file/request IDs.
+
 HTTP ignores startup generation keys and has no fallback to them.
 Hosted [provider-secret sync is superseded](secret-manager.md).
 
 For VKE, Helm references distinct existing identity and TLS Secrets by name/key
-only, plus a separate TOS/enrollment Secret when temporary uploads are enabled.
+only; no storage/enrollment Secret is used.
 No database Secret or database CA ConfigMap is required;
 Terraform does not fetch kubeconfig or store HMAC/TLS values. The retained
 `scripts/generate_identity_secret.py` utility supports private operator
@@ -88,7 +93,8 @@ flowchart LR
 Hosted HTTP is database-free: provider-key task authorization, no durable replay or shared budget accounting. Omit legacy operation keys; never automatically resubmit uncertain creates. Local stdio persistence remains available.
 
 Task get/list/cancel and Draft lookup are authorized by the supplied provider
-key. `X-MCP-Client-Secret` separates per-pod admission scopes, not task access.
+key. Optional `X-MCP-Client-Secret` separates per-pod admission scopes, not task access.
+Without it, callers using the same provider key share one per-pod principal concurrency allowance.
 Clients sharing a provider key can access whatever that key authorizes.
 Use separate provider credentials when independent authorization is required.
 
@@ -120,8 +126,7 @@ Local traffic policy; Caddy overwrites forwarding headers and Uvicorn does not
 rewrite them. Only `/mcp` and `/health` are public. `/ready` is an internal exec
 probe. Private metrics remain opt-in on loopback.
 
-Helm references existing identity and TLS Secrets, with an optional distinct
-TOS/enrollment Secret for upload preparation. `STATE_BACKEND=none` and
+Helm references existing identity and TLS Secrets, with no storage/enrollment Secret. `STATE_BACKEND=none` and
 `DAILY_BUDGET_USD=0`; database inputs are rejected. No PVC, StorageClass, database
 CA, PostgreSQL driver or shared state service is required. Bounded scratch uses
 emptyDir. Model bindings remain exact and operator-verified.
@@ -139,9 +144,9 @@ implied by source checks.
 ## Client Access
 
 Follow [Connect to a Shared Server](setup/shared-server.md). Only the provider
-being called needs a key. Each client generates a private
-`X-MCP-Client-Secret`, 64 lowercase hex characters from 32 random bytes,
-and keeps it stable for subsequent polls. There is no OAuth, signup or
+being called needs a key. Optionally generate a private `X-MCP-Client-Secret`,
+64 lowercase hex characters from 32 random bytes, for separate client
+admission. Otherwise callers of the same key share principal concurrency. There is no OAuth, signup or
 server-issued key. `Authorization` headers are rejected.
 
 An explicit tool `model` overrides `X-ModelArk-Seedance-Endpoint` or
@@ -160,7 +165,7 @@ stateful-release migration tooling are not part of this repository.
 
 ## Validation Status
 
-Verify anonymous `ark_list_models`, exact 8 baseline (9 with temporary preparation) HTTP tool inventory, no resources,
+Verify anonymous `ark_list_models`, the 12-tool HTTP inventory, no resources,
 rejected jobs/native tasks, selected-key enforcement, owner isolation, limits,
 and minimal backend `/health`/`/ready`. Caddy exposes only `/mcp` and `/health`;
 `/ready` and `/metrics` are private. Optional metrics use authorized pod

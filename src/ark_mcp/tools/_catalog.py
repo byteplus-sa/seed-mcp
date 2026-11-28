@@ -44,10 +44,6 @@ def _object_storage(settings: Settings) -> bool:
     return _local(settings) and settings.has_object_storage
 
 
-def _temporary_upload(settings: Settings) -> bool:
-    return settings.mcp_transport == "http" and settings.temporary_upload_enabled
-
-
 @dataclass(frozen=True, slots=True)
 class CatalogEntry:
     """Registration metadata for one MCP tool."""
@@ -128,7 +124,36 @@ CATALOG: tuple[CatalogEntry, ...] = (
     ),
     _entry("media_presign", "MediaPresignOutput", "media:presign", gate=_object_storage),
     _entry(
-        "media_prepare_upload", "MediaPrepareUploadOutput", "media:upload", gate=_temporary_upload
+        "ark_file_upload",
+        "ManagedFile",
+        "files:write",
+        gate=_modelark,
+        module="ark_files",
+        annotations="UPLOAD_ANNOTATIONS",
+    ),
+    _entry(
+        "ark_file_get",
+        "ManagedFile",
+        "files:read",
+        gate=_modelark,
+        module="ark_files",
+        annotations="READ_ANNOTATIONS",
+    ),
+    _entry(
+        "ark_file_list",
+        "FilePage",
+        "files:read",
+        gate=_modelark,
+        module="ark_files",
+        annotations="READ_ANNOTATIONS",
+    ),
+    _entry(
+        "ark_file_delete",
+        "FileDeleted",
+        "files:delete",
+        gate=_modelark,
+        module="ark_files",
+        annotations="DELETE_ANNOTATIONS",
     ),
     _entry(
         "seedream_generate_image",

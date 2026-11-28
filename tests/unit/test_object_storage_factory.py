@@ -9,17 +9,6 @@ import pytest
 from ark_mcp.config.env import Settings
 from ark_mcp.providers.object_storage import make_object_storage_gateway
 from ark_mcp.providers.s3.client import S3Gateway
-from ark_mcp.providers.tos.client import TosGateway
-
-
-def _tos_settings() -> Settings:
-    return Settings(
-        _env_file=None,
-        TOS_ACCESS_KEY="ak-tos",
-        TOS_SECRET_KEY="sk-tos",  # pragma: allowlist secret
-        TOS_BUCKET="tos-bucket",
-        OBJECT_STORAGE_BACKEND="tos",
-    )
 
 
 def _s3_settings() -> Settings:
@@ -33,21 +22,12 @@ def _s3_settings() -> Settings:
 
 
 class TestMakeObjectStorageGateway:
-    def test_tos_backend_returns_tos_gateway(self) -> None:
-        gateway = make_object_storage_gateway(_tos_settings())
-        assert isinstance(gateway, TosGateway)
-
     def test_s3_backend_returns_s3_gateway(self, monkeypatch: pytest.MonkeyPatch) -> None:
         client = Mock()
         monkeypatch.setattr("ark_mcp.providers.s3.client.boto3.client", client)
         gateway = make_object_storage_gateway(_s3_settings())
         assert isinstance(gateway, S3Gateway)
         client.assert_called_once()
-
-    def test_tos_backend_without_credentials_raises(self) -> None:
-        settings = Settings(_env_file=None, OBJECT_STORAGE_BACKEND="tos")
-        with pytest.raises(ValueError, match="TOS credentials are not configured"):
-            make_object_storage_gateway(settings)
 
     def test_s3_backend_without_credentials_raises(self) -> None:
         settings = _s3_settings().model_copy(

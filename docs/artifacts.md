@@ -37,13 +37,13 @@ readable until the local TTL elapses.
 ## Storage backend
 
 Two backends are available. `filesystem` stores artifacts on local disk;
-`object_storage` stores them in the configured TOS/S3 bucket (via
+`object_storage` stores them in the configured S3 bucket (via
 `ObjectStorageArtifactStore`). For `object_storage`, TTL enforcement is
 delegated to a bucket lifecycle policy — `delete_expired` is a no-op there.
 
 | Env var | Default | Notes |
 |---|---|---|
-| `ARTIFACT_BACKEND` | `"filesystem"` | `filesystem` or `object_storage` (requires TOS/S3 credentials) |
+| `ARTIFACT_BACKEND` | `"filesystem"` | `filesystem` or `object_storage` (requires S3 credentials) |
 | `ARTIFACT_DIR` | `~/.seed-mcp/artifacts` | local media + `runtime.sqlite3` state; resolved via `Path(...).expanduser().resolve()` |
 | `ARTIFACT_TTL_SECONDS` | `604800` (7 days) | must be `> 0` |
 

@@ -80,7 +80,7 @@ def profile(frame, event, arg):
         event == "call"
         and frame.f_globals.get("__name__") == "ark_mcp.tools._catalog"
         and frame.f_code.co_name in {
-            "_always", "_local", "_modelark", "_seed_audio", "_seed_tts", "_object_storage", "_temporary_upload",
+            "_always", "_local", "_modelark", "_seed_audio", "_seed_tts", "_object_storage",
         }
     ):
         raise AssertionError("Exporter evaluated a registration gate")
@@ -223,7 +223,7 @@ runpy.run_path = missing_gate
 
 def test_catalog_inventory_and_order_are_exact(exported: dict[str, Any]) -> None:
     assert [tool["name"] for tool in exported["tools"]] == [entry.name for entry in CATALOG]
-    assert len(exported["tools"]) == len(CATALOG) == 14
+    assert len(exported["tools"]) == len(CATALOG) == 17
     assert {tool["name"] for tool in exported["tools"]} == {
         "ark_list_models",
         "seed_media_get_artifact",
@@ -233,7 +233,10 @@ def test_catalog_inventory_and_order_are_exact(exported: dict[str, Any]) -> None
         "seed_tts_generate",
         "media_upload",
         "media_presign",
-        "media_prepare_upload",
+        "ark_file_upload",
+        "ark_file_get",
+        "ark_file_list",
+        "ark_file_delete",
         "seedream_generate_image",
         "seedance_create_task",
         "gen_task_get",
@@ -442,15 +445,10 @@ def test_all_registration_gates_name_the_exact_environment_variables(
         "_seed_audio": {"BYTEPLUS_SEED_SPEECH_API_KEY"},
         "_seed_tts": {"BYTEPLUS_SEED_SPEECH_API_KEY"},
         "_object_storage": {
-            "OBJECT_STORAGE_BACKEND",
-            "TOS_ACCESS_KEY",
-            "TOS_SECRET_KEY",
-            "TOS_BUCKET",
             "S3_ACCESS_KEY",
             "S3_SECRET_KEY",
             "S3_BUCKET",
         },
-        "_temporary_upload": set(),
     }
     tools = {tool["name"]: tool for tool in exported["tools"]}
     assert {entry.gate.__name__ for entry in CATALOG} == set(expected)
@@ -461,9 +459,7 @@ def test_all_registration_gates_name_the_exact_environment_variables(
         if entry.gate.__name__ == "_always":
             assert "always" in gate.lower()
         if entry.gate.__name__ == "_object_storage":
-            assert "OBJECT_STORAGE_BACKEND=tos" in gate
-            assert "OBJECT_STORAGE_BACKEND=s3" in gate
-            assert "default" in gate.lower()
+            assert "local S3" in gate
 
 
 def test_transport_inventory_and_execution_match_catalog(exported: dict[str, Any]) -> None:
@@ -471,16 +467,9 @@ def test_transport_inventory_and_execution_match_catalog(exported: dict[str, Any
 
     settings = Settings.model_construct(mcp_transport="http")
     ordinary = {entry.name for entry in CATALOG if entry.gate(settings)}
-    assert len(ordinary) == 8
+    assert len(ordinary) == 12
     for tool in exported["tools"]:
         transports = tool["transports"]
-        if tool["name"] == "media_prepare_upload":
-            assert set(transports) == {"http"}
-            assert transports["http"]["execution"] == "direct"
-            assert transports["http"]["credential_header"] == "X-MCP-Client-Secret"
-            assert "MCP_TEMPORARY_UPLOAD_ENABLED=true" in transports["http"]["registration_gate"]
-            assert "MCP_UPLOAD_CLIENT_SECRET_SHA256" in transports["http"]["registration_gate"]
-            continue
         if tool["name"] == "seed_tts_generate":
             assert "native MCP audio" in transports["http"]["registration_gate"]
         assert set(transports) == ({"stdio", "http"} if tool["name"] in ordinary else {"stdio"})
@@ -572,7 +561,6 @@ def test_http_client_examples_use_private_headers_and_no_bearer(client: str) -> 
         headers = config["mcp_servers"]["ark-seed"]["env_http_headers"]
         assert headers == {
             "X-ModelArk-Api-Key": "SEED_MCP_MODELARK_KEY",
-            "X-MCP-Client-Secret": "SEED_MCP_CLIENT_SECRET",  # pragma: allowlist secret
         }
         assert config["mcp_servers"]["ark-seed"]["tool_timeout_sec"] == 660
     else:
@@ -580,7 +568,6 @@ def test_http_client_examples_use_private_headers_and_no_bearer(client: str) -> 
         headers = config["mcpServers"]["ark-seed"]["headers"]
         assert headers == {
             "X-ModelArk-Api-Key": "${SEED_MCP_MODELARK_KEY}",
-            "X-MCP-Client-Secret": "${SEED_MCP_CLIENT_SECRET}",
         }
         assert config["mcpServers"]["ark-seed"]["timeout"] == 660000
     generated = subprocess.run(

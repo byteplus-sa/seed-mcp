@@ -121,21 +121,21 @@ An empty file is not successful onboarding when generation was requested.
 
 ## HTTP Client Credentials
 
-Optional HTTP `media_prepare_upload` authorizes only operator-enrolled client
-secrets. Enrollment uses SHA-256 of the exact ASCII header value, not decoded
-bytes, and does not require a generation-provider key. Do not enroll or
-provision operator TOS credentials as a client-setup side effect. Raw client
-secrets stay private; the operator receives only approved enrollment digests.
-Issued signed fields/URLs can include STS and are sensitive bearer permissions;
-never log or publish them. See `docs/temporary-uploads.md` in the checkout.
+Managed reference uploads use `ark_file_upload/get/list/delete` with the ModelArk key, without storage enrollment. Hosted local files use `seed-mcp-upload` on the client; retrieve the accepted ID for an active `download_url` before generation. Signed URLs are private and are not renewed by metadata reads.
 
 Use only an operator-approved trusted HTTPS URL. The server receives live
 provider credentials but does not persist them or fall back to startup keys.
 Prepare private client environment/secret-store entries for only the desired
-provider headers, plus `X-MCP-Client-Secret`. Do not create a server-side
+provider headers, optionally adding `X-MCP-Client-Secret` for separate admission. Do not create a server-side
 provider-key bundle or ask for `MCP_IDENTITY_HMAC_KEY`; it is operator-only.
 
-Generate the client secret once using the OS cryptographic RNG or trusted
+Default to URL plus the selected provider key. Do not ask the user to generate
+a client secret unless they want separate per-client admission. Omission shares
+principal concurrency among callers of that key; it does not change file/task
+permissions. The snippet generator omits this header unless
+`--client-secret-env VAR` explicitly selects it. Never send an empty header.
+
+Only when opting in, generate the client secret once using the OS cryptographic RNG or trusted
 secret manager: exactly 32 random bytes encoded as 64 lowercase hex.
 For a manual private session, `openssl rand -hex 32` produces that format.
 Never run it where agent tools, shared terminals, screenshots or logs capture
@@ -143,7 +143,7 @@ the output. The user enters the generated value directly into protected client
 configuration. Do not read it back or substitute an example/test value.
 
 Map the selected `X-ModelArk-Api-Key` or `X-Seed-Speech-Api-Key`, plus
-the required `X-MCP-Client-Secret`, to private environment entries
+the optional `X-MCP-Client-Secret`, to private environment entries
 as supported by the target client. Only the selected key is required, including
 dry runs; discovery is anonymous. No OAuth, signup, server-issued key or
 `Authorization` is used. Protect plaintext env files as described above and
@@ -155,15 +155,15 @@ secret; do not reuse a provider key as the secret. The stdout generator neither
 reads files nor environment values and cannot prove value independence.
 The HTTP server rejects a client secret equal to any supplied provider key
 with HTTP 400 `CREDENTIAL_REUSE` before tool execution, including discovery,
-dry runs and upload preparation. Generate an independent 32-random-byte
+dry runs and Files operations. Generate an independent 32-random-byte
 client secret as 64 lowercase hex and update only its protected client entry;
-leave provider keys unchanged. For temporary uploads, the operator must enroll
-the replacement secret's SHA-256 digest. Never reveal the raw secret.
+leave provider keys unchanged. Managed Files need no operator enrollment.
+Never reveal the raw secret.
 Optional endpoint variables require selected provider `modelark`; their values
 must be operator-verified exact bindings. Unknown endpoints require operator
 verification/binding, not customer AK/SK entry into this server.
 
-The selected provider key authorizes earlier tasks; the client secret and
+The selected provider key authorizes tasks/files; the optional client secret and
 operator HMAC scope per-pod admission only. There is no local task-ownership
 ledger or saved create receipt to recover. Clients sharing a provider key share
 whatever access the provider permits. Use separate provider credentials for

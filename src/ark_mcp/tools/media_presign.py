@@ -103,8 +103,8 @@ async def media_presign(input: MediaPresignInput, ctx: Context) -> MediaPresignO
     settings = get_settings()
     if not settings.has_object_storage:
         raise ValueError(
-            "Object storage is not configured. Set TOS_* or S3_* credentials and "
-            "OBJECT_STORAGE_BACKEND (tos|s3)."
+            "Object storage is not configured. Set S3_ACCESS_KEY, S3_SECRET_KEY "
+            "and S3_BUCKET. Files API download URLs cannot be renewed by this tool."
         )
 
     await ctx.report_progress(progress=30, total=100)

@@ -62,7 +62,12 @@ def test_production_remains_private_and_preserves_runtime_boundaries(tmp_path: P
     env = {item["name"]: item.get("value") for item in pod["containers"][0]["env"]}
     assert env["MCP_HOST"] == "127.0.0.1"
     assert env["STATE_BACKEND"] == "none"
-    assert env["MCP_TEMPORARY_UPLOAD_ENABLED"] == "false"
+    assert "MCP_TEMPORARY_UPLOAD_ENABLED" not in env
+    assert "MCP_UPLOAD_CLIENT_SECRET_SHA256" not in env
+    assert not any(key.startswith("TOS_") for key in env)
+    assert "serviceAccountName" not in pod
+    assert pod["automountServiceAccountToken"] is False
+    assert not any(item["kind"] == "ServiceAccount" for item in items)
     assert not any("API_KEY" in key for key in env)
     assert not any(item["kind"] in ("Secret", "PersistentVolumeClaim") for item in items)
 

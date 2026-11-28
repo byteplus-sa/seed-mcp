@@ -78,6 +78,7 @@ export default defineConfig({
             { slug: "setup/install", label: "Connect" },
             { slug: "setup/first-run", label: "Create Media" },
             { slug: "capabilities", label: "Tools at a Glance" },
+            { slug: "files", label: "Reference Files" },
           ],
         },
         {

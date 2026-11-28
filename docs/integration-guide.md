@@ -5,7 +5,7 @@ start with [Set Up Seed MCP](setup/install.md) and [your client guide](integrati
 Users can ask their client in plain language; the client handles tool calls.
 
 **Choose the transport first.** Both transports use direct tool calls.
-HTTP BYOK exposes 8 tools, plus optional temporary upload preparation, direct foreground provider calls
+HTTP BYOK exposes 12 tools including managed Files, direct foreground provider calls
 and anonymous static discovery. It has no jobs/native tasks/local storage/artifact
 tools/resources. Keep persistence false and download expiring provider URLs
 on the client. See [HTTP setup](setup/shared-server.md).
@@ -332,7 +332,7 @@ On local stdio, if only some products' tools are registered:
 
 `ark_list_models` reports which optional services are enabled. HTTP registers
 provider tools without operator keys; invocation
-still requires the selected live provider key and client secret.
+requires the selected live provider key; the client secret is optional.
 
 ## Environment Variables Reference
 
@@ -356,7 +356,7 @@ still requires the selected live provider key and client secret.
 | `ARTIFACT_TTL_SECONDS` | No | `604800` (7 days) | Artifact retention |
 
 HTTP clients send only the selected `X-ModelArk-Api-Key` or
-`X-Seed-Speech-Api-Key`, plus required
+`X-Seed-Speech-Api-Key`, plus optional
 `X-MCP-Client-Secret` (client-generated 32 random bytes as 64 lowercase hex).
 Discovery is anonymous/static; provider calls including dry runs need headers.
 Keys are not persisted and there is no environment fallback, OAuth, signup or

@@ -11,11 +11,11 @@ For parameters see the tool schema and
 
 The table is **stdio-only**. HTTP has no local upload/presign renewal,
 job/native-task or artifact/resource surface. Host reference URLs externally
-or use optional temporary preparation below.
+or use [managed Files](#managed-files) below with the user's ModelArk key.
 
 | Tool | Mode | Needs |
 |---|---|---|
-| `media_upload` | direct | object storage (TOS or S3) |
+| `media_upload` | direct | object storage (S3) |
 | `media_presign` | direct | object storage |
 
 Use a 660-second client timeout for the default 600-second cooperative tool
@@ -25,9 +25,8 @@ uncertain upload. See [local-output.md](local-output.md).
 
 ## Object storage (`media_upload`, `media_presign`)
 
-Needed whenever a tool takes media as a URL only (Seedance video/audio
-references). TOS or S3 makes no difference
-to tool behaviour.
+For URL-only references (such as Seedance video/audio), S3 is an optional
+local alternative to managed Files or an existing public HTTPS URL.
 
 ### `media_upload`
 
@@ -61,12 +60,11 @@ key fails on its own, so check `failed` and per-key `code`:
 | `INVALID_KEY` | Malformed key; use it exactly as `media_upload` returned it |
 | `NOT_OWNED` | Not uploaded by this caller; re-upload |
 | `INTERNAL` | Unexpected server error; retry |
-| provider code | TOS/S3 rejected it (object missing, credentials); see `error`, `request_id` |
+| provider code | S3 rejected it (object missing, credentials); see `error`, `request_id` |
 
 ### Presign-reuse pattern
 
-Presigned URLs expire (default 30 minutes; `TOS_PRESIGN_TTL_SECONDS` /
-`S3_PRESIGN_TTL_SECONDS`). When the same references (character sheets, a music
+Presigned URLs expire (default 30 minutes; `S3_PRESIGN_TTL_SECONDS`). When the same references (character sheets, a music
 bed) feed many shots, **upload once, then presign per shot**:
 
 1. Upload all references in one `media_upload` call, check `failed`, and store
@@ -74,47 +72,34 @@ bed) feed many shots, **upload once, then presign per shot**:
 2. Right before each submission, `media_presign` the keys that shot needs, check
    per-key `code`, and submit immediately while the URLs are valid.
 
-## Temporary HTTP References
+## Managed Files
 
-`media_prepare_upload` is HTTP-only, disabled by default, and shared across
-image/audio/video references. Check tools/list; anonymous discovery is not
-upload entitlement. An operator-enrolled client secret authorizes signing
-without a generation-provider key. Preparation takes metadata only and does
-not receive bytes, access the client's files, inspect media or verify existence.
+Managed reference files use `ark_file_upload`, `ark_file_get`,
+`ark_file_list`, and `ark_file_delete` with the ModelArk API key. Default
+`purpose="agent"` uses provider-managed storage without bucket setup. Retrieve
+the accepted file ID until active with a `download_url`, then pass that URL
+to generation. The client-side `seed-mcp-upload` streams local files directly
+to ModelArk; HTTP MCP accepts HTTPS source URLs, not local paths or Base64.
+Reads do not renew the documented 24-hour/100-download URL limit. No upload
+enrollment, TOS signer, IRSA, application file database or cleanup worker remains.
+Never automatically retry an uncertain upload/delete; keep file/request IDs.
 
-1. Send `{"input":{"media_type":"image","mime_type":"image/png","size_bytes":1234}}`,
-   using the actual binary byte size and exact allowed MIME. Caps: 10 MiB
-   image/audio, 200 MiB video.
-2. An upload-capable client sends multipart POST to `upload_url`, every
-   `form_fields` value unchanged, then binary `file` LAST. Wait for success.
-3. Use the complete `reference_url` in existing generation inputs with normal
-   provider BYOK headers, promptly enough for queued provider fetches.
+On HTTP, all four Files tools require the user's own `X-ModelArk-Api-Key`
+and optional `X-MCP-Client-Secret`; neither is persisted by the MCP server.
+The client secret separates admission, not file ownership. No TOS bucket or
+operator upload enrollment is needed. Check tools/list before use: source
+support and local smoke results do not establish public cloud availability.
 
-The server selects a unique exact key; private ACL, STANDARD storage, exact
-declared MIME/byte size, forbid-overwrite and one-day object expiry are signed.
-POST expires in 15 minutes; GET in 24 hours from preparation. STS expiry can
-shorten both. Signed fields/URLs are sensitive bearer permissions, not
-guaranteed one-use tokens. Never log or publish them.
-URL expiry does not delete data; one-day object expiry is scheduled from
-Last-Modified/following midnight, not exact 24-hour deletion.
-There is no HTTP renewal/finalization tool, upload record or global storage/
-egress budget. Client attachment alone does not perform this upload.
-
-Operator signing can use static AK/SK or explicit VKE IRSA with lazily refreshed
-temporary credentials. IRSA changes no client inputs or generation BYOK headers.
-Its default one-hour STS session can shorten nominal GET validity to an hour
-or less; refresh never extends issued URLs. Use an independently managed
-reference source when longer validity is required. Credential-unavailable
-errors require operator STS/trust/token diagnosis, not submitting generation
-keys to the server or enabling IAM automatically.
-
-Operators enable `MCP_TEMPORARY_UPLOAD_ENABLED` with TOS and
-`MCP_UPLOAD_CLIENT_SECRET_SHA256`: 1-1000 unique lowercase digests of exact ASCII
-client-secret values (not decoded bytes), comma-separated without spaces.
-Require private dedicated bucket, versioning disabled, restricted prefix IAM,
-browser POST CORS as needed, lifecycle backstop and abuse/spend controls.
-These are separate approved operator actions. Read `docs/temporary-uploads.md`
-in the selected checkout for configuration and client-side multipart code.
+Use `seed-mcp-upload --file /absolute/reference.mp4 --api-key-env
+BYTEPLUS_MODELARK_API_KEY --confirm-upload` only after exact-file consent.
+Its 600-second deadline retains available safe request IDs and reports dispatch
+uncertainty. Reconcile those IDs; a timeout is not provider cancellation.
+Get/list/delete can affect files authorized by a shared provider key.
+Deletion requires explicit `confirm=true`; wait for dependent generation first.
+The helper emits the ID, not signed URLs, and reads no .env/client config.
+Local uploads are capped at 512,000,000 bytes. Retention defaults to seven
+days; `expire_at` can select 1-30 days. Provider-managed storage is documented
+as 20 GB per account. Never call these URLs permanent assets.
 
 ## Native Seedance assets
 

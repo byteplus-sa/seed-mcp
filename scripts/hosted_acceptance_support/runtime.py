@@ -31,6 +31,10 @@ BODY_LIMIT = 32768
 TOOL_TIMEOUT = 2.0
 PUBLIC_TOOLS = {
     "ark_list_models",
+    "ark_file_upload",
+    "ark_file_get",
+    "ark_file_list",
+    "ark_file_delete",
     "seed_audio_generate",
     "seed_tts_generate",
     "seedream_generate_image",

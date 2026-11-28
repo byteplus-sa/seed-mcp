@@ -60,7 +60,6 @@ from ark_mcp.security.credentials import (  # noqa: E402
     endpoint_default,
     provider_scope,
     redact_request_secrets,
-    upload_scope,
 )
 from ark_mcp.security.http_middleware import (  # noqa: E402
     ByokHeadersMiddleware,
@@ -84,13 +83,16 @@ SERVER_INSTRUCTIONS = (
     "Poll Seedance tasks with gen_task_get; never resubmit a create tool to poll. "
     "Local persistence is explicit; persisted media uses seed-media:// resources. "
     "Reference private assets as "
-    "asset://<asset_id> in Seedance."
+    "asset://<asset_id> in Seedance. Use ark_file_upload/get/list/delete for ModelArk-managed "
+    "reference files without bucket setup. Retrieve download_url before generation."
 )
 
 HTTP_SERVER_INSTRUCTIONS = (
     "Seed MCP: customer-key ModelArk and Seed Speech. "
     "Call ark_list_models first, then call provider tools directly in the foreground. "
-    "Configure provider keys and X-MCP-Client-Secret privately in client HTTP headers, "
+    "Configure the selected provider key privately in client HTTP headers; "
+    "X-MCP-Client-Secret is optional for separate per-client admission. Without it, "
+    "clients using the same provider key share admission limits. Put credentials in headers, "
     "never prompts or tool arguments. No OAuth, signup or MCP bearer key is used. "
     "Poll existing video task IDs; never resubmit a create call to poll. "
     "HTTP is stateless: no task ownership ledger, durable replay or budget accounting. "
@@ -98,14 +100,13 @@ HTTP_SERVER_INSTRUCTIONS = (
     "Omit idempotency_key; supplied legacy keys are rejected. Never automatically repeat "
     "an uncertain create: it may submit and bill again. Retain provider task IDs. "
     "HTTP output is temporary provider URLs: persist and persist_output must be false. "
-    "Background tasks, local uploads and artifact resources are not available over HTTP."
-)
-HTTP_UPLOAD_INSTRUCTIONS = (
-    " The optional media_prepare_upload tool signs temporary direct-to-TOS uploads for "
-    "operator-enrolled X-MCP-Client-Secret values only; no generation-provider key is "
-    "needed for preparation. An upload-capable client must upload the file directly to "
-    "TOS, then use reference_url only after upload success. Signed fields and URLs are "
-    "sensitive bearer permissions. This does not inspect bytes or provide a global quota."
+    "Background tasks, local paths and artifact resources are not available over HTTP. "
+    "Use ark_file_upload/get/list/delete with the ModelArk key for managed reference files. "
+    "HTTP upload accepts public HTTPS source URLs; seed-mcp-upload streams local files "
+    "directly from the client to ModelArk. Default purpose=agent; retrieve the accepted "
+    "file ID until active with a download_url, then pass that URL to generation. "
+    "Signed URLs are private, have separate 24-hour/100-download limits, and are not renewed "
+    "by reads. Wait for dependent generation tasks to finish before deleting their files."
 )
 
 
@@ -117,9 +118,6 @@ def _direct_handler(
     read_only: bool,
 ) -> Callable[..., Awaitable[Any]]:
     async def invoke(*args: Any, **kwargs: Any) -> Any:
-        if settings.mcp_transport == "http" and entry.name == "media_prepare_upload":
-            with upload_scope(settings):
-                return await handler(*args, **kwargs)
         if settings.mcp_transport != "http" or entry.provider is None:
             return await handler(*args, **kwargs)
         with provider_scope(settings, entry.provider):
@@ -292,7 +290,6 @@ def create_server(
         "Ark Seed Multimodal",
         instructions=(
             HTTP_SERVER_INSTRUCTIONS
-            + (HTTP_UPLOAD_INSTRUCTIONS if resolved_settings.temporary_upload_enabled else "")
             if resolved_settings.mcp_transport == "http"
             else SERVER_INSTRUCTIONS
         ),
@@ -343,7 +340,6 @@ def create_server(
             f"Seedream default model: {resolved_settings.seedream_default_model}\n"
             f"Seedream default family: {_seedream_default_family(resolved_settings)}\n"
             f"Seed Audio configured: {resolved_settings.has_seed_audio}\n"
-            f"TOS configured: {resolved_settings.has_tos}\n"
             f"S3 configured: {resolved_settings.has_s3}\n"
             f"Object storage backend: {resolved_settings.object_storage_backend}\n"
             f"Artifact backend: {resolved_settings.artifact_backend}\n"

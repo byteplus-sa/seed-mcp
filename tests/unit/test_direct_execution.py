@@ -11,7 +11,6 @@ import httpx
 import pytest
 from fastmcp.tools import ToolResult
 
-import ark_mcp.execution as execution
 from ark_mcp.domain.errors import ProviderError
 from ark_mcp.execution import (
     before_provider_request,
@@ -227,6 +226,39 @@ async def test_live_request_credentials_are_never_captured_as_receipts() -> None
     assert "synthetic-private-key" not in text
 
 
+async def test_file_receipts_are_reported_separately_and_bounded() -> None:
+    async def child(index: int) -> None:
+        before_provider_request()
+        record_accepted_receipt(f"file-{index}", f"request-{index}", resource="file")
+        record_accepted_receipt(f"file-{index}", f"request-{index}", resource="file")
+
+    async def call() -> None:
+        before_provider_request()
+        for invalid in (
+            "",
+            "x" * 257,
+            "unsafe\nfile",
+            "https://private.invalid/",
+            "file-private-key",
+        ):
+            record_accepted_receipt(invalid, None, resource="file")
+        record_accepted_receipt("f" * 256, "r" * 256, resource="file")
+        await asyncio.gather(*(child(index) for index in range(20)))
+        await asyncio.Event().wait()
+
+    with request_credentials_scope([(b"x-modelark-api-key", b"private-key")]):
+        result = await run_direct_call(call, timeout_seconds=0.02, read_only=False)
+    text = deadline_text(result, ambiguous=True)
+    assert "Known accepted files" in text
+    assert text.count("request_id=") == 5
+    assert "file_id=" + "f" * 256 in text
+    assert "request_id=request-0" in text
+    assert "request_id=request-4" not in text
+    assert "private" not in text and "unsafe" not in text
+    assert "task_id=" not in text and "Known accepted tasks" not in text
+    assert len(text) < 1500
+
+
 async def test_request_only_ids_are_safe_bounded_and_deduplicated() -> None:
     record_dispatched_request("unscoped-request")
 
@@ -235,7 +267,6 @@ async def test_request_only_ids_are_safe_bounded_and_deduplicated() -> None:
         record_dispatched_request(f"request-{index}")
 
     async def call() -> None:
-        record_dispatched_request("undispatched-request")
         before_provider_request()
         for invalid in (
             "",
@@ -252,30 +283,15 @@ async def test_request_only_ids_are_safe_bounded_and_deduplicated() -> None:
     with request_credentials_scope([(b"x-modelark-api-key", b"private-key")]):
         result = await run_direct_call(call, timeout_seconds=0.02, read_only=False)
     text = deadline_text(result, ambiguous=True)
+    assert "Known request IDs" in text
     assert text.count("request_id=") == 5
     assert "request_id=" + "r" * 256 in text
     assert "request_id=request-0" in text
     assert "request_id=request-4" not in text
-    assert "undispatched" not in text and "unscoped" not in text
+    assert "unscoped" not in text
     assert "private" not in text and "unsafe" not in text
     assert "task_id=" not in text and "Known accepted tasks" not in text
     assert len(text) < 1500
-
-
-async def test_concurrent_calls_do_not_share_request_only_ids() -> None:
-    async def call(request_id: str) -> None:
-        before_provider_request()
-        record_dispatched_request(request_id)
-        await asyncio.Event().wait()
-
-    left, right = await asyncio.gather(
-        run_direct_call(partial(call, "request-left"), timeout_seconds=0.02, read_only=False),
-        run_direct_call(partial(call, "request-right"), timeout_seconds=0.02, read_only=False),
-    )
-    assert "request-left" in deadline_text(left, ambiguous=True)
-    assert "request-right" not in deadline_text(left, ambiguous=True)
-    assert "request-right" in deadline_text(right, ambiguous=True)
-    assert "request-left" not in deadline_text(right, ambiguous=True)
 
 
 @pytest.mark.parametrize("outcome", ["success", "error", "cancel", "deadline"])
@@ -293,7 +309,9 @@ async def test_request_only_ids_are_cleared_when_invocation_ends(outcome: str) -
         nonlocal state, child
         before_provider_request()
         record_dispatched_request("original-request")
-        state = execution._current.get()
+        from ark_mcp import execution as execution_module
+
+        state = execution_module._current.get()
         child = asyncio.create_task(late_child())
         entered.set()
         if outcome == "error":

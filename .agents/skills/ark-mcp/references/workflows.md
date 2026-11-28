@@ -10,7 +10,7 @@ artifact recovery are in [polling-and-artifacts.md](polling-and-artifacts.md).
 
 **Both transports call the product tool directly, without MCP jobs or native tasks.**
 For HTTP, read provider IDs from the direct result, poll with an authorized
-provider key and required client secret, keep persistence false and download
+provider key and optional client secret, keep persistence false and download
 URLs yourself. The client secret scopes admission, not task access.
 All persistence/export instructions below describe local stdio.
 Both transports reject explicit per-call `io.modelcontextprotocol/tasks` opt-in, including
@@ -114,8 +114,8 @@ For Seedance:
 - Use only a stable hashed `safety_identifier` (1-64 non-space ASCII);
   previews/logs redact it, while `generations` preserves the provider echo.
 - To iterate on a generated image, pass its provider URL (valid 24 h) or
-  re-upload via stdio `media_upload` or an upload-capable HTTP client with
-  optional `media_prepare_upload`, then use the signed URL after upload success.
+  upload via stdio `ark_file_upload` or client-side `seed-mcp-upload`, then
+  retrieve the accepted ID and use its active download_url.
 - A fixed `seed` helps reproduce request settings, not guaranteed pixels. With
   `variations > 1`, `seed` is a base: `N` gives `N, N+1, ...`, `-1` picks a
   random recorded seed per variation, omitted leaves them unrecorded. On
@@ -269,7 +269,7 @@ captures safe IDs in the live invocation.
 
 | Symptom | Cause | Fix |
 |---|---|---|
-| Tool missing from the tool list | Missing provider key or selected TOS/S3 configuration | Check `ark_list_models.services` and [environment.md](environment.md); restart after approved configuration changes |
+| Tool missing from the tool list | Missing provider key or selected S3 configuration | Check `ark_list_models.services` and [environment.md](environment.md); restart after approved configuration changes |
 | `Request is not valid for model ...` (Seedance, Seedream) | Request breaks that model's limits; every violation is listed | Fix each item or pick another model from `ark_list_models`; re-check with `dry_run: true` |
 | Model not found | Unknown ID (exact IDs only) | Use the did-you-mean hint or `ark_list_models` |
 | Artifact has `persistence_error` | Billed output, storage failed after retries | `id="provider-url"`: `seed_media_persist_url` before `source_url_expires_at`; `id="inline-fallback"`: bytes are in `fallback_data` |
@@ -277,7 +277,7 @@ captures safe IDs in the live invocation.
 | `media_upload` rejected for `MEDIA_UPLOAD_BATCH_MAX_BYTES` | Total size over the cap; nothing uploaded | Split into smaller calls |
 | `media_upload` succeeds with `failed > 0` | Some items failed (validation, missing file, uninferable `mime_type`, provider) | Read `items[].error`; re-upload only those, retrying when `retryable=true` |
 | Presigned URL expired / `NOT_OWNED` | TTL elapsed (default 30 min) / key not uploaded by this caller | `media_presign` with the `object_keys`; re-upload foreign keys |
-| HTTP credential rejection | Missing or malformed selected provider key/client secret | Configure private BYOK headers; never use `Authorization` or paste values into chat |
+| HTTP credential rejection | Missing/malformed selected provider key, or malformed/reused optional secret | Configure the private provider header; omit the optional secret or supply a valid independent value. Never use `Authorization` or paste values into chat |
 | Asset administration unavailable | Not part of this server | Use an authorized provider console or external workflow |
 
 ## Best practices beyond the schemas
@@ -288,10 +288,10 @@ captures safe IDs in the live invocation.
   keys it needs and submit immediately. Use a long `expires_in_seconds` (for
   example 3600) for references, which are fetched asynchronously. Existing
   native `asset://` references do not need an ordinary upload or presign.
-- **On HTTP, use your own URLs or optional temporary TOS preparation.**
-  An enrolled client calls `media_prepare_upload`, uploads the file directly
-  with file last, waits for success, then submits generation promptly.
-  Temporary references have no renewal tool; never publish signed permissions.
+- **On HTTP, use managed Files or your own URLs.**
+  The client-side helper streams local files to ModelArk; retrieve the ID through
+  `ark_file_get` and use its active download_url. Do not retry uncertain uploads,
+  renew URLs through reads, or delete files while generation still uses them.
 - **Verify saved media, not task status** (see the QA sections).
 - **Persist before cleaning up.** Provider URLs expire (2 h audio, 24 h
   ModelArk image/video); `gen_task_cancel_or_delete` removes retrievable outputs.

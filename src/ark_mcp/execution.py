@@ -8,7 +8,7 @@ import re
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Literal
 
 from fastmcp.tools import ToolResult
 
@@ -28,6 +28,7 @@ class _DirectExecution:
     request_started: bool = False
     side_effect_started: bool = False
     receipts: dict[str, str | None] = field(default_factory=dict)
+    file_receipts: dict[str, str | None] = field(default_factory=dict)
     request_ids: list[str] = field(default_factory=list)
 
 
@@ -39,7 +40,6 @@ _current: ContextVar[_DirectExecution | None] = ContextVar("direct_execution", d
 _slot_mutations: ContextVar[list[bool] | None] = ContextVar("slot_mutations", default=None)
 _state_cleanup: ContextVar[bool] = ContextVar("state_cleanup", default=False)
 _MAX_RECEIPTS = 5
-_MAX_REQUEST_IDS = 5
 
 
 def before_provider_request(*, side_effect: bool = True) -> None:
@@ -111,7 +111,9 @@ async def authorize_provider_request(*, side_effect: bool = True) -> None:
     before_provider_request(side_effect=side_effect)
 
 
-def record_accepted_receipt(task_id: str, request_id: str | None) -> None:
+def record_accepted_receipt(
+    task_id: str, request_id: str | None, *, resource: Literal["task", "file"] = "task"
+) -> None:
     """Retain bounded safe IDs in the live call, shared by its variation children."""
     current = _current.get()
     if current is None or not current.active:
@@ -126,16 +128,20 @@ def record_accepted_receipt(task_id: str, request_id: str | None) -> None:
         or redact_request_secrets(request_id) != request_id
     ):
         request_id = None
-    if task_id not in current.receipts and len(current.receipts) >= _MAX_RECEIPTS:
+    receipts = current.file_receipts if resource == "file" else current.receipts
+    if (
+        task_id not in receipts
+        and len(current.receipts) + len(current.file_receipts) >= _MAX_RECEIPTS
+    ):
         return
-    if current.receipts.get(task_id) is None:
-        current.receipts[task_id] = request_id
+    if receipts.get(task_id) is None:
+        receipts[task_id] = request_id
 
 
 def record_dispatched_request(request_id: str) -> None:
-    """Retain safe request-only correlation IDs, never task acceptance claims."""
+    """Retain bounded safe request IDs for tools without task or file receipts."""
     current = _current.get()
-    if current is None or not current.active or not current.request_started:
+    if current is None or not current.active:
         return
     if (
         not isinstance(request_id, str)
@@ -143,8 +149,14 @@ def record_dispatched_request(request_id: str) -> None:
         or redact_request_secrets(request_id) != request_id
     ):
         return
-    if request_id not in current.request_ids and len(current.request_ids) < _MAX_REQUEST_IDS:
-        current.request_ids.append(request_id)
+    if request_id in current.request_ids:
+        return
+    if (
+        len(current.receipts) + len(current.file_receipts) + len(current.request_ids)
+        >= _MAX_RECEIPTS
+    ):
+        return
+    current.request_ids.append(request_id)
 
 
 def _deadline_result(current: _DirectExecution) -> ToolResult:
@@ -173,11 +185,17 @@ def _deadline_result(current: _DirectExecution) -> ToolResult:
             for task_id, request_id in current.receipts.items()
         )
         message += ". Poll only where ownership is recorded; otherwise reconcile with the provider."
+    if current.file_receipts:
+        message += " Known accepted files: " + "; ".join(
+            f"file_id={file_id}" + (f", request_id={request_id}" if request_id else "")
+            for file_id, request_id in current.file_receipts.items()
+        )
+        message += ". Retrieve these IDs with ark_file_get; do not upload again."
     if current.request_ids:
         message += " Known request IDs: " + "; ".join(
             f"request_id={request_id}" for request_id in current.request_ids
         )
-        message += ". These are correlation IDs, not task IDs or proof of provider acceptance."
+        message += ". Reconcile through the provider using these request IDs."
     return ToolResult(
         content=(
             f"TOOL_DEADLINE_EXCEEDED: {message} "
@@ -227,5 +245,6 @@ async def run_direct_call(
     finally:
         current.active = False
         current.receipts.clear()
+        current.file_receipts.clear()
         current.request_ids.clear()
         _current.reset(token)

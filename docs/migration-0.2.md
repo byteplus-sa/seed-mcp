@@ -34,10 +34,10 @@ is provided.
 4. Rediscover configured tools and models after upgrading. Existing authorized
    Seedance `asset://` references still pass natively with the ModelArk Bearer
    key, but administration, lookup, resolution and status preflight are absent.
-   Ordinary TOS/S3 uploads do not register provider assets.
+   Ordinary S3 uploads do not register provider assets.
 
-Current HTTP is a forward-only BYOK foundation with 8 tools, anonymous static discovery and foreground provider calls.
-Local stdio retains the conditional 13-tool catalog (including Seed TTS) and storage, using direct
+Current HTTP is a forward-only BYOK foundation with 12 tools, anonymous static discovery and foreground provider calls.
+Local stdio retains the conditional 17-tool catalog (including Files and Seed TTS) and storage, using direct
 calls without MCP workers. Removing jobs does not delete current provider
 ownership or journal state; preserve it. No old-auth compatibility or ownership
 migration exists. See [direct execution](../specs/SPEC_DIRECT_EXECUTION.md),
@@ -48,7 +48,7 @@ migration exists. See [direct execution](../specs/SPEC_DIRECT_EXECUTION.md),
 
 **0.2.0 consolidated the tool surface.** One tool per product capability
 replaced the per-model, per-variation and per-operation tools of 0.1.x. The
-broader catalog documented at that time contained **38 tools** when every
+broader catalog documented at that time contained **312 tools** when every
 service was enabled, not the current 12. **There was no
 compatibility layer**: clients, prompts, skills and dashboards that name a
 removed tool must switch to its replacement.
@@ -120,7 +120,7 @@ unchanged by that consolidation. Both are removed from the current server.
 
 - **Current image support:** Seedream 5.5 only. `background="transparent"` generates PNGs from text or reference images without existing alpha. Older family bindings must be replaced with verified 5.5 bindings; see the [upgrade note](configuration.md#seedream-default-model-upgrade-note).
 - **New:** `dry_run=true`.
-- **`max_images` accepts only 1 or omission; use `variations` for multiple images.**
+- **`max_images` and `variations > 1` are mutually exclusive.**
 - **`output_path` replaces `output_dir`;** it must be a directory ending in
   `/` when several images are produced.
 

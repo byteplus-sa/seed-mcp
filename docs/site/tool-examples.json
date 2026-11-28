@@ -2,13 +2,6 @@
   "ark_list_models": {
     "input": {}
   },
-  "media_prepare_upload": {
-    "input": {
-      "media_type": "image",
-      "mime_type": "image/png",
-      "size_bytes": 1048576
-    }
-  },
   "seedream_generate_image": {
     "input": {
       "model": "dola-seedream-5-5-261028",
@@ -43,7 +36,9 @@
   },
   "gen_task_get": {
     "input": {
-      "task_ids": ["cgt-example-replace-me"],
+      "task_ids": [
+        "cgt-example-replace-me"
+      ],
       "persist_output": false
     }
   },
@@ -57,6 +52,29 @@
       "task_id": "cgt-example-replace-me",
       "mode": "cancel",
       "expected_status": "queued",
+      "confirm": true
+    }
+  },
+  "ark_file_upload": {
+    "input": {
+      "url": "https://example.com/reference.png",
+      "purpose": "agent"
+    }
+  },
+  "ark_file_get": {
+    "input": {
+      "file_id": "file-EXAMPLE"
+    }
+  },
+  "ark_file_list": {
+    "input": {
+      "purpose": "agent",
+      "limit": 20
+    }
+  },
+  "ark_file_delete": {
+    "input": {
+      "file_id": "file-EXAMPLE",
       "confirm": true
     }
   }

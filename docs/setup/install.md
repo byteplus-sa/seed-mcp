@@ -4,7 +4,7 @@ description: Connect your AI client to the hosted endpoint. No server installati
 ---
 
 **Seed MCP runs on BytePlus. You only connect your AI client.**
-No local server, software installation or Kubernetes access is needed.
+No local MCP server or Kubernetes access is needed.
 
 <span id="prerequisites"></span>
 <span id="choose-an-installation"></span>
@@ -29,21 +29,31 @@ sending credentials.
 
 ## 2. Configure Private Headers
 
-Generation uses **your own provider key** and may incur charges.
+Start with **MCP URL + your ModelArk API key**. Generation may incur charges.
 Use your client's protected secret settings or environment-backed headers.
 
 | Header | Value you supply privately |
 | --- | --- |
-| `X-ModelArk-Api-Key` | Your ModelArk API key for Seedream images and Seedance video |
+| `X-ModelArk-Api-Key` | Your ModelArk API key for images, video and managed Files |
 | `X-Seed-Speech-Api-Key` | Your Seed Speech API key for Seed Audio and enabled TTS |
-| `X-MCP-Client-Secret` | An independent client-generated secret, required for every provider call |
+| `X-MCP-Client-Secret` | Optional: separate per-client concurrency admission |
 
 Use the provider key for your chosen service, or both for image/video and audio.
 [Get API keys](../api-keys.md).
 
-Generate the client secret privately with a trusted secret manager or OS
-cryptographic random generator: **32 random bytes encoded as 64 lowercase hex
-characters**. Keep it stable and different from every provider key.
+Omit the client-secret header for the simplest setup. Callers using the same
+provider key then share one per-pod principal concurrency allowance.
+
+### Optional Client Secret
+
+To separate client admission, generate **32 random bytes encoded as 64 lowercase hex**
+privately (for example, `openssl rand -hex 32`). Keep the value stable and
+different from every provider key. Add `X-MCP-Client-Secret` through your
+client's private header settings; do not send an empty value.
+
+For Codex/Claude, the snippet generator's `--client-secret-env SEED_MCP_CLIENT_SECRET`
+opts in using a private environment variable. No server issues or stores this
+secret. It does not change file/task permissions or provide a spend limit.
 
 Never put secrets in chat, shared configuration or Git. Do not use
 `Authorization` or OAuth. The server does not persist provider keys.
@@ -71,7 +81,6 @@ tool_timeout_sec = 660
 
 [mcp_servers."ark-seed".env_http_headers]
 "X-ModelArk-Api-Key" = "SEED_MCP_MODELARK_KEY"
-"X-MCP-Client-Secret" = "SEED_MCP_CLIENT_SECRET" # pragma: allowlist secret
 ```
 
 </details>
@@ -92,8 +101,7 @@ scope. This template is not for Claude Desktop:
       "url": "https://st63a28rvt0o3d9htd28d.apigateway-ap-southeast-1.apigw-byteplus.com/mcp",
       "timeout": 660000,
       "headers": {
-        "X-ModelArk-Api-Key": "${SEED_MCP_MODELARK_KEY}",
-        "X-MCP-Client-Secret": "${SEED_MCP_CLIENT_SECRET}"
+        "X-ModelArk-Api-Key": "${SEED_MCP_MODELARK_KEY}"
       }
     }
   }
@@ -108,7 +116,7 @@ scope. This template is not for Claude Desktop:
 <summary>Configuration</summary>
 
 In TRAE International IDE, open **Settings > MCP > Add > Create Manually**.
-Use the HTTP configuration below. Replace both `<enter-...>` placeholders
+Use the HTTP configuration below. Replace the `<enter-...>` placeholder
 **privately before confirming**, never in chat or a project file:
 
 ```json
@@ -118,7 +126,6 @@ Use the HTTP configuration below. Replace both `<enter-...>` placeholders
       "url": "https://st63a28rvt0o3d9htd28d.apigateway-ap-southeast-1.apigw-byteplus.com/mcp",
       "headers": {
         "X-ModelArk-Api-Key": "<enter-modelark-key-privately>",
-        "X-MCP-Client-Secret": "<enter-independent-client-secret-privately>",
         "RUN_MCP_TIMEOUT_MS": "660000"
       }
     }
@@ -154,8 +161,7 @@ For OpenCode **V2**, merge into user-level
         "codemode": false,
         "timeout": { "execution": 660000 },
         "headers": {
-          "X-ModelArk-Api-Key": "{env:SEED_MCP_MODELARK_KEY}",
-          "X-MCP-Client-Secret": "{env:SEED_MCP_CLIENT_SECRET}"
+          "X-ModelArk-Api-Key": "{env:SEED_MCP_MODELARK_KEY}"
         }
       }
     }
@@ -186,8 +192,7 @@ Configure MCP Servers** and merge:
       "url": "https://st63a28rvt0o3d9htd28d.apigateway-ap-southeast-1.apigw-byteplus.com/mcp",
       "timeout": 660,
       "headers": {
-        "X-ModelArk-Api-Key": "${env:SEED_MCP_MODELARK_KEY}",
-        "X-MCP-Client-Secret": "${env:SEED_MCP_CLIENT_SECRET}"
+        "X-ModelArk-Api-Key": "${env:SEED_MCP_MODELARK_KEY}"
       },
       "disabled": false,
       "autoApprove": []
@@ -228,7 +233,8 @@ with {"input": {}}. Report available services and models.
 Do not generate media, upload files, or make paid calls.
 ```
 
-Expect eight tools and `connection=null`.
+This source revision exposes twelve tools and `connection=null`. A hosted
+deployment may still run an earlier revision; tools/list is authoritative.
 Discovery is free and makes no
 provider calls; it does not validate your key or account access.
 Problems? See [connection checks](shared-server.md).
@@ -237,9 +243,11 @@ Then [create your first image, video or audio clip](first-run.md).
 
 ### Hosted Availability
 
-Seedream, Seedance and Seed Audio are available. Seed TTS 3 returns
-native audio directly without TOS; client playback support varies. Local file tools are
-not hosted. See [TTS](/seed-mcp/tool-reference/seed-tts-generate/) and [service limits](../service.md).
+Check tools/list for the deployed revision. [Managed Files](../files.md) use
+your ModelArk key without a TOS bucket: cloud uploads import HTTPS URLs;
+local uploads require installing `seed-mcp-upload` on the client.
+[Seed TTS 3](/seed-mcp/tool-reference/seed-tts-generate/) returns native audio without TOS;
+playback varies. See [service limits](../service.md).
 
 <span id="guided-local-setup"></span>
 
