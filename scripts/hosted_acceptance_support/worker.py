@@ -30,6 +30,8 @@ from scripts.hosted_acceptance_support.runtime import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import AsyncIterator
+
     from starlette.types import ASGIApp, Receive, Scope, Send
 
 
@@ -182,7 +184,7 @@ def serve(directory: Path, port: int, mode: str) -> None:
         record("tts")
 
         class AudioStream(httpx.AsyncByteStream):
-            async def __aiter__(self):
+            async def __aiter__(self) -> AsyncIterator[bytes]:
                 yield b'{"event":"ready","session_id":"synthetic-session"}\n'
                 chunk = (
                     json.dumps(
