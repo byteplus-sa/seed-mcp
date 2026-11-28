@@ -4,7 +4,7 @@ title: Hosted Deployment Status
 
 # Hosted Deployment Status
 
-**Verified public on November 27, 2026, at 08:28 UTC.** This is a point-in-time
+**Verified public on November 28, 2026, at 08:19 UTC.** This is a point-in-time
 record for the operator's existing Seed MCP deployment, not a general
 availability SLA or a default target for other installations.
 
@@ -39,17 +39,17 @@ risk. Do not generalize the exception to another deployment.
 | VKE | `cdc0gtum20sprm8k132h0`, `v1.36.1-vke.7`, private API only |
 | Namespace / release | `seed-mcp-staging` / `seed-mcp` |
 | Mode | `apig-production`; the retained namespace name is historical |
-| Source | `0b60ea03aa98726b7b71c99abc697ae768504469` (PR #15) |
-| Image | `ghcr.io/byteplus-sa/seed-mcp@sha256:d6cfd78c0b8802caefd8baf132c2039ea155a12bd228c2009b9fa10e19331228` |
-| Helm / Deployment | Revision 4 / generation 5 |
-| Replicas | Two Ready, zero restarts, one on each baseline worker |
+| Source | `ed3c184c3d3baba43da3408c4a742092bc3ff074` (native TTS audio) |
+| Image | `ghcr.io/byteplus-sa/seed-mcp@sha256:f976af48c53f903195e060e5b4ecea32a23456fca27490ae085296d5834c96fe` |
+| Helm / Deployment | Revision 6 / generation 7 |
+| Replicas | Two Ready, zero restarts, on distinct workers `10.80.0.147` and `10.80.0.152` |
 | Application Service | Private ClusterIP, TCP 8443, no session affinity |
 | State / uploads | `STATE_BACKEND=none`, no PVC/database, temporary uploads disabled |
 | Provider credentials | Client-side headers only; absent from application environment |
 | Scaling | HPA 2-6; two fixed baseline workers, optional burst pool 0-2 |
 | Private metrics | Disabled; `/metrics` and `/ready` are not public |
 
-The final rollout used one burst worker and then automatically returned to
+The November 27 rollout used one burst worker and then automatically returned to
 the two baseline workers (`10.80.0.146`, `10.80.0.147`). No manual node or
 autoscaler change was made. Final node count was two at 08:19 UTC.
 The baseline workers share an AZ; hostname spreading is not AZ resilience.
@@ -70,6 +70,42 @@ means no route timeout; application/client/grace limits remain in force.
 Ingress remains limited to `10.80.48.0/20` and `10.80.64.0/20`.
 No public CLB replacement, hosted database, execution journal or server budget
 ledger was introduced.
+
+## Native TTS Update
+
+On November 28, the operator selected direct audio instead of TOS downloads
+and a 30 MiB decoded-audio limit. HTTP now exposes eight baseline tools.
+`seed_tts_generate` returns one native MCP audio block plus metadata, with no
+TOS credentials, output bucket, feature flag or download URL. Other media tools
+retain their existing provider-URL delivery. Stdio persistence remains intact.
+
+- [Exact-head CI](https://github.com/byteplus-sa/seed-mcp/actions/runs/46123945896)
+  and image digest verification passed.
+- [Protected check](https://github.com/byteplus-sa/seed-mcp/actions/runs/46124606000)
+  and [one-shot rollout](https://github.com/byteplus-sa/seed-mcp/actions/runs/46124895457)
+  passed on different fresh ephemeral runners. Runner registrations, Pods,
+  ConfigMaps and registration Secrets were removed; readiness is false again.
+- Public H1/H2 health, eight-tool inventory, TTS discovery and its 31,457,280-byte
+  limit passed. Anonymous TTS/image calls were rejected, Authorization remained
+  rejected, and private routes remained 404. A real FastMCP client verified discovery.
+- Both final replicas use the verified image, `STATE_BACKEND=none`, no PVC,
+  no operator generation/storage credentials, and disabled temporary uploads.
+  Three workers were Ready at 08:19 UTC; this rollout used one burst worker.
+  Subsequent automatic scale-in was not revalidated in this update.
+- Local validation passed 3,567 Python/Helm tests (20 skipped), 79 documentation
+  tests, and mock-only HTTPS/drain checks. The full 30 MiB audio response passed
+  through local Caddy and a FastMCP client; one byte over the limit was rejected.
+- After separate explicit approval and dependency checks, the unused
+  `seed-mcp-tts-output-3000006864-20261128` bucket,
+  `seed-mcp-tts-output-20261128` IAM user and `SeedMcpTtsOutput20261128` policy
+  were deleted and confirmed absent. The bucket was empty, no runtime keys
+  existed, and no TTS Kubernetes output Secret had been created.
+
+**No paid synthesis was performed for this update.** Maximum-size delivery
+through public APIG, concurrent maximum-size production capacity, IDE playback/
+saving, voice entitlement and audio quality remain unverified. A 30 MiB audio
+block is 40 MiB Base64 before metadata. A lost response has no recovery API;
+do not automatically repeat synthesis.
 
 ## Delivery Evidence
 
@@ -135,6 +171,9 @@ private-file deletion or paid provider call was performed for this quarantine.
 See the [retirement runbook](github-actions-deployment.md#legacy-staging-retirement).
 
 ## Acceptance Evidence
+
+The following paid-provider and launch evidence is from November 27, not the
+native TTS update above.
 
 The operator explicitly approved bounded real tests with client-side keys,
 an aggregate US$5 ceiling, and public launch after the gates passed.
