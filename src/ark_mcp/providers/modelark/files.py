@@ -247,7 +247,8 @@ class ModelArkFilesGateway(ModelArkGateway):
                 upload=True,
                 files={key: (None, value) for key, value in fields.items()},
             )
-        assert file_path is not None
+        if file_path is None:
+            raise ValueError("Provide a local file path when url is omitted.")
         stream = LocalFileUpload(file_path, fields)
         try:
             return await self._send(
