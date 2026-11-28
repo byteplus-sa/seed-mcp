@@ -26,7 +26,8 @@ test("the public site is a small explicit hosted guide, not the whole handbook",
     const text = read(`docs/${source}`);
     // Connection setup includes five client-specific, collapsible templates.
     // Files covers four operations, a local client helper and destructive/retention rules.
-    const limit = source === "files.md" ? 1000 : source === "setup/install.md" ? 900 : 450;
+    const limit =
+      source === "files.md" ? 1000 : source === "setup/install.md" ? 900 : 450;
     assert.ok(
       text.split(/\s+/).length <= limit,
       `${source}: keep the guide concise`,
