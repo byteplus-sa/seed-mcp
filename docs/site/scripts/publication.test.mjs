@@ -53,8 +53,7 @@ test("Astro and generated links share the Seed MCP publication identity", () => 
   assert.match(home, /Local stdio only/);
   const notFound = read("docs/404.md");
   assert.match(notFound, /link: \/seed-mcp\/setup\/install\//);
-  // Starlight renders this through its dedicated 404 route, not the catch-all.
-  assert.match(notFound, /draft: true/);
+  assert.doesNotMatch(notFound, /draft: true/);
 });
 
 test("current handbook and bundled skills do not send readers to upstream Pages", () => {
