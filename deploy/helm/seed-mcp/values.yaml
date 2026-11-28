@@ -45,8 +45,8 @@ app:
   rateLimitRpm: 60
   rateLimitBurst: 0
   dailyBudgetUsd: 0
-  providerMaxConcurrency: 5
-  principalMaxConcurrency: 3
+  providerMaxConcurrency: 10
+  principalMaxConcurrency: 10
   metricsEnabled: false
 models:
   seedream:

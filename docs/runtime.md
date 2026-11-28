@@ -72,8 +72,8 @@ Two per-pod layers, acquired owner-first for billable calls:
 
 - **Provider-level** — one global `asyncio.Semaphore` per provider bucket:
   `"modelark"`, `"seed-speech"`, `"tos"`, and `"s3"`.
-  Each is independently sized to `provider_limit`, so the default cap is five
-  concurrent calls per provider rather than five shared across all providers.
+  Each is independently sized to `provider_limit`, so the default cap is ten
+  concurrent calls per provider rather than ten shared across all providers.
 - **Principal-level** — one `asyncio.Semaphore(principal_limit)` per
   owner, keyed by `(tenant_id, principal_id)` in a bounded registry.
   Active holders and waiters pin the same entry; idle entries are removed.
@@ -87,17 +87,39 @@ provider slot, so a same-owner backlog cannot monopolize that provider.
 
 For a **local principal** (stdio transport), the
 per-principal semaphore is **skipped**: a single trusted local caller is
-bounded only by the provider limit. Without this, the default
-`PRINCIPAL_MAX_CONCURRENCY=3` would silently cap *all* concurrent calls across
-every provider at 3 — below the per-provider limit of 5 — making parallel
-local generation appear to "serialize under load." The per-principal bound
-applies to HTTP owners derived from the selected provider credential and
-client secret. Unrelated provider keys do not change that scope.
+bounded only by the provider limit, with independent capacity in each provider
+bucket. The per-principal bound applies to HTTP owners derived from the selected
+provider credential and client secret. Unrelated provider keys do not change
+that scope.
 
 | Env var | Default | Constraint | Used as |
 |---|---|---|---|
-| `PROVIDER_MAX_CONCURRENCY` | `5` | `ge=1` | per-bucket provider limit |
-| `PRINCIPAL_MAX_CONCURRENCY` | `3` | `ge=1` | derived HTTP owner limit; skipped on local stdio |
+| `PROVIDER_MAX_CONCURRENCY` | `10` | `ge=1` | per-bucket provider limit |
+| `PRINCIPAL_MAX_CONCURRENCY` | `10` | `ge=1` | derived HTTP owner limit; skipped on local stdio |
+
+These are shared per-process/pod admission ceilings, not reserved capacity for
+each client, provider quotas, or cluster-wide limits. With both defaults at ten,
+one HTTP owner can occupy all ten slots in its selected provider bucket. ModelArk
+and Seed Speech each have their own ten-slot bucket. Slots cover admitted call
+execution, not the number of outstanding asynchronous Seedance tasks after
+creation returns. Explicit environment or Helm overrides remain authoritative.
+
+### Pod capacity
+
+Inference runs at the provider, but the pod still handles network traffic and
+response collection, encoding and serialization. Seed TTS can collect 30 MiB of
+decoded audio per call and encode up to 40 MiB of Base64 before metadata. Ten
+maximum-size responses therefore represent 300 MiB decoded plus 400 MiB Base64,
+excluding copies, metadata, transport buffers and application overhead. This
+payload arithmetic is **not measured peak RSS** or a capacity guarantee.
+
+The chart keeps its existing application resources (512 MiB memory request,
+2048 MiB limit; 500m CPU request, 2000m limit) and CPU-only HPA (70% target,
+2–6 pods). Busy slots or memory pressure alone do not trigger that HPA. Validate
+representative mixed traffic and ten-way maximum-size TTS memory/latency before
+production rollout; the higher defaults do not establish production capacity.
+
+### Admission failures
 
 The owner registry defaults to capacity 10,000. Active/waiting entries cannot
 be evicted and replaced with independent semaphores. A new owner beyond

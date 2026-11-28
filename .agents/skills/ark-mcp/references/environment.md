@@ -189,8 +189,11 @@ verified bindings. Used endpoint headers still require exact registry matches;
 explicit tool `model` wins. This adds no endpoint-authority verification.
 Only explicit env mappings exist, not arbitrary env or secret maps.
 `app.dailyBudgetUsd=0` is required; HTTP has no budget ledger;
-`app.providerMaxConcurrency=5`, `app.principalMaxConcurrency=3` and
+`app.providerMaxConcurrency=10`, `app.principalMaxConcurrency=10` and
 `app.rateLimitBurst=0` retain their defaults. These limits are per pod, not account-wide spend protection.
+Provider slots are shared across clients, not reserved per client. Pod resources
+and CPU-only HPA are unchanged; validate representative load and maximum-size
+TTS memory use before rollout.
 
 `cloud-controller-manager` and addon lifecycle are VKE-admin owned outside
 Terraform/Helm. Inspect existing addons; install absent compatible maintained

@@ -488,7 +488,7 @@ development, never in production.
 ### Concurrency
 
 The server enforces a process-wide concurrency limit per provider
-(`PROVIDER_MAX_CONCURRENCY`, default 5). When `OBJECT_STORAGE_BACKEND=s3`,
+(`PROVIDER_MAX_CONCURRENCY`, default 10). When `OBJECT_STORAGE_BACKEND=s3`,
 uploads count against the `"s3"` provider slot, not the `"tos"` slot.
 This means TOS and S3 uploads have independent concurrency pools.
 

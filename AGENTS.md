@@ -296,8 +296,10 @@ and selected-default inclusion. Alternate defaults require explicit verified
 bindings; used request headers still need exact registry matches and explicit
 tool `model` wins. No endpoint authority change or arbitrary env map.
 Chart runtime defaults are `app.dailyBudgetUsd=0` (HTTP requires zero),
-`providerMaxConcurrency=5`, `principalMaxConcurrency=3`, `rateLimitBurst=0`.
+`providerMaxConcurrency=10`, `principalMaxConcurrency=10`, `rateLimitBurst=0`.
 These are explicit per-pod env mappings, not account spend caps.
+Provider slots are shared across owners, not reserved per client. Pod resources
+and CPU-only HPA are unchanged; ten-way maximum-size TTS capacity is not verified.
 
 `scripts/hosted_acceptance.py --caddy-bin PATH` runs isolated mock-only TLS/load
 checks without a database or live provider calls. Live VKE routing, rollout,

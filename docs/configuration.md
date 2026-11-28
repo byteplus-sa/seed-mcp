@@ -215,7 +215,7 @@ Nonempty lists must include the default; alternate defaults require explicit
 verified bindings. Header overrides still require exact registry matches.
 See [model and runtime chart values](byteplus-terraform.md#model-and-runtime-values).
 Helm requires `app.dailyBudgetUsd=0`. HTTP has no budget ledger.
-`app.providerMaxConcurrency=5`, `app.principalMaxConcurrency=3` and
+`app.providerMaxConcurrency=10`, `app.principalMaxConcurrency=10` and
 `app.rateLimitBurst=0` map to per-pod limits.
 
 Clients send `X-MCP-Client-Secret` (client-generated 32 random bytes as
@@ -320,8 +320,8 @@ no persistence; provider/principal concurrency remains per pod.
 | `ARTIFACT_DOWNLOAD_TIMEOUT_SECONDS` | `120` | Timeout for each attempt to download provider output into artifact storage (filesystem and object-storage backends) |
 | `ARTIFACT_DOWNLOAD_MAX_ATTEMPTS` | `3` | Attempts (1-10) for a retryable output download (timeouts, network errors, 408/429/5xx), with 1s, 2s, 4s, ... backoff. Expired, untrusted, or oversized sources are never retried |
 | `ARTIFACT_INLINE_FALLBACK_MAX_BYTES` | `8388608` (8 MiB) | When inline output (Seed Audio, Seed TTS, Seedream `b64_json`) cannot be stored, return it inline in `ArtifactRef.fallback_data` up to this decoded size; `0` disables |
-| `PROVIDER_MAX_CONCURRENCY` | `5` | Process-wide slots per provider |
-| `PRINCIPAL_MAX_CONCURRENCY` | `3` | Per-pod slots per credential/client-derived HTTP owner; skipped for local stdio |
+| `PROVIDER_MAX_CONCURRENCY` | `10` | Process-wide slots per provider |
+| `PRINCIPAL_MAX_CONCURRENCY` | `10` | Per-pod slots per credential/client-derived HTTP owner; skipped for local stdio |
 | `DAILY_BUDGET_USD` | `0` | Local UTC daily estimate limit; zero records only on stdio. HTTP requires zero and performs no accounting. Not an account-wide spend guarantee |
 | `PERSISTENCE_CACHE_MAX_SIZE` | `10000` | Max cached provider task IDs in artifact-resolution cache |
 | `PERSISTENCE_CACHE_TTL_SECONDS` | `86400` | TTL for cached task-to-artifact mappings (seconds) |

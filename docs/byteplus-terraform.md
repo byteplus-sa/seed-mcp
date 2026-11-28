@@ -413,9 +413,14 @@ evidence of customer entitlement.
 | `models.seedream.bindings` | `[]` | JSON `SEEDREAM_MODEL_BINDINGS`; entries `{model_id, family}` |
 | `models.seedance.bindings` | `[]` | JSON `SEEDANCE_MODEL_BINDINGS`; entries `{model_id, family}` |
 | `app.dailyBudgetUsd` | `0` | HTTP requires zero; no budget ledger. Use provider spend controls. |
-| `app.providerMaxConcurrency` | `5` | `PROVIDER_MAX_CONCURRENCY`; per-pod slots per provider bucket |
-| `app.principalMaxConcurrency` | `3` | `PRINCIPAL_MAX_CONCURRENCY`; per-pod slots per derived HTTP owner |
+| `app.providerMaxConcurrency` | `10` | `PROVIDER_MAX_CONCURRENCY`; per-pod slots per provider bucket |
+| `app.principalMaxConcurrency` | `10` | `PRINCIPAL_MAX_CONCURRENCY`; per-pod slots per derived HTTP owner |
 | `app.rateLimitBurst` | `0` | `RATE_LIMIT_BURST`; zero inherits RPM, default 60 |
+
+Concurrency defaults do not resize pods or change the CPU-only HPA. Ten slots
+are shared by clients within each provider bucket, not reserved per client.
+See [pod capacity](runtime.md#pod-capacity) for TTS memory considerations and
+the load validation needed before rollout.
 
 Seedream accepts only `seedream_5_5`; Seedance families
 are `standard`, `fast`, `mini`, `seedance_2_5`, `seedance_2_5_flash`.
