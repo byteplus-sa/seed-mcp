@@ -215,6 +215,110 @@ async def test_upload_cancellation_and_receipt_on_deadline(service) -> None:
     assert len(respx.calls) == 1
 
 
+@pytest.mark.parametrize("method", ["POST", "GET", "DELETE"])
+@pytest.mark.parametrize("phase", ["headers", "body"])
+@respx.mock
+async def test_deadline_retains_dispatched_and_observed_request_ids(
+    service, method: str, phase: str
+) -> None:
+    sent_ids: list[str] = []
+    closed = asyncio.Event()
+
+    class WaitingBody(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            await asyncio.Event().wait()
+            yield b"unused"
+
+        async def aclose(self):
+            closed.set()
+
+    async def respond(request: httpx.Request) -> httpx.Response:
+        sent_ids.append(request.headers["X-Request-Id"])
+        if phase == "headers":
+            await asyncio.Event().wait()
+        return httpx.Response(
+            200, headers={"X-Request-Id": "provider-request"}, stream=WaitingBody()
+        )
+
+    respx.route(method=method).mock(side_effect=respond)
+    await service._ensure_client()
+
+    async def call():
+        if method == "POST":
+            return await service.upload(url=URL)
+        if method == "DELETE":
+            return await service.delete_file(FILE["id"])
+        return await service.get_file(FILE["id"])
+
+    result = await run_direct_call(call, timeout_seconds=0.05, read_only=method == "GET")
+    text = result.content[0].text
+    assert result.is_error
+    assert len(sent_ids) == 1
+    assert f"request_id={sent_ids[0]}" in text
+    assert f"ambiguous_completion={method != 'GET'}" in text
+    assert "file_id=" not in text and "task_id=" not in text
+    if phase == "body":
+        assert "request_id=provider-request" in text
+        assert closed.is_set()
+    else:
+        assert "provider-request" not in text
+
+
+@pytest.mark.parametrize("failure", [httpx.ReadError, httpx.ReadTimeout, OSError, ValueError])
+@pytest.mark.parametrize(
+    "provider_id", ["provider-request", None, "unsafe/id", "synthetic-file-key"]
+)
+@respx.mock
+async def test_body_failure_preserves_safe_provider_id_or_sent_fallback(
+    service, failure, provider_id: str | None
+) -> None:
+    closed = asyncio.Event()
+
+    class BrokenBody(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            raise failure("synthetic body failure")
+            yield b"unused"
+
+        async def aclose(self):
+            closed.set()
+
+    route = respx.post(BASE + "/files").mock(
+        return_value=httpx.Response(
+            200,
+            headers={"X-Request-Id": provider_id} if provider_id is not None else {},
+            stream=BrokenBody(),
+        )
+    )
+    with pytest.raises(ProviderError) as caught:
+        await service.upload(url=URL)
+    sent_id = route.calls.last.request.headers["X-Request-Id"]
+    expected_id = provider_id if provider_id == "provider-request" else sent_id
+    assert caught.value.request_id == expected_id
+    assert caught.value.ambiguous_completion
+    assert not caught.value.retryable
+    assert "synthetic-file-key" not in caught.value.error.model_dump_json()
+    assert route.call_count == 1
+    assert closed.is_set()
+
+
+@respx.mock
+async def test_deadline_before_authorization_does_not_record_request_id(
+    service, monkeypatch
+) -> None:
+    async def blocked_authorization(**kwargs):
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(
+        "ark_mcp.providers.modelark.files.authorize_provider_request", blocked_authorization
+    )
+    result = await run_direct_call(
+        lambda: service.upload(url=URL), timeout_seconds=0.05, read_only=False
+    )
+    assert "ambiguous_completion=False" in result.content[0].text
+    assert "request_id=" not in result.content[0].text
+    assert not respx.calls
+
+
 @respx.mock
 async def test_mismatched_file_and_unusable_cursor_fail(service) -> None:
     respx.get(BASE + "/files/file-synthetic").respond(200, json=FILE | {"id": "file-other"})

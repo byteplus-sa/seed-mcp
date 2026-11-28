@@ -27,7 +27,11 @@ from ark_mcp.domain.files import (
     validate_expiry,
 )
 from ark_mcp.domain.submissions import IDENTIFIER_PATTERN
-from ark_mcp.execution import authorize_provider_request, record_accepted_receipt
+from ark_mcp.execution import (
+    authorize_provider_request,
+    record_accepted_receipt,
+    record_dispatched_request,
+)
 from ark_mcp.providers.base import retry_after_seconds, safe_provider_text
 from ark_mcp.providers.modelark.client import ModelArkGateway
 from ark_mcp.security.credentials import redact_request_secrets
@@ -131,17 +135,20 @@ class ModelArkFilesGateway(ModelArkGateway):
         client = await self._ensure_client()
         mutation = method != "GET"
         correlation = str(uuid4())
+        request_id = correlation
         headers = self._headers()
         headers.pop("Content-Type", None)
         headers.update(kwargs.pop("headers", {}))
         headers["X-Request-Id"] = correlation
         operation = "upload_file" if upload else "delete_file" if mutation else "read_files"
         await authorize_provider_request(side_effect=mutation)
+        record_dispatched_request(correlation)
         try:
             async with client.stream(
                 method, self.base_url + path, headers=headers, **kwargs
             ) as response:
                 request_id = self._safe_id(self.extract_request_id(response)) or correlation
+                record_dispatched_request(request_id)
                 raw = bytearray()
                 async for chunk in response.aiter_bytes(CHUNK_BYTES):
                     if len(raw) + len(chunk) > MAX_RESPONSE_BYTES:
@@ -209,7 +216,7 @@ class ModelArkFilesGateway(ModelArkGateway):
                     ) from None
         except httpx.RequestError as exc:
             error = self.normalize_transport_error(operation, exc, side_effect=mutation).error
-            raise ProviderError(error.model_copy(update={"request_id": correlation})) from None
+            raise ProviderError(error.model_copy(update={"request_id": request_id})) from None
         except (OSError, ValueError):
             raise ProviderError(
                 NormalizedProviderError(
@@ -217,7 +224,7 @@ class ModelArkFilesGateway(ModelArkGateway):
                     operation=operation,
                     code="UPLOAD_IO_ERROR",
                     message="File transfer failed; the provider outcome may be unknown. Do not upload again automatically.",
-                    request_id=correlation,
+                    request_id=request_id,
                     retryable=False,
                     ambiguous_completion=mutation,
                 )
