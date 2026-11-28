@@ -239,7 +239,9 @@ class SeedTtsService:
                     ) from None
                 if len(audio) + len(decoded) > max_audio_bytes:
                     raise _error(
-                        "OUTPUT_TOO_LARGE", "TTS audio exceeds the artifact size limit.", request_id
+                        "OUTPUT_TOO_LARGE",
+                        "TTS audio exceeds the collection size limit.",
+                        request_id,
                     )
                 audio.extend(decoded)
             elif kind == "alignment":

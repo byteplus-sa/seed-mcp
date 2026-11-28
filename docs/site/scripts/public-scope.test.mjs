@@ -189,7 +189,7 @@ test("public tool pages retain exact schemas and one unchanged example", () => {
       assert.match(page, /destructive call, not a preview/);
     }
     if (tool.name === "seed_tts_generate") {
-      assert.match(page, /operator-enabled hosted TTS output storage/);
+      assert.match(page, /native MCP AudioContent/);
       assert.match(page, /generates audio and may incur charges/);
       assert.match(page, /no persist switch/);
     }

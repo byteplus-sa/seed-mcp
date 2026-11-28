@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 
 TTS_MODEL = "dola-seed-tts-3.0"
 TTS_MAX_CHARACTERS = 10_000
+TTS_MAX_AUDIO_BYTES = 30 * 1024 * 1024
 
 
 class TtsOutputFormat(BaseModel):

@@ -12,8 +12,8 @@ Local stdio `ark_list_models(kind="audio")` lists `dola-seed-tts-3.0`,
 family `seed_tts_3`, served by `seed_tts_generate` when a Seed Speech key
 is configured. Its `tts` limits report 10,000 text/SSML characters,
 MP3/PCM/Ogg Opus output and required voice selection. This is a fixed speech
-model, not a ModelArk endpoint binding. HTTP lists TTS when private output
-storage is enabled with `MCP_HOSTED_TTS_ENABLED`; otherwise it is omitted.
+model, not a ModelArk endpoint binding. HTTP always lists TTS, with a 30 MiB decoded-audio collection limit and native
+audio delivery. It requires no storage configuration.
 `check_connection=true` still supports image/video only.
 See [Seed TTS 3.0](seed-tts.md).
 

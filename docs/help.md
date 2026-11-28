@@ -10,7 +10,7 @@ description: Quick fixes for hosted connection, generation and download problems
 | `CREDENTIAL_REUSE` | Generate an independent client secret; do not reuse a provider key |
 | `ENDPOINT_NOT_CONFIGURED` | Ask the operator to verify the exact model binding; do not guess IDs |
 | Unsupported model or options | Use discovery and that model's limits; correct the request before resubmitting |
-| TTS is missing | Ask the operator to enable private TOS output storage; see [available tools](capabilities.md) |
+| TTS is missing | Refresh the tool list and check the server version; see [available tools](capabilities.md) |
 | Local file tools are missing | These remain stdio-only |
 | Rate or concurrency limit | Reduce parallel requests; distinguish rejected attempts from accepted work |
 | TLS certificate error | Check your network or corporate trust configuration; never disable certificate verification |

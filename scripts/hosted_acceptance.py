@@ -38,6 +38,7 @@ from scripts.hosted_acceptance_support.checks import (
     dispatches,
     edge_checks,
     inflight_checks,
+    native_tts,
     rate_checks,
     run_load,
     surface,
@@ -273,7 +274,7 @@ class Harness:
             self.checks.append("client_only_tls_trust")
             await surface(client, self.url)
             require(not dispatches(self.directory), "discovery_dispatched")
-            self.checks.append("exact_seven_tools_no_resources")
+            self.checks.append("exact_eight_tools_no_resources")
             await credential_checks(client, self.url, self.values, self.directory)
             self.checks.append("missing_malformed_invalid_credentials")
             await edge_checks(client, self.url, self.backend, self.values)
@@ -292,7 +293,7 @@ class Harness:
             await wait_healthy(client, self.url, child)
             await surface(client, self.url)
             await self.ownership_checks(client)
-            self.checks.append("exact_seven_tools_restart_provider_authorized_polling")
+            self.checks.append("exact_eight_tools_restart_provider_authorized_polling")
             self.stop_server(child)
             child = self.server("rate")
             await wait_healthy(client, self.url, child)
@@ -303,6 +304,11 @@ class Harness:
             await wait_healthy(client, self.url, child)
             await inflight_checks(client, self.url, self.values, self.directory)
             self.checks.append("http_inflight_health_exemption_recovery")
+            self.stop_server(child)
+            child = self.server("tts")
+            await wait_healthy(client, self.url, child)
+            await native_tts(client, self.url, self.values, context)
+            self.checks.append("native_tts_30mib_json_and_sdk_without_storage")
             self.stop_server(child)
 
     def video_input(self) -> dict[str, Any]:
@@ -445,9 +451,10 @@ class Harness:
             "load": self.load,
             "limitations": [
                 "Mocked providers; single local app and Caddy; no paid calls or cloud validation.",
-                "Synthetic 20ms provider delay; 32KiB body cap; 2s tool deadline; not production defaults.",
+                "Synthetic 20ms provider delay; 32KiB body cap; 2s deadline (30s for TTS); not production defaults.",
                 "Nearest-rank latency across all outcomes; throughput includes expected overload.",
-                "No universal capacity threshold, real-client, VKE source-IP or failover certification.",
+                "TTS verifies one maximum-size output through Caddy and FastMCP; not IDE playback or concurrent production capacity.",
+                "No universal capacity threshold, VKE source-IP or failover certification.",
             ],
         }
 

@@ -21,7 +21,7 @@ Use only clients that can supply credentials privately. Unsupported or
 unverified remote-header handling is not a reason to inline secrets or
 silently switch to a locally installed server.
 
-HTTP has seven tools, anonymous static discovery and direct foreground calls.
+HTTP has eight tools, anonymous static discovery and direct foreground calls.
 The hosted deployment has temporary uploads disabled, no local storage/artifact
 tools or resources, and no Seed TTS. No MCP jobs or native tasks are exposed.
 

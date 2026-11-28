@@ -1,28 +1,26 @@
-"""Hosted TTS delivery with mocked speech and TOS; no paid or cloud calls."""
+"""Hosted TTS returns native audio without storage or paid provider calls."""
 
 from __future__ import annotations
 
 import asyncio
-import threading
-from datetime import datetime
+import base64
+import hashlib
+import json
+from collections.abc import Iterator
 from pathlib import Path
-from types import SimpleNamespace
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
+import httpx
 import pytest
 import respx
-from pydantic import ValidationError
-from tos.enum import ACLType, StorageClassType
+from mcp.types import AudioContent, CallToolResult
 
-from ark_mcp.config.env import Settings
-from ark_mcp.providers.tos.client import TosGateway
 from tests.contract.test_seed_tts_adapter import FINAL, READY, audio, wire
 from tests.integration.test_byok_http import (
-    CLIENT_SECRET,
-    OTHER_SECRET,
     SPEECH,
     SPEECH_KEY,
     assert_denied,
+    assert_no_canaries,
     call_tool,
     credentials,
     http_server,
@@ -33,62 +31,20 @@ from tests.integration.test_byok_http import (
 
 URL = f"{SPEECH}/api/v3/text-to-speech/test-voice/streaming"
 INPUT = {"voice_id": "test-voice", "text": "Synthetic test."}
-BUCKET = "synthetic-tts-output"
 HEADERS = credentials(SPEECH_KEY, header="X-Seed-Speech-Api-Key")
 
 
-def tts_settings(tmp_path: Path, **overrides: object) -> Settings:
-    return http_settings(
-        tmp_path,
-        **{
-            "MCP_HOSTED_TTS_ENABLED": True,
-            "TOS_ACCESS_KEY": "synthetic-tts-ak",
-            "TOS_SECRET_KEY": "synthetic-tts-sk",  # pragma: allowlist secret
-            "TOS_BUCKET": BUCKET,
-            **overrides,
-        },
-    )
-
-
-@pytest.fixture
-def sdk(monkeypatch: pytest.MonkeyPatch) -> MagicMock:
-    client = MagicMock()
-    client.pre_signed_url.side_effect = lambda *args, **kwargs: SimpleNamespace(
-        signed_url=(
-            f"https://{kwargs['bucket']}.tos-ap-southeast-1.bytepluses.com/"
-            f"{kwargs['key']}?signature=synthetic"
-        )
-    )
-    constructor = MagicMock(return_value=client)
+@pytest.fixture(autouse=True)
+def no_storage(monkeypatch: pytest.MonkeyPatch) -> Iterator[MagicMock]:
+    constructor = MagicMock(side_effect=AssertionError("HTTP TTS must not open object storage"))
     monkeypatch.setattr("ark_mcp.providers.tos.client.tos.TosClientV2", constructor)
-    client.constructor = constructor
-    return client
-
-
-@pytest.mark.parametrize(
-    "overrides",
-    [
-        {"MCP_TRANSPORT": "stdio"},
-        {"TOS_ACCESS_KEY": "", "TOS_SECRET_KEY": ""},
-        {"TOS_BUCKET": ""},
-        {"TOS_BUCKET": "bad.bucket"},
-        {"TOS_REGION": "bad"},
-        {"TOS_ENDPOINT": "http://tos-ap-southeast-1.bytepluses.com"},
-        {"TOS_ENDPOINT": "https://untrusted.example"},
-        {"TOS_CREDENTIAL_MODE": "irsa"},
-        {"OBJECT_STORAGE_BACKEND": "s3"},
-    ],
-)
-def test_hosted_tts_invalid_storage_fails_at_startup(tmp_path: Path, overrides: dict) -> None:
-    with pytest.raises(ValidationError):
-        tts_settings(tmp_path, **overrides)
+    yield constructor
+    constructor.assert_not_called()
 
 
 @respx.mock
-async def test_discovery_is_anonymous_and_never_opens_storage(
-    tmp_path: Path, sdk: MagicMock
-) -> None:
-    async with http_server(tmp_path, settings=tts_settings(tmp_path)) as (_, runtime, client):
+async def test_anonymous_discovery_advertises_tts_without_storage(tmp_path: Path) -> None:
+    async with http_server(tmp_path) as (_, runtime, client):
         tools = (await rpc(client, "tools/list"))["result"]["tools"]
         assert len(tools) == 8
         assert "seed_tts_generate" in {tool["name"] for tool in tools}
@@ -99,11 +55,9 @@ async def test_discovery_is_anonymous_and_never_opens_storage(
         assert discovery["connection"] is None
         assert runtime.budget_ledger is None
         assert (await client.get("/ready")).status_code == 200
-        preflight = await call_tool(
-            client, "ark_list_models", {"kind": "audio", "check_connection": True}
+        assert_denied(
+            await call_tool(client, "ark_list_models", {"kind": "audio", "check_connection": True})
         )
-        assert_denied(preflight)
-    sdk.constructor.assert_not_called()
     assert not respx.calls
     assert not list(tmp_path.rglob("*"))
 
@@ -112,211 +66,165 @@ async def test_discovery_is_anonymous_and_never_opens_storage(
     "encoding,mime", [("mp3", "audio/mpeg"), ("pcm", "audio/pcm"), ("ogg_opus", "audio/ogg")]
 )
 @respx.mock
-async def test_http_tts_returns_private_download_without_local_state(
-    tmp_path: Path, sdk: MagicMock, encoding: str, mime: str
+async def test_http_tts_returns_audio_once_with_matching_metadata(
+    tmp_path: Path, encoding: str, mime: str
 ) -> None:
-    route = respx.post(URL).respond(200, content=wire(READY, audio(b"synthetic audio"), FINAL))
-    async with http_server(tmp_path, settings=tts_settings(tmp_path)) as (_, runtime, client):
-        result = successful(
-            await call_tool(
-                client,
-                "seed_tts_generate",
-                INPUT | {"output_format": {"format": encoding}},
-                headers=HEADERS,
-            )
-        )
-        assert runtime.budget_ledger is None
-    artifact = result["artifact"]
-    assert artifact["uri"].startswith(
-        f"https://{BUCKET}.tos-ap-southeast-1.bytepluses.com/tts-output/"
+    data = b"synthetic audio \x00\xff"
+    alignment = {
+        "event": "alignment",
+        "text": "Hello",
+        "words": [
+            {"word": "Hello", "startTime": 0.1, "endTime": 0.5},
+        ],
+    }
+    route = respx.post(URL).respond(
+        200,
+        content=wire(READY, audio(data[:5]), alignment, audio(data[5:]), FINAL),
+        headers={"X-Tt-Logid": "synthetic-log"},
     )
-    assert artifact["bytes"] == len(b"synthetic audio")
-    assert artifact["mime_type"] == mime
-    assert artifact["fallback_data"] is None
-    assert artifact["local_path"] is None
-    assert artifact["persistence_error"] is None
-    assert (
-        datetime.fromisoformat(artifact["source_expires_at"])
-        - datetime.fromisoformat(artifact["created_at"])
-    ).total_seconds() == 86400
-    put = sdk.put_object.call_args.kwargs
-    assert put["content"] == b"synthetic audio"
-    assert put["content_type"] == mime
-    assert put["acl"] == ACLType.ACL_Private
-    assert put["storage_class"] == StorageClassType.Storage_Class_Standard
-    assert put["object_expires"] == 1
-    assert put["forbid_overwrite"] is True
-    assert put["cache_control"] == "private, no-store"
-    assert sdk.pre_signed_url.call_args.kwargs["expires"] == 86400
-    assert sdk.pre_signed_url.call_args.kwargs["key"] == put["key"]
-    assert sdk.constructor.call_args.kwargs["max_retry_count"] == 0
+    async with http_server(tmp_path) as (_, runtime, client):
+        response = await call_tool(
+            client,
+            "seed_tts_generate",
+            INPUT | {"output_format": {"format": encoding}, "enable_subtitle": True},
+            headers=HEADERS,
+        )
+        metadata = successful(response)
+        assert runtime.budget_ledger is None
+    result = CallToolResult.model_validate(response["result"])
+    assert len(result.content) == 2
+    block = result.content[0]
+    assert isinstance(block, AudioContent)
+    assert block.mime_type == mime
+    assert base64.b64decode(block.data, validate=True) == data
+    assert metadata["artifact"] is None
+    assert metadata["audio"] == {
+        "content_index": 0,
+        "mime_type": mime,
+        "bytes": len(data),
+        "sha256": hashlib.sha256(data).hexdigest(),
+    }
+    assert metadata["session_id"] == READY["session_id"]
+    assert metadata["provider_log_id"] == "synthetic-log"
+    assert metadata["request_id"] == route.calls.last.request.headers["X-Request-Id"]
+    assert metadata["alignments"][0]["words"][0]["start_time"] == 0.1
+    assert metadata["output_format"]["format"] == encoding
+    text = response["result"]["content"][1]["text"]
+    assert json.loads(text) == metadata
+    assert block.data not in text and block.data not in json.dumps(metadata)
+    assert_no_canaries(json.dumps(response))
     assert route.calls.last.request.headers["X-Api-Key"] == SPEECH_KEY
-    assert route.call_count == sdk.put_object.call_count == 1
+    assert route.call_count == 1
     assert not list(tmp_path.rglob("*"))
+
+
+@pytest.mark.parametrize("extra_byte", [False, True])
+@respx.mock
+async def test_thirty_mib_boundary(tmp_path: Path, extra_byte: bool) -> None:
+    chunk = b"\x00\x01" * (1024 * 512)
+    route = respx.post(URL).respond(
+        200,
+        content=wire(
+            READY,
+            *(audio(chunk) for _ in range(30)),
+            *([audio(b"x")] if extra_byte else []),
+            FINAL,
+        ),
+    )
+    async with http_server(tmp_path) as (_, _, client):
+        result = await call_tool(client, "seed_tts_generate", INPUT, headers=HEADERS)
+    assert route.call_count == 1
+    if extra_byte:
+        assert_denied(result)
+        assert "OUTPUT_TOO_LARGE" in str(result)
+        assert all(block["type"] == "text" for block in result["result"]["content"])
+        return
+    metadata = successful(result)
+    encoded = result["result"]["content"][0]["data"]
+    assert metadata["audio"]["bytes"] == 30 * 1024 * 1024
+    assert len(base64.b64decode(encoded, validate=True)) == 30 * 1024 * 1024
+    assert json.dumps(result).count(encoded) == 1
+    assert route.call_count == 1
 
 
 @pytest.mark.parametrize("headers", [{}, credentials(), {"X-Seed-Speech-Api-Key": SPEECH_KEY}])
 @respx.mock
 async def test_tts_requires_live_speech_key_and_client_secret(
-    tmp_path: Path, sdk: MagicMock, headers: dict
+    tmp_path: Path, headers: dict
 ) -> None:
-    async with http_server(tmp_path, settings=tts_settings(tmp_path)) as (_, _, client):
+    async with http_server(tmp_path) as (_, _, client):
         assert_denied(await call_tool(client, "seed_tts_generate", INPUT, headers=headers))
     assert not respx.calls
-    sdk.constructor.assert_not_called()
 
 
 @pytest.mark.parametrize(
     "extra", [{"output_path": "/tmp/forbidden.mp3"}, {"overwrite": True}, {"persist": True}]
 )
 @respx.mock
-async def test_local_options_fail_before_synthesis(
-    tmp_path: Path, sdk: MagicMock, extra: dict
-) -> None:
-    async with http_server(tmp_path, settings=tts_settings(tmp_path)) as (_, _, client):
+async def test_local_options_fail_before_synthesis(tmp_path: Path, extra: dict) -> None:
+    async with http_server(tmp_path) as (_, _, client):
         assert_denied(await call_tool(client, "seed_tts_generate", INPUT | extra, headers=HEADERS))
     assert not respx.calls
-    sdk.constructor.assert_not_called()
 
 
+@pytest.mark.parametrize("kind", ["rejected", "incomplete", "oversized"])
 @respx.mock
-async def test_tts_never_retries_synthesis_after_storage_failure(
-    tmp_path: Path, sdk: MagicMock
+async def test_provider_failure_returns_no_audio_and_never_retries(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: str
 ) -> None:
-    sdk.put_object.side_effect = RuntimeError(f"secret {SPEECH_KEY} {CLIENT_SECRET}")
-    route = respx.post(URL).respond(200, content=wire(READY, audio(b"synthetic"), FINAL))
-    async with http_server(tmp_path, settings=tts_settings(tmp_path)) as (_, _, client):
+    monkeypatch.setattr("ark_mcp.tools.seed_tts_generate.TTS_MAX_AUDIO_BYTES", 3)
+    route = respx.post(URL).respond(
+        403 if kind == "rejected" else 200,
+        content=(
+            b'{"error":{"code":"denied"}}'
+            if kind == "rejected"
+            else wire(READY, audio(b"x"))
+            if kind == "incomplete"
+            else wire(READY, audio(b"1234"), FINAL)
+        ),
+    )
+    async with http_server(tmp_path) as (_, _, client):
         result = await call_tool(client, "seed_tts_generate", INPUT, headers=HEADERS)
     assert_denied(result)
-    text = result["result"]["content"][0]["text"]
-    assert "TTS_DELIVERY_FAILED" in text
-    assert "Synthesis completed" in text
-    assert "retryable=False" in text and "ambiguous_completion=False" in text
-    assert route.calls.last.request.headers["X-Request-Id"] in text
-    assert SPEECH_KEY not in text and CLIENT_SECRET not in text
-    assert route.call_count == sdk.put_object.call_count == 1
-    sdk.close.assert_called_once()
-
-
-@respx.mock
-async def test_output_keys_separate_clients_and_calls(tmp_path: Path, sdk: MagicMock) -> None:
-    route = respx.post(URL).respond(200, content=wire(READY, audio(b"synthetic"), FINAL))
-    async with http_server(tmp_path, settings=tts_settings(tmp_path)) as (_, _, client):
-        for secret in (CLIENT_SECRET, CLIENT_SECRET, OTHER_SECRET):
-            successful(
-                await call_tool(
-                    client,
-                    "seed_tts_generate",
-                    INPUT,
-                    headers=credentials(SPEECH_KEY, secret, header="X-Seed-Speech-Api-Key"),
-                )
-            )
-    keys = [call.kwargs["key"] for call in sdk.put_object.call_args_list]
-    assert len(set(keys)) == 3
-    assert keys[0].split("/")[1] == keys[1].split("/")[1]
-    assert keys[1].split("/")[1] != keys[2].split("/")[1]
-    assert all(SPEECH_KEY not in key and CLIENT_SECRET not in key for key in keys)
-    assert route.call_count == 3
-
-
-@respx.mock
-async def test_admission_stays_held_until_upload_finishes(
-    tmp_path: Path, sdk: MagicMock, monkeypatch: pytest.MonkeyPatch
-) -> None:
-    entered, release = asyncio.Event(), asyncio.Event()
-
-    async def upload(**kwargs: object) -> str:
-        entered.set()
-        await release.wait()
-        return "https://synthetic.example/tts"
-
-    monkeypatch.setattr(TosGateway, "upload_tts_output", AsyncMock(side_effect=upload))
-    route = respx.post(URL).respond(200, content=wire(READY, audio(b"synthetic"), FINAL))
-    config = tts_settings(tmp_path, PROVIDER_MAX_CONCURRENCY=1, MCP_ADMISSION_TIMEOUT_SECONDS=0.02)
-    async with http_server(tmp_path, settings=config) as (_, _, client):
-        first = asyncio.create_task(call_tool(client, "seed_tts_generate", INPUT, headers=HEADERS))
-        try:
-            await asyncio.wait_for(entered.wait(), 1)
-            rejected = await call_tool(client, "seed_tts_generate", INPUT, headers=HEADERS)
-            assert_denied(rejected)
-            assert "ADMISSION_TIMEOUT" in str(rejected)
-            assert route.call_count == 1
-        finally:
-            release.set()
-        successful(await first)
-
-
-@pytest.mark.parametrize(
-    "url",
-    [
-        "http://synthetic-tts-output.tos-ap-southeast-1.bytepluses.com/wrong?signature=x",
-        "https://untrusted.example/output?signature=x",
-        "https://synthetic-tts-output.tos-ap-southeast-1.bytepluses.com/wrong?signature=x",
-    ],
-)
-@respx.mock
-async def test_invalid_signed_destination_never_uploads(
-    tmp_path: Path, sdk: MagicMock, url: str
-) -> None:
-    sdk.pre_signed_url.side_effect = None
-    sdk.pre_signed_url.return_value = SimpleNamespace(signed_url=url)
-    route = respx.post(URL).respond(200, content=wire(READY, audio(b"synthetic"), FINAL))
-    async with http_server(tmp_path, settings=tts_settings(tmp_path)) as (_, _, client):
-        result = await call_tool(client, "seed_tts_generate", INPUT, headers=HEADERS)
-    assert_denied(result)
-    assert "TTS_DELIVERY_FAILED" in str(result) and url not in str(result)
-    sdk.put_object.assert_not_called()
+    assert all(block["type"] == "text" for block in result["result"]["content"])
+    assert "structuredContent" not in result["result"]
+    assert_no_canaries(json.dumps(result))
     assert route.call_count == 1
-
-
-@respx.mock
-async def test_provider_rejection_cannot_spend_operator_storage(
-    tmp_path: Path, sdk: MagicMock
-) -> None:
-    route = respx.post(URL).respond(403, json={"error": {"code": "denied"}})
-    async with http_server(tmp_path, settings=tts_settings(tmp_path)) as (_, _, client):
-        assert_denied(await call_tool(client, "seed_tts_generate", INPUT, headers=HEADERS))
-    assert route.call_count == 1
-    sdk.constructor.assert_not_called()
 
 
 @pytest.mark.parametrize("termination", ["cancel", "deadline"])
 @respx.mock
-async def test_upload_drains_before_cancellation_and_keeps_deadline_request_id(
-    tmp_path: Path, sdk: MagicMock, termination: str
+async def test_synthesis_cancellation_and_deadline_do_not_return_partial_audio(
+    tmp_path: Path, termination: str
 ) -> None:
-    entered, release = asyncio.Event(), threading.Event()
-    loop = asyncio.get_running_loop()
+    entered, release = asyncio.Event(), asyncio.Event()
 
-    def put(**kwargs: object) -> None:
-        loop.call_soon_threadsafe(entered.set)
-        assert release.wait(5)
+    class Stream(httpx.AsyncByteStream):
+        async def __aiter__(self):
+            yield wire(READY, audio(b"partial")) + b"\n"
+            entered.set()
+            await release.wait()
+            yield wire(FINAL)
 
-    sdk.put_object.side_effect = put
-    route = respx.post(URL).respond(200, content=wire(READY, audio(b"synthetic"), FINAL))
-    settings = tts_settings(
-        tmp_path, MCP_TOOL_TIMEOUT_SECONDS=0.1 if termination == "deadline" else 10
+    route = respx.post(URL).mock(return_value=httpx.Response(200, stream=Stream()))
+    settings = http_settings(
+        tmp_path,
+        MCP_TOOL_TIMEOUT_SECONDS=0.1 if termination == "deadline" else 10,
     )
     async with http_server(tmp_path, settings=settings) as (_, _, client):
-        call = asyncio.create_task(call_tool(client, "seed_tts_generate", INPUT, headers=HEADERS))
+        task = asyncio.create_task(call_tool(client, "seed_tts_generate", INPUT, headers=HEADERS))
         try:
-            await asyncio.wait_for(entered.wait(), 1)
+            await asyncio.wait_for(entered.wait(), 2)
             if termination == "cancel":
-                call.cancel()
-                await asyncio.sleep(0)
-            else:
-                await asyncio.sleep(0.15)
-            assert not call.done()
-            release.set()
-            if termination == "cancel":
+                task.cancel()
                 with pytest.raises(asyncio.CancelledError):
-                    await call
+                    await task
             else:
-                result = await call
+                result = await asyncio.wait_for(task, 2)
                 assert_denied(result)
                 assert "TOOL_DEADLINE_EXCEEDED" in str(result)
                 assert route.calls.last.request.headers["X-Request-Id"] in str(result)
+                assert all(block["type"] == "text" for block in result["result"]["content"])
         finally:
             release.set()
-        assert route.call_count == sdk.put_object.call_count == 1
-        sdk.close.assert_called_once()
+        assert route.call_count == 1

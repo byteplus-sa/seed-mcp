@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import base64
 import json
 import os
 import sys
@@ -169,6 +170,37 @@ def serve(directory: Path, port: int, mode: str) -> None:
         )
         return httpx.Response(200, json=body, headers={"X-Request-Id": "req-acceptance"})
 
+    async def speech(request: httpx.Request) -> httpx.Response:
+        if (
+            mode != "tts"
+            or request.headers.get("x-api-key") != values["speech_key"]
+            or "authorization" in request.headers
+            or "x-mcp-client-secret" in request.headers
+            or json.loads(request.content).get("text") != "synthetic maximum audio"
+        ):
+            reject()
+        record("tts")
+
+        class AudioStream(httpx.AsyncByteStream):
+            async def __aiter__(self):
+                yield b'{"event":"ready","session_id":"synthetic-session"}\n'
+                chunk = (
+                    json.dumps(
+                        {
+                            "event": "audio",
+                            "audio": base64.b64encode(b"\x00" * (1024 * 1024)).decode("ascii"),
+                        }
+                    ).encode()
+                    + b"\n"
+                )
+                for _ in range(30):
+                    yield chunk
+                yield (
+                    b'{"event":"final","is_final":true,"reason":"TTS_STREAM_FINAL_REASON_CLOSED"}\n'
+                )
+
+        return httpx.Response(200, stream=AudioStream())
+
     def unexpected(request: httpx.Request) -> httpx.Response:
         reject()
 
@@ -185,7 +217,11 @@ def serve(directory: Path, port: int, mode: str) -> None:
             "SEEDANCE_DEFAULT_MODEL": VIDEO_MODEL,
             "SEEDANCE_MODEL_BINDINGS": [{"model_id": VIDEO_MODEL, "family": "seedance_2_5"}],
             "MCP_ADMISSION_TIMEOUT_SECONDS": 0.05,
-            "MCP_TOOL_TIMEOUT_SECONDS": clocks.tool if clocks else TOOL_TIMEOUT,
+            "MCP_TOOL_TIMEOUT_SECONDS": clocks.tool
+            if clocks
+            else 30
+            if mode == "tts"
+            else TOOL_TIMEOUT,
             "BYTEPLUS_REQUEST_TIMEOUT_MS": int(clocks.tool * 1000) if clocks else 600000,
             "PROVIDER_MAX_CONCURRENCY": 1,
             "PRINCIPAL_MAX_CONCURRENCY": 1,
@@ -204,6 +240,9 @@ def serve(directory: Path, port: int, mode: str) -> None:
         router.post(f"{MODELARK}/images/generations").mock(side_effect=respond)
         router.post(f"{MODELARK}/contents/generations/tasks").mock(side_effect=respond)
         router.get(f"{MODELARK}/contents/generations/tasks").mock(side_effect=respond)
+        router.post(
+            "https://voice.ap-southeast-1.bytepluses.com/api/v3/text-to-speech/test-voice/streaming"
+        ).mock(side_effect=speech)
         router.route().mock(side_effect=unexpected)
         create_server(settings).run(
             transport="http",

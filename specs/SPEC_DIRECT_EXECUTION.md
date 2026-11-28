@@ -33,26 +33,24 @@ including discovery, before provider dispatch.
 The catalog contains 13 conditionally registered local tools. Four are always
 available: `ark_list_models`, `seed_media_get_artifact`,
 `seed_media_export_artifact`, and `seed_media_persist_url`.
-HTTP exposes seven baseline discovery/provider tools; configured hosted TTS adds one.
+HTTP exposes eight baseline discovery/provider tools, including Seed TTS.
 HTTP has no local storage/artifact tools or resources; local stdio retains them.
 The additional catalog definition is opt-in HTTP-only `media_prepare_upload` (14 definitions total), adding
 one tool to the baseline HTTP inventory. It signs locally under the same direct
 deadline and owner-first `tos` admission, without dispatching a storage mutation
 or reserving budget. Client binary upload occurs separately; see
 [temporary uploads](SPEC_HOSTED_BYOK.md#temporary-upload-preparation).
-Discovery supports image/video bindings and configured Seed TTS (`kind="audio"`),
+Discovery supports image/video bindings and Seed TTS (`kind="audio"`),
 and makes no provider calls. HTTP connection checks remain image/video only.
 
 `seed_tts_generate` collects a bounded JSONL response in one direct call.
-Stdio always persists completed audio; HTTP requires operator-enabled private
-TOS output storage and returns a signed download URL. It has no `persist` flag and uses the
-same deadline, admission, dispatch tracking and local budget semantics as other
-mutations, without automatic synthesis retries. HTTP holds its admission slot
-through the output upload and drains SDK work on cancellation. It adds no
-database, artifact resources, replay or local files; storage failures preserve
-confirmed synthesis and request IDs without Base64 fallback. This is a scoped
-exception to forward-only media delivery, not general HTTP artifact persistence.
-See [Seed TTS](../docs/seed-tts.md).
+Stdio persists completed audio; HTTP returns it directly as one native MCP
+audio block with separate metadata. No TOS or hosted storage is used.
+It has no `persist` flag and uses the same deadline, admission and dispatch
+tracking, without automatic synthesis retries. HTTP encodes at most 30 MiB
+of audio under admission; its Base64 representation is at most 40 MiB before
+metadata. A lost response has no recovery path; retain request IDs and never
+automatically repeat synthesis. See [Seed TTS](../docs/seed-tts.md).
 
 Provider video queues remain asynchronous. Retain provider task IDs and poll;
 direct MCP execution does not mean a video finishes within the create call.

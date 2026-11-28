@@ -5,8 +5,8 @@ description: What the hosted service provides, how it handles requests, and what
 
 ## Availability
 
-The hosted service exposes seven baseline tools for discovery, Seedream images,
-Seedance video and Seed Audio. Your provider account must authorize the model
+The hosted service exposes eight baseline tools for discovery, Seedream images,
+Seedance video, Seed Audio and Seed TTS. Your provider account must authorize the model
 you choose. Discovery lists configuration, not entitlement.
 
 Local file uploads, artifact resources, ASR, 3D and provider asset
@@ -15,10 +15,10 @@ Use provider-accessible HTTPS URLs for references; attaching a file in chat
 does not upload it automatically. Small inline inputs remain subject to the
 request limit.
 
-Seed TTS 3 adds one tool when the operator enables private TOS output storage.
-Check discovery; source support does not prove deployment enablement. TTS links
-last nominally 24 hours (STS may expire earlier), with one-day scheduled object
-expiry. Download promptly; no renewal or recovery API exists.
+Seed TTS 3 returns complete native audio directly, up to 30 MiB decoded audio.
+Save the returned audio block using your client; playback and saving UI vary.
+No TOS, download URL or later recovery is provided. Check discovery for the
+connected deployment's current tools.
 
 ## Outputs and Limits
 
@@ -30,9 +30,8 @@ expiry. Download promptly; no renewal or recovery API exists.
 | Request body | Maximum 2 MiB |
 | Rate and concurrency | Limited per server replica; reduce parallel calls when busy |
 
-Download results you want to keep. Only enabled TTS stores temporary output;
-the service cannot write to your computer. Keep task/request IDs: a timeout
-does not cancel generation, and repeating an uncertain request may bill again.
+Download provider URLs or save inline TTS audio you want to keep. Hosted TTS
+is not stored by the server; it cannot be recovered after a lost response.
 
 ## Costs
 

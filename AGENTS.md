@@ -22,14 +22,13 @@ separate tools. The flow is discovery → create → poll:
 - **Seed TTS 3.0** — `seed_tts_generate` speaks text or SSML with an
   authorized voice through Seed Speech. Direct call, bounded JSONL collection,
   MP3/PCM/Ogg Opus, pronunciation/delivery controls and optional word alignment.
-  Stdio always persists; opt-in HTTP uses private temporary TOS output and returns
-  a signed download URL. `MCP_HOSTED_TTS_ENABLED=false` by default; enabling needs
-  restricted static TOS credentials and a private versioning-disabled bucket.
-  One-day scheduled object expiry, nominal 24-hour URLs (STS may shorten), no
-  database/local files/renewal/replay or HTTP Base64 fallback. Hold admission through
-  upload; never automatically resynthesize after delivery failure. No provider URL,
-  `persist` flag or jobs. Discovery includes configured TTS with `kind="audio"`;
-  HTTP preflight remains image/video only. See `docs/seed-tts.md`.
+  Stdio always persists; HTTP returns one native MCP AudioContent block with
+  separate metadata and no TOS dependency. Collect at most 30 MiB decoded audio
+  (40 MiB Base64 before metadata); retain per-event/metadata bounds.
+  No download URL, database/local file, replay or recovery API. Encode under
+  admission and never automatically resynthesize after uncertain delivery.
+  No provider URL, persist flag, jobs or automatic retries.
+
 - **Seedream** — image generation and editing through ModelArk with one
   tool, `seedream_generate_image` (generate, edit with point/bbox,
   transparent background, variations, dry run).
@@ -73,9 +72,9 @@ separate tools. The flow is discovery → create → poll:
   Inline provider audio has no store byte cap; input references, URL downloads,
   inline fallback and TTS stream collection retain their separate bounds.
 - **Transports** — local stdio retains storage/artifacts.
-  HTTP is BYOK: 7 baseline provider/discovery tools,
+  HTTP is BYOK: 8 baseline provider/discovery tools,
   direct foreground calls, no jobs/native tasks/local storage/artifact tools/resources.
-  Hosted TTS and temporary upload preparation each add one optional tool (up to 9).
+  Temporary upload preparation adds one optional tool (9 total).
   `MCP_AUTH_MODE=byok` is the default; explicit `local` is stdio-only and
   `api_key` is removed. No OAuth/signup/server-issued key. HTTP requires
   operator `MCP_IDENTITY_HMAC_KEY` (64 lowercase hex) and positive
@@ -94,7 +93,7 @@ Local provider keys are startup configuration. HTTP uses only live
 selected provider plus required `X-MCP-Client-Secret` (client-generated 32
 random bytes, 64 lowercase hex), including dry runs. Discovery is anonymous/static.
 Keys are not persisted and never fall back to environment provider keys.
-Temporary upload signing and hosted TTS delivery use operator TOS credentials,
+Temporary upload signing alone uses operator TOS credentials,
 never generation keys. `MCP_TEMPORARY_UPLOAD_ENABLED=false` by default; enabling requires HTTP,
 TOS configuration and `MCP_UPLOAD_CLIENT_SECRET_SHA256` (1-1000 unique lowercase
 SHA-256 digests of exact ASCII client-secret header values, not decoded bytes).
@@ -398,7 +397,7 @@ explicitly when it matters.
 User- and contributor-facing documentation for the project as it exists today.
 This is the project handbook: how to connect, configure, run, deploy, and
 troubleshoot the server. GitHub Pages publishes only the curated hosted guide
-and hosted tool pages (seven baseline plus optional TTS) selected in `docs/site/scripts/publication.mjs`.
+and eight baseline hosted tool pages selected in `docs/site/scripts/publication.mjs`.
 Operator/local material remains in the repository, outside site search and
 navigation. Keep old public URLs redirected when consolidating pages.
 

@@ -230,7 +230,7 @@ jobs:
                 --data '{"jsonrpc":"2.0","id":1,"method":"tools/list","params":{"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{}}}}' \
                 http://127.0.0.1:3000/mcp)"
               test "$status" = "200"
-              jq -e '.result.tools | length == 7' /tmp/seed-mcp-discovery.json
+              jq -e '.result.tools | length == 8' /tmp/seed-mcp-discovery.json
               curl --fail --silent --request POST \
                 --header 'Content-Type: application/json' \
                 --header 'Accept: application/json, text/event-stream' \

@@ -44,7 +44,8 @@ gentle piano and cups being set on tables. Give me an MP3 download link.
 
 Seed Audio generates a complete scene. For exact supplied text or SSML, use
 [Seed TTS 3](/seed-mcp/tool-reference/seed-tts-generate/) with an authorized voice.
-Hosted TTS requires operator-enabled output storage; check discovery first.
+Hosted TTS returns native audio directly. Save the returned audio block;
+playback and saving support depend on your client.
 
 <span id="retrieve-the-job-result"></span>
 

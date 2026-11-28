@@ -110,7 +110,7 @@ is used. Do not use `bearer_token_env_var`. `tool_timeout_sec` is in seconds
 (generator default 660, configurable from 1-3600); it does not extend proxy
 or provider timeouts.
 
-Default discovery is anonymous/static with `connection=null`. HTTP has 7 tools, direct
+Default discovery is anonymous/static with `connection=null`. HTTP has 8 tools, direct
 foreground calls and no jobs/native tasks/local storage/artifacts/resources.
 Optional [temporary TOS preparation](../temporary-uploads.md) adds one tool
 for enrolled clients; it requires a separate multipart-capable client integration.

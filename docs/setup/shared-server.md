@@ -145,8 +145,8 @@ and confirm connection is null.
 Do not generate or upload.
 ```
 
-HTTP lists 7 tools, independently of operator keys.
-Optional temporary upload preparation adds one (8); its presence in
+HTTP lists 8 tools, independently of operator keys.
+Optional temporary upload preparation adds one (9); its presence in
 tools/list does not prove that your client secret is enrolled.
 Anonymous discovery returns configured model bindings even without environment
 provider keys. `services[].enabled` means registered, not entitled.

@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import asyncio
+import base64
+import hashlib
 import json
 import time
 from collections import Counter
@@ -104,6 +106,45 @@ async def surface(client: httpx.AsyncClient, url: str) -> None:
         result_of(await rpc(client, url, "resources/templates/list"))["resourceTemplates"] == [],
         "http_resource_templates",
     )
+
+
+async def native_tts(
+    client: httpx.AsyncClient, url: str, values: dict[str, str], context: Any
+) -> None:
+    """Verify maximum inline output through Caddy and an ordinary SDK HTTP client."""
+    from fastmcp import Client
+    from fastmcp.client.transports import StreamableHttpTransport
+    from mcp.types import AudioContent
+
+    headers = {
+        "X-Seed-Speech-Api-Key": values["speech_key"],
+        "X-MCP-Client-Secret": values["secret"],
+    }
+    arguments = {
+        "voice_id": "test-voice",
+        "text": "synthetic maximum audio",
+        "output_format": {"format": "pcm"},
+    }
+    response = await call(client, url, "seed_tts_generate", arguments, headers)
+    metadata = successful(response)
+    require(response.headers["content-type"].startswith("application/json"), "tts_json_framing")
+    content = response.json()["result"]["content"]
+    require(len(content) == 2 and content[0]["type"] == "audio", "tts_audio_block")
+    decoded = base64.b64decode(content[0]["data"], validate=True)
+    require(len(decoded) == 30 * 1024 * 1024, "tts_maximum_bytes")
+    require(metadata["audio"]["sha256"] == hashlib.sha256(decoded).hexdigest(), "tts_digest")
+    require(metadata["artifact"] is None and "data" not in metadata["audio"], "tts_metadata_only")
+    del response, content, decoded
+    # Production uses ordinary JSON results, not one oversized SSE event.
+    async with Client(
+        StreamableHttpTransport(url + "/mcp", headers=headers, verify=context)
+    ) as sdk:
+        result = await sdk.call_tool("seed_tts_generate", {"input": arguments})
+        block = result.content[0]
+        require(isinstance(block, AudioContent), "tts_sdk_native_audio")
+        require(
+            len(base64.b64decode(block.data, validate=True)) == 30 * 1024 * 1024, "tts_sdk_maximum"
+        )
 
 
 async def credential_checks(

@@ -13,17 +13,6 @@
 {{- if ne (eq .Values.service.mode "apig-production") .Values.service.productionConfirmed -}}
 {{- fail "productionConfirmed must be true only for explicitly approved apig-production; it does not verify APIG trust" -}}
 {{- end -}}
-{{- if .Values.hostedTts.enabled -}}
-{{- if or (eq .Values.service.mode "apig-staging") (ne .Values.temporaryUpload.credentialsMode "static") -}}
-{{- fail "hosted TTS requires a credential-forwarding mode and static TOS credentials" -}}
-{{- end -}}
-{{- if or (empty .Values.hostedTts.existingSecret) (eq .Values.hostedTts.existingSecret .Values.identitySecret.name) (eq .Values.hostedTts.existingSecret .Values.tlsSecretName) -}}
-{{- fail "hosted TTS requires a distinct existing private-output TOS Secret" -}}
-{{- end -}}
-{{- if and .Values.temporaryUpload.enabled (ne .Values.hostedTts.existingSecret .Values.temporaryUpload.existingSecret) -}}
-{{- fail "simultaneous hosted TTS and temporary uploads must explicitly share the same TOS Secret" -}}
-{{- end -}}
-{{- end -}}
 {{- if has .Values.service.mode (list "apig-staging" "apig-production") -}}
 {{- if or (empty .Values.backendHost) (eq .Values.backendHost .Values.publicHost) (not (empty .Values.service.subnetId)) .Values.temporaryUpload.enabled -}}
 {{- fail "APIG modes require a distinct backendHost, empty subnetId and disabled temporary uploads" -}}

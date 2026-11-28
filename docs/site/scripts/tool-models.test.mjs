@@ -84,12 +84,13 @@ test("fixed-service tools do not advertise a per-call model selector", () => {
   assert.match(toolPage(tool("seed_audio_generate")), /seed-audio-1\.0/);
 });
 
-test("TTS documents conditional hosted delivery and local voice selection", () => {
+test("TTS documents native hosted audio and local voice selection", () => {
   const page = toolPage(tool("seed_tts_generate"));
   assert.match(page, /dola-seed-tts-3\.0/);
   assert.match(page, /stdio/i);
   assert.match(page, /voice_id/);
-  assert.match(page, /operator-enabled TOS output storage/);
+  assert.match(page, /native MCP audio without TOS/);
+  assert.match(page, /30 MiB/);
   assert.doesNotMatch(page, /ark_job_submit/);
 });
 

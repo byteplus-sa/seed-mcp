@@ -90,13 +90,13 @@ grants. A label does not register a tool or grant access to provider accounts.
 | `media:upload` | `media_upload`, `seed_media_persist_url` (stdio only); opt-in HTTP `media_prepare_upload` |
 | `media:presign` | `media_presign` (stdio only) |
 | `seed:audio:generate` | `seed_audio_generate` |
-| `seed:tts:generate` | `seed_tts_generate` (stdio or configured hosted output storage) |
+| `seed:tts:generate` | `seed_tts_generate` (stdio or HTTP native audio) |
 | `seedream:generate` | `seedream_generate_image` |
 | `seedance:create` | `seedance_create_task` |
 | `gen:read` | `gen_task_get`, `gen_task_list` |
 | `gen:delete` | `gen_task_cancel_or_delete` |
 
-HTTP exposes 7 provider/discovery tools, without
+HTTP exposes 8 provider/discovery tools, without
 requiring operator provider keys. Anonymous `ark_list_models` lists configured
 model bindings even without an environment provider key. `services[].enabled`
 describes registration, not customer entitlement or key validity. Jobs, native tasks, local storage/artifact tools and all MCP

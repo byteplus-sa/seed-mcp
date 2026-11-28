@@ -46,6 +46,7 @@ PUBLIC_TOOLS = {
     "gen_task_list",
     "gen_task_cancel_or_delete",
     "seed_audio_generate",
+    "seed_tts_generate",
 }
 
 
@@ -261,7 +262,7 @@ async def test_anonymous_catalog_and_resources_are_static(tmp_path: Path) -> Non
         tools = anonymous["result"]["tools"]
         expected = PUBLIC_TOOLS
         assert {tool["name"] for tool in tools} == expected
-        assert len(tools) == 7
+        assert len(tools) == 8
         assert (await rpc(client, "resources/list"))["result"]["resources"] == []
         assert (await rpc(client, "resources/templates/list"))["result"]["resourceTemplates"] == []
         discovery = successful(await call_tool(client, "ark_list_models", {}))

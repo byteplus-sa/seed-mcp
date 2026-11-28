@@ -42,6 +42,7 @@ SUPPORTED_TOOLS = {
 HTTP_PROVIDER_TOOLS = {
     "ark_list_models",
     "seed_audio_generate",
+    "seed_tts_generate",
     "seedream_generate_image",
     "seedance_create_task",
     "gen_task_get",
@@ -81,7 +82,7 @@ async def test_http_catalog_is_static_and_provider_only(operator_configured: boo
     names = {tool.name for tool in await server.list_tools()}
     expected = HTTP_PROVIDER_TOOLS
     assert names == expected
-    assert len(names) == 7
+    assert len(names) == 8
     assert await server.list_resources() == []
     assert await server.list_resource_templates() == []
 

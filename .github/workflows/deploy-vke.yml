@@ -99,7 +99,6 @@ jobs:
           BACKEND_HOST: ${{ vars.VKE_BACKEND_HOST }}
           IDENTITY_SECRET: ${{ vars.VKE_IDENTITY_SECRET }}
           TLS_SECRET: ${{ vars.VKE_TLS_SECRET }}
-          TTS_OUTPUT_SECRET: ${{ vars.VKE_TTS_OUTPUT_SECRET }}
           PREREQUISITES: ${{ vars.VKE_PREREQUISITES_CONFIRMED }}
           PRODUCTION_APPROVED: ${{ vars.VKE_PRODUCTION_APPROVED }}
         run: |
@@ -129,5 +128,4 @@ jobs:
             --namespace "$NAMESPACE" --image "$DEPLOY_IMAGE" --public-host "$PUBLIC_HOST" \
             --service-mode "$SERVICE_MODE" --backend-host "$BACKEND_HOST" \
             --identity-secret "$IDENTITY_SECRET" --tls-secret "$TLS_SECRET" \
-            --tts-output-secret "$TTS_OUTPUT_SECRET" \
             --prerequisites-confirmed --production-approved

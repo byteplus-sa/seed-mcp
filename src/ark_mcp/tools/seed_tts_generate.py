@@ -4,18 +4,19 @@ from __future__ import annotations
 
 import base64
 import hashlib
-from datetime import UTC, datetime, timedelta
 from typing import Literal
 from uuid import uuid4
 
 from fastmcp import Context
 from fastmcp.tools import ToolResult
+from mcp.types import AudioContent, TextContent
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
-from ark_mcp.artifacts.store import ArtifactPersistenceError, artifact_limit_bytes
+from ark_mcp.artifacts.store import ArtifactPersistenceError
 from ark_mcp.domain.artifacts import ArtifactRef, MediaType
 from ark_mcp.domain.errors import NormalizedProviderError, ProviderError
 from ark_mcp.domain.tts import (
+    TTS_MAX_AUDIO_BYTES,
     TTS_MAX_CHARACTERS,
     TtsAlignment,
     TtsOutputFormat,
@@ -25,7 +26,6 @@ from ark_mcp.domain.tts import (
 from ark_mcp.observability.logger import warning as log_warning
 from ark_mcp.providers.factory import seed_speech_gateway
 from ark_mcp.providers.seed_speech.seed_tts import SeedTtsService
-from ark_mcp.providers.tos.constants import TEMPORARY_REFERENCE_TTL_SECONDS
 from ark_mcp.runtime import billed_provider_slot, get_principal, get_runtime
 from ark_mcp.tools._cost import log_cost_estimate
 from ark_mcp.tools._errors import provider_error_result
@@ -115,6 +115,22 @@ class SeedTtsGenerateInput(BaseModel):
         return self
 
 
+class InlineAudioMetadata(BaseModel):
+    content_index: Literal[0] = Field(
+        0, description="Zero-based index of the audio block in MCP result content; always 0."
+    )
+    mime_type: str = Field(
+        ..., description="Audio block MIME type: audio/mpeg, audio/pcm or audio/ogg."
+    )
+    bytes: int = Field(
+        ...,
+        ge=1,
+        le=TTS_MAX_AUDIO_BYTES,
+        description="Decoded audio length in bytes; at most 30 MiB.",
+    )
+    sha256: str = Field(..., description="SHA-256 hex digest of the decoded audio bytes.")
+
+
 class SeedTtsGenerateOutput(BaseModel):
     provider: Literal["byteplus-seed-speech"] = Field(
         "byteplus-seed-speech", description="Speech synthesis provider."
@@ -122,12 +138,13 @@ class SeedTtsGenerateOutput(BaseModel):
     model: Literal["dola-seed-tts-3.0"] = Field(
         "dola-seed-tts-3.0", description="Model used for speech synthesis."
     )
-    artifact: ArtifactRef = Field(
-        ...,
-        description=(
-            "Complete audio: a private expiring HTTPS download on configured HTTP hosts, "
-            "or a persisted stdio artifact with an explicit storage fallback on failure."
-        ),
+    artifact: ArtifactRef | None = Field(
+        None,
+        description="Persisted stdio audio artifact or explicit storage fallback; null on HTTP.",
+    )
+    audio: InlineAudioMetadata | None = Field(
+        None,
+        description="HTTP audio block metadata; bytes are in content[0], not JSON metadata. Null on stdio.",
     )
     output_format: TtsOutputFormat = Field(
         ..., description="Resolved audio encoding, sample rate and bitrate."
@@ -151,66 +168,19 @@ async def _completion_progress(ctx: Context, progress: int) -> None:
         log_warning("seed_tts_progress_failed", progress=progress)
 
 
-async def _hosted_audio(audio: bytes, mime_type: str, request_id: str, ctx: Context) -> ArtifactRef:
-    """Deliver bytes without local state, response Base64 or automatic synthesis retries."""
-    from ark_mcp.providers.tos.client import TosGateway
-
-    artifact_id = str(uuid4())
-    extension = {"audio/mpeg": "mp3", "audio/pcm": "pcm", "audio/ogg": "ogg"}[mime_type]
-    key = f"tts-output/{get_principal(ctx).principal_id}/{artifact_id}.{extension}"
-    created = datetime.now(UTC)
-    gateway: TosGateway | None = None
-    try:
-        gateway = TosGateway(max_retry_count=0)
-        url = await gateway.upload_tts_output(key=key, data=audio, mime_type=mime_type)
-    except Exception:
-        # Storage errors can include signed URLs or operator credentials; never forward them.
-        raise ProviderError(
-            NormalizedProviderError(
-                provider="seed-speech",
-                operation="deliver_speech",
-                code="TTS_DELIVERY_FAILED",
-                message=(
-                    "Synthesis completed but its download link could not be delivered. "
-                    "Storage may contain the expiring audio. Keep the request ID and "
-                    "contact the operator; do not automatically synthesize again."
-                ),
-                request_id=request_id,
-                retryable=False,
-                ambiguous_completion=False,
-            )
-        ) from None
-    finally:
-        try:
-            if gateway is not None:
-                await gateway.close()
-        except Exception:
-            log_warning("seed_tts_storage_cleanup_failed")
-    return ArtifactRef(
-        id=artifact_id,
-        uri=url,
-        media_type=MediaType.AUDIO,
-        mime_type=mime_type,
-        bytes=len(audio),
-        sha256=hashlib.sha256(audio).hexdigest(),
-        created_at=created.isoformat(),
-        source_expires_at=(
-            created + timedelta(seconds=TEMPORARY_REFERENCE_TTL_SECONDS)
-        ).isoformat(),
-    )
-
-
 @local_export("artifact")
 async def seed_tts_generate(
     input: SeedTtsGenerateInput, ctx: Context
 ) -> SeedTtsGenerateOutput | ToolResult:
     """Synthesize text or SSML with Seed TTS 3 and an authorized voice_id.
 
-    Call directly; collects at most 10 MiB of complete audio, not live MCP audio.
-    HTTP requires operator-enabled TTS output storage and live Seed Speech/client-secret
-    headers. Returns a private signed HTTPS download, nominally valid 24 hours; STS expiry
-    may shorten it. Objects have one-day scheduled expiry, not exact 24-hour deletion.
-    Download promptly; no renewal, replay or hosted artifact resource exists.
+    Call directly; collects at most 30 MiB of complete audio, not live MCP audio.
+    HTTP requires live Seed Speech/client-secret headers and returns complete audio
+    directly as an MCP AudioContent block at content[0], Base64-encoded on the wire.
+    Metadata contains encoding, byte count and SHA-256, but no duplicated audio bytes.
+    No TOS, download URL, hosted persistence or recovery API. Clients must save the
+    returned block; native playback depends on the client. A lost response is not
+    recoverable; keep the request ID and never automatically synthesize again.
     Stdio always persists locally. No persist switch; output_path/overwrite are stdio only.
     Returns optional word alignment in seconds. No automatic synthesis retries.
     Undeliverable persistence errors retain the request ID and confirmed synthesis status.
@@ -218,8 +188,6 @@ async def seed_tts_generate(
     """
     runtime = get_runtime(ctx)
     hosted = runtime.settings.mcp_transport == "http"
-    if hosted and not runtime.settings.hosted_tts_enabled:
-        raise ValueError("Hosted TTS output storage is not configured; ask the operator.")
     if hosted and (input.output_path is not None or input.overwrite):
         raise ValueError("output_path and overwrite are stdio only.")
     output_format = input.output_format.resolved()
@@ -245,12 +213,32 @@ async def seed_tts_generate(
                 body,
                 voice_id=input.voice_id,
                 request_id=request_id,
-                max_audio_bytes=artifact_limit_bytes(MediaType.AUDIO),
+                max_audio_bytes=TTS_MAX_AUDIO_BYTES,
             )
             if hosted:
-                # Keep admission held through upload so completed audio cannot accumulate.
-                artifact = await _hosted_audio(
-                    response.audio, output_format.mime_type, request_id, ctx
+                # Encode once under admission; never duplicate Base64 in structured/text metadata.
+                metadata = SeedTtsGenerateOutput(
+                    audio=InlineAudioMetadata(
+                        mime_type=output_format.mime_type,
+                        bytes=len(response.audio),
+                        sha256=hashlib.sha256(response.audio).hexdigest(),
+                    ),
+                    output_format=output_format,
+                    session_id=response.session_id,
+                    alignments=response.alignments,
+                    request_id=request_id,
+                    provider_log_id=response.provider_log_id,
+                )
+                result = ToolResult(
+                    content=[
+                        AudioContent(
+                            type="audio",
+                            data=base64.b64encode(response.audio).decode("ascii"),
+                            mime_type=output_format.mime_type,
+                        ),
+                        TextContent(type="text", text=metadata.model_dump_json()),
+                    ],
+                    structured_content=metadata.model_dump(mode="json"),
                 )
     except ProviderError as exc:
         return provider_error_result(exc)
@@ -260,16 +248,18 @@ async def seed_tts_generate(
         except Exception:
             log_warning("seed_tts_cleanup_failed")
     await _completion_progress(ctx, 80)
+    if hosted:
+        await _completion_progress(ctx, 100)
+        return result
     try:
-        if not hosted:
-            artifact = await persist_base64(
-                runtime.artifact_store,
-                data=base64.b64encode(response.audio).decode("ascii"),
-                media_type=MediaType.AUDIO,
-                mime_type=output_format.mime_type,
-                source_expires_at=None,
-                auth=get_principal(ctx),
-            )
+        artifact = await persist_base64(
+            runtime.artifact_store,
+            data=base64.b64encode(response.audio).decode("ascii"),
+            media_type=MediaType.AUDIO,
+            mime_type=output_format.mime_type,
+            source_expires_at=None,
+            auth=get_principal(ctx),
+        )
     except ArtifactPersistenceError as exc:
         return provider_error_result(
             ProviderError(

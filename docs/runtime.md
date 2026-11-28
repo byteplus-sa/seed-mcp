@@ -233,15 +233,17 @@ Seed TTS uses direct execution and normal Seed Speech admission, with budget
 reservation on stdio only. It never retries synthesis. The JSONL stream is bounded
 and closed on cancellation; after dispatch, an interrupted or malformed
 successful stream is ambiguous and its reservation commits. A definitive
-rejection or connection failure releases it. Completed audio is passed to persistence.
-If storage and bounded fallback cannot deliver it, the text-only error retains
+rejection or connection failure releases it. On stdio, completed audio is passed to persistence.
+If local storage and bounded fallback cannot deliver it, the text-only error retains
 the request ID and confirmed synthesis status, and forbids automatic resynthesis.
 Ordinary post-synthesis notification and client-cleanup failures are best-effort;
 external cancellation still propagates.
 See [Seed TTS](seed-tts.md).
-On configured HTTP hosts, admission stays held through private temporary TOS
-upload. There is no local persistence or Base64 fallback; failed delivery retains
-confirmed synthesis and request ID. Blocking SDK work drains on cancellation.
+On HTTP, admission stays held through encoding up to 30 MiB decoded audio into
+one native MCP audio block. There is no output storage or download URL.
+Base64 adds one-third wire overhead; validate client/proxy response capacity
+and concurrent memory use. Lost responses cannot be recovered or safely retried
+by resynthesizing. Deadlines preserve known dispatched request IDs.
 
 Seedream 5.5 output estimates use the supplied high-resolution pricing table:
 at most 2.61M pixels costs $0.020; above 2.61M through 4.63M costs $0.035;

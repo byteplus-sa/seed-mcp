@@ -14,9 +14,8 @@ HTTP clients download temporary provider URLs themselves.
 Persistence uses direct calls on stdio, with live MCP roots or `OUTPUT_ROOTS`
 for explicit local paths. No task augmentation is needed or supported.
 Seed TTS always persists its completed stream on stdio; it has no provider URL
-or `persist` switch. Its local `source_expires_at` is null. Configured HTTP TTS
-instead returns a temporary signed TOS download with nominal
-`source_expires_at`, not a durable artifact resource. See [TTS delivery](seed-tts.md).
+or `persist` switch. Its local `source_expires_at` is null. HTTP TTS
+instead returns native audio directly, without an artifact URI or expiry. See [TTS delivery](seed-tts.md).
 
 > **Breaking capability removal:** old saved 3D artifacts are no longer served
 > by the narrowed image/audio/video schema. Export needed 3D outputs using the
@@ -132,7 +131,7 @@ use this fixed policy, with no per-call extensions. If the downloaded
 Object-store reads use the owned artifact's recorded byte count for audio,
 allowing large inline outputs to be retrieved without an unbounded download.
 Reference audio still has its 10 MiB input limit. TTS separately bounds decoded
-stream output to 10 MiB. These limits are distinct from the inline fallback cap.
+stream output to 30 MiB. These limits are distinct from the inline fallback cap.
 
 ### Download and upload retries
 

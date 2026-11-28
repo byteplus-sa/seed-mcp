@@ -12,7 +12,6 @@
     "backendHost",
     "identitySecret",
     "tlsSecretName",
-    "hostedTts",
     "temporaryUpload",
     "service",
     "app",
@@ -113,20 +112,6 @@
     },
     "tlsSecretName": {
       "$ref": "#/definitions/name"
-    },
-    "hostedTts": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["enabled", "existingSecret"],
-      "description": "Opt-in private temporary TTS output storage. Static restricted TOS credentials; no generation keys, database or artifact resources. Bucket/IAM/expiry are operator prerequisites.",
-      "properties": {
-        "enabled": {"type": "boolean"},
-        "existingSecret": {
-          "type": "string",
-          "maxLength": 63,
-          "pattern": "^$|^[a-z0-9]([a-z0-9-]*[a-z0-9])?$"
-        }
-      }
     },
     "temporaryUpload": {
       "type": "object",

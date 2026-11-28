@@ -471,7 +471,7 @@ def test_transport_inventory_and_execution_match_catalog(exported: dict[str, Any
 
     settings = Settings.model_construct(mcp_transport="http")
     ordinary = {entry.name for entry in CATALOG if entry.gate(settings)}
-    assert len(ordinary) == 7
+    assert len(ordinary) == 8
     for tool in exported["tools"]:
         transports = tool["transports"]
         if tool["name"] == "media_prepare_upload":
@@ -482,10 +482,8 @@ def test_transport_inventory_and_execution_match_catalog(exported: dict[str, Any
             assert "MCP_UPLOAD_CLIENT_SECRET_SHA256" in transports["http"]["registration_gate"]
             continue
         if tool["name"] == "seed_tts_generate":
-            assert "MCP_HOSTED_TTS_ENABLED=true" in transports["http"]["registration_gate"]
-        assert set(transports) == (
-            {"stdio", "http"} if tool["name"] in ordinary | {"seed_tts_generate"} else {"stdio"}
-        )
+            assert "native MCP audio" in transports["http"]["registration_gate"]
+        assert set(transports) == ({"stdio", "http"} if tool["name"] in ordinary else {"stdio"})
         assert transports["stdio"]["execution"] == tool["execution"] == "direct"
         if "http" in transports:
             assert transports["http"]["execution"] == "direct"

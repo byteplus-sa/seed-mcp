@@ -1,12 +1,12 @@
 ---
 name: ark-mcp
-description: Generate media with Seed MCP. Use for Seedream, Seedance, Seed Audio and configured Seed TTS 3 through direct HTTP BYOK or stdio calls, plus opt-in temporary TOS reference preparation.
+description: Generate media with Seed MCP. Use for Seedream, Seedance, Seed Audio and Seed TTS 3 through direct HTTP BYOK or stdio calls, plus opt-in temporary TOS reference preparation.
 ---
 
 # Ark Seed Multimodal MCP Server
 
 This project-local skill describes the narrowed `byteplus-sa/seed-mcp` server.
-The public site covers the seven baseline hosted tools and optional hosted TTS.
+The public site covers the eight baseline hosted tools.
 Local tools, optional upload preparation and operator contracts remain in the
 repository handbook. Both follow their source revision; use the connected
 server's discovery and schemas for current contracts.
@@ -17,11 +17,10 @@ skill covers only what the schemas cannot tell you: the flow, the rules that
 span tools, and where to look things up. **Parameters live in the tool
 schemas** ([Seed MCP API reference](https://github.com/byteplus-sa/seed-mcp/blob/main/docs/api-reference.md)).
 
-Determine the transport before choosing a workflow. HTTP BYOK has 7 tools
+Determine the transport before choosing a workflow. HTTP BYOK has 8 tools
 and runs provider tools directly in the foreground.
-Opt-in `media_prepare_upload` adds one HTTP tool for enrolled clients (8 total).
-Operator-enabled TTS output storage adds `seed_tts_generate` separately, up to nine
-when both options are enabled. Discover actual availability before calling.
+Opt-in `media_prepare_upload` adds one HTTP tool for enrolled clients (9 total).
+Seed TTS returns native audio directly without output storage. Discover actual availability before calling.
 It has no jobs, native tasks, local storage/artifact tools or resources. Local stdio
 retains the 13-entry conditional catalog and storage/artifacts, with direct calls.
 Asset administration is unavailable on either transport. Setup and rotation:
@@ -38,7 +37,7 @@ or server-issued key exists; `Authorization` is rejected.
 | **Seedance** video (2.0, regular 2.5 with 4K, and 2.5 Flash) | `seedance_create_task` | `gen_task_get`, `gen_task_list`, `gen_task_cancel_or_delete` | `BYTEPLUS_MODELARK_API_KEY` |
 | **Seedream** images (generate and edit) | `seedream_generate_image` | artifacts in the result | `BYTEPLUS_MODELARK_API_KEY` |
 | **Seed Audio** | `seed_audio_generate` | artifact in the result | `BYTEPLUS_SEED_SPEECH_API_KEY` |
-| **Seed TTS 3.0** | `seed_tts_generate` | hosted temporary download or local artifact; optional alignment | `BYTEPLUS_SEED_SPEECH_API_KEY` |
+| **Seed TTS 3.0** | `seed_tts_generate` | native HTTP audio or local artifact; optional alignment | `BYTEPLUS_SEED_SPEECH_API_KEY` |
 | **Object storage** | `media_upload`, `media_presign` | URLs in the result | TOS or S3 credentials |
 | **Always registered (four local tools)** | `ark_list_models`, `seed_media_*` | — | — |
 
@@ -57,6 +56,7 @@ flowchart LR
     discover["1 Discover: ark_list_models"] --> create["2 Direct product call"]
     create -->|"Seedance task IDs"| poll["3 Poll provider task"]
     create -->|"Seedream, Seed Audio"| output["URLs or explicit local artifacts"]
+    create -->|"Seed TTS on HTTP"| audio["Client saves native audio block"]
     poll -->|"Successful output"| output
     output -->|"stdio persistence"| artifacts["4 Local seed_media_*"]
     output -->|"HTTP"| download["Client downloads expiring URL"]
@@ -79,7 +79,8 @@ flowchart LR
 3. **Poll.** Seedance with `gen_task_get`.
    **Never resubmit a create tool to poll**; there is no
    saved-response replay, and a new create can bill again.
-4. **Keep outputs.** HTTP clients download expiring provider URLs themselves.
+4. **Keep outputs.** HTTP clients download expiring provider URLs or save native
+   TTS audio blocks themselves. Never print audio Base64 in chat.
    Stdio can explicitly persist and use `seed_media_get_artifact`,
    `seed_media_export_artifact`, `seed_media_persist_url`, and resources.
 
@@ -233,13 +234,11 @@ flowchart LR
 - Call directly. The only model is `dola-seed-tts-3.0`. Supports MP3/PCM/Ogg Opus,
   delivery controls, pronunciation rules and optional word alignment in seconds.
 - Stdio always persists the bounded stream; no `persist` switch or provider URL.
-  Configured HTTP hosts return a signed private TOS download in `artifact.uri`,
-  nominally valid 24 hours (STS may expire earlier), with one-day scheduled expiry.
-  Download promptly without provider headers. No renewal/recovery or HTTP Base64
-  fallback exists. `output_path` and artifact export remain stdio-only.
-- HTTP requires live Seed Speech/client-secret headers and operator-enabled
-  `MCP_HOSTED_TTS_ENABLED` storage. `TTS_DELIVERY_FAILED` preserves known synthesis
-  completion and request ID; do not resynthesize automatically.
+  HTTP returns one native audio block at content[0] plus metadata; no output
+  storage, download URL or recovery API. The cap is 30 MiB decoded audio (40 MiB
+  Base64 before metadata). Save the audio block with client-side support;
+  playback/saving UI is client-dependent. Never put the Base64 in chat or logs.
+- HTTP requires live Seed Speech/client-secret headers, not TOS credentials.
 - No automatic synthesis retry. A timeout or incomplete stream may be billed;
   retain diagnostics and reconcile. See [TTS details](references/tool-reference.md#seed-tts-3).
 

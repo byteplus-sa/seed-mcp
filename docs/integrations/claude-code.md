@@ -120,7 +120,7 @@ generated once from 32 random bytes, encoded as 64 lowercase hex.
 There is no OAuth, signup, server-issued key or `Authorization` header.
 Do not put real keys in CLI flags, chat or committed JSON.
 
-HTTP exposes 7 tools, default anonymous static discovery
+HTTP exposes 8 tools, default anonymous static discovery
 with `connection=null`, and direct
 foreground calls. Jobs/native tasks/local storage/artifact tools/resources are absent.
 Optional [temporary TOS preparation](../temporary-uploads.md) adds one tool for

@@ -39,8 +39,8 @@ _HTTP_REGISTRATION_GATES = {
     "_modelark": "Always registered on HTTP; invocation requires the selected request key.",
     "_seed_audio": "Always registered on HTTP; invocation requires the selected request key.",
     "_seed_tts": (
-        "Requires MCP_HOSTED_TTS_ENABLED=true and private temporary TOS output storage; "
-        "invocation requires the live Seed Speech key and client secret."
+        "Always registered on HTTP; invocation requires the live Seed Speech key and client secret. "
+        "Returns native MCP audio without object storage."
     ),
     "_temporary_upload": (
         "Requires MCP_TEMPORARY_UPLOAD_ENABLED=true, TOS configuration and "

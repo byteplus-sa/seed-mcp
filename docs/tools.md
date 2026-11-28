@@ -9,14 +9,14 @@ tool accepts a Pydantic input model and returns a Pydantic output model as
 structured content. All tools accept a `ctx: Context` parameter for progress
 reporting and logging.
 
-HTTP exposes 7 discovery/provider tools, without
+HTTP exposes 8 discovery/provider tools, without
 operator provider keys. Discovery is anonymous/static. Provider calls use the
 selected BYOK header plus `X-MCP-Client-Secret` and run directly in the foreground.
 HTTP has no jobs/native tasks/local storage/artifact tools/resources. No OAuth,
 signup, server-issued key or environment-key fallback exists.
 See [HTTP setup](setup/shared-server.md) and [Security](security.md).
 
-Optional HTTP-only `media_prepare_upload` adds one tool (8 total).
+Optional HTTP-only `media_prepare_upload` adds one tool (9 total).
 Operator enrollment authorizes preparation without a generation-provider key;
 the client uploads directly to TOS. See [temporary uploads](temporary-uploads.md).
 
@@ -26,7 +26,7 @@ scope labels are metadata, not customer-selected roles. Seed Audio/Seedream
 HTTP rejects true, local paths and stored artifact references. Local true is
 explicit; HTTP clients retrieve expiring URLs themselves.
 `seed_tts_generate` always persists its streamed bytes on stdio and has no
-`persist` switch. Configured HTTP hosts return private temporary TOS downloads.
+`persist` switch. HTTP returns native audio directly, capped at 30 MiB, without TOS.
 
 ## Tool Contract for MCP Clients
 
@@ -251,15 +251,15 @@ code and whether it is retryable.
 
 ## seed_tts_generate
 
-Enabled by `BYTEPLUS_SEED_SPEECH_API_KEY` on stdio, or by operator-configured
-TOS output storage and live Seed Speech/client-secret headers on HTTP.
+Enabled by `BYTEPLUS_SEED_SPEECH_API_KEY` on stdio; always registered on HTTP
+with live Seed Speech/client-secret headers required for invocation. No TOS is needed.
 Catalog scope: `seed:tts:generate`. Speaks supplied text or SSML using Seed TTS 3.0 and a
 compatible, authorized `voice_id`. Call directly; no jobs, polling or retries.
-The JSONL provider stream becomes one durable audio artifact, not live MCP audio.
+The JSONL provider stream becomes one complete output, not real-time MCP audio.
 
 Supports MP3, PCM and Ogg Opus, delivery controls, pronunciation rules and optional
 word alignment in seconds. Stdio persists, with bounded fallback on storage
-failure; HTTP returns an expiring download without inline fallback. There is
+failure; HTTP returns native audio directly, up to 30 MiB decoded bytes. There is
 no `persist` option or provider URL. Optional `output_path`
 uses normal stdio output roots.
 

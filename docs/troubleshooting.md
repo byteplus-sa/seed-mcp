@@ -42,7 +42,7 @@ tools — it does not register a broken tool.
 ## Missing Provider Tools
 
 Check `ark_list_models.services` and the actual tool list. Locally, provider
-credentials or feature flags may be missing. HTTP registers seven tools, independently of operator provider keys.
+credentials or feature flags may be missing. HTTP registers eight tools, independently of operator provider keys.
 
 1. **Finish active calls, then reconnect `ark-seed` in the client you are using.**
    Configuration is read at startup. Another editor's running server does not
@@ -285,7 +285,7 @@ actions are in [shared-server setup](setup/shared-server.md#generate-a-client-sn
 
 ## Unknown Tool over HTTP
 
-Check `ark_list_models.services`. HTTP has 7 tools; optional `media_prepare_upload` adds one (8). It requires the
+Check `ark_list_models.services`. HTTP has 8 tools; optional `media_prepare_upload` adds one (9). It requires the
 operator's enable flag, TOS configuration and client enrollment. There are no
 jobs/native tasks/local storage/artifact tools/resources. Missing
 operator generation-provider keys do not hide HTTP tools. Asset administration is

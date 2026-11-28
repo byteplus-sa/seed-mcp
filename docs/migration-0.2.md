@@ -36,7 +36,7 @@ is provided.
    key, but administration, lookup, resolution and status preflight are absent.
    Ordinary TOS/S3 uploads do not register provider assets.
 
-Current HTTP is a forward-only BYOK foundation with 7 tools, anonymous static discovery and foreground provider calls.
+Current HTTP is a forward-only BYOK foundation with 8 tools, anonymous static discovery and foreground provider calls.
 Local stdio retains the conditional 13-tool catalog (including Seed TTS) and storage, using direct
 calls without MCP workers. Removing jobs does not delete current provider
 ownership or journal state; preserve it. No old-auth compatibility or ownership

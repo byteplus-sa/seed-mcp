@@ -42,8 +42,8 @@ Try [Your First Tool Call](setup/first-run.md). Describe the image or video
 you want; your client handles tool calls and video polling.
 Generation may incur provider charges. Save returned task IDs and download
 results before provider URLs expire; do not repeat uncertain creates.
-The hosted service has seven tools for discovery, images, video and scene
-audio, plus Seed TTS when output storage is enabled. Local storage/artifact
+The hosted service has eight tools for discovery, images, video, scene
+audio and Seed TTS. TTS returns audio directly without output storage. Local storage/artifact
 tools remain unavailable over HTTP.
 
 The [optional ark-mcp usage skill](setup/agent-skill.md) provides workflow

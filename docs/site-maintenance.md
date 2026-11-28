@@ -75,8 +75,8 @@ environment substitution. OpenCode V2 uses `{env:NAME}` and
 `timeout.execution` in milliseconds; Cline's VS Code extension uses
 `${env:NAME}` and `timeout` in seconds. Keep these formats distinct.
 
-`PUBLIC_PAGES` is the publication allowlist. `HOSTED_TOOLS` selects the seven
-baseline HTTP tools and optional hosted TTS from the complete exporter output; it changes no server
+`PUBLIC_PAGES` is the publication allowlist. `HOSTED_TOOLS` selects the eight
+baseline HTTP tools including native-audio TTS from the complete exporter output; it changes no server
 registration or capability. Local-only tools and optional upload preparation
 are not advertised as hosted features. Full operator/local guides stay in the
 repository, outside site navigation and search.
@@ -134,7 +134,7 @@ There is **no `background` key**, top-level or transport-level. Registration
 gates and selected credential headers remain transport-specific; top-level
 `registration_gate` describes stdio, including unavailability for HTTP-only
 preparation. The catalog contains 14 definitions: 13 conditional local tools,
-four always registered; HTTP has 7, plus optional
+four always registered; HTTP has 8, plus optional
 `media_prepare_upload`. Its export has no invented stdio transport.
 The public renderer rejects obsolete execution metadata and shows one HTTP
 call example per tool, with field tables and collapsed complete schemas.

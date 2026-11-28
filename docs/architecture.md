@@ -1,8 +1,7 @@
 # Architecture
 
 Seed MCP is a direct-call Python/FastMCP server. The catalog contains 13 local
-tools; HTTP exposes seven baseline discovery/provider tools.
-Configured hosted TTS adds one output-storage-backed capability.
+tools; HTTP exposes eight baseline discovery/provider tools, including TTS.
 Opt-in HTTP-only `media_prepare_upload` adds one signing capability; its client
 uploads directly to private TOS. The full catalog has 14 definitions.
 There are no MCP jobs, native tasks or inference workers.
@@ -56,12 +55,11 @@ through to the provider.
 
 ## Execution and Delivery
 
-HTTP is URL-only. It rejects binary/local uploads, artifact resources, stored artifact
+HTTP uses URL-only references for media inputs. It rejects binary/local uploads, artifact resources, stored artifact
 references and persistence requests. Local stdio keeps explicit persistence
 and writes constrained by live MCP roots or `OUTPUT_ROOTS`.
-TTS always persists its bounded stream on stdio. On configured HTTP hosts,
-it uploads completed audio to private temporary TOS storage and returns a
-signed HTTPS download; no metadata object, local file or database is created.
+TTS always persists its bounded stream on stdio. HTTP returns one native MCP
+audio block plus metadata; no output upload, local file or database is created.
 It uses direct-call deadlines and dispatch tracking, with no automatic synthesis
 retry or provider URL. See [Seed TTS](seed-tts.md).
 

@@ -26,7 +26,7 @@ def test_connection_output_has_a_bounded_schema_and_no_authentication_claim() ->
     assert schema["properties"]["provider_calls_made"]["const"] is False
 
 
-@pytest.mark.parametrize("transport,tool_count", [("stdio", 13), ("http", 7)])
+@pytest.mark.parametrize("transport,tool_count", [("stdio", 13), ("http", 8)])
 async def test_tool_schemas_stay_within_budget(
     all_services_enabled: None, transport: str, tool_count: int
 ) -> None:

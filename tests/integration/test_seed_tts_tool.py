@@ -458,7 +458,7 @@ async def test_real_mcp_direct_call_and_discovery(test_env: None) -> None:
         assert route.call_count == 1
 
 
-async def test_http_never_advertises_or_dispatches_tts() -> None:
+async def test_http_advertises_tts_but_never_uses_operator_speech_key() -> None:
     settings = Settings(
         _env_file=None,
         MCP_TRANSPORT="http",
@@ -466,8 +466,8 @@ async def test_http_never_advertises_or_dispatches_tts() -> None:
         BYTEPLUS_SEED_SPEECH_API_KEY="synthetic",  # pragma: allowlist secret
     )
     server = create_server(settings)
-    assert "seed_tts_generate" not in {tool.name for tool in await server.list_tools()}
-    assert not any(model.tool == "seed_tts_generate" for model in describe_models(settings))
+    assert "seed_tts_generate" in {tool.name for tool in await server.list_tools()}
+    assert any(model.tool == "seed_tts_generate" for model in describe_models(settings))
     with respx.mock(assert_all_called=False) as router:
         async with Client(server) as client:
             result = await client.call_tool(

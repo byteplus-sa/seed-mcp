@@ -31,7 +31,7 @@ flowchart LR
   `persist_output=true` to download and store them on stdio.
 - **No task augmentation is required or supported.** Persistence uses the
   direct call's live MCP context.
-- **Seed Audio/Seedream persistence defaults to false globally.** Local true is explicit; HTTP rejects true. Seed TTS persists on stdio and has no switch; enabled HTTP TTS returns private temporary downloads.
+- **Seed Audio/Seedream persistence defaults to false globally.** Local true is explicit; HTTP rejects true. Seed TTS persists on stdio and has no switch; HTTP TTS returns native audio directly.
 - **Never resubmit a create tool to poll.** `queued`, `running` and `processing` are not failures, and a second create call starts a second billed task. After a local timeout, disconnect or client restart, poll the same task ID again.
 - **Persistence is cached per task and output.** Concurrent and repeated polls reuse each cached durable copy. Missing or failed generation outputs can be persisted later without copying successful siblings again.
 - Local files written by a persist run (`output_dir`, `output_path`) need live MCP roots or `OUTPUT_ROOTS`; see [local-output.md](local-output.md).
@@ -83,8 +83,8 @@ Stdio persisted outputs are `ArtifactRef`s with a stable
 `seed-media://artifacts/{artifact_id}` URI. Explicitly request `persist=true` /
 `persist_output=true` locally when needed; defaults are false.
 Seed TTS persists its completed stream on stdio and has no provider URL.
-Configured HTTP hosts return a signed TOS download, nominally valid 24 hours
-(STS may expire earlier), with one-day scheduled expiry and no renewal/recovery.
+HTTP returns one native audio block directly, up to 30 MiB decoded bytes, without
+storage or a download URL. Save it client-side; there is no recovery API.
 
 ### Retention and access
 
@@ -129,7 +129,7 @@ Above the inline cap a Base64 output that cannot be stored becomes a tool error.
 Inline provider audio has no store byte cap, so its inline fallback
 `persistence_error.artifact_limit_bytes` is null. This does not remove the
 fallback cap, reference-audio input limits, 10 MiB audio URL-download limit or
-TTS's separate 10 MiB stream-output bound. Object-store reads of persisted audio
+TTS's separate 30 MiB stream-output bound. Object-store reads of persisted audio
 are bounded by the owned artifact's recorded byte count.
 
 ### `seed_media_persist_url`

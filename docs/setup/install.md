@@ -228,7 +228,7 @@ with {"input": {}}. Report available services and models.
 Do not generate media, upload files, or make paid calls.
 ```
 
-Expect seven tools and `connection=null`; enabled hosted TTS adds one tool.
+Expect eight tools and `connection=null`.
 Discovery is free and makes no
 provider calls; it does not validate your key or account access.
 Problems? See [connection checks](shared-server.md).
@@ -237,8 +237,8 @@ Then [create your first image, video or audio clip](first-run.md).
 
 ### Hosted Availability
 
-Seedream, Seedance and Seed Audio are available. Seed TTS 3 requires
-operator-enabled output storage; check discovery. Local file tools are
+Seedream, Seedance and Seed Audio are available. Seed TTS 3 returns
+native audio directly without TOS; client playback support varies. Local file tools are
 not hosted. See [TTS](/seed-mcp/tool-reference/seed-tts-generate/) and [service limits](../service.md).
 
 <span id="guided-local-setup"></span>

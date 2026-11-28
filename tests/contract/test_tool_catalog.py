@@ -91,7 +91,7 @@ async def test_http_catalog_disables_native_tasks_without_operator_keys() -> Non
         )
     )
     tools = await server.list_tools()
-    assert len(tools) == 7
+    assert len(tools) == 8
     for tool in tools:
         assert tool.task_config.mode == "forbidden", tool.name
 

@@ -49,18 +49,11 @@ resources. No generation-provider-key environment entries, `envFrom`, credential
 bootstrap, hidden exec provisioners or addon resources belong to these roots.
 Infrastructure IDs and safe partial Helm inputs are the only outputs.
 
-Optional `hostedTts.enabled=false` adds private temporary speech downloads when
-enabled with a distinct `hostedTts.existingSecret`. It uses static `TOS_ACCESS_KEY`,
-`TOS_SECRET_KEY`, `TOS_BUCKET`, `TOS_REGION`, `TOS_ENDPOINT` and optional
-`TOS_SECURITY_TOKEN`; no generation keys, database, PVC or artifact resources.
-It is allowed in public-CLB and approved APIG production, never synthetic staging.
-IRSA remains scoped to temporary upload preparation. Simultaneous TTS and upload
-enablement must explicitly share one static TOS Secret with separate prefix IAM.
-The protected delivery variable `VKE_TTS_OUTPUT_SECRET` supplies helper
-`--tts-output-secret`; empty forces TTS off, nonempty validates named fields
-before Helm and enables it. Operator-owned bucket privacy, versioning disabled,
-lifecycle, IAM and storage/egress controls remain live prerequisites.
-See [hosted TTS downloads](SPEC_HOSTED_BYOK.md#hosted-tts-downloads).
+Hosted TTS returns native MCP audio without a TOS Secret, bucket or feature
+flag. A 30 MiB decoded output produces 40 MiB Base64 plus metadata. Validate
+response capacity through the deployed proxy/client path separately from the
+inbound request limit; source support is not live capacity evidence.
+See [hosted TTS audio](SPEC_HOSTED_BYOK.md#hosted-tts-audio).
 
 Optional `temporaryUpload.enabled` defaults false; `existingSecret` defaults
 empty. Enabling requires a distinct existing Secret, separate from identity/TLS.

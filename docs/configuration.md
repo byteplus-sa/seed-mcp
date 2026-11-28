@@ -6,7 +6,7 @@ Empty values are ignored. Hosted VKE uses [Helm inputs](byteplus-terraform.md#ch
 and existing Secret references, not this local provider-key template.
 
 Provider-key environment variables below apply to **local stdio only**.
-HTTP uses live request BYOK headers and registers its 7 provider/discovery
+HTTP uses live request BYOK headers and registers its 8 provider/discovery
 tools without operator generation keys. No HTTP fallback
 to environment provider keys exists. Keep private configuration outside Git.
 
@@ -338,11 +338,9 @@ Seed Audio/Seedream `persist` default to
 false on every transport. HTTP rejects explicit true and returns temporary
 provider URLs; local callers can explicitly opt into persistence.
 Seed TTS always persists its completed stream on stdio, with no `persist`
-switch. `MCP_HOSTED_TTS_ENABLED=true` optionally adds HTTP TTS: it requires
-restricted static TOS credentials, a dedicated private versioning-disabled bucket
-and the exact official regional endpoint, and returns private temporary downloads.
-The flag defaults false and does not enable input uploads or artifact resources.
-See [operator prerequisites and expiry](seed-tts.md#hosted-output-storage).
+switch. HTTP returns a native MCP audio block, capped at 30 MiB decoded bytes,
+without TOS or a TTS feature flag. See [direct audio delivery](seed-tts.md#direct-audio-delivery).
+
 Inline provider audio has no store byte cap, while reference
 inputs, URL downloads, TTS stream collection and inline fallback stay bounded.
 A local billed output retains fallback delivery when storage fails; see

@@ -31,7 +31,7 @@ test("primary onboarding connects to hosted MCP without installing a server", ()
   assert.match(install, /Local file tools are\s+not hosted/);
   assert.match(
     install,
-    /Seed TTS 3 requires\s+operator-enabled output storage/,
+    /Seed TTS 3 returns\s+native audio directly without TOS/,
   );
 });
 
@@ -137,7 +137,7 @@ test("hosted setup uses private headers and makes skills optional", () => {
   assert.match(install, /does not validate your key or account access/);
   assert.match(install, /private custom headers/);
   assert.match(install, /Do not use\s+`Authorization` or OAuth/i);
-  assert.match(install, /Expect seven tools and `connection=null`/);
+  assert.match(install, /Expect eight tools and `connection=null`/);
   assert.doesNotMatch(
     page("setup/shared-server.md"),
     /does not provide a public hosted endpoint/,

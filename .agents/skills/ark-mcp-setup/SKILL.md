@@ -354,14 +354,14 @@ owner-first then provider; operator maxima are 30 seconds for admission and
 3600 for the whole tool. SDK/SQLite draining may exceed the deadline.
 Timeout does not cancel provider work: retain safe accepted IDs and never
 blindly resubmit. Local outputs use live MCP roots or `OUTPUT_ROOTS`.
-Seed TTS 3 shares the Seed Speech key. Stdio always persists audio; HTTP adds it
-when `MCP_HOSTED_TTS_ENABLED` and private TOS output storage are configured.
-It returns expiring private downloads, without a database or artifact resources.
+Seed TTS 3 shares the Seed Speech key. Stdio always persists audio; HTTP returns
+native audio without TOS. The decoded cap is 30 MiB (40 MiB Base64 plus metadata).
+Client playback/saving support and proxy response capacity require verification.
 Do not provision storage or perform paid TTS as a client-setup side effect.
 
 For HTTP, verify default anonymous/static `ark_list_models` with
-`{"input":{}}` and `connection=null`, and 7 tools,
-plus one each for enabled hosted TTS and temporary upload preparation (up to 9),
+`{"input":{}}` and `connection=null`, and 8 tools,
+plus one for optional temporary upload preparation (9 total),
 no resources, no job tools/native tasks and direct foreground execution.
 Then optionally call `{"input":{"check_connection":true}}` on live HTTP:
 only ModelArk image/video header presence and exact endpoint defaults are

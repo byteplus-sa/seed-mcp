@@ -160,7 +160,7 @@ stateful-release migration tooling are not part of this repository.
 
 ## Validation Status
 
-Verify anonymous `ark_list_models`, exact 7 baseline (8 with temporary preparation) HTTP tool inventory, no resources,
+Verify anonymous `ark_list_models`, exact 8 baseline (9 with temporary preparation) HTTP tool inventory, no resources,
 rejected jobs/native tasks, selected-key enforcement, owner isolation, limits,
 and minimal backend `/health`/`/ready`. Caddy exposes only `/mcp` and `/health`;
 `/ready` and `/metrics` are private. Optional metrics use authorized pod

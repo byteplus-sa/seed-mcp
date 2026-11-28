@@ -49,7 +49,7 @@ Generated per-tool pages show both transports and exact current schemas.
 | 10 | `seed_media_persist_url` | Artifacts | Direct call | Local stdio only |
 | 11 | `media_upload` | Object storage (optional) | Direct call (1-50 files) | TOS / S3 |
 | 12 | `media_presign` | Object storage (optional) | Read-only (1-100 keys) | TOS / S3 |
-| 13 | `seed_tts_generate` | Seed TTS 3.0 | Direct synthesis; temporary HTTP download or local artifact | Seed Speech; HTTP needs operator-enabled TOS output |
+| 13 | `seed_tts_generate` | Seed TTS 3.0 | Direct synthesis; native HTTP audio or local artifact | Seed Speech; HTTP needs no output storage |
 
 Read the [breaking-capability migration](migration-0.2.md#breaking-capability-migration)
 before upgrading; the 0.2 consolidation tables on that page are historical.
@@ -286,7 +286,7 @@ not account-specific rates. See [Runtime](runtime.md#cost-estimation-tools_costp
 
 **ServiceStatus:** `service`, `enabled`, and `reason` (the env var or flag that
 enables a disabled service; never a secret value). Services: `modelark`,
-`seed_audio`, `object_storage`, plus `seed_tts` on stdio.
+`seed_audio`, `seed_tts`, and `object_storage`.
 
 ### HTTP Connection Fields
 
@@ -338,15 +338,15 @@ HTTP-only video route check, without generation:
 ## seed_tts_generate
 
 Direct speech synthesis using `dola-seed-tts-3.0` and the Seed Speech key.
-HTTP additionally requires operator-enabled temporary TOS output storage.
+HTTP returns native audio directly without TOS.
 Requires `voice_id` and exactly one of `text` or `ssml`.
 Supports pronunciation rules, delivery controls, word alignment and
-MP3/PCM/Ogg Opus output. Collects one stream and returns a temporary signed HTTP
-download or persisted stdio artifact;
+MP3/PCM/Ogg Opus output. Collects at most 30 MiB decoded audio and returns
+one native HTTP audio block or persisted stdio artifact;
 there is no `persist` flag, provider URL, MCP job or automatic synthesis retry.
 Optional `output_path` uses standard stdio root validation.
 
-The result has `artifact`, `output_format`, `session_id`, `alignments`,
+The result has `audio` metadata (HTTP) or `artifact` (stdio), `output_format`, `session_id`, `alignments`,
 `request_id` and optional `provider_log_id`. Word timestamps are in seconds.
 See [Seed TTS 3.0](seed-tts.md) for input limits, encoding combinations,
 voice-list guidance, examples and failure semantics.

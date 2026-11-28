@@ -69,8 +69,8 @@
       {
         "name": "Seed TTS 3.0",
         "id": "`dola-seed-tts-3.0`",
-        "availability": "HTTP with operator-enabled TOS output storage and live Seed Speech/client-secret headers; local stdio with BYTEPLUS_SEED_SPEECH_API_KEY.",
-        "capabilities": "Text or SSML, up to 10,000 characters; voice delivery and pronunciation controls; optional word alignment; MP3, PCM or Ogg Opus; up to 10 MiB collected audio. HTTP returns an expiring HTTPS download; stdio persists locally. Not live MCP audio."
+        "availability": "HTTP with live Seed Speech/client-secret headers, no TOS; local stdio with BYTEPLUS_SEED_SPEECH_API_KEY.",
+        "capabilities": "Text or SSML, up to 10,000 characters; voice delivery and pronunciation controls; optional word alignment; MP3, PCM or Ogg Opus; up to 30 MiB collected audio. HTTP returns native MCP audio without TOS; stdio persists locally. Not live MCP audio."
       }
     ]
   },

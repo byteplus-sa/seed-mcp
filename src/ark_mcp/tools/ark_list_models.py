@@ -13,7 +13,7 @@ from ark_mcp.config.model_capabilities import (
     VideoCapabilities,
     get_capability_registry,
 )
-from ark_mcp.domain.tts import TTS_MAX_CHARACTERS, TTS_MODEL
+from ark_mcp.domain.tts import TTS_MAX_AUDIO_BYTES, TTS_MAX_CHARACTERS, TTS_MODEL
 from ark_mcp.security.credentials import (
     endpoint_default,
     has_client_secret,
@@ -117,6 +117,9 @@ class TtsModelLimits(BaseModel):
 
     max_text_characters: int = Field(description="Maximum text characters per request.")
     max_ssml_characters: int = Field(description="Local safety limit for SSML characters.")
+    max_audio_bytes: int = Field(
+        TTS_MAX_AUDIO_BYTES, description="Maximum collected decoded TTS audio bytes: 30 MiB."
+    )
     output_formats: list[str] = Field(description="Available audio encodings.")
     requires_voice_id: bool = Field(
         True, description="An authorized, compatible voice ID is required."
@@ -291,7 +294,7 @@ def _endpoint_selection(kind: str) -> EndpointSelectionCheck:
 def describe_models(settings: Settings) -> list[ModelInfo]:
     """Describe every configured binding whose service is enabled."""
     models = []
-    if settings.hosted_tts_enabled if settings.mcp_transport == "http" else settings.has_seed_audio:
+    if settings.mcp_transport == "http" or settings.has_seed_audio:
         models.append(
             ModelInfo(
                 model_id=TTS_MODEL,
@@ -370,15 +373,7 @@ def describe_services(settings: Settings) -> list[ServiceStatus]:
         return [
             ServiceStatus(service="modelark", enabled=True),
             ServiceStatus(service="seed_audio", enabled=True),
-            ServiceStatus(
-                service="seed_tts",
-                enabled=settings.hosted_tts_enabled,
-                reason=None
-                if settings.hosted_tts_enabled
-                else (
-                    "Operator must enable MCP_HOSTED_TTS_ENABLED with private TOS output storage."
-                ),
-            ),
+            ServiceStatus(service="seed_tts", enabled=True),
             ServiceStatus(
                 service="object_storage",
                 enabled=settings.temporary_upload_enabled,

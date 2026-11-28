@@ -499,7 +499,7 @@ stateful-release migration tooling are not part of this repository.
 ## Local TLS and Load Acceptance
 
 
-Run `uv run python scripts/hosted_acceptance.py --caddy-bin PATH`. This uses isolated loopback TLS and mocked providers, not a database or live credentials. It checks seven tools, BYOK isolation, repeated-create behavior, polling after restart, proxy controls, bounded load and absence of local state. Live VKE/client/provider and capacity validation remain separately authorized gates.
+Run `uv run python scripts/hosted_acceptance.py --caddy-bin PATH`. This uses isolated loopback TLS and mocked providers, not a database or live credentials. It checks eight tools, BYOK isolation, repeated-create behavior, polling after restart, proxy controls, bounded load and absence of local state. Live VKE/client/provider and capacity validation remain separately authorized gates.
 
 `uv run python scripts/hosted_drain_acceptance.py --caddy-bin PATH --profile short`
 checks accepted mock requests through process termination. Explicit

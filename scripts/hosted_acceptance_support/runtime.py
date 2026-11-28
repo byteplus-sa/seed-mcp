@@ -32,6 +32,7 @@ TOOL_TIMEOUT = 2.0
 PUBLIC_TOOLS = {
     "ark_list_models",
     "seed_audio_generate",
+    "seed_tts_generate",
     "seedream_generate_image",
     "seedance_create_task",
     "gen_task_get",

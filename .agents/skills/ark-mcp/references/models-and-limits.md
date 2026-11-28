@@ -171,8 +171,8 @@ Opus requires 48000 Hz; MP3/PCM default to 24000 Hz. Compressed audio defaults
 to 64000 bits/s; omit bitrate for PCM. The create tool validates combinations.
 Voice compatibility is not proven by discovery; there is no ModelArk binding.
 See [TTS controls](tool-reference.md#seed-tts-3).
-HTTP registration requires operator-enabled temporary TOS output storage; stdio
-requires a local Seed Speech key. Both use bounded 10 MiB stream collection.
+HTTP registration needs no TOS or operator provider key; stdio
+requires a local Seed Speech key. Both use bounded 30 MiB stream collection.
 
 ## Health
 
@@ -186,7 +186,7 @@ use live client roots. This resource is stdio-only. Backend `/health` and `/read
 return minimal process/state status without provider checks; VKE Caddy exposes
 only `/mcp` and `/health`. Public `/metrics` is unavailable; an optional
 HTTP-runtime listener is loopback-only and off by default.
-HTTP discovery is anonymous/static, with 7 tools, plus one optional temporary-upload preparation tool.
+HTTP discovery is anonymous/static, with 8 tools, plus one optional temporary-upload preparation tool.
 Generation registration remains
 independent of operator provider keys. For per-service
 enablement prefer `ark_list_models.services`. Settings: [environment.md](environment.md).

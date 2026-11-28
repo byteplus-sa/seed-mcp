@@ -12,7 +12,7 @@ Use only ark-seed. List its tools and call ark_list_models with {"input": {}}.
 Report the available services and models. Do not generate or upload.
 ```
 
-Expect seven tools and `connection=null`. This confirms discovery, not
+Expect eight tools and `connection=null`. This confirms discovery, not
 provider-key validity or account entitlement.
 
 ## Optional Image/Video Configuration Check

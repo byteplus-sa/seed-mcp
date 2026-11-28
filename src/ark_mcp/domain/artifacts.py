@@ -1,6 +1,6 @@
 """Domain artifact models.
 
-``ArtifactRef`` describes temporary provider/TTS download URLs and stdio persistence.
+``ArtifactRef`` describes temporary provider URLs and explicit stdio persistence.
 HTTP returns URL-only references; durable ``seed-media://artifacts/{id}``
 resources are stdio-only. Provider URLs expire (2h for audio, 24h for
 ModelArk image/video).
@@ -45,15 +45,15 @@ class ArtifactPersistenceIssue(BaseModel):
 
 
 class ArtifactRef(BaseModel):
-    """Reference to a temporary download or an explicitly persisted stdio artifact."""
+    """Reference to temporary provider output or an explicitly persisted stdio artifact."""
 
     id: str = Field(
         ...,
-        description="Stored artifact or temporary TTS output ID; 'provider-url' / 'inline-fallback' for other unpersisted output.",
+        description="Stored artifact ID, or 'provider-url' / 'inline-fallback' for unpersisted output.",
     )
     uri: str = Field(
         ...,
-        description="Temporary provider or hosted TTS HTTPS URL; stdio persistence may return seed-media://artifacts/{id} or an inline-fallback URI.",
+        description="Temporary provider URL by default; stdio persistence may return seed-media://artifacts/{id} or an inline-fallback URI.",
     )
     media_type: MediaType = Field(..., description="image, audio or video.")
     mime_type: str = Field(..., description="MIME type, e.g. image/png.")
@@ -66,7 +66,7 @@ class ArtifactRef(BaseModel):
     )
     source_expires_at: str | None = Field(
         default=None,
-        description="ISO-8601 nominal expiry of the download URL; hosted TTS STS credentials may expire earlier. Not an object-deletion deadline.",
+        description="ISO-8601 expiry of the provider URL.",
     )
     persistence_error: ArtifactPersistenceIssue | None = Field(
         default=None,

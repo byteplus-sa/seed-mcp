@@ -4,7 +4,7 @@ description: Baseline hosted tools and optional Seed TTS 3 speech synthesis.
 ---
 
 Usually, you can just [describe what you want in chat](setup/first-run.md).
-Your client chooses from these tools. TTS needs operator-enabled output storage.
+Your client chooses from these tools. TTS returns native audio directly; client playback support varies.
 
 <span id="images-and-video"></span>
 <span id="audio"></span>
@@ -18,7 +18,7 @@ Your client chooses from these tools. TTS needs operator-enabled output storage.
 | List videos | [gen_task_list](/seed-mcp/tool-reference/gen-task-list/) | Tasks authorized by your provider key |
 | Cancel or delete a video task | [gen_task_cancel_or_delete](/seed-mcp/tool-reference/gen-task-cancel-or-delete/) | Confirm the task and its current status first |
 | Generate scene audio | [seed_audio_generate](/seed-mcp/tool-reference/seed-audio-generate/) | Seed Speech key |
-| Speak text or SSML | [seed_tts_generate](/seed-mcp/tool-reference/seed-tts-generate/) | Seed Speech key and authorized voice; available when hosted TTS is enabled |
+| Speak text or SSML | [seed_tts_generate](/seed-mcp/tool-reference/seed-tts-generate/) | Seed Speech key and authorized voice; native audio output without TOS |
 
 ## Models and Previews
 
