@@ -231,6 +231,29 @@ Other clients need verified secure custom-header support. Do not assume
 Desktop uses the same remote connector shape as Claude Code. Mark unsupported
 or unverified clients pending; do not weaken the server boundary.
 
+The [hosted connection guide](https://byteplus-sa.github.io/seed-mcp/setup/install/#clients)
+also covers these edition-specific formats, checked on 2026-11-28:
+
+- TRAE International IDE: user-level Settings > MCP > Add > Create Manually,
+  `mcpServers` with `url`/`headers`; HTTP tool timeout is
+  `headers.RUN_MCP_TIMEOUT_MS="660000"`. Only `${workspaceFolder}` substitution
+  is documented. Do not invent environment references. The user must enter
+  header values privately; treat saved configuration as plaintext, keep it
+  outside shared/project files and cloud sync, and never read it back.
+  Recommend an environment-backed client when policy requires secret references.
+  CN/Work need separate verification.
+- OpenCode V2: `mcp.servers.ark-seed`, `type: "remote"`, `oauth: false`,
+  `codemode: false`, `timeout.execution: 660000`, and `{env:NAME}` header
+  references. Classic versions use a different schema.
+- Cline VS Code extension: MCP Servers > Configure > Configure MCP Servers,
+  `mcpServers.ark-seed`, `type: "streamableHttp"`, `timeout: 660` seconds,
+  `${env:NAME}` header references and `autoApprove: []`. Missing environment
+  variables remain literal; they must reach the extension's process. This is
+  not a Cline CLI compatibility claim.
+
+These templates are documentation/source-checked, not live client certification.
+The stdout snippet generator still supports only Codex and Claude Code.
+
 See the database-free HTTP contract above; local stdio persistence is unchanged.
 
 ## Sources
@@ -245,6 +268,13 @@ Checked 2026-10-20; recheck for the installed client version when needed.
   <https://github.com/openai/codex/blob/main/codex-rs/cli/src/mcp_cmd.rs>
 - TRAE Work runtime selection, linked by this repository's integration guide:
   <https://docs.trae.cn/work/remote-mcp-server>
+- Additional hosted formats, checked 2026-11-28:
+  <https://docs.trae.ai/ide/add-mcp-servers>,
+  <https://opencode.ai/docs/mcp-servers/>,
+  <https://docs.cline.bot/mcp/mcp-overview>
+- Cline extension header substitution and timeout implementation:
+  <https://github.com/cline/cline/blob/main/apps/vscode/src/utils/envExpansion.ts>,
+  <https://github.com/cline/cline/blob/main/apps/vscode/src/services/mcp/schemas.ts>
 - This repository's `README.md` and `docs/integration-guide.md` document
   Desktop, TRAE, Cursor, VS Code, and OpenCode connection templates.
   Read those files from the selected checkout; they are not assumed to be

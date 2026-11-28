@@ -3,7 +3,7 @@ title: OpenCode
 description: Connect OpenCode to hosted Seed MCP using private HTTP headers, with optional local stdio reference.
 ---
 
-For **hosted Seed MCP**, follow the [remote connection guide](../setup/install.md#other-clients).
+For **hosted Seed MCP**, follow the [OpenCode connection guide](../setup/install.md#opencode).
 No server installation or startup is needed. Use your edition's remote MCP
 schema and verify private custom-header support. Classic and V2 configuration
 shapes differ; do not use the local launcher examples for the hosted service.

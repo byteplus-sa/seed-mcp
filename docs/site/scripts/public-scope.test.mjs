@@ -24,7 +24,8 @@ test("the public site is a small explicit hosted guide, not the whole handbook",
   for (const source of PUBLIC_PAGES) {
     assert.ok(existsSync(new URL(`docs/${source}`, root)), source);
     const text = read(`docs/${source}`);
-    const limit = source === "setup/install.md" ? 650 : 450;
+    // Connection setup includes five client-specific, collapsible templates.
+    const limit = source === "setup/install.md" ? 900 : 450;
     assert.ok(
       text.split(/\s+/).length <= limit,
       `${source}: keep the guide concise`,
@@ -66,6 +67,12 @@ test("old routes redirect to the consolidated guide or retained repository sourc
     redirects["/integrations/codex/"],
     "/seed-mcp/setup/install/#codex",
   );
+  for (const client of ["trae", "opencode"]) {
+    assert.equal(
+      redirects[`/integrations/${client}/`],
+      `/seed-mcp/setup/install/#${client}`,
+    );
+  }
   assert.equal(redirects["/troubleshooting/"], "/seed-mcp/help/");
   assert.equal(
     redirects["/byteplus-terraform/"],

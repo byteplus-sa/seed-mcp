@@ -140,6 +140,71 @@ test("hosted setup uses private headers and makes skills optional", () => {
   );
 });
 
+test("hosted client examples preserve each client's header syntax and timeout units", () => {
+  const install = page("setup/install.md");
+  const sections = Object.fromEntries(
+    ["TRAE", "OpenCode", "Cline"].map((client) => [
+      client,
+      install.split(`### ${client}\n`)[1]?.split(/\n#{2,3} /)[0],
+    ]),
+  );
+  const configs = {};
+  for (const client of ["TRAE", "OpenCode", "Cline"]) {
+    const section = sections[client];
+    assert.ok(section, client);
+    assert.match(section, /<details>[\s\S]*<\/details>/);
+    configs[client] = JSON.parse(section.match(/```json\n([\s\S]*?)\n```/)[1]);
+  }
+  const trae = configs.TRAE.mcpServers["ark-seed"];
+  const opencode = configs.OpenCode.mcp.servers["ark-seed"];
+  const cline = configs.Cline.mcpServers["ark-seed"];
+  const url = install.match(/https:\/\/[^`\s]+\/mcp/)[0];
+  for (const config of [trae, opencode, cline]) {
+    assert.equal(config.url, url);
+    assert.equal(config.command, undefined);
+    assert.equal(config.headers.Authorization, undefined);
+    assert.ok(config.headers["X-ModelArk-Api-Key"]);
+    assert.ok(config.headers["X-MCP-Client-Secret"]);
+  }
+  assert.equal(trae.headers.RUN_MCP_TIMEOUT_MS, "660000");
+  assert.equal(
+    trae.headers["X-ModelArk-Api-Key"],
+    "<enter-modelark-key-privately>",
+  );
+  assert.equal(
+    trae.headers["X-MCP-Client-Secret"],
+    "<enter-independent-client-secret-privately>",
+  );
+  assert.match(sections.TRAE, /plaintext credentials/);
+  assert.match(sections.TRAE, /not environment-backed/);
+  assert.equal(opencode.type, "remote");
+  assert.equal(opencode.oauth, false);
+  assert.equal(opencode.codemode, false);
+  assert.equal(opencode.timeout.execution, 660000);
+  assert.equal(
+    opencode.headers["X-ModelArk-Api-Key"],
+    "{env:SEED_MCP_MODELARK_KEY}",
+  );
+  assert.equal(
+    opencode.headers["X-MCP-Client-Secret"],
+    "{env:SEED_MCP_CLIENT_SECRET}",
+  );
+  assert.equal(cline.type, "streamableHttp");
+  assert.equal(cline.timeout, 660);
+  assert.equal(cline.disabled, false);
+  assert.deepEqual(cline.autoApprove, []);
+  assert.equal(
+    cline.headers["X-ModelArk-Api-Key"],
+    "${env:SEED_MCP_MODELARK_KEY}",
+  );
+  assert.equal(
+    cline.headers["X-MCP-Client-Secret"],
+    "${env:SEED_MCP_CLIENT_SECRET}",
+  );
+  assert.match(sections.Cline, /VS Code extension/);
+  assert.match(install, /not live client certification/);
+});
+
 test("legacy onboarding does not advise inline provider keys or new dependency edits", () => {
   const gettingStarted = page("getting-started.md");
   const integrationGuide = page("integration-guide.md");

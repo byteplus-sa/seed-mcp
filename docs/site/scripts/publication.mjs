@@ -35,10 +35,10 @@ const consolidated = {
   "integrations/codex.md": "setup/install/#codex",
   "integrations/claude-code.md": "setup/install/#claude-code",
   "integrations/claude-desktop.md": "setup/install/#other-clients",
-  "integrations/trae.md": "setup/install/#other-clients",
+  "integrations/trae.md": "setup/install/#trae",
   "integrations/cursor.md": "setup/install/#other-clients",
   "integrations/vscode.md": "setup/install/#other-clients",
-  "integrations/opencode.md": "setup/install/#other-clients",
+  "integrations/opencode.md": "setup/install/#opencode",
 };
 
 export function collectSources(

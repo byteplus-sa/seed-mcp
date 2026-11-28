@@ -3,7 +3,7 @@ title: TRAE
 description: Connect TRAE to hosted Seed MCP when its edition supports private HTTP headers.
 ---
 
-For **hosted Seed MCP**, follow the [remote connection guide](../setup/install.md#other-clients).
+For **hosted Seed MCP**, follow the [TRAE connection guide](../setup/install.md#trae).
 No server installation or startup is needed. Choose remote Streamable HTTP
 and private custom headers in your edition's MCP settings. Verify support
 for **IDE or Work** and **International or CN**; do not assume their fields match.

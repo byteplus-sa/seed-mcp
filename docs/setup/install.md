@@ -52,10 +52,14 @@ Never put secrets in chat, shared configuration or Git. Do not use
 
 ## 3. Configure Your Client
 
-These templates contain environment **names**, not secrets. Supply their values
-privately to the actual client process; a desktop app may not inherit your terminal.
+Choose your client below. Environment-backed examples contain **names**, not
+secrets; supply values privately to the client process, not just another terminal.
+TRAE uses private manual entry instead.
 
 ### Codex
+
+<details>
+<summary>Configuration</summary>
 
 Add to your Codex configuration, normally `~/.codex/config.toml`
 (or your configured `CODEX_HOME` location):
@@ -70,7 +74,12 @@ tool_timeout_sec = 660
 "X-MCP-Client-Secret" = "SEED_MCP_CLIENT_SECRET" # pragma: allowlist secret
 ```
 
+</details>
+
 ### Claude Code
+
+<details>
+<summary>Configuration</summary>
 
 Merge this entry through Claude Code's configuration workflow in your chosen
 scope. This template is not for Claude Desktop:
@@ -91,16 +100,121 @@ scope. This template is not for Claude Desktop:
 }
 ```
 
+</details>
+
+### TRAE
+
+<details>
+<summary>Configuration</summary>
+
+In TRAE International IDE, open **Settings > MCP > Add > Create Manually**.
+Use the HTTP configuration below. Replace both `<enter-...>` placeholders
+**privately before confirming**, never in chat or a project file:
+
+```json
+{
+  "mcpServers": {
+    "ark-seed": {
+      "url": "https://st63a28rvt0o3d9htd28d.apigateway-ap-southeast-1.apigw-byteplus.com/mcp",
+      "headers": {
+        "X-ModelArk-Api-Key": "<enter-modelark-key-privately>",
+        "X-MCP-Client-Secret": "<enter-independent-client-secret-privately>",
+        "RUN_MCP_TIMEOUT_MS": "660000"
+      }
+    }
+  }
+}
+```
+
+TRAE documents only `${workspaceFolder}` substitution, not environment-backed
+headers. Treat saved header values as plaintext credentials: keep the user
+configuration private and outside Git/cloud sync. Use another client if your
+policy requires secret references. CN/Work editions need their own UI check.
+[TRAE reference](https://docs.trae.ai/ide/add-mcp-servers).
+
+</details>
+
+### OpenCode
+
+<details>
+<summary>Configuration</summary>
+
+For OpenCode **V2**, merge into user-level
+`~/.config/opencode/opencode.json` or `.jsonc`:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "mcp": {
+    "servers": {
+      "ark-seed": {
+        "type": "remote",
+        "url": "https://st63a28rvt0o3d9htd28d.apigateway-ap-southeast-1.apigw-byteplus.com/mcp",
+        "oauth": false,
+        "codemode": false,
+        "timeout": { "execution": 660000 },
+        "headers": {
+          "X-ModelArk-Api-Key": "{env:SEED_MCP_MODELARK_KEY}",
+          "X-MCP-Client-Secret": "{env:SEED_MCP_CLIENT_SECRET}"
+        }
+      }
+    }
+  }
+}
+```
+
+Use `/mcps` to check the connection. V2 uses `mcp.servers` and milliseconds;
+older releases use a different schema. Do not paste this into a classic
+configuration unchanged.
+[OpenCode reference](https://opencode.ai/docs/mcp-servers/).
+
+</details>
+
+### Cline
+
+<details>
+<summary>Configuration</summary>
+
+In the Cline **VS Code extension**, open **MCP Servers > Configure >
+Configure MCP Servers** and merge:
+
+```json
+{
+  "mcpServers": {
+    "ark-seed": {
+      "type": "streamableHttp",
+      "url": "https://st63a28rvt0o3d9htd28d.apigateway-ap-southeast-1.apigw-byteplus.com/mcp",
+      "timeout": 660,
+      "headers": {
+        "X-ModelArk-Api-Key": "${env:SEED_MCP_MODELARK_KEY}",
+        "X-MCP-Client-Secret": "${env:SEED_MCP_CLIENT_SECRET}"
+      },
+      "disabled": false,
+      "autoApprove": []
+    }
+  }
+}
+```
+
+`timeout` is seconds. Keep tool approval enabled. Make the environment
+variables available to VS Code; missing variables remain literal placeholders.
+This example is for the extension, not a claim of Cline CLI compatibility.
+[Cline reference](https://docs.cline.bot/mcp/mcp-overview).
+
+</details>
+
 For Seed Audio, replace or supplement the ModelArk header with
-`X-Seed-Speech-Api-Key`, using the independent variable
-`SEED_MCP_SEED_SPEECH_KEY` (Codex) or `${SEED_MCP_SEED_SPEECH_KEY}` (Claude Code).
+`X-Seed-Speech-Api-Key`: enter the Seed Speech key privately in TRAE, or use
+`SEED_MCP_SEED_SPEECH_KEY` with your client's reference syntax.
 
 ### Other Clients
 
-TRAE, Cursor, VS Code, OpenCode and Claude Desktop editions differ.
+Cursor, native VS Code MCP and Claude Desktop editions differ.
 Use the URL and headers above only if your edition supports **Streamable HTTP
 and private custom headers**. Do not copy another client's configuration
 format or switch to local installation as a workaround.
+
+These are documentation-checked templates, not live client certification.
 
 <span id="verify"></span>
 

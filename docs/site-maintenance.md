@@ -63,11 +63,17 @@ the project environment is not at `.venv/`.
 | BytePlus logo variants | `docs/site/src/assets/byteplus-mark-{light,dark}.svg` |
 
 The primary setup page is hosted-only onboarding: the existing BytePlus
-endpoint, private BYOK header entry, remote Codex/Claude Code templates and
-discovery without spending. Users do not install or start a server. Keep the
+endpoint, private BYOK header entry, client-specific templates for Codex,
+Claude Code, TRAE, OpenCode and Cline, and discovery without spending.
+Users do not install or start a server. Keep the
 endpoint aligned with the dated `hosted-deployment-status.md` record and retain
 the linked trust notes. Do not claim every client supports private custom
-headers. Templates are checked against the pure snippet generator.
+headers. Codex/Claude templates are checked against the pure snippet generator;
+other templates have edition-specific structure and timeout tests.
+TRAE's documented configuration needs private manual header entry, not invented
+environment substitution. OpenCode V2 uses `{env:NAME}` and
+`timeout.execution` in milliseconds; Cline's VS Code extension uses
+`${env:NAME}` and `timeout` in seconds. Keep these formats distinct.
 
 `PUBLIC_PAGES` is the publication allowlist. `HOSTED_TOOLS` selects the seven
 baseline HTTP tools from the complete exporter output; it changes no server
