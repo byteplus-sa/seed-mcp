@@ -61,25 +61,23 @@ Do not put them in logs, artifacts or the repository.
 
 ## GitHub Configuration
 
-Pre-create and independently verify the protected `byteplus-production`
-environment with an authorized reviewer, no administrator bypass, and a custom
-**branch-only `main`** policy. It is the workflow's literal environment, not a
-caller-selected name. Manual dispatches from other refs are rejected by both jobs.
-The legacy GitHub staging target is retired; it is not an isolated application
-installation. Do not rely on GitHub implicitly
+Create a protected environment named `byteplus-staging`, with an authorized
+reviewer, no administrator bypass, and a custom **branch-only `main`** policy.
+Manual workflow dispatches from other refs are rejected by both jobs.
+For production, pre-create and independently verify a separate protected
+`byteplus-production` environment with an authorized reviewer, no administrator
+bypass and the same branch-only `main` policy. Do not rely on GitHub implicitly
 creating an environment, which would not have those protections.
 
 Repository variables:
 
 | Variable | Meaning |
 | --- | --- |
+| `VKE_RUNNER_GROUP` | Exact workflow-restricted organization runner group |
+| `VKE_RUNNER_READY` | `true` only after authorized runner bootstrap and isolation checks |
 | `VKE_PRODUCTION_ENABLED` | Keep absent/false until the documented backend trust decision, production protection and remaining launch prerequisites are approved |
 | `VKE_PRODUCTION_RUNNER_GROUP` | Explicit workflow-restricted production runner group; no staging fallback |
 | `VKE_PRODUCTION_RUNNER_READY` | Production-only runner-bootstrap acknowledgement; never inferred from staging |
-
-The workflow never reads legacy `VKE_RUNNER_GROUP` or `VKE_RUNNER_READY`.
-Keep the latter explicitly `false` while old delivery runs remain rerunnable;
-do not repurpose it for production. See [legacy retirement](#legacy-staging-retirement).
 
 Protected environment variables contain references, not secret values:
 
@@ -91,8 +89,8 @@ Protected environment variables contain references, not secret values:
 | `VKE_PRIVATE_API_SERVER` | Exact private HTTPS API origin, including port if used |
 | `VKE_NAMESPACE` | Dedicated existing application namespace; default/system namespaces rejected |
 | `VKE_PUBLIC_HOST` | Canonical public DNS hostname |
-| `VKE_SERVICE_MODE` | Required: exactly `apig-production`; this workflow rejects CLB and synthetic modes |
-| `VKE_BACKEND_HOST` | Required distinct private TLS/SNI hostname |
+| `VKE_SERVICE_MODE` | Required: `public-clb` or `apig-staging` for staging target; only `apig-production` for production target |
+| `VKE_BACKEND_HOST` | Distinct private TLS/SNI hostname for either APIG mode; empty for CLB |
 | `VKE_IDENTITY_SECRET` | Existing identity Secret with default HMAC/version key names |
 | `VKE_TLS_SECRET` | Distinct existing `kubernetes.io/tls` Secret |
 | `VKE_PREREQUISITES_CONFIRMED` | `true` after CCM, addon, capacity, source-range and DNS/TLS checks |
@@ -105,24 +103,16 @@ organization scope: it belongs to the pre-existing protected environment.
 
 ## Delivery
 
-Run the workflow from `main` with `target=production`, `operation=check` first
-and a reviewed full
+Run the workflow from `main` with explicit `target=staging` (default) or
+`target=production`, `operation=check` first and a reviewed full
 `ghcr.io/byteplus-sa/seed-mcp@sha256:<64 lowercase hex>` image reference.
-The required target input has one choice and default, `production`. GitHub may
-fill this default when a caller omits the input; explicitly supplied `staging`,
-unknown or empty runtime targets are rejected, never translated to production.
-The operation defaults to `check`, not `deploy`.
-
-The production enablement, runner readiness/group and image checks run on a
-GitHub-hosted runner before queueing private work. The protected delivery job
-requires its own approval and rechecks target, mode, prerequisites and production
-acknowledgement before calling the helper. Merging code does not deploy it.
-
-Keep the exact `byteplus-staging-delivery` concurrency key and
-`cancel-in-progress=false`: its historical name intentionally serializes old
-and current delivery runs targeting the same installation. Do not rename it
-as cosmetic cleanup. The workflow requires `apig-production`; the generic helper
-still supports other explicitly selected chart modes outside this hosted path.
+The target-specific readiness gate fails on a GitHub-hosted runner before
+queueing unconfigured private work. The target maps only to the fixed
+`byteplus-staging` or `byteplus-production` environment; there is no arbitrary
+environment-name input. Once configured, the protected job requires approval.
+Both targets share one delivery concurrency group because they may address the
+same cluster/release. The workflow and helper require an explicit service mode;
+neither silently falls back to public CLB.
 
 `scripts/deploy_vke.py` verifies exact context/API matching, RFC1918-only API
 resolution, TLS verification, Kubernetes >=1.30 and compatible kubectl, two Ready
@@ -134,60 +124,7 @@ files, removed on ordinary exit; abrupt host failure requires operator cleanup.
 Certificate hostname checks use `VKE_BACKEND_HOST` in either APIG mode and
 `VKE_PUBLIC_HOST` in the public CLB mode.
 
-## Legacy Staging Retirement
-
-Retirement changes GitHub configuration and the supported Actions entry point,
-not the running application. The production namespace `seed-mcp-staging` and
-Helm release `seed-mcp` retain their historical names. Do not delete or rename
-them, shared runner groups, private operator files, Secrets, gateway objects or
-Terraform state as part of GitHub environment cleanup.
-
-For the recorded installation, use this sequence with operator approval:
-
-1. Inventory every page of delivery runs, environment variables/protections,
-   repository variables and runner-group membership/restrictions. With `gh api`,
-   use `--paginate --slurp` and pipe to `jq` when aggregating pages; do not combine
-   this CLI's `--slurp` with `--jq`. Verify distinct counts against totals. Stop
-   if inventory is incomplete or any delivery is active, waiting or queued.
-2. Preserve production's main-only reviewer/no-bypass policy, production-specific
-   variables and workflow-restricted runner group. Keep legacy repository
-   `VKE_RUNNER_READY=false`. Leave production readiness false until a separately
-   approved fresh-runner bootstrap has been verified.
-3. Set staging's `VKE_PREREQUISITES_CONFIRMED=false` and verify readback first.
-   Remove only its reviewed deployment-reference variables, retaining the false
-   prerequisite and environment protections. Do not approve old staging jobs.
-4. Remove the legacy repository `VKE_RUNNER_GROUP` pointer once current main has
-   no consumer. Keep the actual shared runner group and its production pointer.
-   Publish the validated production-only workflow through the normal review
-   process; do not dispatch a real staging job to test rejection.
-5. Retain the protected disabled environment until all pre-cutover runs are
-   outside GitHub's documented 30-day window measured from original creation,
-   and no legacy attempt is active, waiting or queued. Recalculate from a fresh
-   complete inventory; use the [dated status record](hosted-deployment-status.md#staging-delivery-retirement)
-   for the last observed lower bound. This is not an automatic deletion schedule.
-6. Only after that gate and explicit deletion approval, delete the GitHub
-   `byteplus-staging` environment and verify production is unchanged. The legacy
-   deny flag may also be removed after checking for remaining consumers.
-
-[Reruns](https://docs.github.com/en/actions/how-tos/manage-workflow-runs/re-run-workflows-and-jobs)
-retain the original commit/ref, and delivery-only reruns can reuse configuration
-job outputs. Therefore disabled runner readiness alone does not stop all old
-jobs from queueing. The retained environment approval, removed references and
-false prerequisite block the historical helper path even with cached outputs.
-This does not revoke independent operator access to manual Helm commands.
-
-Do not delete the environment first: GitHub can
-[recreate a referenced environment without protection rules](https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments).
-Deleting its controls is not a substitute for retiring its workflow consumers.
-Confirm preserved production values and both environments' protection policies
-by readback; do not upload private snapshots or credentials as CI artifacts.
-
 ## Private APIG Staging
-
-This section describes retained **synthetic test-mode support**, not a second
-live deployment or an available hosted Actions target. Use it only in an
-independently isolated, approved test installation; never switch the existing
-production release into this mode as a validation step.
 
 Set `service.mode=apig-staging`, `backendHost` to the separate private TLS/SNI
 hostname, `service.subnetId=""` and `service.sourceRanges` to verified private

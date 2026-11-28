@@ -1,9 +1,8 @@
 """Amazon S3 (and S3-compatible) gateway — object upload + presigned URLs.
 
 Wraps the synchronous ``boto3`` S3 client behind async-friendly methods using
-``asyncio.to_thread``, mirroring ``TosGateway``. ``botocore.exceptions.
-ClientError`` is normalized to ``ProviderError`` so retry policy and error
-helpers work uniformly across all object-storage backends.
+``asyncio.to_thread``. ``botocore.exceptions.ClientError`` is normalized to
+``ProviderError`` so retry policy and error helpers work uniformly across providers.
 """
 
 from __future__ import annotations

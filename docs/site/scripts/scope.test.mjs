@@ -48,7 +48,7 @@ test("current handbook and shipped skills exclude retired tool and configuration
   }
 });
 
-test("all 14 exported tools retain direct metadata and exclude retired contracts", () => {
+test("all 17 exported tools retain direct metadata and exclude retired contracts", () => {
   const python =
     process.env.ARK_DOCS_PYTHON ||
     fileURLToPath(
@@ -66,9 +66,9 @@ test("all 14 exported tools retain direct metadata and exclude retired contracts
   );
   assert.equal(exported.status, 0, "Isolated catalog export must succeed");
   const { tools } = JSON.parse(exported.stdout);
-  assert.equal(tools.length, 14);
+  assert.equal(tools.length, 17);
   const groups = toolReferenceGroups(tools);
-  assert.equal(groups.flatMap((group) => group.items).length, 14);
+  assert.equal(groups.flatMap((group) => group.items).length, 17);
   for (const tool of tools) {
     assert.equal(tool.execution, "direct", tool.name);
     assert.equal("background" in tool, false, tool.name);
@@ -79,7 +79,7 @@ test("all 14 exported tools retain direct metadata and exclude retired contracts
     }
   }
   const http = tools.filter((tool) => tool.transports.http);
-  assert.equal(http.length, 9);
+  assert.equal(http.length, 12);
   assert.doesNotMatch(JSON.stringify(tools), retired);
   assert.doesNotMatch(JSON.stringify(tools), /\bthree_d\b/);
   const seedream = tools.find(

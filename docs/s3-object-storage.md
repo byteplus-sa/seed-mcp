@@ -5,19 +5,16 @@ object-storage bucket. `media_upload` accepts media (images, audio, video)
 from MCP clients and uploads it; `media_presign` generates a fresh presigned
 URL for an existing object without re-uploading. The server generates presigned
 HTTPS GET URLs that BytePlus generation APIs fetch when processing references.
-This is the integrated upload path for media that cannot be inlined as Base64
-— most notably Seedance video references, which are URL-only.
+This optional path is stdio-only. For bucket-free reference uploads on either
+transport, use [managed Files](files.md).
 
-Amazon S3 is one of two supported backends. The other is BytePlus TOS,
-which is the default. Both implement the same `ObjectStorageGateway`
-protocol, so the `media_upload` tool works identically regardless of
-which backend is active. Only one backend is active per process, selected
-at startup by `OBJECT_STORAGE_BACKEND`.
+S3 is the only local object-storage backend. It implements the
+`ObjectStorageGateway` protocol and supports native AWS S3 or a configured
+S3-compatible endpoint. Leave storage configuration unset when using only
+managed Files.
 
-> See [configuration.md](configuration.md#object-storage-tos-or-s3-optional)
-> for the full env-var reference and [api-keys.md](api-keys.md#s3-backend)
-> for credential acquisition. This document covers architecture, security,
-> and setup.
+> See [configuration.md](configuration.md#s3-backend) for the full env-var
+> reference. This document covers architecture, security, and S3 setup.
 
 ## How it works
 
@@ -28,23 +25,19 @@ flowchart LR
     Client["Local stdio client"] --> Tool["Direct media_upload call"]
     Tool --> Factory["make_object_storage_gateway()"]
     Factory -->|"backend=s3"| S3GW["S3Gateway (boto3)"]
-    Factory -->|"backend=tos"| TOSGW["TosGateway (tos SDK)"]
     S3GW --> Admission["Bounded admission then budget"]
-    TOSGW --> Admission
     Admission --> Upload["Cancellation-drained SDK upload"]
     Upload -->|"s3"| S3["Private S3 bucket"]
-    Upload -->|"tos"| TOS["Private TOS bucket"]
     Tool -->|"typed result"| Client
     Client -->|"passes URL to direct Seedance create"| BytePlus["BytePlus APIs"]
     BytePlus -->|"fetch presigned URL"| S3
-    BytePlus -->|"fetch presigned URL"| TOS
 ```
 
 The `S3Gateway` (`providers/s3/client.py`) wraps a synchronous `boto3`
-client behind async-friendly methods using `asyncio.to_thread`, mirroring
-`TosGateway`. All SDK exceptions (`botocore.exceptions.ClientError`) are
+client behind async-friendly methods using `asyncio.to_thread`.
+All SDK exceptions (`botocore.exceptions.ClientError`) are
 normalized into `ProviderError` so the retry policy and error-result
-helpers work uniformly across both backends.
+helpers work uniformly with other providers.
 SDK threads drain before slots or clients are released, including repeated
 cancellation. The 600-second whole-tool deadline is cooperative; cleanup may
 exceed it. Use client timeout 660 seconds. Admission defaults to 2 seconds;
@@ -104,12 +97,11 @@ credentials.
 |---|---|---|---|
 | `S3_PRESIGN_TTL_SECONDS` | `1800` (30 min) | 60–604800 (1 min – 7 days) | How long the presigned URL remains valid |
 
-The default of **30 minutes** balances security and reliability: the
-presigned URL is a bearer token — anyone who obtains it can download the
-object until it expires. Thirty minutes is enough time for BytePlus APIs to
-fetch references under queue load or cold-start conditions, while still
-expiring fast enough that leaked URLs are short-lived. The TOS backend
-defaults to 30 minutes (`TOS_PRESIGN_TTL_SECONDS`); both backends use the same default.
+The default is **30 minutes**. A presigned URL is a bearer token: anyone who
+obtains it can download the object until it expires. For asynchronous generation,
+request at least 3600 seconds and account for provider queue time; the default
+is not a queue-duration guarantee. Files API links have independent limits
+and cannot be renewed through `media_presign`.
 
 ### Re-presigning existing objects (`media_presign`)
 
@@ -148,8 +140,7 @@ validates each against a strict pattern: alphanumeric characters, `-`, `_`, and
 traversal, leading slashes, and leading dashes), checks the caller owns it, and calls the same `presign_get` gateway method.
 A key that fails returns `code` (`INVALID_KEY`, `NOT_OWNED`, `INTERNAL`, or a
 provider code) and `error` in its own item while the others succeed. No data is
-transferred — only a new URL is minted. This works with both the TOS and S3
-backends through the shared `ObjectStorageGateway` protocol.
+transferred: only a new URL is minted through the S3 gateway.
 
 The presigned URL is passed directly to BytePlus generation tools
 (`seedance_create_task` video references, `seedream_generate_image` reference
@@ -166,7 +157,7 @@ or VPC, the presigned URL will not resolve and the generation will fail.
 |---|---|---|
 | HTTP 5xx | Yes | Server-side transient errors |
 | HTTP 429 | Yes | Throttling |
-| Connection error (no `HTTPStatusCode`) | Yes | Network-level transient; parity with TOS `TosClientError` |
+| Connection error (no `HTTPStatusCode`) | Yes | Network-level transient |
 | HTTP 4xx (non-429) | No | Client-side errors (bad key, permissions) |
 | Unknown exception | Yes | Fail-open for safety on unexpected errors |
 
@@ -185,7 +176,6 @@ hosts require.
 | Native AWS S3 | empty | No (virtual-host) | Default; no extra config needed |
 | MinIO | `http://localhost:9000` | Yes | Set for local development |
 | Cloudflare R2 | `https://<account>.r2.cloudflarestorage.com` | Yes | |
-| TOS via boto3 | `https://tos-<region>.bytepluses.com` | Yes | Alternative to the `tos` SDK backend |
 
 ## Security model
 
@@ -264,7 +254,7 @@ Size limits (applied before upload):
 
 Storage tools are **stdio-only**, including Base64 uploads and presigning.
 HTTP exposes no local storage or artifact tools/resources. Opt-in
-[temporary references](temporary-uploads.md) use TOS only, with direct client
+[managed references](files.md) use ModelArk storage, with direct client
 upload; no S3 preparation is implemented. Local file-path policy
 also prevents remote reads:
 
@@ -346,7 +336,7 @@ S3_REGION=us-east-1
 # Presigned URL validity in seconds (default: 1800 = 30 minutes)
 S3_PRESIGN_TTL_SECONDS=1800
 
-# Select S3 as the active backend (default is tos)
+# Explicitly enable the optional S3 backend (requires credentials)
 OBJECT_STORAGE_BACKEND=s3
 ```
 
@@ -488,9 +478,8 @@ development, never in production.
 ### Concurrency
 
 The server enforces a process-wide concurrency limit per provider
-(`PROVIDER_MAX_CONCURRENCY`, default 5). When `OBJECT_STORAGE_BACKEND=s3`,
-uploads count against the `"s3"` provider slot, not the `"tos"` slot.
-This means TOS and S3 uploads have independent concurrency pools.
+(`PROVIDER_MAX_CONCURRENCY`, default 5). Local S3 uploads count against the
+`"s3"` provider slot. Managed Files use the separate `"modelark"` slot.
 
 ## Environment variable reference
 
@@ -502,21 +491,20 @@ This means TOS and S3 uploads have independent concurrency pools.
 | `S3_REGION` | `us-east-1` | No | AWS region |
 | `S3_ENDPOINT` | empty | No | Custom endpoint for S3-compatible storage |
 | `S3_PRESIGN_TTL_SECONDS` | `1800` | No | Presigned URL validity (60–604800 seconds) |
-| `OBJECT_STORAGE_BACKEND` | `tos` | No | Select active backend: `tos` or `s3` |
+| `OBJECT_STORAGE_BACKEND` | `s3` | No | Only supported backend; leave unset without S3 credentials |
 
 Validation rules (enforced at startup):
 
 - `S3_ACCESS_KEY` and `S3_SECRET_KEY` must both be set or both be empty.
 - `S3_BUCKET` is required when S3 credentials are set.
-- `OBJECT_STORAGE_BACKEND=s3` requires all three: AK, SK, and bucket.
-- If S3 credentials are set but `OBJECT_STORAGE_BACKEND=tos` and TOS
-  credentials are missing, the server raises a guidance error pointing you
-  to set `OBJECT_STORAGE_BACKEND=s3`.
+- Explicit `OBJECT_STORAGE_BACKEND=s3` requires all three: AK, SK, and bucket.
+- With no S3 configuration, local storage tools are not registered. Managed
+  Files need only the ModelArk key and no S3 settings.
 
 ## Tools
 
-Both tools are registered when `has_object_storage` is true (either TOS or S3
-credentials are configured). They work identically with either backend.
+Both tools are registered on stdio when `has_object_storage` is true
+(S3 credentials are configured).
 
 | Tool | Scope | Description |
 |---|---|---|

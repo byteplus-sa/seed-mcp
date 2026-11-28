@@ -42,7 +42,7 @@ Try [Your First Tool Call](setup/first-run.md). Describe the image or video
 you want; your client handles tool calls and video polling.
 Generation may incur provider charges. Save returned task IDs and download
 results before provider URLs expire; do not repeat uncertain creates.
-The hosted service has eight tools for discovery, images, video, scene
+The hosted service has twelve tools for discovery, images, video, scene
 audio and Seed TTS. TTS returns audio directly without output storage. Local storage/artifact
 tools remain unavailable over HTTP.
 

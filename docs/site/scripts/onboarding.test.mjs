@@ -27,7 +27,7 @@ test("primary onboarding connects to hosted MCP without installing a server", ()
   assert.match(page("service.md"), /credential-exposure risk/);
   assert.match(install, /id="guided-local-setup"/);
   assert.match(install, /shared-server\.md/);
-  assert.match(page("service.md"), /Temporary uploads are disabled/);
+  assert.match(page("service.md"), /Managed Files import HTTPS URLs/);
   assert.match(install, /Local file tools are\s+not hosted/);
   assert.match(
     install,
@@ -137,7 +137,7 @@ test("hosted setup uses private headers and makes skills optional", () => {
   assert.match(install, /does not validate your key or account access/);
   assert.match(install, /private custom headers/);
   assert.match(install, /Do not use\s+`Authorization` or OAuth/i);
-  assert.match(install, /Expect eight tools and `connection=null`/);
+  assert.match(install, /twelve tools and `connection=null`/);
   assert.doesNotMatch(
     page("setup/shared-server.md"),
     /does not provide a public hosted endpoint/,

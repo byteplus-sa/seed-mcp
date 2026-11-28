@@ -38,7 +38,7 @@ def _mock_gateway() -> AsyncMock:
 def _upload_gateway() -> AsyncMock:
     gw = AsyncMock()
     gw.upload_bytes = AsyncMock(return_value=None)
-    gw.presign_get = AsyncMock(return_value="https://tos.example.com/original-url")
+    gw.presign_get = AsyncMock(return_value="https://s3.example.com/original-url")
     gw.close = AsyncMock()
     return gw
 
@@ -129,21 +129,21 @@ class TestMediaPresignSuccess:
         assert (100, 100) in fake_ctx.progress_reports
 
 
-class TestMediaPresignTosBackend:
-    async def test_tos_backend_uses_tos_provider_slot(
+class TestMediaPresignDefaultBackend:
+    async def test_default_backend_slot(
         self, test_env: None, fake_ctx: FakeContext, monkeypatch: pytest.MonkeyPatch
     ) -> None:
         from ark_mcp.config.env import get_settings
 
-        tos_settings = get_settings().model_copy(
+        s3_settings = get_settings().model_copy(
             update={
-                "tos_access_key": "ak-tos",
-                "tos_secret_key": "sk-tos",  # pragma: allowlist secret
-                "tos_bucket": "tos-bucket",
-                "object_storage_backend": "tos",
+                "s3_access_key": "ak-s3",
+                "s3_secret_key": "sk-s3",  # pragma: allowlist secret
+                "s3_bucket": "s3-bucket",
+                "object_storage_backend": "s3",
             }
         )
-        monkeypatch.setattr("ark_mcp.tools.media_presign.get_settings", lambda: tos_settings)
+        monkeypatch.setattr("ark_mcp.tools.media_presign.get_settings", lambda: s3_settings)
 
         result = await _presign(fake_ctx, _mock_gateway(), _VALID_KEY)
 
@@ -151,12 +151,12 @@ class TestMediaPresignTosBackend:
         assert result.items[0].url == "https://s3.example.com/fresh-presigned-url"
         assert result.items[0].object_key == _VALID_KEY
 
-    async def test_tos_backend_presign_after_upload_workflow(
+    async def test_s3_backend_presign_after_upload_workflow(
         self, test_env: None, fake_ctx: FakeContext
     ) -> None:
         upload_gw = _upload_gateway()
         presign_gw = _mock_gateway()
-        presign_gw.presign_get = AsyncMock(return_value="https://tos.example.com/renewed-url")
+        presign_gw.presign_get = AsyncMock(return_value="https://s3.example.com/renewed-url")
 
         with patch(_UPLOAD_GATEWAY, return_value=upload_gw):
             upload_result = await media_upload(_video_upload_input(), fake_ctx)
@@ -165,8 +165,8 @@ class TestMediaPresignTosBackend:
 
         presign_result = await _presign(fake_ctx, presign_gw, uploaded.object_key)
 
-        assert uploaded.url == "https://tos.example.com/original-url"
-        assert presign_result.items[0].url == "https://tos.example.com/renewed-url"
+        assert uploaded.url == "https://s3.example.com/original-url"
+        assert presign_result.items[0].url == "https://s3.example.com/renewed-url"
         assert presign_result.items[0].object_key == uploaded.object_key
         upload_gw.upload_bytes.assert_called_once()
         presign_gw.presign_get.assert_called_once_with(key=uploaded.object_key)
@@ -180,9 +180,6 @@ class TestMediaPresignS3Backend:
 
         s3_settings = get_settings().model_copy(
             update={
-                "tos_access_key": "",
-                "tos_secret_key": "",
-                "tos_bucket": "",
                 "s3_access_key": "ak-s3",
                 "s3_secret_key": "sk-s3",  # pragma: allowlist secret
                 "s3_bucket": "s3-bucket",
@@ -272,9 +269,6 @@ class TestMediaPresignErrors:
 
         no_storage = get_settings().model_copy(
             update={
-                "tos_access_key": "",
-                "tos_secret_key": "",
-                "tos_bucket": "",
                 "s3_access_key": "",
                 "s3_secret_key": "",
                 "s3_bucket": "",

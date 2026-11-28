@@ -5,7 +5,7 @@ start with [Set Up Seed MCP](setup/install.md) and [your client guide](integrati
 Users can ask their client in plain language; the client handles tool calls.
 
 **Choose the transport first.** Both transports use direct tool calls.
-HTTP BYOK exposes 8 tools, plus optional temporary upload preparation, direct foreground provider calls
+HTTP BYOK exposes 12 tools including managed Files, direct foreground provider calls
 and anonymous static discovery. It has no jobs/native tasks/local storage/artifact
 tools/resources. Keep persistence false and download expiring provider URLs
 on the client. See [HTTP setup](setup/shared-server.md).

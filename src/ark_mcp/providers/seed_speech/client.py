@@ -13,7 +13,7 @@ from typing import TYPE_CHECKING, Any, ClassVar
 
 from ark_mcp.config.env import get_settings
 from ark_mcp.domain.errors import NormalizedProviderError, ProviderError, ProviderName
-from ark_mcp.execution import authorize_provider_request, record_dispatched_request
+from ark_mcp.execution import authorize_provider_request
 from ark_mcp.observability.logger import error as log_error
 from ark_mcp.observability.metrics import PROVIDER_DURATION, PROVIDER_REQUESTS
 from ark_mcp.providers.base import (
@@ -83,7 +83,6 @@ class SeedSpeechGateway(BaseHttpGateway):
         headers = self._headers()
         headers.update({"X-Request-Id": request_id, "Accept": "text/plain"})
         await authorize_provider_request(side_effect=True)
-        record_dispatched_request(request_id)
         started = perf_counter()
         status = "exception"
         try:

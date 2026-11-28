@@ -6,7 +6,7 @@ settings (log level, etc.) are handled separately by FastMCP.
 
 HTTP generation credentials are request-only BYOK headers, never tool arguments.
 Startup generation credentials serve only trusted local stdio development.
-Opt-in HTTP temporary upload preparation uses restricted operator TOS signing credentials.
+Managed Files API uploads use the caller's ModelArk credential.
 """
 
 from __future__ import annotations
@@ -326,7 +326,7 @@ class Settings(BaseSettings):
         validation_alias="ARTIFACT_BACKEND",
         description=(
             "Durable artifact storage backend. 'filesystem' stores artifacts on "
-            "local disk; 'object_storage' stores them in the configured TOS/S3 bucket."
+            "local disk; 'object_storage' stores them in the configured S3 bucket."
         ),
     )
     state_backend: Literal["sqlite", "none"] | None = Field(
@@ -404,76 +404,6 @@ class Settings(BaseSettings):
         ),
     )
 
-    # --- TOS object storage -------------------------------------------------
-
-    tos_credential_mode: Literal["static", "irsa"] = Field(
-        default="static", validation_alias="TOS_CREDENTIAL_MODE"
-    )
-    tos_irsa_role_trn: str = Field(default="", validation_alias="TOS_IRSA_ROLE_TRN")
-    tos_irsa_token_file: str = Field(default="", validation_alias="TOS_IRSA_TOKEN_FILE")
-    tos_irsa_sts_endpoint: Literal[
-        "https://sts.byteplusapi.com", "https://open.byteplusapi.com"
-    ] = Field(default="https://sts.byteplusapi.com", validation_alias="TOS_IRSA_STS_ENDPOINT")
-    tos_irsa_duration_seconds: int = Field(
-        default=3600, ge=3600, le=43200, validation_alias="TOS_IRSA_DURATION_SECONDS"
-    )
-    tos_access_key: str = Field(default="", validation_alias="TOS_ACCESS_KEY")
-    tos_secret_key: str = Field(default="", validation_alias="TOS_SECRET_KEY")
-    tos_security_token: str = Field(default="", validation_alias="TOS_SECURITY_TOKEN")
-    tos_bucket: str = Field(default="", validation_alias="TOS_BUCKET")
-    tos_region: str = Field(default="ap-southeast-1", validation_alias="TOS_REGION")
-    tos_endpoint: str = Field(
-        default="tos-ap-southeast-1.bytepluses.com",
-        validation_alias="TOS_ENDPOINT",
-    )
-    tos_presign_ttl_seconds: int = Field(
-        default=1800,
-        ge=60,
-        le=604800,
-        validation_alias="TOS_PRESIGN_TTL_SECONDS",
-    )
-    temporary_upload_enabled: bool = Field(
-        default=False,
-        validation_alias="MCP_TEMPORARY_UPLOAD_ENABLED",
-        description="Enable HTTP-only temporary TOS upload preparation for enrolled clients.",
-    )
-    upload_client_secret_sha256: str = Field(
-        default="",
-        max_length=65000,
-        repr=False,
-        validation_alias="MCP_UPLOAD_CLIENT_SECRET_SHA256",
-        description=(
-            "Comma-separated SHA-256 digests of exact ASCII X-MCP-Client-Secret values. "
-            "Operator enrollment grants upload permission; at most 1000 distinct digests."
-        ),
-    )
-
-    @property
-    def upload_client_digests(self) -> tuple[str, ...]:
-        """Return operator-enrolled digests, never raw client secrets."""
-        return (
-            tuple(self.upload_client_secret_sha256.split(","))
-            if self.upload_client_secret_sha256
-            else ()
-        )
-
-    @field_validator("upload_client_secret_sha256")
-    @classmethod
-    def validate_upload_client_digests(cls, value: str) -> str:
-        if not value:
-            return value
-        digests = value.split(",")
-        if (
-            len(digests) > 1000
-            or len(set(digests)) != len(digests)
-            or any(not re.fullmatch(r"[a-f0-9]{64}", digest) for digest in digests)
-        ):
-            raise ValueError(
-                "MCP_UPLOAD_CLIENT_SECRET_SHA256 requires 1-1000 distinct lowercase "
-                "64-hex SHA-256 digests, comma-separated without whitespace."
-            )
-        return value
-
     # --- S3 object storage (Amazon S3 / S3-compatible) -----------------------
 
     s3_access_key: str = Field(default="", validation_alias="S3_ACCESS_KEY")
@@ -487,8 +417,8 @@ class Settings(BaseSettings):
         le=604800,
         validation_alias="S3_PRESIGN_TTL_SECONDS",
     )
-    object_storage_backend: Literal["tos", "s3"] = Field(
-        default="tos",
+    object_storage_backend: Literal["s3"] = Field(
+        default="s3",
         validation_alias="OBJECT_STORAGE_BACKEND",
     )
 
@@ -584,30 +514,19 @@ class Settings(BaseSettings):
         return bool(self.seed_speech_api_key)
 
     @property
-    def has_tos(self) -> bool:
-        """Whether TOS object storage credentials are configured."""
-        if self.tos_credential_mode == "irsa":
-            return bool(self.tos_irsa_role_trn and self.tos_irsa_token_file and self.tos_bucket)
-        return bool(self.tos_access_key and self.tos_secret_key and self.tos_bucket)
-
-    @property
     def has_s3(self) -> bool:
         """Whether S3 object storage credentials are configured."""
         return bool(self.s3_access_key and self.s3_secret_key and self.s3_bucket)
 
     @property
     def has_object_storage(self) -> bool:
-        """Whether the *selected* object-storage backend is configured."""
-        if self.object_storage_backend == "s3":
-            return self.has_s3
-        return self.has_tos
+        """Whether optional local S3 storage is configured."""
+        return self.has_s3
 
     @property
     def presign_ttl_seconds(self) -> int:
-        """Presign TTL of the *selected* backend."""
-        if self.object_storage_backend == "s3":
-            return self.s3_presign_ttl_seconds
-        return self.tos_presign_ttl_seconds
+        """Presign TTL of the optional S3 backend."""
+        return self.s3_presign_ttl_seconds
 
     @property
     def output_root_paths(self) -> list[str]:
@@ -779,61 +698,16 @@ class Settings(BaseSettings):
                 raise ValueError(
                     "HTTP readiness must not call providers with operator credentials."
                 )
-        if self.tos_credential_mode == "irsa":
-            if self.mcp_transport != "http" or not self.temporary_upload_enabled:
-                raise ValueError("TOS_CREDENTIAL_MODE=irsa requires HTTP temporary uploads.")
-            if self.tos_access_key or self.tos_secret_key or self.tos_security_token:
-                raise ValueError("IRSA cannot be combined with static TOS credentials.")
-            if not re.fullmatch(
-                r"trn:iam::[0-9]+:role/[A-Za-z0-9+=,.@_-]{1,128}", self.tos_irsa_role_trn
-            ):
-                raise ValueError("TOS_IRSA_ROLE_TRN requires an exact IAM role TRN.")
-            if (
-                not Path(self.tos_irsa_token_file).is_absolute()
-                or ".." in Path(self.tos_irsa_token_file).parts
-            ):
-                raise ValueError("TOS_IRSA_TOKEN_FILE requires an absolute projected-token path.")
-        elif self.tos_irsa_role_trn or self.tos_irsa_token_file:
-            raise ValueError("IRSA role/token configuration requires TOS_CREDENTIAL_MODE=irsa.")
-        if bool(self.tos_access_key) != bool(self.tos_secret_key):
-            raise ValueError("TOS_ACCESS_KEY and TOS_SECRET_KEY must both be set or both be empty.")
-        if self.tos_access_key and not self.tos_endpoint:
-            raise ValueError("TOS_ENDPOINT is required when TOS credentials are set.")
-        if self.temporary_upload_enabled and (
-            self.mcp_transport != "http"
-            or self.object_storage_backend != "tos"
-            or not self.has_tos
-            or not self.upload_client_digests
-        ):
-            raise ValueError(
-                "MCP_TEMPORARY_UPLOAD_ENABLED requires HTTP, OBJECT_STORAGE_BACKEND=tos, "
-                "TOS credentials/bucket and a nonempty MCP_UPLOAD_CLIENT_SECRET_SHA256 allowlist."
-            )
-        if self.temporary_upload_enabled:
-            if not re.fullmatch(r"[a-z0-9][a-z0-9-]{1,61}[a-z0-9]", self.tos_bucket):
-                raise ValueError("Hosted storage requires a valid 3-63 character TOS bucket name.")
-            if not re.fullmatch(r"[a-z]+(?:-[a-z]+)+-[0-9]+", self.tos_region):
-                raise ValueError("Hosted storage requires a valid TOS_REGION.")
-            official_host = f"tos-{self.tos_region}.bytepluses.com"
-            if self.tos_endpoint not in {official_host, f"https://{official_host}"}:
-                raise ValueError(
-                    "Hosted storage requires the exact official HTTPS TOS regional endpoint."
-                )
         if bool(self.s3_access_key) != bool(self.s3_secret_key):
             raise ValueError("S3_ACCESS_KEY and S3_SECRET_KEY must both be set or both be empty.")
         if self.s3_access_key and not self.s3_bucket:
             raise ValueError("S3_BUCKET is required when S3 credentials are set.")
-        if self.object_storage_backend == "s3" and not self.has_s3:
+        if "object_storage_backend" in self.model_fields_set and not self.has_s3:
             raise ValueError(
                 "OBJECT_STORAGE_BACKEND=s3 requires S3_ACCESS_KEY, S3_SECRET_KEY, and S3_BUCKET."
             )
-        if self.object_storage_backend == "tos" and self.has_s3 and not self.has_tos:
-            raise ValueError(
-                "OBJECT_STORAGE_BACKEND=tos but TOS credentials are missing while S3 "
-                "credentials are set. Set OBJECT_STORAGE_BACKEND=s3 or provide TOS_*."
-            )
         if self.artifact_backend == "object_storage" and not self.has_object_storage:
-            raise ValueError("ARTIFACT_BACKEND=object_storage requires TOS_* or S3_* credentials.")
+            raise ValueError("ARTIFACT_BACKEND=object_storage requires S3_* credentials.")
         return self
 
 

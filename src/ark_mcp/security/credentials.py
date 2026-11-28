@@ -49,7 +49,7 @@ class _RequestCredentials:
 
 @dataclass(frozen=True, slots=True)
 class _ProviderContext:
-    provider: CredentialProvider | Literal["tos-upload"]
+    provider: CredentialProvider
     principal: PrincipalContext
     request: _RequestCredentials = field(repr=False)
 
@@ -166,44 +166,6 @@ def provider_scope(settings: Settings, provider: CredentialProvider) -> Iterator
         yield
     finally:
         _provider.reset(token)
-
-
-@contextmanager
-def upload_scope(settings: Settings) -> Iterator[None]:
-    """Authorize an enrolled live client for operator-funded TOS upload preparation."""
-    request = _live_request()
-    secret = request.values.get(INSTALLATION_HEADER_NAME)
-    if not settings.temporary_upload_enabled or secret is None:
-        raise PermissionError(
-            "Temporary upload access requires operator enrollment and X-MCP-Client-Secret."
-        )
-    digest = hashlib.sha256(secret.encode("ascii")).hexdigest()
-    enrolled = False
-    for candidate in settings.upload_client_digests:
-        enrolled |= hmac.compare_digest(digest, candidate)
-    if not enrolled:
-        raise PermissionError("Temporary upload access requires operator enrollment.")
-    tenant = _digest(settings, "seed-mcp:upload-tenant", settings.tos_bucket)
-    owner = _digest(settings, "seed-mcp:upload-owner", tenant, secret)
-    context = _ProviderContext(
-        provider="tos-upload",
-        principal=PrincipalContext(principal_id=owner, tenant_id=tenant, transport="http"),
-        request=request,
-    )
-    token = _provider.set(context)
-    try:
-        yield
-    finally:
-        _provider.reset(token)
-
-
-def require_upload_scope() -> PrincipalContext:
-    """Reject direct handler calls outside the live, authorized upload invocation."""
-    principal = request_principal()
-    bound = _provider.get()
-    if bound is None or bound.provider != "tos-upload":
-        raise PermissionError("Temporary upload requires its live authorized invocation.")
-    return principal
 
 
 def request_principal() -> PrincipalContext:

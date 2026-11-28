@@ -15,7 +15,7 @@ The create tool's direct result carries the provider task ID. There are no MCP j
 The persist phase below is **stdio-only**. HTTP uses direct foreground calls,
 has no jobs/native tasks/local storage/artifact tools/resources, and requires
 persistence false. Download expiring provider URLs on the client instead.
-Optional `media_prepare_upload` prepares input references only, not output persistence.
+Managed Files provide input references; they are not generated-output persistence.
 
 ```mermaid
 flowchart LR

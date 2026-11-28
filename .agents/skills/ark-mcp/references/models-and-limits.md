@@ -181,7 +181,7 @@ use live client roots. This resource is stdio-only. Backend `/health` and `/read
 return minimal process/state status without provider checks; VKE Caddy exposes
 only `/mcp` and `/health`. Public `/metrics` is unavailable; an optional
 HTTP-runtime listener is loopback-only and off by default.
-HTTP discovery is anonymous/static, with 8 tools, plus one optional temporary-upload preparation tool.
+HTTP discovery is anonymous/static, with 12 tools, including the four managed Files operations.
 Generation registration remains
 independent of operator provider keys. For per-service
 enablement prefer `ark_list_models.services`. Settings: [environment.md](environment.md).

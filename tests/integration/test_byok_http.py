@@ -47,6 +47,10 @@ PUBLIC_TOOLS = {
     "gen_task_cancel_or_delete",
     "seed_audio_generate",
     "seed_tts_generate",
+    "ark_file_upload",
+    "ark_file_get",
+    "ark_file_list",
+    "ark_file_delete",
 }
 
 
@@ -192,8 +196,8 @@ def assert_no_canaries(text: str) -> None:
         ("seedream_generate_image", {"prompt": "square", "dry_run": True}),
         ("ark_list_models", {"check_connection": True}),
         (
-            "media_prepare_upload",
-            {"media_type": "image", "mime_type": "image/png", "size_bytes": 1234},
+            "ark_file_upload",
+            {"url": "https://example.com/reference.png"},
         ),
     ],
 )
@@ -207,12 +211,10 @@ async def test_credential_reuse_returns_safe_http_error_before_tool_execution(
     name: str,
     input_data: dict[str, Any],
 ) -> None:
-    from tests.unit.test_temporary_upload import upload_settings
-
     gateway = Mock()
-    monkeypatch.setattr("ark_mcp.providers.tos.client.TosGateway", gateway)
+    monkeypatch.setattr("ark_mcp.tools.ark_files.ModelArkFilesGateway", gateway)
     caplog.set_level(logging.DEBUG)
-    async with http_server(tmp_path, settings=upload_settings(tmp_path)) as (_, runtime, client):
+    async with http_server(tmp_path) as (_, runtime, client):
         response = await client.post(
             "/mcp",
             headers={
@@ -243,7 +245,7 @@ async def test_credential_reuse_returns_safe_http_error_before_tool_execution(
         assert "64 lowercase hex characters" in response.text
         assert "Keep your provider API keys unchanged" in response.text
         assert "rejected before tool execution" in response.text
-        assert runtime.tos_credentials is None
+        assert runtime.budget_ledger is None
         assert len(respx.calls) == 0
         successful(await call_tool(client, "ark_list_models", {}))
     gateway.assert_not_called()
@@ -262,7 +264,7 @@ async def test_anonymous_catalog_and_resources_are_static(tmp_path: Path) -> Non
         tools = anonymous["result"]["tools"]
         expected = PUBLIC_TOOLS
         assert {tool["name"] for tool in tools} == expected
-        assert len(tools) == 8
+        assert len(tools) == 12
         assert (await rpc(client, "resources/list"))["result"]["resources"] == []
         assert (await rpc(client, "resources/templates/list"))["result"]["resourceTemplates"] == []
         discovery = successful(await call_tool(client, "ark_list_models", {}))

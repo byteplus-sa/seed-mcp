@@ -1,13 +1,13 @@
 ---
 name: ark-mcp
-description: Generate media with Seed MCP. Use for Seedream, Seedance, Seed Audio and Seed TTS 3 through direct HTTP BYOK or stdio calls, plus opt-in temporary TOS reference preparation.
+description: Generate media with Seed MCP. Use for Seedream, Seedance, Seed Audio and Seed TTS 3 through direct HTTP BYOK or stdio calls, plus ModelArk-managed reference files.
 ---
 
 # Ark Seed Multimodal MCP Server
 
 This project-local skill describes the narrowed `byteplus-sa/seed-mcp` server.
-The public site covers the eight baseline hosted tools.
-Local tools, optional upload preparation and operator contracts remain in the
+The public site covers the twelve hosted tools.
+Local tools and operator contracts remain in the
 repository handbook. Both follow their source revision; use the connected
 server's discovery and schemas for current contracts.
 
@@ -17,12 +17,12 @@ skill covers only what the schemas cannot tell you: the flow, the rules that
 span tools, and where to look things up. **Parameters live in the tool
 schemas** ([Seed MCP API reference](https://github.com/byteplus-sa/seed-mcp/blob/main/docs/api-reference.md)).
 
-Determine the transport before choosing a workflow. HTTP BYOK has 8 tools
+Determine the transport before choosing a workflow. HTTP BYOK has 12 tools
 and runs provider tools directly in the foreground.
-Opt-in `media_prepare_upload` adds one HTTP tool for enrolled clients (9 total).
+The four managed Files tools are included and require the ModelArk key.
 Seed TTS returns native audio directly without output storage. Discover actual availability before calling.
 It has no jobs, native tasks, local storage/artifact tools or resources. Local stdio
-retains the 13-entry conditional catalog and storage/artifacts, with direct calls.
+retains the 17-entry conditional catalog and storage/artifacts, with direct calls.
 Asset administration is unavailable on either transport. Setup and rotation:
 [environment.md](references/environment.md#transport-and-auth).
 
@@ -38,7 +38,7 @@ or server-issued key exists; `Authorization` is rejected.
 | **Seedream** images (generate and edit) | `seedream_generate_image` | artifacts in the result | `BYTEPLUS_MODELARK_API_KEY` |
 | **Seed Audio** | `seed_audio_generate` | artifact in the result | `BYTEPLUS_SEED_SPEECH_API_KEY` |
 | **Seed TTS 3.0** | `seed_tts_generate` | native HTTP audio or local artifact; optional alignment | `BYTEPLUS_SEED_SPEECH_API_KEY` |
-| **Object storage** | `media_upload`, `media_presign` | URLs in the result | TOS or S3 credentials |
+| **Object storage** | `media_upload`, `media_presign` | URLs in the result | S3 credentials |
 | **Always registered (four local tools)** | `ark_list_models`, `seed_media_*` | — | — |
 
 The enabling-settings column and always-registered artifact entries
@@ -91,8 +91,7 @@ flowchart LR
 - HTTP 400 `CREDENTIAL_REUSE` means `X-MCP-Client-Secret` matches a supplied
   provider key, including an unused provider. No tool ran. Generate an
   independent 32-random-byte secret as 64 lowercase hex and update only its
-  private client entry; keep provider keys unchanged. For temporary uploads,
-  ask the operator to enroll the replacement digest, never its raw value.
+  private client entry; keep provider keys unchanged. File operations use the same live ModelArk/client-secret boundary.
 - Call `ark_list_models` with `{"input":{"check_connection":true}}` only on
   live HTTP. Omit `kind` for both image/video routes, or select `"image"` /
   `"video"`; other kinds and stdio checks are rejected.
@@ -137,9 +136,7 @@ flowchart LR
   Local stdio reserves budget after admission; HTTP does not.
 - `ADMISSION_TIMEOUT` means this attempt did not dispatch, not the whole batch.
   `TOOL_DEADLINE_EXCEEDED` is text-only and retains uncertainty and safe accepted
-  task IDs or dispatched TTS request IDs. Request-only IDs are for reconciliation,
-  not polling or proof of acceptance. External cancellation propagates;
-  timeout does not cancel provider work.
+  IDs. External cancellation propagates; timeout does not cancel provider work.
 - SDK/local SQLite draining can exceed the cooperative deadline.
   Direct local writes use live MCP roots or `OUTPUT_ROOTS`; artifact-store
   persistence itself needs no roots. See [local-output.md](references/local-output.md).
@@ -159,8 +156,8 @@ flowchart LR
   account activation; custom Flash endpoints use family `seedance_2_5_flash`.
 - `variations`: Seedance 1-5 (separate billed tasks, `tasks[]`), Seedream 1-10
   (`summary`), Seed Audio 1-5 (`summary`). Failures are per variation. Seedream
-  `seed` is the base seed (`N, N+1, ...`); `max_images` accepts only 1 or
-  omission, so use `variations` for multiple images.
+  `seed` is the base seed (`N, N+1, ...`); `max_images` and `variations > 1`
+  are mutually exclusive.
 - `dry_run` returns `preview` (request bodies, cost estimate) and bills nothing.
   Video estimates are static and do not account for resolution or duration.
   Flash currently reuses the static 2.5 per-task fallback, not its token price.
@@ -180,8 +177,8 @@ flowchart LR
   The final render is 1080p, not 4K. Omit inherited prompt/media/duration/ratio
   and model; `variations` must be 1. Omit `idempotency_key`.
 - Use public HTTPS video references or authorized `asset://` references.
-  Local files need stdio `media_upload` or an upload-capable HTTP integration
-  using optional `media_prepare_upload`. Refer to assets in prompts as
+  Local files use stdio `ark_file_upload` or client-side `seed-mcp-upload`.
+  Retrieve the file's active download_url before generation. Refer to assets in prompts as
   "Image 1" or "Video 1" by position.
 
 ### Seedream
@@ -259,25 +256,17 @@ flowchart LR
 - `output_path`, `output_dir` write to local disk on **stdio only**,
   inside the client's MCP roots (or `OUTPUT_ROOTS`), and need persistence
   (`persist` / `persist_output`). A directory ending in `/` is required when
-  several files are written (`variations > 1`).
+  several files are written (variations or `max_images > 1`).
 
 ### Media upload and assets
 
-- **HTTP-only `media_prepare_upload` is opt-in and prepare-only.** Requires an
-  operator-enrolled live `X-MCP-Client-Secret`, no generation-provider key.
-  Send category, exact MIME and byte size only (10 MiB image/audio, 200 MiB video).
-  The client uploads directly to TOS with signed fields unchanged and file LAST,
-  waits for success, then uses `reference_url` with normal generation headers.
-  Attaching a file in chat does not perform this upload. Never log/publish signed
-  fields or URLs. MIME is declared metadata, not inspected content.
-  POST/GET nominal TTLs are 15 minutes/24 hours; STS can shorten them.
-  Explicit operator VKE IRSA refreshes temporary credentials only for new calls,
-  never issued URLs. Its default one-hour session can reduce GET validity to
-  an hour or less. `TOS_IRSA_CREDENTIALS_UNAVAILABLE` needs operator diagnosis,
-  not generation-key changes or automatic IAM enablement.
-  One-day object expiry is scheduled, not exact 24-hour deletion or URL expiry.
-  No upload verification, URL renewal, DB or global storage budget exists.
-  See [media-assets.md](references/media-assets.md#temporary-http-references).
+- **Managed Files:** `ark_file_upload/get/list/delete` use the ModelArk key.
+  Default `purpose=agent`; retrieve an active file with `download_url` before
+  passing the complete URL into generation. HTTP cannot read client paths;
+  use `seed-mcp-upload` with explicit consent on the file-capable client.
+  No automatic retries, URL renewal, ownership database, or TOS setup.
+  Wait for dependent tasks before `ark_file_delete(confirm=true)`.
+
 - **Stdio-only `media_upload` and `media_presign` items fail independently.** Always check
   `failed` and `items[].error` (`media_presign` codes: `INVALID_KEY`,
   `NOT_OWNED`, `INTERNAL`, or a provider code). Only an over-size request

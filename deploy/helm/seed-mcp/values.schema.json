@@ -12,7 +12,6 @@
     "backendHost",
     "identitySecret",
     "tlsSecretName",
-    "temporaryUpload",
     "service",
     "app",
     "models",
@@ -113,60 +112,6 @@
     "tlsSecretName": {
       "$ref": "#/definitions/name"
     },
-    "temporaryUpload": {
-      "type": "object",
-      "additionalProperties": false,
-      "required": ["enabled", "existingSecret", "credentialsMode", "irsa"],
-      "description": "Opt-in prepare-only TOS signing; static Secret or explicit IRSA, never a metadata credential chain. Bucket/IAM/CORS/expiry and IRSA remain operator gates.",
-      "properties": {
-        "enabled": {"type": "boolean"},
-        "credentialsMode": {"enum": ["static", "irsa"]},
-        "irsa": {
-          "type": "object",
-          "additionalProperties": false,
-          "required": ["prerequisitesConfirmed", "serviceAccountName", "roleTrn", "stsEndpoint", "durationSeconds"],
-          "properties": {
-            "prerequisitesConfirmed": {"type": "boolean"},
-            "serviceAccountName": {
-              "type": "string",
-              "maxLength": 63,
-              "pattern": "^$|^[a-z0-9]([a-z0-9-]*[a-z0-9])?$"
-            },
-            "roleTrn": {
-              "type": "string",
-              "maxLength": 256,
-              "pattern": "^$|^trn:iam::[0-9]+:role/[A-Za-z0-9+=,.@_-]{1,128}$"
-            },
-            "stsEndpoint": {
-              "enum": ["https://sts.byteplusapi.com", "https://open.byteplusapi.com"]
-            },
-            "durationSeconds": {"type": "integer", "minimum": 3600, "maximum": 43200}
-          }
-        },
-        "existingSecret": {
-          "type": "string",
-          "maxLength": 63,
-          "pattern": "^$|^[a-z0-9]([a-z0-9-]*[a-z0-9])?$"
-        }
-      },
-      "if": {"properties": {"enabled": {"const": true}}},
-      "then": {"properties": {"existingSecret": {"$ref": "#/definitions/name"}}},
-      "allOf": [{
-        "if": {"properties": {"credentialsMode": {"const": "irsa"}}},
-        "then": {
-          "properties": {
-            "enabled": {"const": true},
-            "irsa": {
-              "properties": {
-                "prerequisitesConfirmed": {"const": true},
-                "serviceAccountName": {"$ref": "#/definitions/name"},
-                "roleTrn": {"minLength": 1}
-              }
-            }
-          }
-        }
-      }]
-    },
     "service": {
       "type": "object",
       "additionalProperties": false,
@@ -179,7 +124,11 @@
       ],
       "properties": {
         "mode": {
-          "enum": ["public-clb", "apig-staging", "apig-production"]
+          "enum": [
+            "public-clb",
+            "apig-staging",
+            "apig-production"
+          ]
         },
         "productionConfirmed": {
           "type": "boolean",
@@ -381,34 +330,87 @@
       }
     }
   },
-  "allOf": [{
-    "if": {
-      "properties": {"service": {"properties": {"mode": {"enum": ["apig-staging", "apig-production"]}}}}
-    },
-    "then": {
-      "properties": {
-        "backendHost": {"minLength": 1},
-        "service": {"properties": {"subnetId": {"const": ""}}},
-        "temporaryUpload": {"properties": {"enabled": {"const": false}}}
+  "allOf": [
+    {
+      "if": {
+        "properties": {
+          "service": {
+            "properties": {
+              "mode": {
+                "enum": [
+                  "apig-staging",
+                  "apig-production"
+                ]
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "backendHost": {
+            "minLength": 1
+          },
+          "service": {
+            "properties": {
+              "subnetId": {
+                "const": ""
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "backendHost": {
+            "const": ""
+          },
+          "service": {
+            "properties": {
+              "subnetId": {
+                "pattern": "^subnet-[a-z0-9]+$"
+              }
+            }
+          }
+        }
       }
     },
-    "else": {
-      "properties": {
-        "backendHost": {"const": ""},
-        "service": {"properties": {"subnetId": {"pattern": "^subnet-[a-z0-9]+$"}}}
+    {
+      "if": {
+        "properties": {
+          "service": {
+            "properties": {
+              "mode": {
+                "const": "apig-production"
+              }
+            }
+          }
+        }
+      },
+      "then": {
+        "properties": {
+          "service": {
+            "properties": {
+              "productionConfirmed": {
+                "const": true
+              }
+            }
+          }
+        }
+      },
+      "else": {
+        "properties": {
+          "service": {
+            "properties": {
+              "productionConfirmed": {
+                "const": false
+              }
+            }
+          }
+        }
       }
     }
-  }, {
-    "if": {
-      "properties": {"service": {"properties": {"mode": {"const": "apig-production"}}}}
-    },
-    "then": {
-      "properties": {"service": {"properties": {"productionConfirmed": {"const": true}}}}
-    },
-    "else": {
-      "properties": {"service": {"properties": {"productionConfirmed": {"const": false}}}}
-    }
-  }],
+  ],
   "definitions": {
     "configKey": {
       "type": "string",

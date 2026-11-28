@@ -410,7 +410,7 @@ class TestStateAndArtifactBackend:
     def test_object_storage_backend_without_credentials_fails(self) -> None:
         with pytest.raises(
             ValidationError,
-            match="ARTIFACT_BACKEND=object_storage requires TOS_\\* or S3_\\* credentials",
+            match="ARTIFACT_BACKEND=object_storage requires S3_\\* credentials",
         ):
             Settings(_env_file=None, ARTIFACT_BACKEND="object_storage")
 
@@ -422,13 +422,13 @@ class TestStateAndArtifactBackend:
         settings = Settings(_env_file=None, STATE_BACKEND="sqlite")
         assert settings.state_backend == "sqlite"
 
-    def test_object_storage_backend_with_tos_credentials_passes(self) -> None:
+    def test_object_storage_backend_with_s3_credentials_passes(self) -> None:
         settings = Settings(
             _env_file=None,
             ARTIFACT_BACKEND="object_storage",
-            TOS_ACCESS_KEY="ak-tos",
-            TOS_SECRET_KEY="sk-tos",  # pragma: allowlist secret
-            TOS_BUCKET="bucket",
+            S3_ACCESS_KEY="ak-s3",
+            S3_SECRET_KEY="sk-s3",  # pragma: allowlist secret
+            S3_BUCKET="bucket",
         )
         assert settings.artifact_backend == "object_storage"
         assert settings.has_object_storage is True

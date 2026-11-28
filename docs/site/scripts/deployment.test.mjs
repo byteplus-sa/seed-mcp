@@ -86,7 +86,7 @@ test("fresh stateless deployment has no database provisioning or credential gate
   for (const path of ["docs/byteplus-terraform.md", "docs/self-hosting.md"]) {
     const text = source(path).replace(/\s+/g, " ");
     assert.match(text, /identity and TLS Secrets/, path);
-    assert.match(text, /TOS\/enrollment Secret/, path);
+    assert.doesNotMatch(text, /TOS\/enrollment Secret/, path);
     assert.match(
       text,
       /No database Secret or database CA ConfigMap is required/,

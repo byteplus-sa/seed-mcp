@@ -1,8 +1,7 @@
 """Object-storage artifact store.
 
-Persists generated media and its ownership metadata into the configured TOS or
-S3 bucket instead of the pod-local filesystem, so durable ``seed-media://``
-resources survive across replicas.
+Persists local stdio media and ownership metadata into an optional S3 bucket
+instead of the local filesystem. Hosted HTTP has no artifact store.
 """
 
 from __future__ import annotations
@@ -63,7 +62,7 @@ def _trust_self_minted_host(_hostname: str) -> bool:
 
 
 class ObjectStorageArtifactStore:
-    """Artifact store backed by the configured TOS/S3 object-storage gateway."""
+    """Artifact store backed by the configured S3 object-storage gateway."""
 
     def __init__(
         self,

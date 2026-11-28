@@ -13,6 +13,7 @@ export const PUBLIC_PAGES = [
   "calling-tools.md",
   "help.md",
   "service.md",
+  "files.md",
   "404.md",
 ];
 export const HOSTED_TOOLS = [
@@ -24,6 +25,10 @@ export const HOSTED_TOOLS = [
   "gen_task_cancel_or_delete",
   "seed_audio_generate",
   "seed_tts_generate",
+  "ark_file_upload",
+  "ark_file_get",
+  "ark_file_list",
+  "ark_file_delete",
 ];
 
 const consolidated = {
@@ -116,6 +121,8 @@ export function siteRedirects(sources, tools) {
       .filter((source) => !PUBLIC_PAGES.includes(source))
       .map((source) => [sourceRoute(source), documentTarget(source)]),
   );
+  redirects["/temporary-uploads/"] = `${SITE_BASE}/files/`;
+  redirects["/tool-reference/media-prepare-upload/"] = `${SITE_BASE}/files/`;
   for (const tool of tools) {
     if (HOSTED_TOOLS.includes(tool.name)) continue;
     redirects[`/tool-reference/${tool.name.replaceAll("_", "-")}/`] =

@@ -41,7 +41,7 @@ Raw ASGI header validation rejects duplicate, empty, non-ASCII, whitespace,
 control and oversized values without echoing them. Keys are opaque printable
 ASCII of at most 4096 characters. It also rejects a client secret equal to any
 supplied provider key with HTTP 400 `CREDENTIAL_REUSE`, before tool execution,
-including discovery, dry runs and upload preparation. Constant-time comparisons
+including discovery, dry runs and Files operations. Constant-time comparisons
 are exact; this hygiene check does not establish customer identity or provider
 authorization. Generate an independent client secret and update its private
 client configuration, keeping provider keys unchanged.
@@ -81,13 +81,13 @@ Catalog scope strings remain capability metadata, not customer-selected roles,
 OAuth grants or a common team identity. HTTP admission enforces the selected
 provider key and client owner. Local stdio trusts its local principal.
 
-All 9 scope strings in the catalog are retained below as metadata, not auth
+All 12 scope strings in the catalog are retained below as metadata, not auth
 grants. A label does not register a tool or grant access to provider accounts.
 
 | Catalog scope metadata | Tools |
 | --- | --- |
 | `artifacts:read` | `seed_media_get_artifact`, `seed_media_export_artifact` (stdio only) |
-| `media:upload` | `media_upload`, `seed_media_persist_url` (stdio only); opt-in HTTP `media_prepare_upload` |
+| `media:upload` | `media_upload`, `seed_media_persist_url` (stdio only) |
 | `media:presign` | `media_presign` (stdio only) |
 | `seed:audio:generate` | `seed_audio_generate` |
 | `seed:tts:generate` | `seed_tts_generate` (stdio or HTTP native audio) |
@@ -95,40 +95,31 @@ grants. A label does not register a tool or grant access to provider accounts.
 | `seedance:create` | `seedance_create_task` |
 | `gen:read` | `gen_task_get`, `gen_task_list` |
 | `gen:delete` | `gen_task_cancel_or_delete` |
+| `files:write` | `ark_file_upload` |
+| `files:read` | `ark_file_get`, `ark_file_list` |
+| `files:delete` | `ark_file_delete` |
 
-HTTP exposes 8 provider/discovery tools, without
+HTTP exposes 12 provider/discovery tools, without
 requiring operator provider keys. Anonymous `ark_list_models` lists configured
 model bindings even without an environment provider key. `services[].enabled`
 describes registration, not customer entitlement or key validity. Jobs, native tasks, local storage/artifact tools and all MCP
 resources are absent on HTTP. Storage/artifacts remain local stdio capabilities
-among the 13 local tools. The catalog has 14 definitions including optional
-HTTP upload preparation. No asset administration exists on either transport.
+among the 17 conditional local tools. HTTP has 12 tools. No asset administration
+exists on either transport.
 
-Opt-in `media_prepare_upload` adds one HTTP tool. Operator-enrolled SHA-256
-digests of exact ASCII client-secret values authorize it, independently of
-generation-provider keys. A self-chosen secret alone grants no upload access.
-The tool signs exact-key/size/MIME private POST and GET permissions using
-restricted operator TOS credentials; clients upload directly. Signed MIME is
-metadata, not content inspection. Returned fields/URLs are sensitive bearer
-permissions, potentially including STS; never log or publish them.
-Permissions are not guaranteed one-use. Enrollment revocation requires all
-pods to reload and does not revoke existing signed permissions.
-One-day scheduled object expiry is not precise 24-hour deletion; URL expiry
-does not delete objects. Versioning must be disabled. Operator IAM, CORS,
-lifecycle and storage/egress abuse controls are separate prerequisites;
-per-pod admission is not a global quota. See [temporary uploads](temporary-uploads.md).
+Managed reference files use `ark_file_upload`, `ark_file_get`,
+`ark_file_list`, and `ark_file_delete` with the ModelArk API key. Default
+`purpose="agent"` uses provider-managed storage without bucket setup. Retrieve
+the accepted file ID until active with a `download_url`, then pass that URL
+to generation. The client-side `seed-mcp-upload` streams local files directly
+to ModelArk; HTTP MCP accepts HTTPS source URLs, not local paths or Base64.
+Reads do not renew the documented 24-hour/100-download URL limit. No upload
+enrollment, TOS signer, IRSA, application file database or cleanup worker remains.
+Never automatically retry an uncertain upload/delete; keep file/request IDs.
 
-TOS signing defaults to explicit static credentials. HTTP-only IRSA mode
-rejects static AK/SK/token configuration and performs no ambient environment
-or metadata fallback. It lazily exchanges the app-only projected OIDC token
-with allowlisted BytePlus STS after enrollment/admission. Redirects and proxy
-inheritance are disabled; bounded responses and errors do not echo credentials.
-The runtime cache is single-flight, refreshes early and fails closed near expiry.
-Automatic API-token mounting remains off, and Caddy has no token/TOS env.
-Exact issuer/audience/namespace/ServiceAccount trust, restricted TOS policy,
-webhook exclusions and live regional acceptance are operator prerequisites.
-STS expiry can shorten references; refreshing credentials never renews issued
-URLs. No IAM or cluster OIDC enablement is performed by the server/chart.
+File access is authorized by the ModelArk key, not a local ownership filter.
+The server does not inspect uploaded media or certify malware absence.
+See [managed Files limits and recovery](files.md).
 
 ## HTTP Admission and Routing
 
@@ -367,8 +358,7 @@ Local traffic policy; Caddy overwrites forwarding headers and Uvicorn does not
 rewrite them. Only `/mcp` and `/health` are public. `/ready` is an internal exec
 probe. Private metrics remain opt-in on loopback.
 
-Helm references existing identity and TLS Secrets, plus a distinct optional
-TOS/enrollment Secret for temporary upload preparation. `STATE_BACKEND=none` and
+Helm references existing identity and TLS Secrets, with no storage/enrollment Secret. `STATE_BACKEND=none` and
 `DAILY_BUDGET_USD=0`; database inputs are rejected. No PVC, StorageClass, database
 CA, PostgreSQL driver or shared state service is required. Bounded scratch uses
 emptyDir. Model bindings remain exact and operator-verified.

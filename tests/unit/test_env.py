@@ -369,9 +369,10 @@ class TestS3Config:
         )
         assert settings.has_s3
 
-    def test_object_storage_backend_defaults_to_tos(self) -> None:
+    def test_object_storage_backend_defaults_to_optional_s3(self) -> None:
         settings = Settings(_env_file=None)
-        assert settings.object_storage_backend == "tos"
+        assert settings.object_storage_backend == "s3"
+        assert not settings.has_object_storage
 
     def test_has_object_storage_reflects_selected_backend(self) -> None:
         settings = Settings(
@@ -382,15 +383,6 @@ class TestS3Config:
             OBJECT_STORAGE_BACKEND="s3",
         )
         assert settings.has_object_storage is True
-
-        settings_tos = Settings(
-            _env_file=None,
-            TOS_ACCESS_KEY="ak",
-            TOS_SECRET_KEY="sk",  # pragma: allowlist secret
-            TOS_BUCKET="bucket",
-            TOS_ENDPOINT="tos-test.example.com",
-        )
-        assert settings_tos.has_object_storage is True
 
     def test_presign_ttl_seconds_returns_selected_backend_ttl(self) -> None:
         settings = Settings(
@@ -411,8 +403,8 @@ class TestS3Config:
         with pytest.raises(ValueError, match="OBJECT_STORAGE_BACKEND=s3 requires"):
             Settings(_env_file=None, OBJECT_STORAGE_BACKEND="s3")
 
-    def test_backend_tos_with_s3_creds_missing_tos_raises_guidance(self) -> None:
-        with pytest.raises(ValueError, match="OBJECT_STORAGE_BACKEND=tos but TOS credentials"):
+    def test_retired_tos_backend_is_rejected(self) -> None:
+        with pytest.raises(ValueError):
             Settings(
                 _env_file=None,
                 S3_ACCESS_KEY="ak",

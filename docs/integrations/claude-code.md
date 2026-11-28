@@ -120,14 +120,10 @@ generated once from 32 random bytes, encoded as 64 lowercase hex.
 There is no OAuth, signup, server-issued key or `Authorization` header.
 Do not put real keys in CLI flags, chat or committed JSON.
 
-HTTP exposes 8 tools, default anonymous static discovery
+HTTP exposes 12 tools, default anonymous static discovery
 with `connection=null`, and direct
 foreground calls. Jobs/native tasks/local storage/artifact tools/resources are absent.
-Optional [temporary TOS preparation](../temporary-uploads.md) adds one tool for
-enrolled clients; it requires a separate multipart-capable client integration.
-`timeout` is milliseconds: `--tool-timeout-seconds` accepts 1-3600 seconds
-and defaults to 660 (660000 ms). It does not extend proxy/provider timeouts.
-Keep persistence false and retrieve expiring URLs yourself.
+Managed reference uploads use `ark_file_upload/get/list/delete` with the ModelArk key, without storage enrollment. Hosted local files use `seed-mcp-upload` on the client; retrieve the accepted ID for an active `download_url` before generation. Signed URLs are private and are not renewed by metadata reads.
 
 Optional `--seedance-endpoint-env SEED_MCP_SEEDANCE_ENDPOINT` and/or
 `--seedream-endpoint-env SEED_MCP_SEEDREAM_ENDPOINT` add `${VAR}` references

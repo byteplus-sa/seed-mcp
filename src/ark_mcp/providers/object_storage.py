@@ -1,8 +1,7 @@
 """Object-storage gateway protocol and backend factory.
 
-Both BytePlus TOS (``tos`` SDK) and Amazon S3 (``boto3``) implement this
-protocol. Tools program to the protocol; the active backend is selected by
-``OBJECT_STORAGE_BACKEND`` at startup.
+Optional local Amazon S3 (``boto3``) implements this protocol. Managed reference
+files use the independent ModelArk Files API, without object-storage credentials.
 """
 
 from __future__ import annotations
@@ -19,7 +18,7 @@ if TYPE_CHECKING:
 class ObjectStorageGateway(Protocol):
     """Protocol for object-storage upload and presigned-URL backends.
 
-    Both ``TosGateway`` and ``S3Gateway`` conform. SDK calls are dispatched
+    ``S3Gateway`` conforms. SDK calls are dispatched
     via ``asyncio.to_thread``; all methods raise ``ProviderError`` on
     failure, normalized with ``retryable``/``http_status`` for uniform
     retry handling via ``call_with_retry``.
@@ -67,26 +66,16 @@ class ObjectStorageGateway(Protocol):
 
 
 def make_object_storage_gateway(settings: Settings | None = None) -> ObjectStorageGateway:
-    """Return the configured object-storage gateway (tos or s3)."""
+    """Return the configured optional local S3 gateway."""
     from ark_mcp.config.env import get_settings
 
     settings = settings or get_settings()
-    if settings.object_storage_backend == "s3":
-        if not settings.has_s3:
-            raise ValueError(
-                "S3 object storage selected but S3 credentials are not configured. "
-                "Set S3_ACCESS_KEY, S3_SECRET_KEY, and S3_BUCKET."
-            )
-        from ark_mcp.providers.s3.client import S3Gateway
-
-        log_info("object_storage_backend", backend="s3")
-        return S3Gateway()
-    if not settings.has_tos:
+    if not settings.has_s3:
         raise ValueError(
-            "TOS object storage selected but TOS credentials are not configured. "
-            "Set TOS_ACCESS_KEY, TOS_SECRET_KEY, and TOS_BUCKET."
+            "S3 object storage selected but S3 credentials are not configured. "
+            "Set S3_ACCESS_KEY, S3_SECRET_KEY, and S3_BUCKET."
         )
-    from ark_mcp.providers.tos.client import TosGateway
+    from ark_mcp.providers.s3.client import S3Gateway
 
-    log_info("object_storage_backend", backend="tos")
-    return TosGateway()
+    log_info("object_storage_backend", backend="s3")
+    return S3Gateway()

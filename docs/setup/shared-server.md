@@ -53,7 +53,7 @@ Never paste credentials into chat, tool arguments, screenshots or Git.
 
 The client secret must differ from every provider key supplied in the request,
 even an unused provider key. Reuse returns HTTP 400 `CREDENTIAL_REUSE` before
-tool execution, including discovery, dry runs and upload preparation.
+tool execution, including discovery, dry runs and Files operations.
 Generate an independent client secret and change only its private client
 environment/secret-store entry, not your provider keys. If you use temporary
 uploads, ask the operator to enroll the replacement secret's SHA-256 digest;
@@ -145,8 +145,8 @@ and confirm connection is null.
 Do not generate or upload.
 ```
 
-HTTP lists 8 tools, independently of operator keys.
-Optional temporary upload preparation adds one (9); its presence in
+HTTP lists 12 tools, independently of operator keys.
+Managed Files tools are included; their presence in
 tools/list does not prove that your client secret is enrolled.
 Anonymous discovery returns configured model bindings even without environment
 provider keys. `services[].enabled` means registered, not entitled.
@@ -214,12 +214,8 @@ Continue with [Your First Tool Call](first-run.md).
 
 ## Local Files and Outputs
 
-A remote server cannot read or write files on your computer using a local
-file attachment. Optional [temporary TOS upload preparation](../temporary-uploads.md)
-requires an operator-enrolled client secret and a multipart-capable client:
-prepare metadata, upload bytes directly to TOS, wait for success, then use
-the GET URL with normal generation headers. No generation key is needed
-for preparation itself. A chat attachment does not upload automatically.
+Managed reference uploads use `ark_file_upload/get/list/delete` with the ModelArk key, without storage enrollment. Hosted local files use `seed-mcp-upload` on the client; retrieve the accepted ID for an active `download_url` before generation. Signed URLs are private and are not renewed by metadata reads.
+See [managed reference files](../files.md).
 
 A remote server cannot read or write files on your computer using a local
 path. HTTP has no local storage/artifact tools or resources. Use supported URLs

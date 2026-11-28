@@ -1,10 +1,8 @@
 # Architecture
 
-Seed MCP is a direct-call Python/FastMCP server. The catalog contains 13 local
-tools; HTTP exposes eight baseline discovery/provider tools, including TTS.
-Opt-in HTTP-only `media_prepare_upload` adds one signing capability; its client
-uploads directly to private TOS. The full catalog has 14 definitions.
-There are no MCP jobs, native tasks or inference workers.
+Seed MCP is a direct-call Python/FastMCP server with 17 conditional local
+tools and 12 hosted tools, including TTS and ModelArk Files. There are no
+MCP jobs, native tasks or inference workers.
 
 ## Request Flow
 
@@ -34,7 +32,7 @@ a pod restart. Provider work remains asynchronous independently of the pods.
 
 | Provider | Fixed HTTP origin | Upstream auth |
 | --- | --- | --- |
-| ModelArk | `https://ark.ap-southeast.bytepluses.com/api/v3` | Bearer; Seedream and Seedance |
+| ModelArk | `https://ark.ap-southeast.bytepluses.com/api/v3` | Bearer; Seedream, Seedance and Files |
 | Seed Speech | `https://voice.ap-southeast-1.bytepluses.com` | `X-Api-Key`; Seed Audio and Seed TTS 3 |
 
 Clients privately send `X-ModelArk-Api-Key` or `X-Seed-Speech-Api-Key`,
@@ -63,15 +61,17 @@ audio block plus metadata; no output upload, local file or database is created.
 It uses direct-call deadlines and dispatch tracking, with no automatic synthesis
 retry or provider URL. See [Seed TTS](seed-tts.md).
 
-Temporary uploads use a separate enrolled client-secret authorization scope and
-operator TOS signer, with exact-key POST permissions and a GET URL. No object
-is created or inspected by MCP and no database is needed. Static credentials
-sign locally without network calls. Explicit VKE IRSA mode lazily exchanges a
-projected ServiceAccount token with BytePlus STS and caches temporary credentials
-in runtime memory. One triplet signs the POST/form/GET pair; refresh never
-extends already issued URLs. Only the app mounts the manually projected token,
-not Caddy. Discovery/readiness perform no token read or STS/TOS probe.
-See [temporary references](temporary-uploads.md#vke-iam-roles-for-service-accounts).
+Managed reference files use `ark_file_upload`, `ark_file_get`,
+`ark_file_list`, and `ark_file_delete` with the ModelArk API key. Default
+`purpose="agent"` uses provider-managed storage without bucket setup. Retrieve
+the accepted file ID until active with a `download_url`, then pass that URL
+to generation. The client-side `seed-mcp-upload` streams local files directly
+to ModelArk; HTTP MCP accepts HTTPS source URLs, not local paths or Base64.
+Reads do not renew the documented 24-hour/100-download URL limit. No upload
+enrollment, TOS signer, IRSA, application file database or cleanup worker remains.
+Never automatically retry an uncertain upload/delete; keep file/request IDs.
+
+See [managed references](files.md).
 
 The tool deadline starts before credentials and admission (default 600s).
 Owner-first then provider admission has a combined 2s wait. Use a client timeout

@@ -121,13 +121,7 @@ An empty file is not successful onboarding when generation was requested.
 
 ## HTTP Client Credentials
 
-Optional HTTP `media_prepare_upload` authorizes only operator-enrolled client
-secrets. Enrollment uses SHA-256 of the exact ASCII header value, not decoded
-bytes, and does not require a generation-provider key. Do not enroll or
-provision operator TOS credentials as a client-setup side effect. Raw client
-secrets stay private; the operator receives only approved enrollment digests.
-Issued signed fields/URLs can include STS and are sensitive bearer permissions;
-never log or publish them. See `docs/temporary-uploads.md` in the checkout.
+Managed reference uploads use `ark_file_upload/get/list/delete` with the ModelArk key, without storage enrollment. Hosted local files use `seed-mcp-upload` on the client; retrieve the accepted ID for an active `download_url` before generation. Signed URLs are private and are not renewed by metadata reads.
 
 Use only an operator-approved trusted HTTPS URL. The server receives live
 provider credentials but does not persist them or fall back to startup keys.
@@ -155,10 +149,10 @@ secret; do not reuse a provider key as the secret. The stdout generator neither
 reads files nor environment values and cannot prove value independence.
 The HTTP server rejects a client secret equal to any supplied provider key
 with HTTP 400 `CREDENTIAL_REUSE` before tool execution, including discovery,
-dry runs and upload preparation. Generate an independent 32-random-byte
+dry runs and Files operations. Generate an independent 32-random-byte
 client secret as 64 lowercase hex and update only its protected client entry;
-leave provider keys unchanged. For temporary uploads, the operator must enroll
-the replacement secret's SHA-256 digest. Never reveal the raw secret.
+leave provider keys unchanged. Managed Files need no operator enrollment.
+Never reveal the raw secret.
 Optional endpoint variables require selected provider `modelark`; their values
 must be operator-verified exact bindings. Unknown endpoints require operator
 verification/binding, not customer AK/SK entry into this server.

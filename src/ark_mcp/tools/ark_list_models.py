@@ -374,26 +374,19 @@ def describe_services(settings: Settings) -> list[ServiceStatus]:
             ServiceStatus(service="modelark", enabled=True),
             ServiceStatus(service="seed_audio", enabled=True),
             ServiceStatus(service="seed_tts", enabled=True),
+            ServiceStatus(service="files", enabled=True),
             ServiceStatus(
                 service="object_storage",
-                enabled=settings.temporary_upload_enabled,
-                reason=None
-                if settings.temporary_upload_enabled
-                else (
-                    "Local storage/artifacts are stdio only. For HTTP preparation, configure "
-                    "MCP_TEMPORARY_UPLOAD_ENABLED=true, TOS and operator client enrollment."
-                ),
+                enabled=False,
+                reason="Local S3 storage/artifacts are stdio only. Use ModelArk Files API for managed reference uploads.",
             ),
         ]
-    storage_vars = (
-        "S3_ACCESS_KEY, S3_SECRET_KEY and S3_BUCKET"
-        if settings.object_storage_backend == "s3"
-        else "TOS_ACCESS_KEY, TOS_SECRET_KEY and TOS_BUCKET"
-    )
+    storage_vars = "S3_ACCESS_KEY, S3_SECRET_KEY and S3_BUCKET"
     services = (
         ("modelark", settings.has_modelark, "Set BYTEPLUS_MODELARK_API_KEY."),
         ("seed_audio", settings.has_seed_audio, "Set BYTEPLUS_SEED_SPEECH_API_KEY."),
         ("seed_tts", settings.has_seed_audio, "Set BYTEPLUS_SEED_SPEECH_API_KEY."),
+        ("files", settings.has_modelark, "Set BYTEPLUS_MODELARK_API_KEY."),
         ("object_storage", settings.has_object_storage, f"Set {storage_vars}."),
     )
     return [

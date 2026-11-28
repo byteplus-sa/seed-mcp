@@ -265,15 +265,8 @@ must create them in the intended namespace before installation:
 
 - A distinct identity Secret containing `MCP_IDENTITY_HMAC_KEY` and
   `MCP_IDENTITY_KEY_VERSION`, and a TLS Secret matching `publicHost`.
-- Only when enabling temporary uploads, a distinct existing TOS/enrollment
-  Secret after completing the [upload prerequisites](temporary-uploads.md#operator-setup).
-  Static mode includes restricted AK/SK and optional STS token. Explicit
-  `temporaryUpload.credentialsMode=irsa` uses only bucket/region/endpoint/
-  enrollment keys in that Secret, with separately approved VKE OIDC and exact
-  namespace/ServiceAccount IAM trust. The chart creates a manual app-only token
-  projection, not cluster IRSA enablement or IAM roles. See
-  [IRSA setup and lifetime limits](temporary-uploads.md#vke-iam-roles-for-service-accounts).
-  No database Secret or database CA ConfigMap is required.
+Managed Files require no operator upload/storage Secret. Client local files
+go directly to ModelArk. No database Secret or database CA ConfigMap is required.
 
 Hosted HTTP is database-free: provider-key task authorization, no durable replay or shared budget accounting. Omit legacy operation keys; never automatically resubmit uncertain creates. Local stdio persistence remains available.
 
@@ -306,9 +299,9 @@ key bundle or client secret belongs in Terraform, Helm or pod environment.
 3. Establish authenticated private management access. Inspect the actual VKE
    cluster and its addons before preparing Helm values.
 4. Complete the private API, CCM, node/headroom and HPA metrics prerequisites.
-   Privately provision distinct identity and TLS Secrets, plus the optional
-   TOS/enrollment Secret only when enabling temporary uploads, then review
-   actual nonsecret inputs. No database provisioning or migration is required.
+   Privately provision distinct identity and TLS Secrets, then review
+   actual nonsecret inputs. Managed Files need no operator storage Secret.
+   No database provisioning or migration is required.
 5. Obtain separate approval for Helm installation. It creates a public CLB
    and can incur charges. Verify DNS/TLS and all live gates
    before inviting clients. No one-command cloud deployment is provided.
@@ -499,7 +492,7 @@ stateful-release migration tooling are not part of this repository.
 ## Local TLS and Load Acceptance
 
 
-Run `uv run python scripts/hosted_acceptance.py --caddy-bin PATH`. This uses isolated loopback TLS and mocked providers, not a database or live credentials. It checks eight tools, BYOK isolation, repeated-create behavior, polling after restart, proxy controls, bounded load and absence of local state. Live VKE/client/provider and capacity validation remain separately authorized gates.
+Run `uv run python scripts/hosted_acceptance.py --caddy-bin PATH`. This uses isolated loopback TLS and mocked providers, not a database or live credentials. It checks twelve tools, BYOK isolation, repeated-create behavior, polling after restart, proxy controls, bounded load and absence of local state. Live VKE/client/provider and capacity validation remain separately authorized gates.
 
 `uv run python scripts/hosted_drain_acceptance.py --caddy-bin PATH --profile short`
 checks accepted mock requests through process termination. Explicit

@@ -14,8 +14,8 @@
 {{- fail "productionConfirmed must be true only for explicitly approved apig-production; it does not verify APIG trust" -}}
 {{- end -}}
 {{- if has .Values.service.mode (list "apig-staging" "apig-production") -}}
-{{- if or (empty .Values.backendHost) (eq .Values.backendHost .Values.publicHost) (not (empty .Values.service.subnetId)) .Values.temporaryUpload.enabled -}}
-{{- fail "APIG modes require a distinct backendHost, empty subnetId and disabled temporary uploads" -}}
+{{- if or (empty .Values.backendHost) (eq .Values.backendHost .Values.publicHost) (not (empty .Values.service.subnetId)) -}}
+{{- fail "APIG modes require a distinct backendHost and empty subnetId" -}}
 {{- end -}}
 {{- range $cidr := .Values.service.sourceRanges -}}
 {{- $parts := splitList "/" $cidr -}}
@@ -27,18 +27,6 @@
 {{- fail "APIG sourceRanges must be contained entirely in RFC1918 networks" -}}
 {{- end -}}
 {{- end -}}
-{{- end -}}
-{{- if .Values.temporaryUpload.enabled -}}
-{{- if or (empty .Values.temporaryUpload.existingSecret) (eq .Values.temporaryUpload.existingSecret .Values.identitySecret.name) (eq .Values.temporaryUpload.existingSecret .Values.tlsSecretName) -}}
-{{- fail "temporary uploads require a distinct existing TOS/enrollment Secret" -}}
-{{- end -}}
-{{- end -}}
-{{- if eq .Values.temporaryUpload.credentialsMode "irsa" -}}
-{{- if or (not .Values.temporaryUpload.enabled) (not .Values.temporaryUpload.irsa.prerequisitesConfirmed) (empty .Values.temporaryUpload.irsa.serviceAccountName) (eq .Values.temporaryUpload.irsa.serviceAccountName "default") (empty .Values.temporaryUpload.irsa.roleTrn) -}}
-{{- fail "IRSA requires enabled uploads, explicit ServiceAccount/role and verified cluster/trust/STS prerequisites" -}}
-{{- end -}}
-{{- else if or (not (empty .Values.temporaryUpload.irsa.serviceAccountName)) (not (empty .Values.temporaryUpload.irsa.roleTrn)) .Values.temporaryUpload.irsa.prerequisitesConfirmed -}}
-{{- fail "IRSA configuration requires temporaryUpload.credentialsMode=irsa" -}}
 {{- end -}}
 {{- if eq .Values.identitySecret.hmacKey .Values.identitySecret.versionKey -}}
 {{- fail "identity HMAC and version must use distinct Secret keys" -}}

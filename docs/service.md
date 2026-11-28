@@ -5,20 +5,19 @@ description: What the hosted service provides, how it handles requests, and what
 
 ## Availability
 
-The hosted service exposes eight baseline tools for discovery, Seedream images,
-Seedance video, Seed Audio and Seed TTS. Your provider account must authorize the model
-you choose. Discovery lists configuration, not entitlement.
+This source revision exposes twelve hosted tools for discovery, managed Files,
+Seedream images, Seedance video, Seed Audio and Seed TTS. Check the connected
+deployment's tools/list; source changes are not deployment evidence.
+Discovery lists configuration, not provider entitlement.
 
 Local file uploads, artifact resources, ASR, 3D and provider asset
-administration are not hosted features. Temporary uploads are disabled.
-Use provider-accessible HTTPS URLs for references; attaching a file in chat
-does not upload it automatically. Small inline inputs remain subject to the
-request limit.
+administration are not hosted features. Managed Files import HTTPS URLs;
+the [client-side helper](files.md) streams local files to ModelArk without a bucket.
+Chat attachments do not upload automatically.
 
 Seed TTS 3 returns complete native audio directly, up to 30 MiB decoded audio.
-Save the returned audio block using your client; playback and saving UI vary.
-No TOS, download URL or later recovery is provided. Check discovery for the
-connected deployment's current tools.
+Save the audio using your client; playback support varies.
+No TOS, download URL or later recovery is provided.
 
 ## Outputs and Limits
 
@@ -26,12 +25,12 @@ connected deployment's current tools.
 | --- | --- |
 | Image and video links | Expire after about 24 hours |
 | Audio links | Expire after about two hours |
+| Files reference links | Documented 24 hours / 100 downloads; metadata reads do not renew them |
 | Client tool timeout | Use 660 seconds |
 | Request body | Maximum 2 MiB |
 | Rate and concurrency | Limited per server replica; reduce parallel calls when busy |
 
-Download provider URLs or save inline TTS audio you want to keep. Hosted TTS
-is not stored by the server; it cannot be recovered after a lost response.
+Download generated media you want to keep. Hosted TTS is not stored or recoverable.
 
 ## Costs
 
@@ -54,10 +53,8 @@ identity. This carries a private-hop impersonation and credential-exposure risk.
 See the [documented exception](../specs/SPEC_VKE_DEPLOYMENT.md#accepted-backend-verification-exception)
 and [dated deployment evidence](hosted-deployment-status.md#connect).
 
-Your provider key controls access to provider tasks. Clients sharing a key
+Your provider key controls access to provider tasks and files. Clients sharing a key
 share whatever access that provider permits. The independent client secret
 separates admission limits; it is not a separate task-ownership boundary.
 
-For local installations or operations, use the
-[repository handbook](https://github.com/byteplus-sa/seed-mcp/tree/main/docs).
-This site documents its build revision, not a service availability SLA.
+Local setup and operations: [repository handbook](https://github.com/byteplus-sa/seed-mcp/tree/main/docs).

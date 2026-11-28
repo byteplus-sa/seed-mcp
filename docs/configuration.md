@@ -6,7 +6,7 @@ Empty values are ignored. Hosted VKE uses [Helm inputs](byteplus-terraform.md#ch
 and existing Secret references, not this local provider-key template.
 
 Provider-key environment variables below apply to **local stdio only**.
-HTTP uses live request BYOK headers and registers its 8 provider/discovery
+HTTP uses live request BYOK headers and registers its 12 provider/discovery
 tools without operator generation keys. No HTTP fallback
 to environment provider keys exists. Keep private configuration outside Git.
 
@@ -230,60 +230,20 @@ secret. Keep provider keys unchanged when correcting this error.
 The provider key authorizes tasks; the client secret scopes admission only.
 See [HTTP client setup](setup/shared-server.md) and [security](security.md).
 
-## Object storage (TOS or S3, optional)
+## Managed Files And Optional Local Storage
 
-The local upload/presign workflows below are stdio-only. HTTP exposes no local
-upload, presign renewal or artifact tools. Optional HTTP preparation uses the
-TOS signer configuration but not local state.
+Managed reference files use `ark_file_upload`, `ark_file_get`,
+`ark_file_list`, and `ark_file_delete` with the ModelArk API key. Default
+`purpose="agent"` uses provider-managed storage without bucket setup. Retrieve
+the accepted file ID until active with a `download_url`, then pass that URL
+to generation. The client-side `seed-mcp-upload` streams local files directly
+to ModelArk; HTTP MCP accepts HTTPS source URLs, not local paths or Base64.
+Reads do not renew the documented 24-hour/100-download URL limit. No upload
+enrollment, TOS signer, IRSA, application file database or cleanup worker remains.
+Never automatically retry an uncertain upload/delete; keep file/request IDs.
 
-### Temporary HTTP Upload Preparation
-
-| Variable | Default | Purpose |
-| --- | --- | --- |
-| `MCP_TEMPORARY_UPLOAD_ENABLED` | `false` | HTTP-only restricted TOS POST/GET preparation |
-| `MCP_UPLOAD_CLIENT_SECRET_SHA256` | empty | Operator enrollment: 1-1000 distinct lowercase SHA-256 digests of exact ASCII client-secret values, comma-separated without whitespace |
-| `TOS_CREDENTIAL_MODE` | `static` | Configured AK/SK, or explicit `irsa` for HTTP preparation only; no ambient fallback |
-| `TOS_IRSA_ROLE_TRN` | empty | IRSA only: exact `trn:iam::<account>:role/<role>` without wildcards |
-| `TOS_IRSA_TOKEN_FILE` | empty | IRSA only: absolute projected OIDC token file path, reread at refresh |
-| `TOS_IRSA_STS_ENDPOINT` | `https://sts.byteplusapi.com` | Allowed alternative `https://open.byteplusapi.com`; no other origin/path |
-| `TOS_IRSA_DURATION_SECONDS` | `3600` | Requested STS session duration in seconds, 3600-43200; can shorten signed URL validity |
-
-Enabling requires `OBJECT_STORAGE_BACKEND=tos`, complete TOS signing credentials,
-valid bucket/region and the exact official `tos-{TOS_REGION}.bytepluses.com`
-endpoint (optional HTTPS scheme, no port/path). Lifetimes are fixed at
-900-second POST, 86400-second GET and one-day scheduled object expiry;
-`TOS_PRESIGN_TTL_SECONDS` does not override them. No generation-provider key
-is required to prepare. IRSA rejects configured static AK/SK/session tokens and
-requires explicit role/token configuration plus separately approved cluster/
-IAM prerequisites. Credentials refresh lazily in runtime memory, not at startup
-or readiness. Nominal expiry timestamps do not guarantee 24-hour availability:
-one-hour default STS credentials can shorten URLs to an hour or less, and refresh
-does not renew issued URLs. Local stdio storage remains static-only.
-See [operator prerequisites and client upload flow](temporary-uploads.md)
-and [VKE IRSA setup](temporary-uploads.md#vke-iam-roles-for-service-accounts).
-
-The `media_upload` and `media_presign` tools are registered when the selected
-object-storage backend is configured. `media_upload` uploads 1-50 files to a
-**private** bucket and returns a presigned HTTPS GET URL per file;
-`media_presign` generates fresh presigned URLs for 1-100 existing objects
-without re-uploading.
-Use `OBJECT_STORAGE_BACKEND` to select `tos` (default) or `s3`.
-
-| Variable | Default | Purpose |
-|---|---|---|
-| `MEDIA_UPLOAD_BATCH_MAX_BYTES` | `524288000` (500 MiB) | Maximum total decoded bytes in one `media_upload` call (all items); checked before any upload starts, and an oversized call fails as a whole |
-
-### TOS backend
-
-| Variable | Default | Purpose |
-|---|---|---|
-| `TOS_ACCESS_KEY` | empty | TOS access key (AK) |
-| `TOS_SECRET_KEY` | empty | TOS secret key (SK) |
-| `TOS_SECURITY_TOKEN` | empty | Optional temporary security token |
-| `TOS_BUCKET` | empty | Target bucket name |
-| `TOS_REGION` | `ap-southeast-1` | TOS region |
-| `TOS_ENDPOINT` | `tos-ap-southeast-1.bytepluses.com` | TOS API endpoint |
-| `TOS_PRESIGN_TTL_SECONDS` | `1800` | Presigned URL validity in seconds (60–604800) |
+See [Files setup and retention](files.md). Independent local `media_upload`,
+`media_presign` and object-storage artifacts use optional S3 credentials.
 
 ### S3 backend
 
@@ -295,7 +255,7 @@ Use `OBJECT_STORAGE_BACKEND` to select `tos` (default) or `s3`.
 | `S3_REGION` | `us-east-1` | AWS region |
 | `S3_ENDPOINT` | empty | Custom endpoint for S3-compatible storage (MinIO, R2) |
 | `S3_PRESIGN_TTL_SECONDS` | `1800` | Presigned URL validity in seconds (60–604800) |
-| `OBJECT_STORAGE_BACKEND` | `tos` | Select active backend: `tos` or `s3` |
+| `OBJECT_STORAGE_BACKEND` | `s3` | Optional local S3; leave unset without S3 credentials |
 
 AK and SK must both be set or both be empty. The bucket must remain private;
 presigned URLs grant temporary read access to individual objects. When
@@ -311,7 +271,7 @@ no persistence; provider/principal concurrency remains per pod.
 |---|---|---|
 | `STATE_BACKEND` | transport-selected | `none` for HTTP, `sqlite` for stdio; incompatible explicit values reject startup |
 | `STATE_MAX_RECORDS` | `100000` | Positive local ownership/budget record capacity; unused on HTTP |
-| `ARTIFACT_BACKEND` | `filesystem` | `filesystem` (local disk) or `object_storage` (TOS/S3) |
+| `ARTIFACT_BACKEND` | `filesystem` | `filesystem` (local disk) or `object_storage` (S3) |
 | `ARTIFACT_DIR` | `~/.seed-mcp/artifacts` | Media, metadata, ownership, and budget state; separate from `ark-mcp` |
 | `ARTIFACT_TTL_SECONDS` | `604800` | Artifact retention, in seconds |
 | `ARTIFACT_SWEEP_INTERVAL_SECONDS` | `3600` | Interval between background artifact/state expiry sweeps |

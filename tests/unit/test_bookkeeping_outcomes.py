@@ -497,9 +497,6 @@ async def test_accepted_receipts_survive_deadline_during_partial_batch_bookkeepi
         "seed_speech_api_key",
         "s3_access_key",
         "s3_secret_key",
-        "tos_access_key",
-        "tos_secret_key",
-        "tos_security_token",
     ],
 )
 async def test_local_deadline_receipts_omit_startup_secrets(

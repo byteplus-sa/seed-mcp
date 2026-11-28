@@ -71,8 +71,8 @@ def test_infrastructure_ci_does_not_apply_or_use_retired_vm_workflow() -> None:
     assert '"test"' in helper
     assert "helm lint deploy/helm/seed-mcp" in scripts
     assert "-lockfile=readonly" in helper
-    assert "tests/unit/test_tos_irsa.py" in scripts
-    assert "tests/integration/test_tos_irsa.py" in scripts
+    assert "tests/unit/test_tos_irsa.py" not in scripts
+    assert "tests/integration/test_tos_irsa.py" not in scripts
     for retired in (
         "deploy/compose",
         "deploy/terraform/byteplus",
@@ -161,9 +161,9 @@ def test_ci_kubernetes_schema_check_is_strict_pinned_and_floor_aware() -> None:
     assert "/${KUBERNETES_SCHEMA_COMMIT}/{{.NormalizedKubernetesVersion}}" in command
     assert "{{.StrictSuffix}}" in command
     assert "for autoscaling in true false" in command
-    assert "for upload_mode in disabled static irsa" in command
-    assert "temporaryUpload.irsa.prerequisitesConfirmed=true" in command
-    assert "serviceaccount-v1" in command
+    assert "upload_mode" not in command
+    assert "temporaryUpload" not in command
+    assert "serviceaccount-v1" not in command
     assert "for mode in apig-staging apig-production" in command
     assert "networkpolicy-networking-v1" in command
     assert "service.productionConfirmed=$confirmed" in command

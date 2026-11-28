@@ -17,7 +17,7 @@ Documentation describes its source revision, not an assumed packaged release.
 See [site maintenance](docs/site-maintenance.md) for publication details.
 
 > **Breaking capability removal:** the current server narrows the catalog to
-> 13 local tools (four always registered) plus optional HTTP upload preparation. MCP jobs/native tasks, media
+> 17 local tools (four always registered), including managed Files operations. MCP jobs/native tasks, media
 > understanding, VOD, 3D, dedicated ASR, asset administration/resolution/preflight
 > and operator live-pricing discovery are removed. Saved 3D artifacts are no
 > longer served by the narrowed schema: **export needed 3D outputs using the
@@ -36,17 +36,21 @@ and images do not establish narrowed Seed MCP support. See
 ## What It Does
 
 The server provides a conditional MCP tool surface across several BytePlus
-products plus artifact access and an optional media upload helper. The catalog
-contains **13 local stdio tools**; four are always registered locally.
-HTTP BYOK exposes **8 baseline tools**, independently of
-operator provider keys. Discovery is anonymous/static; provider tools run
-directly in the foreground. Opt-in `media_prepare_upload` adds one HTTP tool
-(9 total) for enrolled clients to upload references directly to private TOS.
-Seed TTS is included and returns native audio directly, without TOS output storage.
-TOS signing supports configured AK/SK or explicit VKE IRSA with automatic
-temporary-credential refresh. IRSA projects a token only into the MCP app;
-cluster/IAM setup remains operator-owned. STS expiry can shorten reference URLs,
-and refresh does not renew them. See [IRSA setup](docs/temporary-uploads.md#vke-iam-roles-for-service-accounts).
+products plus artifact access and managed reference files. The catalog has
+**17 conditional local stdio tools**, four always registered, and **12 HTTP
+provider/discovery tools**. Discovery is anonymous; provider calls use live BYOK
+headers. Managed reference files use `ark_file_upload`, `ark_file_get`,
+`ark_file_list`, and `ark_file_delete` with the ModelArk API key. Default
+`purpose="agent"` uses provider-managed storage without bucket setup. Retrieve
+the accepted file ID until active with a `download_url`, then pass that URL
+to generation. The client-side `seed-mcp-upload` streams local files directly
+to ModelArk; HTTP MCP accepts HTTPS source URLs, not local paths or Base64.
+Reads do not renew the documented 24-hour/100-download URL limit. No upload
+enrollment, TOS signer, IRSA, application file database or cleanup worker remains.
+Never automatically retry an uncertain upload/delete; keep file/request IDs.
+
+See [managed reference files](docs/files.md).
+
 HTTP has no jobs, native tasks, local storage/artifact tools or resources.
 Both transports execute directly. General artifact persistence is stdio-only;
 hosted TTS returns [native audio content](docs/seed-tts.md#direct-audio-delivery).
@@ -67,8 +71,8 @@ Keys are not persisted and there is no provider-key fallback. See
 | **Seedance** | `seedance_create_task` | One direct video tool for every configured Seedance model (regular 2.5 and Flash bound by default, 2.0 configurable): regular 2.5 accepts `resolution="4k"` ([provider-contract caveat](docs/models.md#video-capabilities-videocapabilities)); Flash supports 480p/720p, 10 images / 5 videos / 5 audios and no Draft. Regular 2.5 Drafts have a 14-day window (7 for creation before 2026-10-28 10:00 UTC+8). Pick the model from `ark_list_models(kind='video')`, create 1-5 variations, or use `dry_run` for a free request and static cost preview; poll with the shared generation task tools |
 | **Generation tasks** | `gen_task_get`, `gen_task_list`, `gen_task_cancel_or_delete` | Seedance lifecycle: direct batched status checks (1-50 IDs) with derived queue timing and explicit local output persistence, cursor-paged listing of your own tasks, and guarded cancel/delete |
 | **Artifacts** | `seed_media_get_artifact`, `seed_media_export_artifact`, `seed_media_persist_url` | Retrieve persisted media inline by artifact ID, locate/copy it to a local path without Base64 round-trips, or durably persist a provider URL whose storage failed |
-| **Object storage** (optional) | `media_upload`, `media_presign` | Direct upload of 1-50 Base64 or local-file media items to TOS or S3 with per-item results; foreground URL renewal for 1-100 object keys without re-uploading |
-| **Temporary HTTP references** (opt-in) | `media_prepare_upload` | Restricted 15-minute POST instructions and 24-hour GET URL; enrolled client uploads directly to TOS, with one-day scheduled object expiry and no application database |
+| **Object storage** (optional) | `media_upload`, `media_presign` | Direct upload of 1-50 Base64 or local-file media items to S3 with per-item results; foreground URL renewal for 1-100 object keys without re-uploading |
+| **Managed Files** | `ark_file_upload`, `ark_file_get`, `ark_file_list`, `ark_file_delete` | ModelArk-managed reference storage; no bucket setup. URL import on HTTP and stdio, local file streaming on stdio or through the client helper. |
 
 Key features:
 
@@ -154,18 +158,11 @@ accepts as reference input:
 > as a single call.
 
 > [!NOTE]
-> **Video references must be pre-hosted.** `seedance_create_task` accepts
-> video references as a **public HTTPS URL or existing authorized `asset://`
-> reference** — there is no inline Base64
-> option. On stdio call `media_upload` directly to upload Base64 or a local
-> file path to object storage (TOS or S3). Retrieve its presigned HTTPS GET
-> URL from the direct result, then call `seedance_create_task` directly.
-> On HTTP, host the video on your own accessible HTTPS endpoint or use
-> [temporary TOS upload preparation](docs/temporary-uploads.md) when enabled.
-> An upload-capable client must upload the bytes before using its reference URL.
-> The URL must resolve to
-> a public IP (private/loopback/link-local addresses are rejected by the SSRF
-> policy). `media_upload` requires TOS or S3 credentials; see [Configuration](docs/configuration.md).
+> **Video references use HTTPS or authorized assets.** Use `ark_file_upload` on
+> stdio, or `seed-mcp-upload` on the hosted client's machine, with a ModelArk key.
+> Retrieve the accepted ID with `ark_file_get`, then pass its active `download_url`
+> to Seedance. Files IDs are not generation inputs. No user TOS is required.
+> See [the managed-file workflow](docs/files.md).
 
 ## Architecture
 
@@ -300,7 +297,7 @@ tools. `seed_media_get_artifact`, `seed_media_export_artifact`, and
 `seed_media_persist_url` are always available, provider tools appear only
 when their credentials are configured, `media_upload` and
 `media_presign` appear
-only when object storage credentials (TOS or S3) are configured, and
+only when object storage credentials (S3) are configured, and
 `seed_audio_generate` appears only when `BYTEPLUS_SEED_SPEECH_API_KEY` is set.
 
 HTTP requires operator `MCP_IDENTITY_HMAC_KEY` (64 lowercase hex) and positive
@@ -432,7 +429,7 @@ ark-mcp/
 │   ├── config/                # Pydantic Settings, model capability registry
 │   ├── domain/                # ArtifactRef, errors, media, models
 │   ├── providers/             # ModelArk + Seed Speech adapters
-│   ├── tools/                 # 14 definitions (13 local + HTTP-only upload preparation)
+│   ├── tools/                 # 17 definitions (12 hosted; local artifacts/S3 optional)
 │   ├── artifacts/             # Tenant-aware filesystem artifact store
 │   ├── observability/         # Structured logging and Prometheus metrics
 │   └── security/              # Request BYOK, URL/media policy, safe downloader, HTTP limits

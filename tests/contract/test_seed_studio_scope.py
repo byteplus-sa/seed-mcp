@@ -30,6 +30,10 @@ SUPPORTED_TOOLS = {
     "seed_media_persist_url",
     "seed_audio_generate",
     "seed_tts_generate",
+    "ark_file_upload",
+    "ark_file_get",
+    "ark_file_list",
+    "ark_file_delete",
     "media_upload",
     "media_presign",
     "seedream_generate_image",
@@ -43,6 +47,10 @@ HTTP_PROVIDER_TOOLS = {
     "ark_list_models",
     "seed_audio_generate",
     "seed_tts_generate",
+    "ark_file_upload",
+    "ark_file_get",
+    "ark_file_list",
+    "ark_file_delete",
     "seedream_generate_image",
     "seedance_create_task",
     "gen_task_get",
@@ -52,8 +60,8 @@ HTTP_PROVIDER_TOOLS = {
 
 
 def test_catalog_exposes_only_seed_studio_services() -> None:
-    assert len(CATALOG) == 14
-    assert {entry.name for entry in CATALOG} == SUPPORTED_TOOLS | {"media_prepare_upload"}
+    assert len(CATALOG) == 17
+    assert {entry.name for entry in CATALOG} == SUPPORTED_TOOLS
 
 
 async def test_supported_services_register(all_services_enabled: None) -> None:
@@ -74,15 +82,15 @@ async def test_http_catalog_is_static_and_provider_only(operator_configured: boo
         BYTEPLUS_SEED_SPEECH_API_KEY=(
             "sk-test-speech" if operator_configured else ""  # pragma: allowlist secret
         ),
-        TOS_ACCESS_KEY="synthetic-tos-access" if operator_configured else "",
-        TOS_SECRET_KEY="sk-test-tos" if operator_configured else "",  # pragma: allowlist secret
-        TOS_BUCKET="synthetic-bucket" if operator_configured else "",
+        S3_ACCESS_KEY="synthetic-s3-access" if operator_configured else "",
+        S3_SECRET_KEY="sk-test-s3" if operator_configured else "",  # pragma: allowlist secret
+        S3_BUCKET="synthetic-bucket" if operator_configured else "",
     )
     server = create_server(settings)
     names = {tool.name for tool in await server.list_tools()}
     expected = HTTP_PROVIDER_TOOLS
     assert names == expected
-    assert len(names) == 8
+    assert len(names) == 12
     assert await server.list_resources() == []
     assert await server.list_resource_templates() == []
 
@@ -159,7 +167,7 @@ def test_retired_provider_environment_aliases_are_absent() -> None:
 
 def test_discovery_does_not_offer_removed_services() -> None:
     names = {service.service for service in describe_services(get_settings())}
-    assert names == {"modelark", "seed_audio", "seed_tts", "object_storage"}
+    assert names == {"modelark", "seed_audio", "seed_tts", "files", "object_storage"}
 
 
 @pytest.mark.parametrize("kind", ["3d", "vod", "asr", "understanding"])

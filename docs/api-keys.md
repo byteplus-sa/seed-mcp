@@ -5,7 +5,7 @@ You only need the provider for the media you want to create.
 
 | Media | Provider key | Header sent to Seed MCP |
 | --- | --- | --- |
-| Images and video | ModelArk | `X-ModelArk-Api-Key` |
+| Images, video and managed reference files | ModelArk | `X-ModelArk-Api-Key` |
 | Scene audio and enabled TTS | Seed Speech | `X-Seed-Speech-Api-Key` |
 
 ## ModelArk

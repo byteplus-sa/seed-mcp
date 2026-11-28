@@ -42,7 +42,7 @@ tools — it does not register a broken tool.
 ## Missing Provider Tools
 
 Check `ark_list_models.services` and the actual tool list. Locally, provider
-credentials or feature flags may be missing. HTTP registers eight tools, independently of operator provider keys.
+credentials or feature flags may be missing. HTTP registers twelve tools, independently of operator provider keys.
 
 1. **Finish active calls, then reconnect `ark-seed` in the client you are using.**
    Configuration is read at startup. Another editor's running server does not
@@ -222,7 +222,7 @@ Check:
 1. `ARTIFACT_DIR` is writable
 2. Disk has sufficient space
 3. `ARTIFACT_BACKEND` is `filesystem`, or `object_storage` with working
-   TOS/S3 credentials
+   S3 credentials
 
 A storage failure no longer fails the tool call; look for
 `persistence_error` on the returned artifact (see above).
@@ -285,12 +285,11 @@ actions are in [shared-server setup](setup/shared-server.md#generate-a-client-sn
 
 ## Unknown Tool over HTTP
 
-Check `ark_list_models.services`. HTTP has 8 tools; optional `media_prepare_upload` adds one (9). It requires the
-operator's enable flag, TOS configuration and client enrollment. There are no
-jobs/native tasks/local storage/artifact tools/resources. Missing
-operator generation-provider keys do not hide HTTP tools. Asset administration is
-unavailable on either transport. Call HTTP provider tools directly in the
-foreground; configure timeouts rather than resubmitting uncertain work.
+Check `ark_list_models.services`. HTTP exposes 12 tools, including managed Files.
+Registration is independent of operator keys. Files require the live ModelArk
+key and client secret. For local paths use the client helper, not HTTP tool
+arguments. No jobs, native tasks, local artifacts, storage enrollment or
+asset administration exist on HTTP. Never resubmit uncertain provider work.
 
 ## Running Tests
 

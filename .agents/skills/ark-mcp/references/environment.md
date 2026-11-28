@@ -9,7 +9,7 @@ does not establish a stable release or provide a trusted MCP endpoint.
 
 | Transport | Tools | Credentials and execution |
 | --- | --- | --- |
-| Local stdio | 13 conditional entries; four always registered | Private startup provider keys; direct calls; storage/artifacts retained |
+| Local stdio | 17 conditional entries; four always registered | Private startup provider keys; direct calls; storage/artifacts retained |
 | HTTP BYOK | 7; opt-in upload adds one | Selected live provider key plus client secret for generation; enrolled secret alone for preparation; direct foreground calls |
 
 HTTP has no ordinary jobs, native tasks, local storage/artifact tools, media resources
@@ -38,33 +38,15 @@ stdio. HTTP returns native audio directly with live Seed Speech/client-secret
 headers. No TTS storage flag, TOS credentials, Helm Secret or upload enrollment
 is required. Clients must handle up to 40 MiB Base64 plus response metadata.
 
-Optional `media_prepare_upload` uses operator TOS signing configuration with
-`MCP_TEMPORARY_UPLOAD_ENABLED=true` and `MCP_UPLOAD_CLIENT_SECRET_SHA256`
-(1-1000 unique lowercase SHA-256 digests of exact ASCII client-secret values).
-No generation-provider key is needed for preparation. It signs restricted
-POST/GET permissions only; no bytes, upload receipt, DB or global quota.
-Helm `temporaryUpload.enabled`/`existingSecret` reference a distinct existing
-TOS/enrollment Secret. Bucket/IAM/CORS/versioning/lifecycle setup and live
-acceptance are separate operator gates. See [media-assets.md](media-assets.md#temporary-http-references).
-
-`TOS_CREDENTIAL_MODE=static` retains configured AK/SK and optional matching STS
-token. Explicit `irsa` is HTTP-preparation-only: exact `TOS_IRSA_ROLE_TRN`,
-absolute `TOS_IRSA_TOKEN_FILE`, allowlisted BytePlus STS endpoint and session
-3600-43200 seconds (default 3600). No static/metadata fallback. Refresh is lazy
-after enrollment/admission, single-flight and runtime-memory-only, not a
-discovery/readiness probe. Helm `temporaryUpload.credentialsMode=irsa`
-requires acknowledged prerequisites and an explicit non-default ServiceAccount;
-manual audience `sts.volcengine.com` token projection is app-only, not Caddy.
-The existing upload Secret holds bucket/region/endpoint/enrollment, not AK/SK.
-Cluster OIDC/IAM trust, least privilege, webhook exclusion and live STS/token
-rotation acceptance require separate approved operator setup. Default one-hour
-credentials can shorten signed references to an hour or less; refresh never
-renews already issued URLs. See `docs/temporary-uploads.md` in the checkout.
-
-The operator supplies `MCP_AUTH_MODE=byok` (default),
-`MCP_IDENTITY_HMAC_KEY` (64 lowercase hex) and positive
-`MCP_IDENTITY_KEY_VERSION` (default `1`). The HMAC key is operator identity
-configuration, not a customer credential. Explicit `local` is stdio-only.
+Managed reference files use `ark_file_upload`, `ark_file_get`,
+`ark_file_list`, and `ark_file_delete` with the ModelArk API key. Default
+`purpose="agent"` uses provider-managed storage without bucket setup. Retrieve
+the accepted file ID until active with a `download_url`, then pass that URL
+to generation. The client-side `seed-mcp-upload` streams local files directly
+to ModelArk; HTTP MCP accepts HTTPS source URLs, not local paths or Base64.
+Reads do not renew the documented 24-hour/100-download URL limit. No upload
+enrollment, TOS signer, IRSA, application file database or cleanup worker remains.
+Never automatically retry an uncertain upload/delete; keep file/request IDs.
 
 ## Identity and Models
 
@@ -136,7 +118,7 @@ and reconcile uncertain creates with the provider instead of repeating them.
 Read the checkout's `docs/setup/install.md`. Use a reviewed locked environment,
 private `ARK_MCP_ENV_FILE`, and requested provider keys only. ModelArk enables
 image/video; Seed Speech enables audio.
-TOS/S3 storage is optional and stdio-only.
+S3 storage is optional and stdio-only.
 
 Both transports execute directly with no MCP jobs, worker, snapshots or
 execution claims. Local writes use live MCP roots or `OUTPUT_ROOTS`;

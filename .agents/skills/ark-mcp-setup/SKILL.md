@@ -126,21 +126,14 @@ test H1 negotiation, exact mock receipts and no retries; they do not establish
 public APIG behavior, live drain or certificate rotation.
 
 The optional `deploy-vke.yml` GitHub Actions workflow supplies manual main-only
-Helm delivery with the sole target `production`, literal protected
-`byteplus-production` approval and a workflow-
+Helm delivery with explicit `target=staging|production` mapping to protected
+`byteplus-staging|byteplus-production` approval and a workflow-
 restricted private runner group. A same-VPC runner needs no laptop VPN/CEN;
 ordinary GitHub-hosted runners do not gain private API reachability from keys.
 Production needs a pre-existing verified protected environment, separate
 enablement/runner-ready/group variables and protected production approval.
-Only production-specific readiness/group variables are used. The operation
-defaults to `check`; explicit staging targets and modes other than
-`apig-production` are rejected. Preserve the legacy concurrency key so old and
-current runs serialize. The live namespace `seed-mcp-staging` is production,
-not a disposable test installation. The old GitHub staging record remains
-protected and disabled until its rerun window expires and deletion is approved.
-Do not provision or delete environments during client setup.
-The generic chart/helper retain synthetic test and CLB support outside the
-hosted workflow. Source support does not provision deployment protections.
+Both targets serialize delivery. Service mode is required; there is no
+implicit CLB fallback. Source support does not provision those protections.
 Read `docs/github-actions-deployment.md` in the selected checkout for bootstrap,
 isolation, existing kubeconfig/Secrets and nonsecret reference variables.
 It does not provision VKE, establish GitHub IAM/OIDC federation, synchronize
@@ -173,25 +166,15 @@ matching remains required. No arbitrary env or provider-secret map is accepted.
 Chart `app.dailyBudgetUsd=0` is required: no HTTP budget ledger exists.
 Provider/owner concurrency is5/3 per pod; burst0 inherits RPM.
 
-Optional `temporaryUpload.enabled`/`existingSecret` add HTTP-only
-`media_prepare_upload`, with restricted operator TOS signing credentials and
-an enrolled client-secret digest allowlist. The existing upload Secret must
-differ from identity/TLS. No raw secrets belong in values or Terraform.
-Bucket privacy, disabled versioning, prefix IAM, CORS, lifecycle and
-storage/egress controls need separate operator setup; do not enable as a
-side effect of client onboarding. See `docs/temporary-uploads.md` in the checkout.
-
-TOS mode defaults to static credentials. Explicit
-`temporaryUpload.credentialsMode=irsa` requires separately verified regional
-VKE OIDC, exact issuer/audience/namespace/ServiceAccount trust and prefix-only
-TOS IAM. It creates an app-only manual OIDC projection with audience
-`sts.volcengine.com`, not IAM roles, cluster enablement or webhook injection.
-The upload Secret then contains configuration/enrollment only, no AK/SK/token
-references. Runtime refresh is lazy, single-flight and memory-only; static
-fallback is rejected. Default 3600-second STS credentials can shorten nominal
-24-hour GET URLs to an hour or less; refresh never renews issued URLs.
-Live OIDC endpoint acceptance/readability/rotation remain staging gates.
-Never enable cluster IRSA or change IAM as a side effect of setup.
+Managed reference files use `ark_file_upload`, `ark_file_get`,
+`ark_file_list`, and `ark_file_delete` with the ModelArk API key. Default
+`purpose="agent"` uses provider-managed storage without bucket setup. Retrieve
+the accepted file ID until active with a `download_url`, then pass that URL
+to generation. The client-side `seed-mcp-upload` streams local files directly
+to ModelArk; HTTP MCP accepts HTTPS source URLs, not local paths or Base64.
+Reads do not renew the documented 24-hour/100-download URL limit. No upload
+enrollment, TOS signer, IRSA, application file database or cleanup worker remains.
+Never automatically retry an uncertain upload/delete; keep file/request IDs.
 
 `cloud-controller-manager` and addon lifecycle are VKE-admin owned outside
 Terraform/Helm. Inspect existing installations; install absent compatible
@@ -349,7 +332,7 @@ For repeat runs, keep an already-current installation unchanged unless repair
 is needed. Preserve credentials and user-selected flags during updates.
 
 Both transports execute directly and reject explicit native task opt-in.
-Local stdio has 13 conditional tools, four always registered, with storage
+Local stdio has 17 conditional tools, four always registered, with storage
 and artifacts retained. Configure client timeout 660 seconds for the default
 600-second cooperative tool deadline. Admission defaults to 2 seconds,
 owner-first then provider; operator maxima are 30 seconds for admission and
@@ -362,8 +345,7 @@ Client playback/saving support and proxy response capacity require verification.
 Do not provision storage or perform paid TTS as a client-setup side effect.
 
 For HTTP, verify default anonymous/static `ark_list_models` with
-`{"input":{}}` and `connection=null`, and 8 tools,
-plus one for optional temporary upload preparation (9 total),
+`{"input":{}}` and `connection=null`, and 12 tools,
 no resources, no job tools/native tasks and direct foreground execution.
 Then optionally call `{"input":{"check_connection":true}}` on live HTTP:
 only ModelArk image/video header presence and exact endpoint defaults are
@@ -373,8 +355,7 @@ Missing headers return `missing_modelark_key` / `missing_client_secret`.
 HTTP 400 `CREDENTIAL_REUSE` rejects a client secret equal to any supplied
 provider key before tool execution. Generate an independent 32-random-byte
 secret as 64 lowercase hex and update only its protected client entry, keeping
-provider keys unchanged. Temporary uploads require enrollment of the replacement
-digest; never expose the raw secret.
+provider keys unchanged. Never expose the raw secret; no file-upload enrollment is needed.
 `configuration_valid=true` requires both headers and every checked route;
 `authentication_verified` and `provider_calls_made` always stay false.
 This does not prove authentication, endpoint existence/current lineage,
@@ -393,12 +374,7 @@ remain pending. Isolated config inspection and mocked-network smoke do not
 prove those paths. Do not treat an unapproved Claude project configuration
 as a successful connection or change trust settings to claim validation.
 
-Upload preparation requires a privately configured operator-enrolled client
-secret, not merely any well-formed secret or provider key. No generation key
-is needed for preparation, but generation still requires it. A client attachment
-does not upload automatically: an HTTP multipart-capable integration must
-upload directly to TOS and wait for success before using the signed GET URL.
-Do not prepare/upload files for setup verification without explicit approval.
+Managed reference uploads use `ark_file_upload/get/list/delete` with the ModelArk key, without storage enrollment. Hosted local files use `seed-mcp-upload` on the client; retrieve the accepted ID for an active `download_url` before generation. Signed URLs are private and are not renewed by metadata reads.
 
 Hosted HTTP is database-free: provider-key task authorization, no durable replay or shared budget accounting. Omit legacy operation keys; never automatically resubmit uncertain creates. Local stdio persistence remains available.
 Hosted HTTP is stateless and database-free. Rate and concurrency limits are per-pod.

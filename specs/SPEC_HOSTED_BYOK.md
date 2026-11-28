@@ -24,12 +24,12 @@ is not public-launch or deployed-capacity certification.
 
 | Transport | Inventory | Execution and storage |
 | --- | --- | --- |
-| Local stdio | 13 catalog tools, conditionally registered; four always available | Direct calls, local provider settings, storage and artifacts; TTS always persists |
-| HTTP | 8 baseline tools; temporary upload optionally adds one | Direct calls; provider-managed video tasks; no jobs, native tasks, local storage/artifact tools or resources |
+| Local stdio | 17 catalog tools, conditionally registered; four always available | Direct calls, local provider settings, storage and artifacts; TTS always persists |
+| HTTP | 12 provider/discovery tools | Direct calls; provider-managed video tasks; no jobs, native tasks, local storage/artifact tools or resources |
 
 HTTP exposes `ark_list_models`, `seed_audio_generate`, `seedream_generate_image`,
 `seedance_create_task`, `gen_task_get`, `gen_task_list`,
-`gen_task_cancel_or_delete`, and `seed_tts_generate`.
+`gen_task_cancel_or_delete`, `seed_tts_generate`, and the four `ark_file_*` tools.
 Registration does not depend on operator provider keys.
 Discovery is anonymous, static, and makes no provider calls; it does not
 establish entitlement or return account pricing.
@@ -39,14 +39,14 @@ described below; it is not a provider-authentication check.
 `ark_list_models` returns the receiving server's configured bindings even
 without an environment provider key. `services[].enabled` reports registration,
 not customer entitlement, provider-key validity or model activation.
-The 9 [catalog scope strings](../docs/security.md#scope-taxonomy) are metadata,
+The 12 [catalog scope strings](../docs/security.md#scope-taxonomy) are metadata,
 not auth grants or customer-selected roles.
 
 ## Request Credentials
 
 | Header | Requirement |
 | --- | --- |
-| `X-ModelArk-Api-Key` | Seedream and Seedance tools |
+| `X-ModelArk-Api-Key` | Seedream, Seedance and Files tools |
 | `X-Seed-Speech-Api-Key` | Seed Audio and Seed TTS generation |
 | `X-MCP-Client-Secret` | Every provider operation, including dry runs; client-generated 32 random bytes encoded as 64 lowercase hex characters |
 | `X-ModelArk-Seedance-Endpoint` | Optional exact registered video binding default |
@@ -65,7 +65,7 @@ do not affect this check. The response is HTTP 400 plain text with the stable
 prefix `CREDENTIAL_REUSE:` and guidance to generate an independent 32-random-byte,
 64-lowercase-hex client secret, update its private client configuration and
 keep provider keys unchanged. It echoes no credential values and precedes tool
-execution, provider dispatch and TOS signing, including on discovery and dry runs.
+execution, provider dispatch, including on discovery and dry runs.
 Provider keys are not required to differ from one another; omission of headers
 for anonymous discovery remains supported. This is configuration hygiene, not
 authentication, customer identity or provider-task authorization.
@@ -78,71 +78,44 @@ is supported. HTTP uses these fixed official origins:
 - ModelArk: `https://ark.ap-southeast.bytepluses.com/api/v3`
 - Seed Speech: `https://voice.ap-southeast-1.bytepluses.com`
 
-## Temporary Upload Preparation
+## Managed Files API
 
-`media_prepare_upload` is one opt-in HTTP-only tool; the catalog has 14
-definitions, while stdio has 13 and baseline HTTP has 7.
-HTTP `services[]` availability for the entry with `service="object_storage"`
-reflects this gate, not enrollment or bucket validity.
-`MCP_TEMPORARY_UPLOAD_ENABLED=false` is the default. Enabling requires TOS
-configuration, `OBJECT_STORAGE_BACKEND=tos`, valid bucket/region syntax, the
-exact official regional HTTPS origin and a nonempty
-`MCP_UPLOAD_CLIENT_SECRET_SHA256` allowlist. Digests are SHA-256 of exact ASCII
-client-secret values, not hex-decoded bytes: 1-1000 unique lowercase 64-hex
-digests, comma-separated without whitespace.
+Managed reference files use `ark_file_upload`, `ark_file_get`,
+`ark_file_list`, and `ark_file_delete` with the ModelArk API key. Default
+`purpose="agent"` uses provider-managed storage without bucket setup. Retrieve
+the accepted file ID until active with a `download_url`, then pass that URL
+to generation. The client-side `seed-mcp-upload` streams local files directly
+to ModelArk; HTTP MCP accepts HTTPS source URLs, not local paths or Base64.
+Reads do not renew the documented 24-hour/100-download URL limit. No upload
+enrollment, TOS signer, IRSA, application file database or cleanup worker remains.
+Never automatically retry an uncertain upload/delete; keep file/request IDs.
 
-The tool requires a live enrolled `X-MCP-Client-Secret` but no generation-provider
-key. A self-generated secret or provider-key presence is not entitlement.
-Constant-time digest comparisons and separate HMAC upload tenant/owner domains
-scope per-pod admission; no ownership record, database or global quota exists.
-Enrollment removal stops future signing once all pods reload, not previously
-issued bearer permissions.
+All four tools are provider-authorized on both transports. HTTP requires
+live ModelArk and client-secret headers; the secret scopes per-pod admission,
+not file ownership. Shared provider keys share provider-authorized file access.
+Scopes are `files:read`, `files:write`, and `files:delete`, metadata only.
+Get/list return bounded typed metadata, with at most 100 files and 2 MiB
+provider response bytes. They do not download content or renew URLs.
+Delete requires explicit boolean `confirm=true` and is permanent.
 
-Input is metadata only: image/audio/video category, exact allowlisted MIME and
-strict positive byte count, at most 10/10/200 MiB. Extra fields are rejected.
-No local path, Base64, binary payload, caller-selected key/bucket/ACL/lifetime or
-credential is accepted. SDK signing creates no object and makes no TOS call.
-Default `TOS_CREDENTIAL_MODE=static` uses configured operator AK/SK and optional
-matching STS token. Explicit `irsa` mode, only for HTTP temporary uploads,
-exchanges a projected OIDC token with allowlisted BytePlus STS before signing
-when the runtime credential cache needs refresh. It rejects configured static
-credentials and never uses ambient environment or node metadata fallback.
-Enrollment and admission precede cache creation/exchange; startup, discovery
-and readiness perform no token read or STS exchange.
-The cache is in-memory, runtime-owned, single-flight and discarded on shutdown.
-Refresh is five minutes early, with ten-second failed-refresh backoff; cached
-reuse is allowed only outside the last sixty seconds. Signing uses one frozen
-triplet for POST, form session token and GET, with drained SDK workers.
-Failures are sanitized as `TOS_IRSA_CREDENTIALS_UNAVAILABLE`.
-Configuration, chart projection/trust and unverified live OIDC acceptance are
-defined in [the VKE IRSA contract](SPEC_VKE_DEPLOYMENT.md#explicit-tos-irsa).
-Each invocation selects `temporary-references/{HMAC principal}/{media_type}/{uuid4}`.
-It signs multipart POST with exact key/MIME/size, private ACL, STANDARD storage,
-forbid-overwrite and `x-tos-object-expires=1`; permission TTL is 900 seconds.
-The GET URL TTL is 86400 seconds, minted before upload.
+Stdio upload additionally accepts an absolute regular-file path. Local
+uploads use a no-follow, nonblocking descriptor, a 512,000,000-byte cap and
+64 KiB streamed reads. File changes are rejected without resubmission.
+HTTP local paths, Base64, arbitrary origins, TOS options and legacy idempotency
+inputs are rejected. URL import checks public HTTPS syntax/DNS before the
+provider fetch; provider-side redirect behavior is not certified by that check.
+Large client files go directly to ModelArk through `seed-mcp-upload`, using
+only an explicitly named key environment variable and `--confirm-upload`.
+The helper reads no env files, never changes client configuration, and emits
+metadata without signed URLs. It has a 600-second cooperative bound.
 
-The client must upload directly to TOS with every signed field unchanged and
-the binary `file` field last, then await upload success before using
-`reference_url` in an existing generation tool. The server does not inspect
-bytes, verify existence/completion, finalize uploads, create assets, renew URLs
-or maintain upload records. Declared MIME does not prove valid media.
-Every output field/URL is potentially sensitive bearer authority; do not log
-or publish it. Permissions are not guaranteed one-use and STS expiry can
-shorten nominal validity. IRSA sessions default to 3600 seconds (requested range
-3600-43200). Neither default nor maximum guarantees a 24-hour GET lifetime.
-Returned expiry timestamps are nominal, not credential-expiry certificates;
-refresh never renews previously issued URLs. Generation BYOK is unchanged.
-
-URL expiry is not deletion. One-day TOS object expiry is whole-day/scheduled
-from Last-Modified, with deletion beginning at the following midnight, not
-exactly 24 hours later. No one-hour cleanup worker exists. Operators must verify
-a private dedicated bucket, versioning disabled (not suspended), prefix-scoped
-PutObject/GetObject IAM, browser POST CORS where applicable, lifecycle backstop,
-signer lifetime/rotation, storage/egress abuse controls and provider fetch timing.
-Versioning can preserve historical data and defeat forbid-overwrite.
-These are separate live setup/acceptance gates, not readiness probes or
-guarantees established by offline signing tests. See
-[temporary-upload operations](../docs/temporary-uploads.md).
+File retention is provider-managed: default seven days, optionally 1-30 days
+through Unix `expire_at`. Documented managed quota is 20 GB per account.
+No account pricing, global quota enforcement or malware-scan claim is added.
+Known safe accepted file IDs survive in live-call deadline diagnostics.
+The TOS backend and all signer/IRSA/enrollment configuration are removed
+without compatibility aliases. Local S3 artifacts remain independent.
+See [Files workflows and sources](../docs/files.md).
 
 ## BYOE Endpoint Authority
 

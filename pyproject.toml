@@ -19,9 +19,11 @@ dependencies = [
     "pydantic>=2.13.4,<3.0",
     "pydantic-settings>=2.14.2,<3.0",
     "starlette>=1.3.1,<2",
-    "tos>=2.9.2,<3.0",
     "truststore>=0.10.4,<1.0",
 ]
+
+[project.scripts]
+seed-mcp-upload = "ark_mcp.file_upload:main"
 
 [build-system]
 requires = ["uv_build>=0.11.26,<0.14.0"]
@@ -107,10 +109,6 @@ disable_error_code = ["call-arg"]
 [[tool.mypy.overrides]]
 module = "ark_mcp.domain.models"
 disable_error_code = ["call-arg"]
-
-[[tool.mypy.overrides]]
-module = "tos.*"
-ignore_missing_imports = true
 
 [[tool.mypy.overrides]]
 module = ["boto3.*", "botocore.*"]

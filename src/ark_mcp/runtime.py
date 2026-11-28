@@ -58,9 +58,8 @@ if TYPE_CHECKING:
     from fastmcp import Context, FastMCP
 
     from ark_mcp.artifacts.store import ArtifactStore
-    from ark_mcp.providers.tos.credentials import IrsaCredentialsProvider
 
-ProviderKey = Literal["modelark", "seed-speech", "tos", "s3"]
+ProviderKey = Literal["modelark", "seed-speech", "s3"]
 
 
 class _StateCleanupFailed(RuntimeError):
@@ -135,7 +134,6 @@ class ProviderLimiters:
         self._provider = {
             "modelark": asyncio.Semaphore(provider_limit),
             "seed-speech": asyncio.Semaphore(provider_limit),
-            "tos": asyncio.Semaphore(provider_limit),
             "s3": asyncio.Semaphore(provider_limit),
         }
         self._principal_limit = principal_limit
@@ -928,7 +926,6 @@ class RuntimeServices:
     task_artifact_cache: TaskArtifactCache
     task_artifact_locks: TaskArtifactPersistenceLocks
     metrics_listener: MetricsListener | None = None
-    tos_credentials: IrsaCredentialsProvider | None = field(default=None, repr=False)
     _close_task: asyncio.Task[None] | None = field(default=None, init=False, repr=False)
 
 
@@ -1099,8 +1096,6 @@ async def close_runtime_services(runtime: RuntimeServices) -> None:
             cleanup.push_async_callback(runtime.artifact_store.close)
             if runtime.metrics_listener is not None:
                 cleanup.push_async_callback(runtime.metrics_listener.close)
-            if runtime.tos_credentials is not None:
-                cleanup.push_async_callback(asyncio.to_thread, runtime.tos_credentials.close)
 
     if runtime._close_task is None:
         runtime._close_task = asyncio.create_task(close())
@@ -1136,9 +1131,6 @@ def _safe_receipt_identifier(settings: Settings, value: str | None) -> bool:
         settings.seed_speech_api_key,
         settings.s3_access_key,
         settings.s3_secret_key,
-        settings.tos_access_key,
-        settings.tos_secret_key,
-        settings.tos_security_token,
     )
     return not any(secret and secret in value for secret in secrets)
 

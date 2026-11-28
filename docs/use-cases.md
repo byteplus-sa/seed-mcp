@@ -5,9 +5,8 @@ Here are common scenarios and how to achieve them.
 
 **The persistence examples below are local stdio workflows.** HTTP BYOK
 calls provider tools directly with `{"input": {...}}`, uses persistence false
-and has no jobs/native tasks/local storage/artifact tools/resources. Optional
-[temporary upload preparation](temporary-uploads.md) lets enrolled clients upload
-references directly to TOS. Generation-provider keys
+and has no jobs/native tasks/local storage/artifact tools/resources. Managed
+[Files uploads](files.md) use the ModelArk key without bucket setup. Generation-provider keys
 and the client secret go in private request headers, never tool arguments.
 Retrieve expiring output URLs on the client. See [HTTP setup](setup/shared-server.md).
 
@@ -350,41 +349,30 @@ seedance_create_task({
 gen_task_get({"task_ids": ["<provider task ID from direct result>"]})
 ```
 
-<a id="16-batch-storyboard-with-seedream"></a>
+## 16. Batch Storyboard with Seedream
 
-## 16. Storyboard Variations with Seedream
-
-Preview four independent Seedream 5.5 images with a shared visual direction
-and one seasonal prompt per variation.
+Generate a coherent set of related images using the provider's native batch
+mode (not parallel variations — these share visual continuity).
 
 **Tool:** `seedream_generate_image`
 
 ```json
 {
-  "model": "dola-seedream-5-5-261028",
-  "variations": 4,
-  "variation_prompts": [
-    "Watercolor landscape, a red lakeside cabin viewed from across the lake, spring blossoms",
-    "Watercolor landscape, a red lakeside cabin viewed from across the lake, summer greenery",
-    "Watercolor landscape, a red lakeside cabin viewed from across the lake, autumn foliage",
-    "Watercolor landscape, a red lakeside cabin viewed from across the lake, winter snow"
-  ],
+  "prompt": "A set of four seasons landscape illustrations: spring, summer, autumn, winter",
+  "max_images": 4,
   "size": "1024x1024",
-  "persist": true,
-  "dry_run": true
+  "persist": true
 }
 ```
 
-This stdio example validates all four requests and returns a cost preview
-without generation. Set `dry_run=false` only after approving the cost; each
-variation is a separately billed provider call. Inspect each result in
-`summary.variations`. Visual continuity is not guaranteed between independent
-calls, so review the cabin, viewpoint and style before accepting the storyboard.
+This requires an explicitly selected bound Lite/4.x model; the 5.5 default
+and Pro reject `max_images > 1`. It uses `sequential_image_generation: "auto"`
+for related outputs; visual coherence still needs review.
 
 ## 17. Reference Video Upload via Object Storage
 
-Upload a video to object storage (TOS or S3), then use the presigned URL as
-a video reference for Seedance. Requires TOS or S3 credentials.
+Upload a video to object storage (S3), then use the presigned URL as
+a video reference for Seedance. Requires S3 credentials.
 
 **Step 1 — Upload:**
 
@@ -405,7 +393,7 @@ Returns (check `failed`; a failed item carries `error` instead of `url`):
   "items": [
     {
       "index": 0,
-      "url": "https://bucket.tos-ap-southeast-1.bytepluses.com/references/video/abc?...",
+      "url": "https://bucket.s3.amazonaws.com/references/video/abc?X-Amz-Signature=...",
       "expires_at": "2026-07-24T07:30:00+00:00",
       "object_key": "references/video/abc",
       "mime_type": "video/mp4",
@@ -437,7 +425,7 @@ Returns (check `failed`; a failed item carries `error` instead of `url`):
 ```
 
 The presigned URL is valid for 30 minutes by default (configurable via
-`TOS_PRESIGN_TTL_SECONDS` or `S3_PRESIGN_TTL_SECONDS` depending on the
+`S3_PRESIGN_TTL_SECONDS` for the optional local
 selected backend). When the URL expires, call `media_presign` with
 `object_keys` set to the `object_key` values from the original upload (up to
 100 at once) to generate fresh URLs without re-uploading. The bucket remains

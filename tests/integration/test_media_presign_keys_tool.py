@@ -198,9 +198,6 @@ class TestMediaPresignBatchErrors:
 
         no_storage = get_settings().model_copy(
             update={
-                "tos_access_key": "",
-                "tos_secret_key": "",
-                "tos_bucket": "",
                 "s3_access_key": "",
                 "s3_secret_key": "",
                 "s3_bucket": "",

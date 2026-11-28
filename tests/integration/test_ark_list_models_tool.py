@@ -63,14 +63,14 @@ async def test_kind_filter_limits_results(configured: None) -> None:
 async def test_disabled_services_explain_how_to_enable_them(configured: None) -> None:
     services = {item["service"]: item for item in (await _list_models({}))["services"]}
     assert services["modelark"] == {"service": "modelark", "enabled": True, "reason": None}
-    assert set(services) == {"modelark", "seed_audio", "seed_tts", "object_storage"}
+    assert set(services) == {"modelark", "seed_audio", "seed_tts", "files", "object_storage"}
 
 
 async def test_reasons_never_contain_secret_values(configured: None) -> None:
     payload = await _list_models({})
     rendered = str(payload)
     assert "sk-test-modelark" not in rendered
-    assert "ak-test-tos" not in rendered
+    assert "ak-test-s3" not in rendered
 
 
 async def test_no_models_without_modelark_key(

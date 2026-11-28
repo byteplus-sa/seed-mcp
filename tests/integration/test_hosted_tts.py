@@ -37,7 +37,7 @@ HEADERS = credentials(SPEECH_KEY, header="X-Seed-Speech-Api-Key")
 @pytest.fixture(autouse=True)
 def no_storage(monkeypatch: pytest.MonkeyPatch) -> Iterator[MagicMock]:
     constructor = MagicMock(side_effect=AssertionError("HTTP TTS must not open object storage"))
-    monkeypatch.setattr("ark_mcp.providers.tos.client.tos.TosClientV2", constructor)
+    monkeypatch.setattr("ark_mcp.providers.s3.client.boto3.client", constructor)
     yield constructor
     constructor.assert_not_called()
 
@@ -46,7 +46,7 @@ def no_storage(monkeypatch: pytest.MonkeyPatch) -> Iterator[MagicMock]:
 async def test_anonymous_discovery_advertises_tts_without_storage(tmp_path: Path) -> None:
     async with http_server(tmp_path) as (_, runtime, client):
         tools = (await rpc(client, "tools/list"))["result"]["tools"]
-        assert len(tools) == 8
+        assert len(tools) == 12
         assert "seed_tts_generate" in {tool["name"] for tool in tools}
         assert "media_prepare_upload" not in {tool["name"] for tool in tools}
         discovery = successful(await call_tool(client, "ark_list_models", {"kind": "audio"}))

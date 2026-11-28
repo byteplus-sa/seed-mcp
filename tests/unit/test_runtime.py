@@ -917,9 +917,9 @@ class TestArtifactBackendSelection:
             _env_file=None,
             ARTIFACT_DIR=str(tmp_path / "artifacts"),
             ARTIFACT_BACKEND="object_storage",
-            TOS_ACCESS_KEY="ak-tos",
-            TOS_SECRET_KEY="sk-tos",  # pragma: allowlist secret
-            TOS_BUCKET="bucket",
+            S3_ACCESS_KEY="ak-s3",
+            S3_SECRET_KEY="sk-s3",  # pragma: allowlist secret
+            S3_BUCKET="bucket",
         )
         runtime = await create_runtime_services(settings)
         try:

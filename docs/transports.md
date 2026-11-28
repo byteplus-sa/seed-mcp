@@ -5,8 +5,8 @@ BYOK surface, including on loopback.
 
 | Transport | Tools | Execution |
 | --- | --- | --- |
-| stdio | 13 catalog tools, conditional on local credentials/flags; four always available | Direct calls; storage and artifacts retained |
-| HTTP | 8 baseline; temporary upload optionally adds one | Direct foreground calls; no jobs, native tasks, local storage/artifact tools or resources |
+| stdio | 17 catalog tools, conditional on local credentials/flags; four always available | Direct calls; storage and artifacts retained |
+| HTTP | 12 tools, including managed Files | Direct foreground calls; no jobs, native tasks, local storage/artifact tools or resources |
 
 ## stdio
 
@@ -114,10 +114,8 @@ public. `MCP_METRICS_PORT=0` disables private metrics by default; enabled ports
 
 `seed-health://status` and `seed-media://` resources are stdio-only.
 No HTTP local file access, persistence or artifact downloads are offered.
-Optional `media_prepare_upload` gives enrolled clients restricted TOS POST/GET
-permissions; the client uploads bytes directly, not through MCP.
-See [temporary references](temporary-uploads.md). Output URLs expire;
-clients retrieve media themselves.
+Managed reference uploads use `ark_file_upload/get/list/delete` with the ModelArk key, without storage enrollment. Hosted local files use `seed-mcp-upload` on the client; retrieve the accepted ID for an active `download_url` before generation. Signed URLs are private and are not renewed by metadata reads.
+See [managed references](files.md). Clients save generated output themselves.
 
 ## Deployment Boundary
 

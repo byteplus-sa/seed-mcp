@@ -4,7 +4,7 @@ type: spec
 status: accepted
 horizon: current
 created: 2026-11-17
-updated: 2026-11-28
+updated: 2026-11-27
 tags: [vke, terraform, helm, stateless, security]
 source:
   - https://registry.terraform.io/providers/byteplus-sdk/bytepluscc/0.0.63/docs/resources/vke_cluster
@@ -20,8 +20,6 @@ source:
   - https://gofastmcp.com/deployment/http
   - https://github.com/kubernetes/autoscaler/blob/cluster-autoscaler-1.30.3/cluster-autoscaler/FAQ.md
   - https://kubernetes.io/docs/concepts/scheduling-eviction/topology-spread-constraints/
-  - https://docs.github.com/en/actions/how-tos/manage-workflow-runs/re-run-workflows-and-jobs
-  - https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments
 related:
   - specs/SPEC_HOSTED_BYOK.md
   - specs/SPEC_DIRECT_EXECUTION.md
@@ -55,81 +53,28 @@ response capacity through the deployed proxy/client path separately from the
 inbound request limit; source support is not live capacity evidence.
 See [hosted TTS audio](SPEC_HOSTED_BYOK.md#hosted-tts-audio).
 
-Optional `temporaryUpload.enabled` defaults false; `existingSecret` defaults
-empty. Enabling requires a distinct existing Secret, separate from identity/TLS.
-Both credential modes require secretKeyRef keys `TOS_BUCKET`, `TOS_REGION`,
-`TOS_ENDPOINT`, `MCP_UPLOAD_CLIENT_SECRET_SHA256`. Default
-`temporaryUpload.credentialsMode=static` additionally requires `TOS_ACCESS_KEY`,
-`TOS_SECRET_KEY`; `TOS_SECURITY_TOKEN` is optional. Explicit `irsa` mode
-references none of these three credential keys. The chart sets `OBJECT_STORAGE_BACKEND=tos`
-and the enable flag; it never emits Secret resources or accepts credential
-values/arbitrary env maps. External Secret changes require a pod rollout.
-No TOS bucket, IAM, CORS or lifecycle is provisioned by these roots. Operators
-must complete [temporary upload prerequisites](../docs/temporary-uploads.md#operator-setup)
-and live acceptance before enabling; per-pod signing limits are not global
-storage/egress budgets. This capability adds no database or persistent volume.
+### Managed Reference Files
 
-### Explicit TOS IRSA
+Managed reference files use `ark_file_upload`, `ark_file_get`,
+`ark_file_list`, and `ark_file_delete` with the ModelArk API key. Default
+`purpose="agent"` uses provider-managed storage without bucket setup. Retrieve
+the accepted file ID until active with a `download_url`, then pass that URL
+to generation. The client-side `seed-mcp-upload` streams local files directly
+to ModelArk; HTTP MCP accepts HTTPS source URLs, not local paths or Base64.
+Reads do not renew the documented 24-hour/100-download URL limit. No upload
+enrollment, TOS signer, IRSA, application file database or cleanup worker remains.
+Never automatically retry an uncertain upload/delete; keep file/request IDs.
 
-`TOS_CREDENTIAL_MODE=irsa` is HTTP temporary-upload-only, with exact role TRN,
-absolute projected-token file and no configured AK/SK/session token. Static mode
-remains the default; no ambient credential discovery, node metadata, proxy
-inheritance or fallback is permitted. STS origin is restricted to
-`https://sts.byteplusapi.com` (default) or `https://open.byteplusapi.com`.
-Requested session duration is 3600-43200 seconds, default 3600.
-
-Only an enrolled call after admission lazily creates the runtime-owned credential
-provider. It exchanges the current token via unsigned form POST
-`Action=AssumeRoleWithOIDC&Version=2018-01-01`, using `RoleTrn`, `OIDCToken`,
-`RoleSessionName`, `DurationSeconds`. The synchronous exchange is worker-offloaded
-and drained on cancellation; HTTP redirects are rejected, decoded responses
-are bounded to 64 KiB and errors never echo provider bodies or credentials.
-No token/network read occurs at startup, discovery or readiness.
-
-Cache and refresh are single-flight in memory, five minutes before expiry.
-Failed refresh backs off ten seconds, allowing cached credentials only outside
-the final sixty seconds; otherwise fail closed. Reread the projected token
-on each exchange. Freeze one credential triplet for POST policy, form token
-and GET signing. Drop the cache on lifespan shutdown. No journal/database
-is introduced and replicas refresh independently.
-
-In IRSA mode the chart requires `temporaryUpload.irsa.prerequisitesConfirmed=true`,
-an explicit non-`default` `serviceAccountName` and exact `roleTrn`. It creates
-that ServiceAccount without IAM annotations or RBAC grants and retains
-`automountServiceAccountToken=false`. Only the MCP container mounts the manual
-projected token at `/var/run/secrets/seed-mcp/irsa/token`, with mode `0440`,
-audience `sts.volcengine.com` and requested expiration 3600 seconds. Caddy
-receives neither the mount nor TOS env. Static/disabled modes project no token.
-
-The VKE administrator owns regional IRSA support, cluster OIDC enablement,
-issuer/provider creation, exact namespace/ServiceAccount trust and least-privilege
-TOS policy. Enablement can restart the API and is documented as irreversible.
-Neither Terraform nor Helm enables IRSA, creates IAM resources or broadens
-permissions. Trust must match actual `oidc:iss`, exact
-`oidc:sub=system:serviceaccount:<namespace>:<serviceaccount>` and the VKE guide's
-fixed `oidc:aud=sts.volcengine.com`. Exclude automatic webhook injection that
-could mount tokens in Caddy or duplicate this manual configuration.
-
-STS expiry shortens the unchanged nominal 900/86400-second signed permissions.
-The one-hour default, or even the twelve-hour maximum, cannot guarantee a
-24-hour GET lifetime. Refresh never renews already issued URLs. Returned expiry
-timestamps remain nominal. Verify queue/fetch timing and effective lifetime.
-Live BytePlus OIDC endpoint/payload acceptance, trust, nonroot token readability,
-kubelet rotation, least privilege and signed TOS upload/read are separate
-staging gates. The VKE guide and installed SDK ground the exchange shape;
-an exact BytePlus OIDC OpenAPI schema has not been obtained.
-
-The private control plane requires operator private connectivity; possession
-of kubeconfig alone is insufficient. No public API fallback is supplied.
+The chart has no upload Secret, ServiceAccount projection, storage credential
+or legacy upload flag. Existing identity/TLS Secrets and private ingress
+remain required. Large binary uploads bypass APIG/MCP and go directly to
+ModelArk. Source removal does not delete any existing cloud resource.
 
 ### GitHub Actions Delivery
 
 `.github/workflows/deploy-vke.yml` supplies manual `check`/`deploy` operations
-from `main` only. The sole accepted target is `production`, and the delivery
-job binds literally to the pre-existing protected `byteplus-production`
-environment. The required target input defaults to production when GitHub fills
-an omitted input; an explicit staging/unknown or empty runtime target is
-rejected, not redirected. The operation defaults to `check`. CI and
+from `main` only. Explicit `target=staging|production` maps to the protected
+`byteplus-staging|byteplus-production` environment. CI and
 image publishing remain GitHub-hosted; Helm runs on an explicitly configured
 workflow-restricted private runner group. A runner in the VKE VPC does not
 require a laptop VPN or CEN. Public-repository runner isolation is an operator
@@ -138,36 +83,8 @@ Production requires separate repository enablement and runner-ready/group
 variables plus a protected-environment approval acknowledgement. Provision and
 verify that environment's reviewer/main-only/no-bypass policy before enablement;
 no workflow creates or verifies GitHub environment protections automatically.
-Only production-specific readiness/group variables are consumed. The workflow
-requires `apig-production`, a backend hostname, confirmed prerequisites and the
-protected production approval before helper dispatch. Generic helper/chart
-support for `public-clb` and synthetic `apig-staging` remains unchanged, but
-these are not hosted Actions targets.
-
-The exact `byteplus-staging-delivery` concurrency key is retained with
-`cancel-in-progress=false` so historical and current deliveries serialize.
-The legacy-named production namespace/release remains `seed-mcp-staging` /
-`seed-mcp`; retirement does not rename or delete application infrastructure.
-
-Retire the legacy GitHub environment in two phases. First, under operator
-approval and with a complete paginated inventory and no active deliveries,
-keep repository `VKE_RUNNER_READY=false`, set staging's
-`VKE_PREREQUISITES_CONFIRMED=false`, remove its reviewed deployment references,
-and retain its reviewer/main-only/no-bypass protections. Remove the obsolete
-repository runner-group pointer only after the current workflow stops using it;
-the actual shared runner group and production pointer remain.
-
-Retain this protected disabled record while pre-cutover runs remain within
-GitHub's 30-day original-creation rerun window or legacy attempts remain active,
-waiting or queued. Delivery-only reruns can reuse prior configuration outputs,
-so readiness flags alone cannot prevent all queueing. The environment-level
-guard and removed references also block historical helper invocation.
-Delete only the GitHub environment after a fresh inventory establishes the
-gate and deletion is approved. Deletion before consumer retirement can allow
-unprotected implicit recreation. Preserve historical runs, private files,
-production configuration and independently held operator authority throughout.
-The runbook holds the retirement procedure; dated status records distinguish
-verified operational quarantine from still-pending final deletion.
+Staging readiness does not authorize production. Both targets retain a single
+concurrency group and the helper/workflow require explicit service mode.
 
 The workflow uses existing private token/certificate kubeconfig and values
 files outside the checkout, not GitHub-to-BytePlus IAM federation. It creates

@@ -228,7 +228,8 @@ with {"input": {}}. Report available services and models.
 Do not generate media, upload files, or make paid calls.
 ```
 
-Expect eight tools and `connection=null`.
+This source revision exposes twelve tools and `connection=null`. A hosted
+deployment may still run an earlier revision; tools/list is authoritative.
 Discovery is free and makes no
 provider calls; it does not validate your key or account access.
 Problems? See [connection checks](shared-server.md).

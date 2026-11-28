@@ -4,8 +4,7 @@ Per-product behaviour of the create tools that the tool schemas do not spell out
 
 **Choose transport first:** HTTP calls provider tools directly in the foreground,
 with selected provider key plus client secret headers. It has no jobs/native
-tasks/local storage/artifact tools/resources. Optional `media_prepare_upload`
-signs temporary TOS references for enrolled clients; the client uploads directly.
+tasks/local storage/artifact tools/resources. Managed Files tools use the ModelArk key; no bucket setup is needed.
 Stdio also calls directly;
 persistence guidance below is local-only.
 **Never resubmit a create tool to poll or bypass an ambiguous failure.**
@@ -17,6 +16,33 @@ Hosted HTTP is database-free: provider-key task authorization, no durable replay
 - [Seedance](#seedance)
 - [Seedream](#seedream)
 - [Seed Audio](#seed-audio)
+- [Managed Files](#managed-files)
+
+## Managed Files
+
+All four tools use the ModelArk key. HTTP also requires the independent client
+secret for admission, not file ownership. No storage bucket is needed.
+
+| Tool | Operation |
+| --- | --- |
+| `ark_file_upload` | Import one public HTTPS `url`; stdio also accepts an absolute regular `file_path`. Exactly one source. Default `purpose="agent"`. |
+| `ark_file_get` | Retrieve `file_id` until `status="active"` and `download_url` is present; never upload again to poll. |
+| `ark_file_list` | One page, default `purpose="agent"`, `limit=20`, newest first. Continue with `after=last_id` when `has_more=true`; `purpose=null` omits the filter. |
+| `ark_file_delete` | Permanently delete `file_id` with explicit boolean `confirm=true`, after dependent generation tasks finish. |
+
+For client-local media on a hosted connection, use `seed-mcp-upload` in the
+file-capable client's environment with explicit `--confirm-upload`. It streams
+up to 512 MB from a regular file directly to ModelArk, using only the named
+API-key environment variable. It prints the accepted ID, not a signed URL.
+HTTP MCP does not accept local paths or Base64 file uploads.
+
+Pass the complete retrieved `download_url` to Seedance, Seedream or Seed Audio,
+not `file_id`. TTS synthesis has no reference-file input. Files default to seven
+days of storage; optional `expire_at` is Unix seconds 1-30 days ahead. Download
+URLs have separate 24-hour/100-download limits that reads do not renew.
+Keep URLs private. Shared provider keys share file access. Upload/delete are
+single-attempt mutations: reconcile uncertain outcomes using retained file/request
+IDs, without automatic resubmission. Details: [media-assets.md](media-assets.md).
 
 ## Variations and dry runs
 
@@ -59,7 +85,7 @@ Family limits (resolutions, durations, reference counts, Draft final resolution)
 ### Inputs and media rules
 
 - **At least one of `prompt`, `images`, `videos`, `audios`** is required (except with `draft_task_id`). Text-only is valid text-to-video; audio-only works on regular 2.5 and Flash.
-- **Media is URL-only for video.** Every video reference must be an HTTPS URL or `asset://<asset_id>`. Images and audio also accept inline Base64 (size- and MIME-checked), but prefer URLs. Local files use stdio `media_upload` or an upload-capable HTTP client with optional `media_prepare_upload` ([media-assets.md](media-assets.md)).
+- **Media is URL-only for video.** Every video reference must be an HTTPS URL or `asset://<asset_id>`. Images and audio also accept inline Base64 (size- and MIME-checked), but prefer URLs. Local files use stdio `ark_file_upload` or the client-side `seed-mcp-upload` helper ([media-assets.md](media-assets.md)).
 - **Private and link-local hosts are rejected** (SSRF policy); the URL must be publicly fetchable by the provider while the task is queued.
 - **`asset://<asset_id>`** passes an existing authorized provider asset natively to Seedance with the ModelArk Bearer key. Establish rights, consent and usability outside this server. The server does not create, resolve or preflight assets; dry runs validate syntax and request limits only.
 - **Image roles:** `first_frame`, `last_frame`, `reference_image` (default for bare URLs). Videos and audios have a fixed role.
@@ -231,9 +257,6 @@ Call directly with the normal `input` wrapper:
   Word times are seconds; `silence_duration` is milliseconds.
 - A provider `session_id` is for sequential conversation continuity, not
   idempotency. Disconnects/timeouts can be billed; do not synthesize again blindly.
-- Whole-tool deadlines retain the sent TTS `request_id` after dispatch, including
-  persistence timeouts. Use it for provider reconciliation, not `gen_task_get`;
-  it is not a task ID or proof of acceptance. No request journal is saved.
 - Budgeting uses a built-in USD 20 per million characters, including markup,
   not an account quote. See the
   [provider HTTP reference](https://docs.byteplus.com/en/docs/byteplusvoice/seed-tts-3-0-http-streaming).

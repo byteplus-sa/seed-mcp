@@ -258,34 +258,32 @@ test("HTTP discovery has no credential requirement", () => {
   assert.match(page, /per-call `io\.modelcontextprotocol\/tasks` opt-in/);
 });
 
-test("temporary preparation documents HTTP-only enrollment and direct binary upload", () => {
+test("managed Files document both transports and direct client upload without enrollment", () => {
   const page = toolPage({
-    name: "media_prepare_upload",
-    description: "Prepare restricted permissions; no upload receipt.",
+    name: "ark_file_upload",
+    description: "Upload to ModelArk-managed storage.",
     execution: "direct",
-    registration_gate: "Unavailable on local stdio.",
+    registration_gate: "Requires BYTEPLUS_MODELARK_API_KEY.",
     transports: {
+      stdio: { execution: "direct" },
       http: {
         execution: "direct",
-        credential_header: "X-MCP-Client-Secret",
-        registration_gate:
-          "Requires MCP_TEMPORARY_UPLOAD_ENABLED=true and enrollment.",
+        credential_header: "X-ModelArk-Api-Key",
+        registration_gate: "Always registered on HTTP.",
       },
     },
     inputSchema: { properties: {} },
     outputSchema: { properties: {} },
   });
-  assert.match(page, /Local stdio execution \| Unavailable/);
-  assert.match(page, /an HTTP-only.*envelope/);
-  assert.match(page, /operator-enrolled/);
-  assert.match(page, /No generation-provider key is needed/);
-  assert.match(page, /file field LAST/);
-  assert.match(page, /Wait for upload success/);
-  assert.doesNotMatch(page, /Supply `X-MCP-Client-Secret` and/);
+  assert.match(page, /Local stdio execution \| Direct/);
+  assert.match(page, /ModelArk-managed files/);
+  assert.match(page, /seed-mcp-upload/);
+  assert.match(page, /No bucket setup or URL renewal/);
+  assert.doesNotMatch(page, /operator-enrolled|MCP_TEMPORARY_UPLOAD_ENABLED/);
   const http = page.split("### HTTP Call")[1].split("<details>")[0];
   assert.equal(
     JSON.parse(http.match(/```json\n([\s\S]*?)\n```/)[1]).name,
-    "media_prepare_upload",
+    "ark_file_upload",
   );
 });
 

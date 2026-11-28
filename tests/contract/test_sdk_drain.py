@@ -10,7 +10,6 @@ from typing import Any
 import pytest
 
 from ark_mcp.providers.s3.client import S3Gateway
-from ark_mcp.providers.tos.client import TosGateway
 from ark_mcp.runtime import ProviderLimiters
 from ark_mcp.security.auth_context import AuthContext
 
@@ -48,17 +47,17 @@ class BlockedSdk:
         self.closed.set()
 
 
-@pytest.mark.parametrize("gateway_type", [S3Gateway, TosGateway])
+@pytest.mark.parametrize("gateway_type", [S3Gateway])
 @pytest.mark.parametrize("file_upload", [False, True])
 @pytest.mark.parametrize("fails", [False, True])
 async def test_cancelled_sdk_upload_holds_provider_slot_until_thread_finishes(
-    gateway_type: type[S3Gateway] | type[TosGateway], file_upload: bool, fails: bool
+    gateway_type: type[S3Gateway], file_upload: bool, fails: bool
 ) -> None:
     sdk = BlockedSdk(fails=fails)
     gateway = gateway_type(client=sdk, bucket="synthetic-bucket")
     limiters = ProviderLimiters(provider_limit=1)
     second_entered = asyncio.Event()
-    provider = "s3" if gateway_type is S3Gateway else "tos"
+    provider = "s3"
 
     async def upload() -> None:
         async with limiters.acquire(provider, AuthContext()):
@@ -97,9 +96,9 @@ async def test_cancelled_sdk_upload_holds_provider_slot_until_thread_finishes(
     assert sdk.closed.is_set()
 
 
-@pytest.mark.parametrize("gateway_type", [S3Gateway, TosGateway])
+@pytest.mark.parametrize("gateway_type", [S3Gateway])
 async def test_cancelled_sdk_close_drains_upload_and_close_through_repeated_cancellation(
-    gateway_type: type[S3Gateway] | type[TosGateway],
+    gateway_type: type[S3Gateway],
 ) -> None:
     sdk = BlockedSdk()
     gateway = gateway_type(client=sdk, bucket="synthetic-bucket")
@@ -134,9 +133,9 @@ async def test_cancelled_sdk_close_drains_upload_and_close_through_repeated_canc
     assert sdk.closed.is_set()
 
 
-@pytest.mark.parametrize("gateway_type", [S3Gateway, TosGateway])
+@pytest.mark.parametrize("gateway_type", [S3Gateway])
 async def test_presign_is_not_a_provider_mutation(
-    gateway_type: type[S3Gateway] | type[TosGateway],
+    gateway_type: type[S3Gateway],
 ) -> None:
     from ark_mcp.execution import run_direct_call
     from tests.unit.test_direct_execution import deadline_text
@@ -159,9 +158,9 @@ async def test_presign_is_not_a_provider_mutation(
         await gateway.close()
 
 
-@pytest.mark.parametrize("gateway_type", [S3Gateway, TosGateway])
+@pytest.mark.parametrize("gateway_type", [S3Gateway])
 async def test_sdk_deadline_is_cooperative_and_reports_mutation_uncertainty(
-    gateway_type: type[S3Gateway] | type[TosGateway],
+    gateway_type: type[S3Gateway],
 ) -> None:
     from ark_mcp.execution import run_direct_call
     from tests.unit.test_direct_execution import deadline_text
@@ -187,9 +186,9 @@ async def test_sdk_deadline_is_cooperative_and_reports_mutation_uncertainty(
     assert sdk.closed.is_set()
 
 
-@pytest.mark.parametrize("gateway_type", [S3Gateway, TosGateway])
+@pytest.mark.parametrize("gateway_type", [S3Gateway])
 async def test_expired_execution_cannot_schedule_sdk_upload(
-    gateway_type: type[S3Gateway] | type[TosGateway],
+    gateway_type: type[S3Gateway],
 ) -> None:
     import time
 

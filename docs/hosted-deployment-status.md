@@ -85,13 +85,15 @@ retain their existing provider-URL delivery. Stdio persistence remains intact.
   and [one-shot rollout](https://github.com/byteplus-sa/seed-mcp/actions/runs/46124895457)
   passed on different fresh ephemeral runners. Runner registrations, Pods,
   ConfigMaps and registration Secrets were removed; readiness is false again.
-- Public H1/H2 health, eight-tool inventory, TTS discovery and its 31,457,280-byte
+- Public H1/H2 health, eight-tool inventory, TTS discovery and its 30 MiB
+  (31,457,280-byte)
   limit passed. Anonymous TTS/image calls were rejected, Authorization remained
   rejected, and private routes remained 404. A real FastMCP client verified discovery.
 - Both final replicas use the verified image, `STATE_BACKEND=none`, no PVC,
   no operator generation/storage credentials, and disabled temporary uploads.
-  Three workers were Ready at 08:19 UTC; this rollout used one burst worker.
-  Subsequent automatic scale-in was not revalidated in this update.
+  A burst worker was used during rollout, but the verified 08:19 UTC snapshot
+  was back at two Ready replicas. Subsequent scale events were not revalidated
+  in this update.
 - Local validation passed 3,567 Python/Helm tests (20 skipped), 79 documentation
   tests, and mock-only HTTPS/drain checks. The full 30 MiB audio response passed
   through local Caddy and a FastMCP client; one byte over the limit was rejected.
@@ -127,48 +129,6 @@ do not automatically repeat synthesis.
 - The corrected rollout maintained two available replicas in every sample.
   Subsequent automatic scale-in maintained at least one available replica.
   Final placement was split across baseline workers without manual rebalance.
-
-## Staging Delivery Retirement
-
-On November 28, 2026, the operator authorized production-only delivery cleanup
-and publication to main. Complete GitHub inventories found eleven completed
-delivery runs, no active delivery, and zero registered private runners.
-The two latest completed runs were the subsequent
-[check](https://github.com/byteplus-sa/seed-mcp/actions/runs/46010530376)
-and [delivery](https://github.com/byteplus-sa/seed-mcp/actions/runs/46011152742)
-for source `7a693e47864793fc76c18edb4f1ab6c48cc2b71a`.
-This run inventory is not a fresh cluster inspection; the earlier live-instance
-and acceptance evidence above remains a dated record.
-
-Verified GitHub quarantine:
-
-- `byteplus-staging` now has exactly one variable:
-  `VKE_PREREQUISITES_CONFIRMED=false`. Its ten deployment references were removed.
-- Its reviewer/main-only/no-administrator-bypass protections remain unchanged.
-  The protected environment itself was not deleted.
-- Production environment variables and both environments' protection policies
-  matched pre-change readbacks. Production enablement and the shared restricted
-  runner group were preserved; production runner readiness remains false.
-- The workflow source accepts only production and keeps the same path, job IDs,
-  runner allowlist and `byteplus-staging-delivery` concurrency key.
-  The live namespace `seed-mcp-staging` and release `seed-mcp` are not renamed.
-
-The repository's legacy `VKE_RUNNER_READY=false` remains an explicit deny
-value for historical runs. Its obsolete `VKE_RUNNER_GROUP` pointer is removable
-only once the production-only source is on main; removing that pointer must not
-delete the shared group or the production pointer.
-
-**Final GitHub environment deletion remains pending.** The conservative
-30-day boundary from the latest pre-cutover run's original creation time is
-after **2026-12-27 13:54:29 UTC**. Refresh all paginated inventories and verify no
-legacy attempts remain active, waiting or queued before any approved deletion;
-this date is not an automatic deletion schedule.
-Old delivery-only reruns can reuse configuration-job outputs, so preserve the
-disabled prerequisite and environment protections throughout the window.
-
-No application rollout, Kubernetes/cloud resource mutation, credential change,
-private-file deletion or paid provider call was performed for this quarantine.
-See the [retirement runbook](github-actions-deployment.md#legacy-staging-retirement).
 
 ## Acceptance Evidence
 
@@ -208,6 +168,42 @@ Real paid tests used the final deployed image through the FastMCP client.
 Model-driven Codex/Claude sessions, disabled upload workflows, every model/
 variation, full capacity and visual/audio quality were not certified.
 The service does not promise durable replay, crash recovery or exactly-once billing.
+
+### Native TRAE Client Acceptance
+
+On November 27, 2026, at 11:44-11:47 UTC, the operator separately approved
+three additional paid tests with a US$5 test budget. These calls used the
+actual TRAE session's user-level `seed-mcp-remote` connection to the public
+endpoint above, not the earlier Python FastMCP test client or the retained
+local `ark-mcp` connection.
+
+The native preflight reported valid configuration with no issues. Provider
+keys and an independent client secret were supplied through client headers,
+never tool arguments. Image/video dry runs had already passed. The live
+calls then established successful provider authorization for these specific
+models and requests:
+
+| Native call | Observed result |
+| --- | --- |
+| `seedream_generate_image` | One Seedream 5.5 PNG, 1024x1024, 1,189,301 downloaded bytes; 4,096 reported total tokens |
+| `seedance_create_task` | One regular Seedance 2.5 task, `cgt-20261127194458-57c0z`, accepted once and succeeded; requested four seconds at 480p without audio |
+| `gen_task_get` | Same accepted task polled to terminal success; downloaded H.264 MP4 is 854x480, 4.041667 seconds, 1,019,337 bytes, without an audio stream |
+| `gen_task_list` | Exact-ID filtered result matched the succeeded task; unchanged-filter cursor pagination ended with an empty page and null cursor |
+| `seed_audio_generate` | One Seed Audio 1.0 MP3, 30,137 bytes, stereo 44.1 kHz; provider generation/billing duration 1.80045 seconds, container duration 1.828571 seconds |
+
+All three media URLs were downloaded client-side with HTTPS certificate
+verification and without forwarding provider-key headers. Each full file
+passed FFprobe inspection and FFmpeg decoding. The video reported 38,830
+total tokens. There were exactly three new create calls and no automatic
+resubmissions. The successful video task was retained; cancellation/deletion
+was not part of this native-client batch.
+
+This establishes working native TRAE-to-remote image, video, audio and task
+read workflows for the tested configuration. It is not certification of all
+TRAE versions, other clients, all model features or subjective media quality.
+The additional US$5 approval is not an enforced provider spend cap or a
+settled charge; account billing remains unverified. No credentials, signed
+URLs or generated media are committed with this evidence.
 
 ## Renewal and Follow-Ups
 

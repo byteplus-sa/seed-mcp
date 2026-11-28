@@ -134,12 +134,7 @@ mechanism instead of inlining keys.
 
 ## HTTP BYOK
 
-Optional `media_prepare_upload` adds one tool to the baseline 7-tool inventory.
-It needs an operator-enrolled secret and multipart-capable client, not an
-automatic attachment handoff. Preparation signs only; the client uploads
-directly to TOS and waits for success before generation. Use the checkout's
-`docs/temporary-uploads.md`; do not configure storage or perform uploads during
-connection verification without separate approval.
+Managed reference uploads use `ark_file_upload/get/list/delete` with the ModelArk key, without storage enrollment. Hosted local files use `seed-mcp-upload` on the client; retrieve the accepted ID for an active `download_url` before generation. Signed URLs are private and are not renewed by metadata reads.
 
 For an existing trusted URL, configure a remote connection instead of a local
 launcher. No checkout or operator HMAC key is needed on the client.
