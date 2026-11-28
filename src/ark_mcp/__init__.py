@@ -18,7 +18,7 @@ if TYPE_CHECKING:
     from ark_mcp.server import create_server, mcp
 
 __all__ = ["create_server", "mcp"]
-__version__ = "0.3.0"
+__version__ = "0.4.0"
 
 
 def __getattr__(name: str) -> Any:
