@@ -1,12 +1,12 @@
 ---
 name: ark-mcp
-description: Generate media with Seed MCP. Use for Seedream, Seedance and Seed Audio through direct HTTP BYOK or stdio calls, plus stdio Seed TTS 3 and opt-in temporary TOS reference preparation.
+description: Generate media with Seed MCP. Use for Seedream, Seedance, Seed Audio and configured Seed TTS 3 through direct HTTP BYOK or stdio calls, plus opt-in temporary TOS reference preparation.
 ---
 
 # Ark Seed Multimodal MCP Server
 
 This project-local skill describes the narrowed `byteplus-sa/seed-mcp` server.
-The public site is a short guide to the seven baseline hosted tools.
+The public site covers the seven baseline hosted tools and optional hosted TTS.
 Local tools, optional upload preparation and operator contracts remain in the
 repository handbook. Both follow their source revision; use the connected
 server's discovery and schemas for current contracts.
@@ -20,6 +20,8 @@ schemas** ([Seed MCP API reference](https://github.com/byteplus-sa/seed-mcp/blob
 Determine the transport before choosing a workflow. HTTP BYOK has 7 tools
 and runs provider tools directly in the foreground.
 Opt-in `media_prepare_upload` adds one HTTP tool for enrolled clients (8 total).
+Operator-enabled TTS output storage adds `seed_tts_generate` separately, up to nine
+when both options are enabled. Discover actual availability before calling.
 It has no jobs, native tasks, local storage/artifact tools or resources. Local stdio
 retains the 13-entry conditional catalog and storage/artifacts, with direct calls.
 Asset administration is unavailable on either transport. Setup and rotation:
@@ -36,7 +38,7 @@ or server-issued key exists; `Authorization` is rejected.
 | **Seedance** video (2.0, regular 2.5 with 4K, and 2.5 Flash) | `seedance_create_task` | `gen_task_get`, `gen_task_list`, `gen_task_cancel_or_delete` | `BYTEPLUS_MODELARK_API_KEY` |
 | **Seedream** images (generate and edit) | `seedream_generate_image` | artifacts in the result | `BYTEPLUS_MODELARK_API_KEY` |
 | **Seed Audio** | `seed_audio_generate` | artifact in the result | `BYTEPLUS_SEED_SPEECH_API_KEY` |
-| **Seed TTS 3.0 (stdio only)** | `seed_tts_generate` | complete persisted audio and optional word alignment | `BYTEPLUS_SEED_SPEECH_API_KEY` |
+| **Seed TTS 3.0** | `seed_tts_generate` | hosted temporary download or local artifact; optional alignment | `BYTEPLUS_SEED_SPEECH_API_KEY` |
 | **Object storage** | `media_upload`, `media_presign` | URLs in the result | TOS or S3 credentials |
 | **Always registered (four local tools)** | `ark_list_models`, `seed_media_*` | — | — |
 
@@ -222,7 +224,7 @@ flowchart LR
   for the image model table and shared editing guidance; discovery remains
   authoritative for your connection.
 
-### Seed TTS 3.0 (stdio only)
+### Seed TTS 3.0
 
 - Use `seed_tts_generate` to speak supplied `text` or `ssml`, not a scene prompt.
   Exactly one is required, up to 10,000 characters. Supply a compatible,
@@ -230,8 +232,14 @@ flowchart LR
   [official voice list](https://docs.byteplus.com/en/docs/byteplusvoice/voicelist-3-0).
 - Call directly. The only model is `dola-seed-tts-3.0`. Supports MP3/PCM/Ogg Opus,
   delivery controls, pronunciation rules and optional word alignment in seconds.
-- Always persists the complete bounded stream; no `persist` switch or provider URL.
-  HTTP never registers TTS. Use `output_path` or local export for large outputs.
+- Stdio always persists the bounded stream; no `persist` switch or provider URL.
+  Configured HTTP hosts return a signed private TOS download in `artifact.uri`,
+  nominally valid 24 hours (STS may expire earlier), with one-day scheduled expiry.
+  Download promptly without provider headers. No renewal/recovery or HTTP Base64
+  fallback exists. `output_path` and artifact export remain stdio-only.
+- HTTP requires live Seed Speech/client-secret headers and operator-enabled
+  `MCP_HOSTED_TTS_ENABLED` storage. `TTS_DELIVERY_FAILED` preserves known synthesis
+  completion and request ID; do not resynthesize automatically.
 - No automatic synthesis retry. A timeout or incomplete stream may be billed;
   retain diagnostics and reconcile. See [TTS details](references/tool-reference.md#seed-tts-3).
 

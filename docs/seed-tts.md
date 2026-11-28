@@ -6,16 +6,53 @@ for full-scene speech, music and sound generation.
 
 ## Availability
 
-**Local stdio only**, with `BYTEPLUS_SEED_SPEECH_API_KEY`. The existing
-`BYTEPLUS_SEED_AUDIO_BASE_URL` setting serves both Seed Audio and Seed TTS.
-No new credential, background job, voice administration or provider task is added.
+**Hosted HTTP:** available when the operator enables private TOS output storage.
+Supply live `X-Seed-Speech-Api-Key` and independent `X-MCP-Client-Secret` headers.
+**Local stdio:** uses `BYTEPLUS_SEED_SPEECH_API_KEY` and local artifact storage.
+The existing `BYTEPLUS_SEED_AUDIO_BASE_URL` serves both Seed Audio and Seed TTS.
+No background job, voice administration or provider task is added.
 `ark_list_models` with `{"input":{"kind":"audio"}}` lists TTS when configured.
 Discovery does not verify voice access or provider entitlement.
 
 Call the tool directly with the usual `input` wrapper. The server collects the
 provider's JSONL stream into one complete audio artifact, not live MCP audio.
-It always persists: there is no `persist` switch and no provider download URL.
-HTTP remains URL-only and does not register or advertise this tool.
+There is no `persist` switch or provider download URL. HTTP uploads the completed
+audio to private TOS storage and returns a signed HTTPS URL; stdio always persists
+through its artifact store. This source support is not evidence that a particular
+deployment has enabled it: check `services[].enabled` and `tools/list`.
+
+## Hosted Output Storage
+
+Set `MCP_HOSTED_TTS_ENABLED=true` only after provisioning a dedicated private,
+versioning-disabled TOS bucket, lifecycle backstop and restricted operator
+PutObject/GetObject permissions for `tts-output/*`. Use `OBJECT_STORAGE_BACKEND=tos`,
+`TOS_CREDENTIAL_MODE=static`, `TOS_ACCESS_KEY`, `TOS_SECRET_KEY`, `TOS_BUCKET`,
+`TOS_REGION` and the exact official regional `TOS_ENDPOINT`. Optional
+`TOS_SECURITY_TOKEN` supports static STS credentials, but their expiry can shorten
+download availability. IRSA for TTS is not yet supported; it remains scoped to
+temporary reference preparation. Customer Seed Speech keys never sign storage.
+
+Helm uses `hostedTts.enabled` and a distinct `hostedTts.existingSecret` with those
+TOS fields. The chart provisions no bucket, IAM credential or Secret. Output
+storage is allowed in `apig-production`, not synthetic `apig-staging`; it does
+not enable temporary input uploads. If both storage features are explicitly
+enabled in public-CLB mode, they must share the same TOS Secret and static
+credentials, with separate prefix permissions.
+
+Objects use `tts-output/{HMAC principal}/{random UUID}.{encoding}`, private ACL,
+STANDARD storage, `Cache-Control: private, no-store`, forbid-overwrite and
+`x-tos-object-expires=1`. Signed GET permission lasts nominally 24 hours from
+delivery preparation; credential expiry may shorten it. One-day object expiry
+is scheduled from Last-Modified at the following midnight, not exact 24-hour
+deletion. Verify the lifecycle rule and deletion live; URL expiry is not deletion.
+Signed URLs are bearer access: anyone holding one can download until it expires.
+
+No database, local files, metadata objects, list/renewal/recovery API or budget
+ledger is added. A lost response can lose the only URL. Admission stays held
+through synthesis and upload to bound in-memory audio. Storage mutations and
+synthesis are not automatically retried. Configure operator storage/egress spend
+controls, and verify signed download, content type, expiry and private access
+before enabling the tool on a public deployment.
 
 ## Choose a Voice
 
@@ -83,7 +120,7 @@ Supported tags depend on the selected voice/model.
 | `session_id` | Optional provider conversation continuity ID; reuse sequentially, not as an idempotency key |
 | `text_normalization` / `enable_markdown_filter` | Default true / false |
 | `silence_duration` | Trailing silence in milliseconds, 0-30000 |
-| `output_path` / `overwrite` | Optional local copy under live MCP roots or `OUTPUT_ROOTS`; overwrite defaults false |
+| `output_path` / `overwrite` | Stdio-only local copy under live MCP roots or `OUTPUT_ROOTS`; rejected over HTTP |
 
 TTS collection is bounded to 10 MiB of decoded audio, 8 MiB per JSONL event
 and 8 MiB of metadata, plus a total wire bound. The relaxed inline-audio store
@@ -97,7 +134,14 @@ The result contains `artifact`, resolved `output_format`, `session_id`,
 `start_time` / `end_time` values are in seconds. Empty alignment does not mean
 the audio failed. Only a successful final event with nonempty audio is persisted.
 
-Use `seed_media_export_artifact` or `output_path` to avoid putting audio bytes
+On HTTP, download `artifact.uri` promptly without forwarding provider headers.
+`artifact.source_expires_at` is the nominal URL expiry, not a deletion deadline.
+`TTS_DELIVERY_FAILED` means synthesis completed but the download was not delivered;
+it retains `request_id`, is nonretryable, and may leave only an expiring object.
+Contact the operator; do not regenerate automatically. No audio Base64 fallback
+is sent over HTTP.
+
+On stdio, use `seed_media_export_artifact` or `output_path` to avoid putting audio bytes
 into model context. Artifact-store writes themselves need no output roots.
 Storage failure can return `artifact.fallback_data` within
 `ARTIFACT_INLINE_FALLBACK_MAX_BYTES`. If fallback is disabled or too small, a
@@ -131,7 +175,7 @@ and closes the stream; it is not provider cancellation.
 - [Seed TTS 3.0 voice list](https://docs.byteplus.com/en/docs/byteplusvoice/voicelist-3-0)
 - [Upstream implementation and evidence, PR #135](https://github.com/byteplus-sa/ark-mcp/pull/135)
 
-This port adapts the merged upstream contract to direct stdio execution.
-Local validation uses synthetic streams with network sockets disabled.
+This port adapts the merged upstream contract to direct calls.
+Offline validation uses synthetic streams and mocked TOS writes with sockets disabled.
 It does not establish current account/voice entitlement or live audio quality.
 Live provider validation for this direct-call port remains a separate gate.

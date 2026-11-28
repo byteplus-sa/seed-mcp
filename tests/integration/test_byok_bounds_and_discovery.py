@@ -33,6 +33,7 @@ async def test_anonymous_discovery_uses_server_bindings_without_provider_keys(
         assert services == {
             "modelark": True,
             "seed_audio": True,
+            "seed_tts": False,
             "object_storage": False,
         }
     assert not respx.calls

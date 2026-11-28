@@ -26,7 +26,7 @@ _REGISTRATION_GATES = {
     "_local": "Local stdio only; no provider credentials required.",
     "_modelark": "Requires BYTEPLUS_MODELARK_API_KEY.",
     "_seed_audio": "Requires BYTEPLUS_SEED_SPEECH_API_KEY.",
-    "_seed_tts": "Local stdio only; requires BYTEPLUS_SEED_SPEECH_API_KEY.",
+    "_seed_tts": "Requires BYTEPLUS_SEED_SPEECH_API_KEY.",
     "_object_storage": (
         "Requires the selected object-storage backend: OBJECT_STORAGE_BACKEND=tos (default) "
         "with TOS_ACCESS_KEY, TOS_SECRET_KEY and TOS_BUCKET; or OBJECT_STORAGE_BACKEND=s3 "
@@ -38,6 +38,10 @@ _HTTP_REGISTRATION_GATES = {
     "_always": "Anonymous static discovery; no provider credentials required.",
     "_modelark": "Always registered on HTTP; invocation requires the selected request key.",
     "_seed_audio": "Always registered on HTTP; invocation requires the selected request key.",
+    "_seed_tts": (
+        "Requires MCP_HOSTED_TTS_ENABLED=true and private temporary TOS output storage; "
+        "invocation requires the live Seed Speech key and client secret."
+    ),
     "_temporary_upload": (
         "Requires MCP_TEMPORARY_UPLOAD_ENABLED=true, TOS configuration and "
         "MCP_UPLOAD_CLIENT_SECRET_SHA256 operator enrollment; no generation-provider key."

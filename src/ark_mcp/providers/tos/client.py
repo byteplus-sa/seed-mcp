@@ -12,9 +12,10 @@ never caller credentials or an ambient metadata credential chain.
 from __future__ import annotations
 
 from typing import Any, cast
+from urllib.parse import quote, urlsplit
 
 import tos
-from tos.enum import HttpMethodType
+from tos.enum import ACLType, HttpMethodType, StorageClassType
 from tos.exceptions import TosClientError, TosServerError
 from tos.models2 import ContentLengthRange, PostSignatureCondition
 
@@ -48,6 +49,7 @@ class TosGateway:
         bucket: str | None = None,
         presign_ttl: int | None = None,
         credentials_provider: Any = None,
+        max_retry_count: int = 3,
     ) -> None:
         settings = get_settings()
         self._bucket = bucket if bucket is not None else settings.tos_bucket
@@ -67,9 +69,46 @@ class TosGateway:
             endpoint=settings.tos_endpoint,
             region=settings.tos_region,
             security_token=settings.tos_security_token or None,
+            max_retry_count=max_retry_count,
             **({"credentials_provider": credentials_provider} if credentials_provider else {}),
         )
         self._calls = BlockingSdkCalls()
+
+    async def upload_tts_output(self, *, key: str, data: bytes, mime_type: str) -> str:
+        """Write one private, expiring TTS output and return its exact-key HTTPS GET URL."""
+
+        def _upload() -> str:
+            signed = self._client.pre_signed_url(
+                HttpMethodType.Http_Method_Get,
+                bucket=self._bucket,
+                key=key,
+                expires=TEMPORARY_REFERENCE_TTL_SECONDS,
+            )
+            url = str(signed.signed_url)
+            parsed = urlsplit(url)
+            if (
+                parsed.scheme != "https"
+                or parsed.netloc != f"{self._bucket}.tos-{self._region}.bytepluses.com"
+                or parsed.path != f"/{quote(key, safe='/')}"
+                or not parsed.query
+                or parsed.fragment
+            ):
+                raise ValueError("Invalid signed output URL.")
+            self._client.put_object(
+                bucket=self._bucket,
+                key=key,
+                content=data,
+                content_length=len(data),
+                content_type=mime_type,
+                cache_control="private, no-store",
+                acl=ACLType.ACL_Private,
+                storage_class=StorageClassType.Storage_Class_Standard,
+                forbid_overwrite=True,
+                object_expires=TEMPORARY_OBJECT_EXPIRES_DAYS,
+            )
+            return url
+
+        return cast("str", await self._dispatch(_upload, operation="upload_tts_output"))
 
     async def upload_bytes(self, *, key: str, data: bytes, mime_type: str) -> None:
         """Upload raw bytes to TOS via ``put_object``."""

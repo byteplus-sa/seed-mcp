@@ -76,7 +76,7 @@ environment substitution. OpenCode V2 uses `{env:NAME}` and
 `${env:NAME}` and `timeout` in seconds. Keep these formats distinct.
 
 `PUBLIC_PAGES` is the publication allowlist. `HOSTED_TOOLS` selects the seven
-baseline HTTP tools from the complete exporter output; it changes no server
+baseline HTTP tools and optional hosted TTS from the complete exporter output; it changes no server
 registration or capability. Local-only tools and optional upload preparation
 are not advertised as hosted features. Full operator/local guides stay in the
 repository, outside site navigation and search.

@@ -23,9 +23,11 @@ export const HOSTED_TOOLS = [
   "gen_task_list",
   "gen_task_cancel_or_delete",
   "seed_audio_generate",
+  "seed_tts_generate",
 ];
 
 const consolidated = {
+  "seed-tts.md": "tool-reference/seed-tts-generate/",
   "setup/shared-server.md": "connection-checks/",
   "setup/agent-skill.md": "agent-skill/",
   "integration-guide.md": "calling-tools/",

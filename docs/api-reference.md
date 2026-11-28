@@ -49,7 +49,7 @@ Generated per-tool pages show both transports and exact current schemas.
 | 10 | `seed_media_persist_url` | Artifacts | Direct call | Local stdio only |
 | 11 | `media_upload` | Object storage (optional) | Direct call (1-50 files) | TOS / S3 |
 | 12 | `media_presign` | Object storage (optional) | Read-only (1-100 keys) | TOS / S3 |
-| 13 | `seed_tts_generate` | Seed TTS 3.0 | Direct synthesis and persistence | Seed Speech; stdio only |
+| 13 | `seed_tts_generate` | Seed TTS 3.0 | Direct synthesis; temporary HTTP download or local artifact | Seed Speech; HTTP needs operator-enabled TOS output |
 
 Read the [breaking-capability migration](migration-0.2.md#breaking-capability-migration)
 before upgrading; the 0.2 consolidation tables on that page are historical.
@@ -263,7 +263,7 @@ configuration only.
 
 | Field | Type | Required | Default | Description |
 |---|---|---|---|---|
-| `kind` | string | No | — | Filter to `video`, `image`, or `audio` (stdio TTS). Omit to list all available kinds |
+| `kind` | string | No | — | Filter to `video`, `image`, or `audio` (configured TTS). Omit to list all available kinds |
 | `check_connection` | boolean | No | `false` | Live HTTP only: check ModelArk/client-secret header presence and exact image/video bindings without provider calls. Omit `kind` for both routes |
 
 ### Output
@@ -337,10 +337,12 @@ HTTP-only video route check, without generation:
 
 ## seed_tts_generate
 
-Direct stdio-only speech synthesis using `dola-seed-tts-3.0`, enabled by the
-Seed Speech key. Requires `voice_id` and exactly one of `text` or `ssml`.
+Direct speech synthesis using `dola-seed-tts-3.0` and the Seed Speech key.
+HTTP additionally requires operator-enabled temporary TOS output storage.
+Requires `voice_id` and exactly one of `text` or `ssml`.
 Supports pronunciation rules, delivery controls, word alignment and
-MP3/PCM/Ogg Opus output. Always collects and persists one complete stream;
+MP3/PCM/Ogg Opus output. Collects one stream and returns a temporary signed HTTP
+download or persisted stdio artifact;
 there is no `persist` flag, provider URL, MCP job or automatic synthesis retry.
 Optional `output_path` uses standard stdio root validation.
 

@@ -79,7 +79,7 @@ test("all 14 exported tools retain direct metadata and exclude retired contracts
     }
   }
   const http = tools.filter((tool) => tool.transports.http);
-  assert.equal(http.length, 8);
+  assert.equal(http.length, 9);
   assert.doesNotMatch(JSON.stringify(tools), retired);
   assert.doesNotMatch(JSON.stringify(tools), /\bthree_d\b/);
   const seedream = tools.find(

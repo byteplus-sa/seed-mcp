@@ -78,9 +78,10 @@ test("old routes redirect to the consolidated guide or retained repository sourc
     redirects["/byteplus-terraform/"],
     "https://github.com/byteplus-sa/seed-mcp/blob/main/docs/byteplus-terraform.md",
   );
+  assert.equal(redirects["/tool-reference/seed-tts-generate/"], undefined);
   assert.equal(
-    redirects["/tool-reference/seed-tts-generate/"],
-    "https://github.com/byteplus-sa/seed-mcp/blob/main/src/ark_mcp/tools/seed_tts_generate.py",
+    redirects["/seed-tts/"],
+    "/seed-mcp/tool-reference/seed-tts-generate/",
   );
 });
 
@@ -146,7 +147,7 @@ test("public tool pages retain exact schemas and one unchanged example", () => {
     selected.map((tool) => tool.name),
     HOSTED_TOOLS,
   );
-  assert.equal(selected.length, 7);
+  assert.equal(selected.length, 8);
   for (const tool of selected) {
     const page = hostedToolPage(tool);
     for (const [, target] of page
@@ -187,13 +188,18 @@ test("public tool pages retain exact schemas and one unchanged example", () => {
     if (tool.name === "gen_task_cancel_or_delete") {
       assert.match(page, /destructive call, not a preview/);
     }
+    if (tool.name === "seed_tts_generate") {
+      assert.match(page, /operator-enabled hosted TTS output storage/);
+      assert.match(page, /generates audio and may incur charges/);
+      assert.match(page, /no persist switch/);
+    }
     assert.doesNotMatch(
       page,
       /Local stdio registration \||Exact MCP call \(for developers\)/,
     );
   }
   assert.equal(JSON.stringify(tools), before);
-  const local = tools.find((tool) => tool.name === "seed_tts_generate");
+  const local = tools.find((tool) => tool.name === "media_upload");
   assert.throws(() => hostedToolPage(local), /Not a hosted reference tool/);
   assert.throws(
     () => hostedToolPage({ ...selected[0], execution: "background" }),

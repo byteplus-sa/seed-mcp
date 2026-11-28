@@ -90,7 +90,7 @@ grants. A label does not register a tool or grant access to provider accounts.
 | `media:upload` | `media_upload`, `seed_media_persist_url` (stdio only); opt-in HTTP `media_prepare_upload` |
 | `media:presign` | `media_presign` (stdio only) |
 | `seed:audio:generate` | `seed_audio_generate` |
-| `seed:tts:generate` | `seed_tts_generate` (stdio only) |
+| `seed:tts:generate` | `seed_tts_generate` (stdio or configured hosted output storage) |
 | `seedream:generate` | `seedream_generate_image` |
 | `seedance:create` | `seedance_create_task` |
 | `gen:read` | `gen_task_get`, `gen_task_list` |

@@ -151,6 +151,55 @@ def test_deploy_dispatches_once_with_no_retry_or_automatic_rollback(
     assert "--create-namespace" not in creates[0]
 
 
+@pytest.mark.parametrize("valid", [False, True])
+def test_tts_secret_is_checked_before_helm_and_never_echoed(
+    delivery: tuple[list[str], list[list[str]], Mock],
+    capsys: pytest.CaptureFixture[str],
+    valid: bool,
+) -> None:
+    argv, calls, execute = delivery
+    argv.extend(["--tts-output-secret", "seed-mcp-tts-output"])
+    original = execute.side_effect
+
+    def with_tts(command: list[str], **options: object) -> subprocess.CompletedProcess[str]:
+        if "seed-mcp-tts-output" in command:
+            calls.append(command)
+            data = (
+                {
+                    "TOS_ACCESS_KEY": "private-canary",
+                    "TOS_SECRET_KEY": "private-canary",  # pragma: allowlist secret
+                    "TOS_BUCKET": "synthetic-tts-output",
+                    "TOS_REGION": "ap-southeast-1",
+                    "TOS_ENDPOINT": "tos-ap-southeast-1.bytepluses.com",
+                }
+                if valid
+                else {}
+            )
+            return subprocess.CompletedProcess(
+                command,
+                0,
+                json.dumps(
+                    {
+                        "data": {
+                            key: base64.b64encode(value.encode()).decode()
+                            for key, value in data.items()
+                        }
+                    }
+                ),
+            )
+        return original(command, **options)
+
+    execute.side_effect = with_tts
+    assert script.main(argv) == (0 if valid else 1)
+    assert "private-canary" not in str(capsys.readouterr())
+    if valid:
+        lint = next(command for command in calls if "lint" in command)
+        assert "hostedTts.enabled=true" in lint
+        assert "hostedTts.existingSecret=seed-mcp-tts-output" in lint
+    else:
+        assert not any("lint" in command or "upgrade" in command for command in calls)
+
+
 @pytest.mark.parametrize("mode", ["apig-staging", "apig-production"])
 def test_apig_checks_backend_certificate_and_pins_mode(
     delivery: tuple[list[str], list[list[str]], Mock],

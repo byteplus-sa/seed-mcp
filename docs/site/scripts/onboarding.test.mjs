@@ -28,7 +28,8 @@ test("primary onboarding connects to hosted MCP without installing a server", ()
   assert.match(install, /id="guided-local-setup"/);
   assert.match(install, /shared-server\.md/);
   assert.match(page("service.md"), /Temporary uploads are disabled/);
-  assert.match(install, /TTS and local file tools are\s+not hosted/);
+  assert.match(install, /Local file tools are\s+not hosted/);
+  assert.match(install, /Seed TTS 3 requires\s+operator-enabled output storage/);
 });
 
 test("first use leads with a generation prompt rather than tool orchestration", () => {

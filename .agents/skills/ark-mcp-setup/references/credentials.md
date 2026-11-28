@@ -44,7 +44,8 @@ BYTEPLUS_SEED_SPEECH_API_KEY=
 ```
 
 Omit unneeded fields. ModelArk covers image/video generation;
-Seed Speech covers full-scene audio and stdio-only Seed TTS 3 synthesis. Derive additional storage
+Seed Speech covers full-scene audio and Seed TTS 3 synthesis. Hosted TTS uses live
+headers and operator-configured temporary output storage. Derive additional storage
 credential names from the selected release's `.env.example` and docs.
 Never enable optional services or object storage just because settings exist.
 Native Seedance asset references require no separate management credentials.

@@ -25,8 +25,8 @@ scope labels are metadata, not customer-selected roles. Seed Audio/Seedream
 `persist` default to false globally.
 HTTP rejects true, local paths and stored artifact references. Local true is
 explicit; HTTP clients retrieve expiring URLs themselves.
-The stdio-only `seed_tts_generate` always persists its streamed bytes and has no
-`persist` switch; it is unavailable over HTTP.
+`seed_tts_generate` always persists its streamed bytes on stdio and has no
+`persist` switch. Configured HTTP hosts return private temporary TOS downloads.
 
 ## Tool Contract for MCP Clients
 
@@ -123,7 +123,7 @@ needs no scope.
 
 | Field | Type | Required | Description |
 |---|---|---|---|
-| `kind` | `"video"` \| `"image"` \| `"audio"` | No | Filter to one kind; audio lists stdio TTS only; omit for all available kinds |
+| `kind` | `"video"` \| `"image"` \| `"audio"` | No | Filter to one kind; audio lists configured TTS on either transport; omit for all available kinds |
 | `check_connection` | boolean | No | Default `false`. Opt-in live HTTP header-presence and exact image/video binding check; omitted `kind` checks both |
 
 ### Output
@@ -251,14 +251,16 @@ code and whether it is retryable.
 
 ## seed_tts_generate
 
-**Stdio only**, enabled by `BYTEPLUS_SEED_SPEECH_API_KEY`, with catalog scope
-`seed:tts:generate`. Speaks supplied text or SSML using Seed TTS 3.0 and a
+Enabled by `BYTEPLUS_SEED_SPEECH_API_KEY` on stdio, or by operator-configured
+TOS output storage and live Seed Speech/client-secret headers on HTTP.
+Catalog scope: `seed:tts:generate`. Speaks supplied text or SSML using Seed TTS 3.0 and a
 compatible, authorized `voice_id`. Call directly; no jobs, polling or retries.
 The JSONL provider stream becomes one durable audio artifact, not live MCP audio.
 
 Supports MP3, PCM and Ogg Opus, delivery controls, pronunciation rules and optional
-word alignment in seconds. Always persists, with bounded fallback on storage
-failure; there is no `persist` option or provider URL. Optional `output_path`
+word alignment in seconds. Stdio persists, with bounded fallback on storage
+failure; HTTP returns an expiring download without inline fallback. There is
+no `persist` option or provider URL. Optional `output_path`
 uses normal stdio output roots.
 
 See [Seed TTS 3.0](seed-tts.md) for complete controls, voice selection,

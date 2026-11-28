@@ -33,8 +33,11 @@ credentials in tool arguments, chat, command-line flags, logs or Git.
 No HTTP environment-provider fallback exists; keys are not persisted.
 
 Local `BYTEPLUS_SEED_SPEECH_API_KEY` also enables `seed_tts_generate`.
-TTS shares `BYTEPLUS_SEED_AUDIO_BASE_URL` and always persists its completed
-stream. It is not available on HTTP and needs no new credential setting.
+TTS shares `BYTEPLUS_SEED_AUDIO_BASE_URL` and persists its completed stream on
+stdio. HTTP requires `MCP_HOSTED_TTS_ENABLED=true` with restricted static TOS
+output storage; clients still supply live Seed Speech/client-secret headers.
+Helm uses `hostedTts.enabled`/`existingSecret`. This is temporary download
+delivery, not artifact resources or an HTTP database. It does not enable uploads.
 
 Optional `media_prepare_upload` uses operator TOS signing configuration with
 `MCP_TEMPORARY_UPLOAD_ENABLED=true` and `MCP_UPLOAD_CLIENT_SECRET_SHA256`

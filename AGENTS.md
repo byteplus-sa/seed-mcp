@@ -19,11 +19,17 @@ separate tools. The flow is discovery → create → poll:
   It never proves authentication, live lineage, entitlement or reachability.
 - **Seed Audio** — full-scene audio generation through Seed Speech
   (`seed_audio_generate`, including parallel variations).
-- **Seed TTS 3.0** — stdio-only `seed_tts_generate` speaks text or SSML with an
+- **Seed TTS 3.0** — `seed_tts_generate` speaks text or SSML with an
   authorized voice through Seed Speech. Direct call, bounded JSONL collection,
   MP3/PCM/Ogg Opus, pronunciation/delivery controls and optional word alignment.
-  Always persists; no provider URL, `persist` flag, jobs or automatic retries.
-  Local discovery includes `kind="audio"` for TTS; HTTP preflight remains image/video only.
+  Stdio always persists; opt-in HTTP uses private temporary TOS output and returns
+  a signed download URL. `MCP_HOSTED_TTS_ENABLED=false` by default; enabling needs
+  restricted static TOS credentials and a private versioning-disabled bucket.
+  One-day scheduled object expiry, nominal 24-hour URLs (STS may shorten), no
+  database/local files/renewal/replay or HTTP Base64 fallback. Hold admission through
+  upload; never automatically resynthesize after delivery failure. No provider URL,
+  `persist` flag or jobs. Discovery includes configured TTS with `kind="audio"`;
+  HTTP preflight remains image/video only. See `docs/seed-tts.md`.
 - **Seedream** — image generation and editing through ModelArk with one
   tool, `seedream_generate_image` (generate, edit with point/bbox,
   transparent background, variations, dry run).
@@ -67,9 +73,9 @@ separate tools. The flow is discovery → create → poll:
   Inline provider audio has no store byte cap; input references, URL downloads,
   inline fallback and TTS stream collection retain their separate bounds.
 - **Transports** — local stdio retains storage/artifacts.
-  HTTP is forward-only BYOK: 7 provider/discovery tools,
+  HTTP is BYOK: 7 baseline provider/discovery tools,
   direct foreground calls, no jobs/native tasks/local storage/artifact tools/resources.
-  Temporary upload preparation adds one optional tool (8 total).
+  Hosted TTS and temporary upload preparation each add one optional tool (up to 9).
   `MCP_AUTH_MODE=byok` is the default; explicit `local` is stdio-only and
   `api_key` is removed. No OAuth/signup/server-issued key. HTTP requires
   operator `MCP_IDENTITY_HMAC_KEY` (64 lowercase hex) and positive
@@ -80,7 +86,7 @@ uses Seed Speech and `X-Api-Key`. These two provider gateways sit behind one nor
 layer. See `docs/architecture.md` for current behavior.
 
 The catalog contains **14 definitions**, with **13 local tools** and four always registered on stdio. Enabled
-provider/storage tools depend on `modelark`, `seed_audio`, stdio-only `seed_tts`,
+provider/storage tools depend on `modelark`, `seed_audio`, `seed_tts`,
 and `object_storage` gates. VOD processing, 3D generation, dedicated ASR, asset
 administration and operator-account live pricing are not part of this server.
 Local provider keys are startup configuration. HTTP uses only live
@@ -88,8 +94,8 @@ Local provider keys are startup configuration. HTTP uses only live
 selected provider plus required `X-MCP-Client-Secret` (client-generated 32
 random bytes, 64 lowercase hex), including dry runs. Discovery is anonymous/static.
 Keys are not persisted and never fall back to environment provider keys.
-Temporary upload signing alone uses operator TOS credentials, never generation
-keys. `MCP_TEMPORARY_UPLOAD_ENABLED=false` by default; enabling requires HTTP,
+Temporary upload signing and hosted TTS delivery use operator TOS credentials,
+never generation keys. `MCP_TEMPORARY_UPLOAD_ENABLED=false` by default; enabling requires HTTP,
 TOS configuration and `MCP_UPLOAD_CLIENT_SECRET_SHA256` (1-1000 unique lowercase
 SHA-256 digests of exact ASCII client-secret header values, not decoded bytes).
 Only enrolled secrets authorize signing; no provider key is required for this
@@ -392,7 +398,7 @@ explicitly when it matters.
 User- and contributor-facing documentation for the project as it exists today.
 This is the project handbook: how to connect, configure, run, deploy, and
 troubleshoot the server. GitHub Pages publishes only the curated hosted guide
-and seven baseline HTTP tool pages selected in `docs/site/scripts/publication.mjs`.
+and hosted tool pages (seven baseline plus optional TTS) selected in `docs/site/scripts/publication.mjs`.
 Operator/local material remains in the repository, outside site search and
 navigation. Keep old public URLs redirected when consolidating pages.
 

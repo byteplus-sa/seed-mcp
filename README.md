@@ -38,16 +38,19 @@ and images do not establish narrowed Seed MCP support. See
 The server provides a conditional MCP tool surface across several BytePlus
 products plus artifact access and an optional media upload helper. The catalog
 contains **13 local stdio tools**; four are always registered locally.
-HTTP BYOK exposes **7 tools**, independently of
+HTTP BYOK exposes **7 baseline tools**, independently of
 operator provider keys. Discovery is anonymous/static; provider tools run
 directly in the foreground. Opt-in `media_prepare_upload` adds one HTTP tool
 (8 total) for enrolled clients to upload references directly to private TOS.
+Separately, `MCP_HOSTED_TTS_ENABLED=true` adds Seed TTS with private temporary
+TOS downloads, for up to nine HTTP tools when both options are enabled.
 TOS signing supports configured AK/SK or explicit VKE IRSA with automatic
 temporary-credential refresh. IRSA projects a token only into the MCP app;
 cluster/IAM setup remains operator-owned. STS expiry can shorten reference URLs,
 and refresh does not renew them. See [IRSA setup](docs/temporary-uploads.md#vke-iam-roles-for-service-accounts).
 HTTP has no jobs, native tasks, local storage/artifact tools or resources.
-Both transports execute directly; persistence is stdio-only.
+Both transports execute directly. General artifact persistence is stdio-only;
+hosted TTS has a narrow [temporary output-storage path](docs/seed-tts.md#hosted-output-storage).
 
 HTTP clients send only the selected `X-ModelArk-Api-Key`
 or `X-Seed-Speech-Api-Key`, plus required
@@ -60,7 +63,7 @@ Keys are not persisted and there is no provider-key fallback. See
 | Product | Tools | Description |
 |---|---|---|
 | **Seed Audio** | `seed_audio_generate` | Direct full-scene audio generation through Seed Speech; one clip or 1-5 parallel variations. WAV/MP3/OGG/PCM artifacts use format-specific MIME; requested sample rate and subtitles need [delivery verification](docs/tools.md#seed_audio_generate) |
-| **Seed TTS 3.0** (stdio only) | `seed_tts_generate` | [Text or SSML speech](docs/seed-tts.md), authorized voice selection, pronunciation and delivery controls, optional word alignment; collects and persists MP3/PCM/Ogg Opus audio in one direct call |
+| **Seed TTS 3.0** | `seed_tts_generate` | [Text or SSML speech](docs/seed-tts.md), authorized voice, pronunciation/delivery controls and optional alignment; MP3/PCM/Ogg Opus. Configured HTTP hosts return private expiring TOS downloads; stdio persists locally |
 | **Seedream** | `seedream_generate_image` | One direct image tool through ModelArk: [Seedream 5.5](https://byteplus-sa.github.io/seed-mcp/tool-reference/seedream-generate-image/#seedream-5-5) by default, generation/reference and point/box editing, native transparent PNGs, auto backgrounds, standard-only optimization, validated 1K/1.5K/2K or custom sizes up to 8,294,400 pixels (4K UHD: `size="3840x2160"`), hashed safety IDs, provider image metadata, 1-10 variations and size-aware dry-run estimates. Pro retains transparency-preserving edits; batches are Lite/4.x only. Layer decomposition/OCR are not exposed |
 | **Seedance** | `seedance_create_task` | One direct video tool for every configured Seedance model (regular 2.5 and Flash bound by default, 2.0 configurable): regular 2.5 accepts `resolution="4k"` ([provider-contract caveat](docs/models.md#video-capabilities-videocapabilities)); Flash supports 480p/720p, 10 images / 5 videos / 5 audios and no Draft. Regular 2.5 Drafts have a 14-day window (7 for creation before 2026-10-28 10:00 UTC+8). Pick the model from `ark_list_models(kind='video')`, create 1-5 variations, or use `dry_run` for a free request and static cost preview; poll with the shared generation task tools |
 | **Generation tasks** | `gen_task_get`, `gen_task_list`, `gen_task_cancel_or_delete` | Seedance lifecycle: direct batched status checks (1-50 IDs) with derived queue timing and explicit local output persistence, cursor-paged listing of your own tasks, and guarded cancel/delete |

@@ -481,7 +481,11 @@ def test_transport_inventory_and_execution_match_catalog(exported: dict[str, Any
             assert "MCP_TEMPORARY_UPLOAD_ENABLED=true" in transports["http"]["registration_gate"]
             assert "MCP_UPLOAD_CLIENT_SECRET_SHA256" in transports["http"]["registration_gate"]
             continue
-        assert set(transports) == ({"stdio", "http"} if tool["name"] in ordinary else {"stdio"})
+        if tool["name"] == "seed_tts_generate":
+            assert "MCP_HOSTED_TTS_ENABLED=true" in transports["http"]["registration_gate"]
+        assert set(transports) == (
+            {"stdio", "http"} if tool["name"] in ordinary | {"seed_tts_generate"} else {"stdio"}
+        )
         assert transports["stdio"]["execution"] == tool["execution"] == "direct"
         if "http" in transports:
             assert transports["http"]["execution"] == "direct"
@@ -490,7 +494,7 @@ def test_transport_inventory_and_execution_match_catalog(exported: dict[str, Any
                 None
                 if tool["name"] == "ark_list_models"
                 else "X-Seed-Speech-Api-Key"
-                if tool["name"] == "seed_audio_generate"
+                if tool["name"] in {"seed_audio_generate", "seed_tts_generate"}
                 else "X-ModelArk-Api-Key"
             )
             assert "BYTEPLUS_MODELARK_API_KEY" not in transports["http"]["registration_gate"]

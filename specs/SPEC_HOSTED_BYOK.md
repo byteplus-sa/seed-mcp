@@ -4,7 +4,7 @@ type: spec
 status: accepted
 horizon: current
 created: 2026-11-16
-updated: 2026-11-27
+updated: 2026-11-28
 tags: [byok, http, security, ownership]
 related:
   - specs/SPEC_DIRECT_EXECUTION.md
@@ -25,11 +25,13 @@ is not public-launch or deployed-capacity certification.
 | Transport | Inventory | Execution and storage |
 | --- | --- | --- |
 | Local stdio | 13 catalog tools, conditionally registered; four always available | Direct calls, local provider settings, storage and artifacts; TTS always persists |
-| HTTP | 7 tools; optional temporary upload adds one | Direct foreground calls; provider-managed video tasks; no jobs, native tasks, local storage/artifact tools or resources |
+| HTTP | 7 baseline tools; hosted TTS and temporary upload each optionally add one | Direct calls; provider-managed video tasks; no jobs, native tasks, local storage/artifact tools or resources |
 
 HTTP exposes `ark_list_models`, `seed_audio_generate`, `seedream_generate_image`,
 `seedance_create_task`, `gen_task_get`, `gen_task_list`,
 `gen_task_cancel_or_delete`.
+`MCP_HOSTED_TTS_ENABLED=true` additionally registers `seed_tts_generate`;
+it requires restricted static TOS output-storage configuration at startup.
 Registration does not depend on operator provider keys.
 Discovery is anonymous, static, and makes no provider calls; it does not
 establish entitlement or return account pricing.
@@ -47,7 +49,7 @@ not auth grants or customer-selected roles.
 | Header | Requirement |
 | --- | --- |
 | `X-ModelArk-Api-Key` | Seedream and Seedance tools |
-| `X-Seed-Speech-Api-Key` | Seed Audio generation |
+| `X-Seed-Speech-Api-Key` | Seed Audio and enabled Seed TTS generation |
 | `X-MCP-Client-Secret` | Every provider operation, including dry runs; client-generated 32 random bytes encoded as 64 lowercase hex characters |
 | `X-ModelArk-Seedance-Endpoint` | Optional exact registered video binding default |
 | `X-ModelArk-Seedream-Endpoint` | Optional exact registered image binding default |
@@ -299,15 +301,50 @@ that FastMCP's `task=forbidden` mode alone rejects client opt-in.
 HTTP rejects explicit `true`, local paths and stored artifact references
 before dispatch. Explicit local persistence remains supported.
 Seedream `b64_json` needs persistence and therefore is not an HTTP output mode.
-Seed TTS is also excluded from HTTP: its provider returns streamed audio bytes,
-not a provider URL. TTS discovery and synthesis are stdio-only.
-HTTP returns provider URLs and metadata, not durable MCP media resources.
+Enabled Seed TTS collects up to 10 MiB of streamed provider audio, uploads it
+to private temporary TOS storage, and returns a signed HTTPS URL. Stdio still
+persists locally. No `persist` flag exists; local output paths are rejected on HTTP.
+HTTP returns download URLs and metadata, not durable MCP media resources.
 Missing/unusable URL-only Seed Audio output is a nonretryable per-item
 `NO_DELIVERABLE_OUTPUT`, never an empty success or automatic regeneration.
 
 Clients must retrieve outputs before expiry: about 2 hours for Seed Audio,
 24 hours for Seedream/Seedance. Native authorized
 Seedance `asset://` references remain supported without asset administration.
+
+### Hosted TTS Downloads
+
+`MCP_HOSTED_TTS_ENABLED=false` by default. Enabling requires HTTP,
+`OBJECT_STORAGE_BACKEND=tos`, `TOS_CREDENTIAL_MODE=static`, configured TOS
+credentials/bucket, valid bucket/region syntax and the exact official HTTPS
+regional endpoint. It is independent of input upload preparation and enrollment.
+Discovery is still offline/anonymous; it advertises TTS only when this gate passes.
+Invocation requires the live Seed Speech key and independent client secret.
+Operator storage credentials are never generation credentials.
+
+One invocation collects bounded audio and writes one object under
+`tts-output/{HMAC principal}/{UUID}.{encoding}` without any database, local file
+or metadata object. The write uses private ACL, STANDARD storage,
+forbid-overwrite, `Cache-Control: private, no-store` and one-day scheduled
+`x-tos-object-expires`. A presigned GET URL is generated for the exact object;
+the official HTTPS origin/path is validated before upload. The URL is returned
+only after successful upload, never logged. GET permission is nominally 24 hours
+and optional static STS credential expiry can shorten it; no renewal is provided.
+Object deletion is scheduled by TOS, not guaranteed exactly 24 hours after creation.
+
+The Seed Speech admission slot remains held through upload, bounding completed
+audio awaiting delivery. SDK upload retries are disabled. Upload/signing failures
+become sanitized, nonretryable `TTS_DELIVERY_FAILED` with the synthesis request ID
+and confirmed synthesis completion; no automatic synthesis retry or HTTP Base64
+fallback is added. Cancellation drains SDK work before releasing admission.
+A lost response may leave an expiring object without a client-visible link;
+there is no recovery API, per-client storage quota or hosted budget ledger.
+
+Operators must verify a dedicated private versioning-disabled bucket, prefix-only
+PutObject/GetObject IAM, lifecycle backstop, STS lifetime where used, and storage/
+egress controls. URLs are bearer permissions. IRSA remains temporary-upload-only.
+Helm references a distinct existing TOS Secret through `hostedTts.existingSecret`;
+no bucket, Secret or IAM provisioning occurs. See [TTS operations](../docs/seed-tts.md#hosted-output-storage).
 
 ## Admission and Diagnostics
 

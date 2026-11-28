@@ -31,7 +31,7 @@ flowchart LR
   `persist_output=true` to download and store them on stdio.
 - **No task augmentation is required or supported.** Persistence uses the
   direct call's live MCP context.
-- **Seed Audio/Seedream persistence defaults to false globally.** Local true is explicit; HTTP rejects true. Stdio-only Seed TTS always persists and has no switch.
+- **Seed Audio/Seedream persistence defaults to false globally.** Local true is explicit; HTTP rejects true. Seed TTS persists on stdio and has no switch; enabled HTTP TTS returns private temporary downloads.
 - **Never resubmit a create tool to poll.** `queued`, `running` and `processing` are not failures, and a second create call starts a second billed task. After a local timeout, disconnect or client restart, poll the same task ID again.
 - **Persistence is cached per task and output.** Concurrent and repeated polls reuse each cached durable copy. Missing or failed generation outputs can be persisted later without copying successful siblings again.
 - Local files written by a persist run (`output_dir`, `output_path`) need live MCP roots or `OUTPUT_ROOTS`; see [local-output.md](local-output.md).
@@ -82,7 +82,9 @@ A mode that does not fit `expected_status` (cancel with `succeeded`, delete with
 Stdio persisted outputs are `ArtifactRef`s with a stable
 `seed-media://artifacts/{artifact_id}` URI. Explicitly request `persist=true` /
 `persist_output=true` locally when needed; defaults are false.
-Seed TTS always persists its completed stream and has no provider URL.
+Seed TTS persists its completed stream on stdio and has no provider URL.
+Configured HTTP hosts return a signed TOS download, nominally valid 24 hours
+(STS may expire earlier), with one-day scheduled expiry and no renewal/recovery.
 
 ### Retention and access
 

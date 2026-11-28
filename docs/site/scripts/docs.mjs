@@ -141,7 +141,9 @@ Layer decomposition and native OCR are not supported.`,
   gen_task_cancel_or_delete:
     "This changes an existing task. Confirm the intended ID and `expected_status` before calling; cancellation and deletion have different provider rules.",
   seed_audio_generate:
-    "Describe the complete scene: speech, music and sound. Use one image reference or audio references, not both. This is scene generation, not the local-only Seed TTS tool.",
+    "Describe the complete scene: speech, music and sound. Use one image reference or audio references, not both. Use Seed TTS to speak exact supplied text.",
+  seed_tts_generate:
+    "Requires operator-enabled hosted TTS output storage; check discovery before calling. Supply text or SSML and an authorized voice_id. Download artifact.uri promptly: it is a private signed TOS URL, nominally valid 24 hours (STS may expire earlier). Objects have one-day scheduled expiry, not exact 24-hour deletion. No URL renewal or recovery tool exists. Keep request_id after delivery errors; never automatically synthesize again. Stdio still persists locally.",
 };
 
 export function hostedToolPage(tool) {
@@ -174,7 +176,7 @@ export function hostedToolPage(tool) {
     ? "This is a non-billable preview (`dry_run=true`), not generated media. Generation may incur charges."
     : tool.name === "gen_task_cancel_or_delete"
       ? "This is a destructive call, not a preview. Replace the example ID and confirm the intended task before running it."
-      : tool.name === "seed_audio_generate"
+      : ["seed_audio_generate", "seed_tts_generate"].includes(tool.name)
         ? "This example generates audio and may incur charges."
         : "This is a read-only example. Replace example task IDs with your own.";
   return `---
@@ -204,7 +206,7 @@ ${models ? `<details>\n<summary>Supported models</summary>\n\n${models}\n</detai
 
 ## Inputs
 
-The MCP arguments use an \`input\` wrapper. Hosted calls keep persistence false.
+The MCP arguments use an \`input\` wrapper. ${tool.name === "seed_tts_generate" ? "TTS has no persist switch; output_path and overwrite are stdio only." : "Hosted calls keep persistence false."}
 
 ${schemaTable(fields)}
 
@@ -296,15 +298,17 @@ export function toolPage(tool) {
   const call = args && { name, arguments: args };
   const execution =
     name === "seed_tts_generate"
-      ? `Call this tool directly on local stdio, keeping its \`input\` wrapper. Inspect \`is_error\` before using \`structured_content\`. Seed TTS always persists the completed audio stream; it has no \`persist\` switch or provider download URL. No automatic synthesis retries, MCP jobs or native tasks exist. See [voice selection and TTS controls](${SITE_BASE}/seed-tts/).`
+      ? `Call this tool directly, keeping its \`input\` wrapper. Inspect \`is_error\` before using \`structured_content\`. Stdio always persists the completed audio; HTTP requires configured TOS output storage and returns a private expiring HTTPS link. There is no \`persist\` switch or provider download URL. No automatic synthesis retries, MCP jobs or native tasks exist. See [voice selection and TTS controls](${SOURCE_BASE}docs/seed-tts.md).`
       : "Call this tool directly on either supported transport, keeping its `input` wrapper. Inspect `is_error` before using `structured_content`. No MCP jobs, worker queue or native tasks exist. Local stdio supports explicit persistence; HTTP remains URL-only.";
   const httpExecution = !http
     ? "**HTTP: unavailable.** This is a local stdio tool."
     : upload
       ? `**HTTP: opt-in upload preparation.** Supply only operator-enrolled \`X-MCP-Client-Secret\` privately. No generation-provider key is needed for preparation. The upload-capable client sends binary data directly to TOS using every signed field unchanged and the file field LAST. Wait for upload success before using \`reference_url\`. This tool does not upload, inspect bytes or verify the object. See [temporary uploads](${SITE_BASE}/temporary-uploads/).`
-      : http.credential_header
-        ? `**HTTP: direct foreground calls only.** Supply \`${http.credential_header}\` and \`X-MCP-Client-Secret\` privately in request headers, including dry runs. The client secret is client-generated 32 random bytes encoded as 64 lowercase hex. Only the selected provider key is needed. Keep persistence false; HTTP rejects true, local paths and stored artifact references. No jobs, native tasks, local storage/artifact tools or resources exist on HTTP. Optional temporary upload preparation is separate.`
-        : "**HTTP: anonymous static discovery.** No provider key or client secret is required; it lists configured model bindings even without environment provider keys. `services[].enabled` reports registration, not entitlement. No provider calls are made.";
+      : name === "seed_tts_generate"
+        ? "**HTTP: operator-enabled TTS output storage.** Supply live `X-Seed-Speech-Api-Key` and independent `X-MCP-Client-Secret` headers. The result is an expiring private TOS download, not a stored MCP resource. No persistence flag or local path is accepted."
+        : http.credential_header
+          ? `**HTTP: direct foreground calls only.** Supply \`${http.credential_header}\` and \`X-MCP-Client-Secret\` privately in request headers, including dry runs. The client secret is client-generated 32 random bytes encoded as 64 lowercase hex. Only the selected provider key is needed. Keep persistence false; HTTP rejects true, local paths and stored artifact references. No jobs, native tasks, local storage/artifact tools or resources exist on HTTP. Optional temporary upload preparation is separate.`
+          : "**HTTP: anonymous static discovery.** No provider key or client secret is required; it lists configured model bindings even without environment provider keys. `services[].enabled` reports registration, not entitlement. No provider calls are made.";
   const providerTasks = ["seedance_", "gen_task_"].some((prefix) =>
     name.startsWith(prefix),
   );
@@ -326,7 +330,7 @@ ${tool.description}
 | HTTP execution | ${http ? "Direct foreground only; no native tasks." : "Unavailable."} |
 | Catalog capability label | ${tool.scope ? `\`${tool.scope}\`` : "None"} |
 
-This site lists 14 catalog entries: 13 conditional local tools (four always registered) plus HTTP-only upload preparation. HTTP exposes 7 tools, plus one when temporary uploads are enabled. HTTP generation registration is independent of operator provider keys; Seed TTS is stdio only. Use [model discovery](${SITE_BASE}/tool-reference/ark-list-models/) and tools/list for your connection. Credentials never belong in tool arguments. HTTP has no OAuth, signup or server-issued key and never falls back to operator generation-provider keys.
+This site lists 14 catalog entries: 13 conditional local tools (four always registered) plus HTTP-only upload preparation. HTTP exposes 7 baseline tools, plus Seed TTS when output storage is enabled and one when temporary uploads are enabled. HTTP generation registration is independent of operator provider keys. Use [model discovery](${SITE_BASE}/tool-reference/ark-list-models/) and tools/list for your connection. Credentials never belong in tool arguments. HTTP has no OAuth, signup or server-issued key and never falls back to operator generation-provider keys.
 
 Catalog capability labels are metadata, not auth grants. See the [scope taxonomy](${SITE_BASE}/security/#scope-taxonomy).
 

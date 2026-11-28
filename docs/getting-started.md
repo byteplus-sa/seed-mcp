@@ -43,7 +43,8 @@ you want; your client handles tool calls and video polling.
 Generation may incur provider charges. Save returned task IDs and download
 results before provider URLs expire; do not repeat uncertain creates.
 The hosted service has seven tools for discovery, images, video and scene
-audio. Seed TTS and local storage/artifact tools are not part of HTTP.
+audio, plus Seed TTS when output storage is enabled. Local storage/artifact
+tools remain unavailable over HTTP.
 
 The [optional ark-mcp usage skill](setup/agent-skill.md) provides workflow
 instructions. It is not required to connect and does not run the server.

@@ -435,6 +435,11 @@ class Settings(BaseSettings):
         validation_alias="MCP_TEMPORARY_UPLOAD_ENABLED",
         description="Enable HTTP-only temporary TOS upload preparation for enrolled clients.",
     )
+    hosted_tts_enabled: bool = Field(
+        default=False,
+        validation_alias="MCP_HOSTED_TTS_ENABLED",
+        description="Enable HTTP TTS with private temporary TOS output and signed download URLs.",
+    )
     upload_client_secret_sha256: str = Field(
         default="",
         max_length=65000,
@@ -798,27 +803,36 @@ class Settings(BaseSettings):
             raise ValueError("TOS_ACCESS_KEY and TOS_SECRET_KEY must both be set or both be empty.")
         if self.tos_access_key and not self.tos_endpoint:
             raise ValueError("TOS_ENDPOINT is required when TOS credentials are set.")
-        if self.temporary_upload_enabled:
-            if (
-                self.mcp_transport != "http"
-                or self.object_storage_backend != "tos"
-                or not self.has_tos
-                or not self.upload_client_digests
-            ):
-                raise ValueError(
-                    "MCP_TEMPORARY_UPLOAD_ENABLED requires HTTP, OBJECT_STORAGE_BACKEND=tos, "
-                    "TOS credentials/bucket and a nonempty MCP_UPLOAD_CLIENT_SECRET_SHA256 allowlist."
-                )
+        if self.hosted_tts_enabled and (
+            self.mcp_transport != "http"
+            or self.object_storage_backend != "tos"
+            or self.tos_credential_mode != "static"
+            or not self.has_tos
+        ):
+            raise ValueError(
+                "MCP_HOSTED_TTS_ENABLED requires HTTP, OBJECT_STORAGE_BACKEND=tos, "
+                "static TOS credentials/bucket. Use restricted "
+                "operator credentials for a private, versioning-disabled output bucket."
+            )
+        if self.temporary_upload_enabled and (
+            self.mcp_transport != "http"
+            or self.object_storage_backend != "tos"
+            or not self.has_tos
+            or not self.upload_client_digests
+        ):
+            raise ValueError(
+                "MCP_TEMPORARY_UPLOAD_ENABLED requires HTTP, OBJECT_STORAGE_BACKEND=tos, "
+                "TOS credentials/bucket and a nonempty MCP_UPLOAD_CLIENT_SECRET_SHA256 allowlist."
+            )
+        if self.temporary_upload_enabled or self.hosted_tts_enabled:
             if not re.fullmatch(r"[a-z0-9][a-z0-9-]{1,61}[a-z0-9]", self.tos_bucket):
-                raise ValueError(
-                    "Temporary uploads require a valid 3-63 character TOS bucket name."
-                )
+                raise ValueError("Hosted storage requires a valid 3-63 character TOS bucket name.")
             if not re.fullmatch(r"[a-z]+(?:-[a-z]+)+-[0-9]+", self.tos_region):
-                raise ValueError("Temporary uploads require a valid TOS_REGION.")
+                raise ValueError("Hosted storage requires a valid TOS_REGION.")
             official_host = f"tos-{self.tos_region}.bytepluses.com"
             if self.tos_endpoint not in {official_host, f"https://{official_host}"}:
                 raise ValueError(
-                    "Temporary uploads require the exact official HTTPS TOS regional endpoint."
+                    "Hosted storage requires the exact official HTTPS TOS regional endpoint."
                 )
         if bool(self.s3_access_key) != bool(self.s3_secret_key):
             raise ValueError("S3_ACCESS_KEY and S3_SECRET_KEY must both be set or both be empty.")

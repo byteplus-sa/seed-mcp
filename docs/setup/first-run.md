@@ -42,8 +42,9 @@ Use ark-seed to create a short cafe soundscape: quiet conversation,
 gentle piano and cups being set on tables. Give me an MP3 download link.
 ```
 
-Seed Audio generates a complete scene. It is separate from the local-only
-text-to-speech tool.
+Seed Audio generates a complete scene. For exact supplied text or SSML, use
+[Seed TTS 3](/seed-mcp/tool-reference/seed-tts-generate/) with an authorized voice.
+Hosted TTS requires operator-enabled output storage; check discovery first.
 
 <span id="retrieve-the-job-result"></span>
 

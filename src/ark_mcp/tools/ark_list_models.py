@@ -33,7 +33,7 @@ class ArkListModelsInput(BaseModel):
 
     kind: ModelKind | None = Field(
         None,
-        description="Filter to video, image, or audio (stdio Seed TTS). Omit to list all available kinds.",
+        description="Filter to video, image, or audio (Seed TTS). Omit to list all available kinds.",
     )
     check_connection: bool = Field(
         False,
@@ -138,7 +138,7 @@ class ModelInfo(BaseModel):
     tool: str = Field(..., description="Tool serving this configured model.")
     video: VideoModelLimits | None = Field(None, description="Limits for video models.")
     image: ImageModelLimits | None = Field(None, description="Limits for image models.")
-    tts: TtsModelLimits | None = Field(None, description="Limits for stdio speech synthesis.")
+    tts: TtsModelLimits | None = Field(None, description="Limits for speech synthesis.")
 
 
 class ServiceStatus(BaseModel):
@@ -229,7 +229,7 @@ async def ark_list_models(input: ArkListModelsInput, ctx: Context) -> ArkListMod
     presence and configured image/video endpoint defaults, not upstream authorization or
     live lineage. Unknown endpoints need verified operator bindings. Explicit create-tool
     model arguments override endpoint headers. Default discovery is static and anonymous.
-    Local stdio also lists Seed TTS when its Seed Speech key is configured.
+    Seed TTS is listed on HTTP when output storage is enabled, or on stdio with a speech key.
     """
     settings = get_settings()
     return ArkListModelsOutput(
@@ -245,7 +245,7 @@ def _connection_check(input: ArkListModelsInput, settings: Settings) -> HttpConn
             "check_connection requires live HTTP requests; it is not available on stdio."
         )
     if input.kind == "audio":
-        raise ValueError("check_connection supports image/video only; Seed TTS is stdio only.")
+        raise ValueError("check_connection supports image/video only; Seed Speech is not checked.")
     key_present = has_provider_credential("modelark")
     secret_present = has_client_secret()
     issues: list[ConnectionIssueCode] = []
@@ -291,7 +291,7 @@ def _endpoint_selection(kind: str) -> EndpointSelectionCheck:
 def describe_models(settings: Settings) -> list[ModelInfo]:
     """Describe every configured binding whose service is enabled."""
     models = []
-    if settings.mcp_transport == "stdio" and settings.has_seed_audio:
+    if settings.hosted_tts_enabled if settings.mcp_transport == "http" else settings.has_seed_audio:
         models.append(
             ModelInfo(
                 model_id=TTS_MODEL,
@@ -371,6 +371,15 @@ def describe_services(settings: Settings) -> list[ServiceStatus]:
             ServiceStatus(service="modelark", enabled=True),
             ServiceStatus(service="seed_audio", enabled=True),
             ServiceStatus(
+                service="seed_tts",
+                enabled=settings.hosted_tts_enabled,
+                reason=None
+                if settings.hosted_tts_enabled
+                else (
+                    "Operator must enable MCP_HOSTED_TTS_ENABLED with private TOS output storage."
+                ),
+            ),
+            ServiceStatus(
                 service="object_storage",
                 enabled=settings.temporary_upload_enabled,
                 reason=None
@@ -389,7 +398,7 @@ def describe_services(settings: Settings) -> list[ServiceStatus]:
     services = (
         ("modelark", settings.has_modelark, "Set BYTEPLUS_MODELARK_API_KEY."),
         ("seed_audio", settings.has_seed_audio, "Set BYTEPLUS_SEED_SPEECH_API_KEY."),
-        ("seed_tts", settings.has_seed_audio, "Set BYTEPLUS_SEED_SPEECH_API_KEY (stdio only)."),
+        ("seed_tts", settings.has_seed_audio, "Set BYTEPLUS_SEED_SPEECH_API_KEY."),
         ("object_storage", settings.has_object_storage, f"Set {storage_vars}."),
     )
     return [

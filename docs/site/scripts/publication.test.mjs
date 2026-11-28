@@ -135,7 +135,7 @@ test("Seed TTS guidance describes always-persisted local audio", () => {
   assert.match(page, /HTTP: unavailable/);
   assert.match(page, /always persists the completed audio/);
   assert.match(page, /no `persist` switch or provider download URL/);
-  assert.match(page, /\/seed-mcp\/seed-tts\//);
+  assert.match(page, /\/seed-mcp\/blob\/main\/docs\/seed-tts\.md/);
   assert.doesNotMatch(
     page,
     /Call this tool directly on either supported transport/,

@@ -1,6 +1,7 @@
 {{- $deadline := max .Values.app.toolTimeoutSeconds .Values.app.providerTimeoutSeconds -}}
 {{- $readinessTimeout := 3 -}}
 {{- $irsa := and .Values.temporaryUpload.enabled (eq .Values.temporaryUpload.credentialsMode "irsa") -}}
+{{- $storageSecret := ternary .Values.hostedTts.existingSecret .Values.temporaryUpload.existingSecret .Values.hostedTts.enabled -}}
 # Stateless hosted HTTP; no database or local persistent volume.
 apiVersion: apps/v1
 kind: Deployment
@@ -133,17 +134,26 @@ spec:
               value: {{ ternary "9000" "0" .Values.app.metricsEnabled | quote }}
             - name: MCP_TEMPORARY_UPLOAD_ENABLED
               value: {{ .Values.temporaryUpload.enabled | quote }}
-            {{- if .Values.temporaryUpload.enabled }}
+            - name: MCP_HOSTED_TTS_ENABLED
+              value: {{ .Values.hostedTts.enabled | quote }}
+            {{- if or .Values.temporaryUpload.enabled .Values.hostedTts.enabled }}
             - name: OBJECT_STORAGE_BACKEND
               value: tos
             - name: TOS_CREDENTIAL_MODE
               value: {{ .Values.temporaryUpload.credentialsMode | quote }}
-            {{- range $key := list "TOS_BUCKET" "TOS_REGION" "TOS_ENDPOINT" "MCP_UPLOAD_CLIENT_SECRET_SHA256" }}
+            {{- range $key := list "TOS_BUCKET" "TOS_REGION" "TOS_ENDPOINT" }}
             - name: {{ $key }}
               valueFrom:
                 secretKeyRef:
-                  name: {{ $.Values.temporaryUpload.existingSecret | quote }}
+                  name: {{ $storageSecret | quote }}
                   key: {{ $key }}
+            {{- end }}
+            {{- if .Values.temporaryUpload.enabled }}
+            - name: MCP_UPLOAD_CLIENT_SECRET_SHA256
+              valueFrom:
+                secretKeyRef:
+                  name: {{ .Values.temporaryUpload.existingSecret | quote }}
+                  key: MCP_UPLOAD_CLIENT_SECRET_SHA256
             {{- end }}
             {{- if $irsa }}
             - name: TOS_IRSA_ROLE_TRN
@@ -159,13 +169,13 @@ spec:
             - name: {{ $key }}
               valueFrom:
                 secretKeyRef:
-                  name: {{ $.Values.temporaryUpload.existingSecret | quote }}
+                  name: {{ $storageSecret | quote }}
                   key: {{ $key }}
             {{- end }}
             - name: TOS_SECURITY_TOKEN
               valueFrom:
                 secretKeyRef:
-                  name: {{ .Values.temporaryUpload.existingSecret | quote }}
+                  name: {{ $storageSecret | quote }}
                   key: TOS_SECURITY_TOKEN
                   optional: true
             {{- end }}

@@ -6,7 +6,7 @@ You only need the provider for the media you want to create.
 | Media | Provider key | Header sent to Seed MCP |
 | --- | --- | --- |
 | Images and video | ModelArk | `X-ModelArk-Api-Key` |
-| Scene audio | Seed Speech | `X-Seed-Speech-Api-Key` |
+| Scene audio and enabled TTS | Seed Speech | `X-Seed-Speech-Api-Key` |
 
 ## ModelArk
 
@@ -18,7 +18,7 @@ You only need the provider for the media you want to create.
 
 1. Open **BytePlus Voice / Seed Speech** in the console.
 2. Create a key under API key or application management.
-3. Confirm the application has Seed Audio access.
+3. Confirm the application has Seed Audio or Seed TTS access; TTS also needs an authorized voice.
 
 This key is separate from your ModelArk key.
 

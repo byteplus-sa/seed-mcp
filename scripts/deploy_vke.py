@@ -153,6 +153,10 @@ class Delivery:
             "identitySecret.versionKey=MCP_IDENTITY_KEY_VERSION",
             "--set-string",
             f"tlsSecretName={self.args.tls_secret}",
+            "--set",
+            f"hostedTts.enabled={str(bool(self.args.tts_output_secret)).lower()}",
+            "--set-string",
+            f"hostedTts.existingSecret={self.args.tts_output_secret}",
         ]
 
     def preflight(self) -> None:
@@ -234,6 +238,35 @@ class Delivery:
         if f"Hostname {tls_host} does match certificate" not in hostname_check.splitlines():
             raise ValueError("The existing TLS certificate must match the selected TLS hostname.")
         self.run("openssl", "x509", "-in", str(certificate), "-checkend", "86400", "-noout")
+        if self.args.tts_output_secret:
+            try:
+                output = self.secret(self.args.tts_output_secret)
+                decoded = {
+                    name: base64.b64decode(output[name], validate=True).decode("ascii")
+                    for name in (
+                        "TOS_ACCESS_KEY",
+                        "TOS_SECRET_KEY",
+                        "TOS_BUCKET",
+                        "TOS_REGION",
+                        "TOS_ENDPOINT",
+                    )
+                }
+                bucket, region = decoded["TOS_BUCKET"], decoded["TOS_REGION"]
+                if (
+                    not all(
+                        value and all(33 <= ord(char) <= 126 for char in value)
+                        for value in decoded.values()
+                    )
+                    or not re.fullmatch(r"[a-z0-9][a-z0-9-]{1,61}[a-z0-9]", bucket)
+                    or not re.fullmatch(r"[a-z]+(?:-[a-z]+)+-[0-9]+", region)
+                    or decoded["TOS_ENDPOINT"]
+                    not in {f"tos-{region}.bytepluses.com", f"https://tos-{region}.bytepluses.com"}
+                ):
+                    raise ValueError("Invalid output storage configuration.")
+            except (KeyError, ValueError, UnicodeError):
+                raise ValueError(
+                    "The existing TTS output Secret has missing or invalid TOS fields."
+                ) from None
         self.run("helm", "lint", str(CHART), "--strict", *self.helm_arguments())
 
     def secret(self, name: str, *, expected_type: str | None = None) -> dict[str, str]:
@@ -285,6 +318,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     parser.add_argument("--identity-secret", required=True)
     parser.add_argument("--tls-secret", required=True)
+    parser.add_argument(
+        "--tts-output-secret",
+        default="",
+        help="Enable hosted TTS with this existing private-output TOS Secret; empty disables it.",
+    )
     parser.add_argument("--prerequisites-confirmed", action="store_true")
     args = parser.parse_args(argv)
     dispatched = False
@@ -319,6 +357,12 @@ def main(argv: list[str] | None = None) -> int:
             )
         if args.identity_secret == args.tls_secret:
             raise ValueError("Identity and TLS must use distinct existing Secrets.")
+        if args.tts_output_secret and (
+            not NAME.fullmatch(args.tts_output_secret)
+            or args.tts_output_secret in {args.identity_secret, args.tls_secret}
+            or args.service_mode == "apig-staging"
+        ):
+            raise ValueError("TTS output requires a distinct named Secret and a BYOK service mode.")
         args.kubeconfig, args.values = private_file(args.kubeconfig), private_file(args.values)
         with tempfile.TemporaryDirectory(prefix="seed-vke-delivery-") as temporary:
             delivery = Delivery(args, Path(temporary))

@@ -203,7 +203,9 @@ The following example selects Pro, which must be bound by the operator:
 
 ## Seed TTS 3
 
-`seed_tts_generate` is stdio-only with a local Seed Speech key. It speaks supplied
+`seed_tts_generate` uses the Seed Speech key, supplied as a live header on HTTP
+or local configuration on stdio. HTTP additionally needs operator-enabled TOS output
+storage (`MCP_HOSTED_TTS_ENABLED`). It speaks supplied
 text/SSML using `dola-seed-tts-3.0`; it does not generate a full audio scene.
 Exactly one of `text` or `ssml` is required, plus a compatible authorized
 `voice_id` from the [voice list](https://docs.byteplus.com/en/docs/byteplusvoice/voicelist-3-0).
@@ -221,8 +223,12 @@ Call directly with the normal `input` wrapper:
   `pronunciation_dictionary.tone` accepts `term/replacement` rules.
 - One bounded JSONL stream becomes one complete persisted artifact, not live MCP
   audio. There is no provider URL, polling, `persist` switch or automatic retry.
-- Use `output_path` under live MCP roots or `OUTPUT_ROOTS`; otherwise use artifact
-  export. Storage fallback is bounded by `ARTIFACT_INLINE_FALLBACK_MAX_BYTES`.
+- HTTP returns a signed private TOS URL in `artifact.uri`, nominally valid 24 hours
+  (STS may expire earlier), with one-day scheduled object expiry. No renewal,
+  recovery or HTTP Base64 fallback exists. Download promptly without provider
+  headers. `TTS_DELIVERY_FAILED` preserves synthesis completion and request ID.
+- On stdio, use `output_path` under live MCP roots or `OUTPUT_ROOTS`, or artifact
+  export. Local storage fallback is bounded by `ARTIFACT_INLINE_FALLBACK_MAX_BYTES`.
 - If fallback is disabled or too small after storage failure, a text-only
   `persist_speech` error retains the request ID and states synthesis completed.
   `retryable=false` means do not resynthesize. `ambiguous_completion=false`

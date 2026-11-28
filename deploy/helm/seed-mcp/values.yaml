@@ -16,6 +16,10 @@ identitySecret:
   hmacKey: MCP_IDENTITY_HMAC_KEY
   versionKey: MCP_IDENTITY_KEY_VERSION
 tlsSecretName: ""
+hostedTts:
+  enabled: false
+  # Private output bucket and restricted static TOS credentials; no provider keys.
+  existingSecret: ""
 temporaryUpload:
   enabled: false
   credentialsMode: static

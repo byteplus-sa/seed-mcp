@@ -4,7 +4,7 @@ type: spec
 status: accepted
 horizon: current
 created: 2026-11-17
-updated: 2026-11-27
+updated: 2026-11-28
 tags: [mcp, direct-execution, admission, deadlines]
 source:
   - https://gofastmcp.com/servers/tools
@@ -33,22 +33,25 @@ including discovery, before provider dispatch.
 The catalog contains 13 conditionally registered local tools. Four are always
 available: `ark_list_models`, `seed_media_get_artifact`,
 `seed_media_export_artifact`, and `seed_media_persist_url`.
-HTTP exposes seven discovery/provider tools.
+HTTP exposes seven baseline discovery/provider tools; configured hosted TTS adds one.
 HTTP has no local storage/artifact tools or resources; local stdio retains them.
 The additional catalog definition is opt-in HTTP-only `media_prepare_upload` (14 definitions total), adding
 one tool to the baseline HTTP inventory. It signs locally under the same direct
 deadline and owner-first `tos` admission, without dispatching a storage mutation
 or reserving budget. Client binary upload occurs separately; see
 [temporary uploads](SPEC_HOSTED_BYOK.md#temporary-upload-preparation).
-Discovery supports image/video bindings and local stdio Seed TTS (`kind="audio"`),
+Discovery supports image/video bindings and configured Seed TTS (`kind="audio"`),
 and makes no provider calls. HTTP connection checks remain image/video only.
 
-`seed_tts_generate` is stdio-only because Seed Speech returns streamed audio
-bytes, not a URL. It collects a bounded JSONL response in one direct call,
-always persists the completed audio, and has no `persist` flag. It uses the
+`seed_tts_generate` collects a bounded JSONL response in one direct call.
+Stdio always persists completed audio; HTTP requires operator-enabled private
+TOS output storage and returns a signed download URL. It has no `persist` flag and uses the
 same deadline, admission, dispatch tracking and local budget semantics as other
-mutations, without automatic synthesis retries. This is an explicit exception
-to opt-in persistence on Seed Audio/Seedream, not an HTTP storage capability.
+mutations, without automatic synthesis retries. HTTP holds its admission slot
+through the output upload and drains SDK work on cancellation. It adds no
+database, artifact resources, replay or local files; storage failures preserve
+confirmed synthesis and request IDs without Base64 fallback. This is a scoped
+exception to forward-only media delivery, not general HTTP artifact persistence.
 See [Seed TTS](../docs/seed-tts.md).
 
 Provider video queues remain asynchronous. Retain provider task IDs and poll;

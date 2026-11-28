@@ -95,6 +95,7 @@ Protected environment variables contain references, not secret values:
 | `VKE_BACKEND_HOST` | Required distinct private TLS/SNI hostname |
 | `VKE_IDENTITY_SECRET` | Existing identity Secret with default HMAC/version key names |
 | `VKE_TLS_SECRET` | Distinct existing `kubernetes.io/tls` Secret |
+| `VKE_TTS_OUTPUT_SECRET` | Optional distinct existing static TOS output Secret; nonempty enables hosted TTS, empty disables it |
 | `VKE_PREREQUISITES_CONFIRMED` | `true` after CCM, addon, capacity, source-range and DNS/TLS checks |
 | `VKE_PRODUCTION_APPROVED` | Set only in the protected production environment after independent production-gate approval; absent/false for staging |
 
@@ -288,6 +289,14 @@ SDK cleanup. Those remain separately approved acceptance work; the harness
 adds no production test tool or mock switch.
 
 ## One-Shot Delivery
+
+For hosted TTS, first complete the [private output-storage prerequisites](seed-tts.md#hosted-output-storage).
+Set protected `VKE_TTS_OUTPUT_SECRET` to the reviewed existing Secret name.
+The helper's `--tts-output-secret` controls `hostedTts.enabled` and checks
+required TOS fields before Helm; empty explicitly disables TTS even if the
+values file enables it. This is configuration validation, not proof of bucket
+privacy, lifecycle or IAM permissions. Verify those live separately. No input
+upload enrollment or generation credentials belong in this Secret.
 
 After the read-only check and prerequisites pass, dispatch `operation=deploy`
 and approve it. This executes one `helm upgrade --install --wait`, with a

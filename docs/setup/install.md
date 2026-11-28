@@ -35,7 +35,7 @@ Use your client's protected secret settings or environment-backed headers.
 | Header | Value you supply privately |
 | --- | --- |
 | `X-ModelArk-Api-Key` | Your ModelArk API key for Seedream images and Seedance video |
-| `X-Seed-Speech-Api-Key` | Your Seed Speech API key for Seed Audio |
+| `X-Seed-Speech-Api-Key` | Your Seed Speech API key for Seed Audio and enabled TTS |
 | `X-MCP-Client-Secret` | An independent client-generated secret, required for every provider call |
 
 Use the provider key for your chosen service, or both for image/video and audio.
@@ -228,7 +228,8 @@ with {"input": {}}. Report available services and models.
 Do not generate media, upload files, or make paid calls.
 ```
 
-Expect seven tools and `connection=null`. Discovery is free and makes no
+Expect seven tools and `connection=null`; enabled hosted TTS adds one tool.
+Discovery is free and makes no
 provider calls; it does not validate your key or account access.
 Problems? See [connection checks](shared-server.md).
 
@@ -236,8 +237,9 @@ Then [create your first image, video or audio clip](first-run.md).
 
 ### Hosted Availability
 
-Seedream, Seedance and Seed Audio are available. TTS and local file tools are
-not hosted. See [service limits](../service.md).
+Seedream, Seedance and Seed Audio are available. Seed TTS 3 requires
+operator-enabled output storage; check discovery. Local file tools are
+not hosted. See [TTS](/seed-mcp/tool-reference/seed-tts-generate/) and [service limits](../service.md).
 
 <span id="guided-local-setup"></span>
 

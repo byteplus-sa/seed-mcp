@@ -37,7 +37,9 @@ def _seed_audio(settings: Settings) -> bool:
 
 
 def _seed_tts(settings: Settings) -> bool:
-    return _local(settings) and settings.has_seed_audio
+    return (
+        settings.hosted_tts_enabled if settings.mcp_transport == "http" else settings.has_seed_audio
+    )
 
 
 def _object_storage(settings: Settings) -> bool:

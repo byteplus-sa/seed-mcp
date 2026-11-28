@@ -229,8 +229,8 @@ quotes, settlement amounts or guarantees of an actual spend ceiling.
 | `"video"` | `round(variations * 0.07, 2)`; regular 2.5 and Flash use `0.35` per task, selected by registry family; a registered model-specific override wins |
 | (any other) | `0.0` |
 
-Seed TTS uses direct stdio execution and the normal Seed Speech admission and
-budget reservation. It never retries synthesis. The JSONL stream is bounded
+Seed TTS uses direct execution and normal Seed Speech admission, with budget
+reservation on stdio only. It never retries synthesis. The JSONL stream is bounded
 and closed on cancellation; after dispatch, an interrupted or malformed
 successful stream is ambiguous and its reservation commits. A definitive
 rejection or connection failure releases it. Completed audio is passed to persistence.
@@ -239,6 +239,9 @@ the request ID and confirmed synthesis status, and forbids automatic resynthesis
 Ordinary post-synthesis notification and client-cleanup failures are best-effort;
 external cancellation still propagates.
 See [Seed TTS](seed-tts.md).
+On configured HTTP hosts, admission stays held through private temporary TOS
+upload. There is no local persistence or Base64 fallback; failed delivery retains
+confirmed synthesis and request ID. Blocking SDK work drains on cancellation.
 
 Seedream 5.5 output estimates use the supplied high-resolution pricing table:
 at most 2.61M pixels costs $0.020; above 2.61M through 4.63M costs $0.035;

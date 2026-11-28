@@ -5,15 +5,20 @@ description: What the hosted service provides, how it handles requests, and what
 
 ## Availability
 
-The hosted service exposes seven tools for discovery, Seedream images,
+The hosted service exposes seven baseline tools for discovery, Seedream images,
 Seedance video and Seed Audio. Your provider account must authorize the model
 you choose. Discovery lists configuration, not entitlement.
 
-Seed TTS, local file uploads, artifact storage, ASR, 3D and provider asset
+Local file uploads, artifact resources, ASR, 3D and provider asset
 administration are not hosted features. Temporary uploads are disabled.
 Use provider-accessible HTTPS URLs for references; attaching a file in chat
 does not upload it automatically. Small inline inputs remain subject to the
 request limit.
+
+Seed TTS 3 adds one tool when the operator enables private TOS output storage.
+Check discovery; source support does not prove deployment enablement. TTS links
+last nominally 24 hours (STS may expire earlier), with one-day scheduled object
+expiry. Download promptly; no renewal or recovery API exists.
 
 ## Outputs and Limits
 
@@ -25,8 +30,8 @@ request limit.
 | Request body | Maximum 2 MiB |
 | Rate and concurrency | Limited per server replica; reduce parallel calls when busy |
 
-Download results you want to keep. The hosted service does not retain your
-artifacts or write to your computer. Keep provider task/request IDs: a timeout
+Download results you want to keep. Only enabled TTS stores temporary output;
+the service cannot write to your computer. Keep task/request IDs: a timeout
 does not cancel generation, and repeating an uncertain request may bill again.
 
 ## Costs

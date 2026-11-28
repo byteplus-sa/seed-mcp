@@ -337,8 +337,13 @@ Draft eligibility still follows the model/provider creation window.
 Seed Audio/Seedream `persist` default to
 false on every transport. HTTP rejects explicit true and returns temporary
 provider URLs; local callers can explicitly opt into persistence.
-Seed TTS is stdio-only and always persists its completed stream, with no
-`persist` switch. Inline provider audio has no store byte cap, while reference
+Seed TTS always persists its completed stream on stdio, with no `persist`
+switch. `MCP_HOSTED_TTS_ENABLED=true` optionally adds HTTP TTS: it requires
+restricted static TOS credentials, a dedicated private versioning-disabled bucket
+and the exact official regional endpoint, and returns private temporary downloads.
+The flag defaults false and does not enable input uploads or artifact resources.
+See [operator prerequisites and expiry](seed-tts.md#hosted-output-storage).
+Inline provider audio has no store byte cap, while reference
 inputs, URL downloads, TTS stream collection and inline fallback stay bounded.
 A local billed output retains fallback delivery when storage fails; see
 [Artifacts](artifacts.md#persistence-failures).
