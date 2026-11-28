@@ -68,7 +68,7 @@ Positive daily budgets are local stdio only. HTTP has no budget ledger and
 rejects nonzero values; use provider-console spending controls.
 
 The table describes standalone application defaults. VKE Helm sets
-`app.dailyBudgetUsd=0`, while provider/owner concurrency remains 5/3 and
+`app.dailyBudgetUsd=0`, while provider/owner concurrency defaults to 10/10 and
 burst 0 inherits RPM. `models.seedream` and `models.seedance` provide explicit
 `defaultModel` and verified `{model_id, family}` binding lists; nonempty lists
 must include the default, and alternate defaults require bindings. No

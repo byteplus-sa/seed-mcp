@@ -171,7 +171,7 @@ Alternate defaults require bindings. This does not verify lineage or permit
 arbitrary endpoint headers: explicit tool `model` wins and exact registry
 matching remains required. No arbitrary env or provider-secret map is accepted.
 Chart `app.dailyBudgetUsd=0` is required: no HTTP budget ledger exists.
-Provider/owner concurrency is5/3 per pod; burst0 inherits RPM.
+Provider/owner concurrency defaults to 10/10 per pod; burst 0 inherits RPM.
 
 Optional `temporaryUpload.enabled`/`existingSecret` add HTTP-only
 `media_prepare_upload`, with restricted operator TOS signing credentials and
