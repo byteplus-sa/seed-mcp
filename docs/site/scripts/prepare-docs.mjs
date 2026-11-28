@@ -1,8 +1,14 @@
 import { spawnSync } from "node:child_process";
-import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
-import { dirname, join, relative } from "node:path";
+import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
-import { handbookPage, toolPage } from "./docs.mjs";
+import { handbookPage, hostedToolPage } from "./docs.mjs";
+import {
+  collectSources,
+  PUBLIC_PAGES,
+  selectHostedTools,
+  siteRedirects,
+} from "./publication.mjs";
 
 const site = fileURLToPath(new URL("../", import.meta.url));
 const repository = fileURLToPath(new URL("../../../", import.meta.url));
@@ -33,44 +39,43 @@ const data = JSON.parse(exported.stdout);
 if (!Array.isArray(data.tools) || !data.tools.length)
   throw new Error("Empty tool catalog.");
 
-async function collect(directory) {
-  const files = [];
-  for (const entry of await readdir(directory, { withFileTypes: true })) {
-    if (entry.name === "site") continue;
-    const path = join(directory, entry.name);
-    if (entry.isDirectory()) files.push(...(await collect(path)));
-    else if (entry.isFile() && /\.mdx?$/.test(entry.name)) files.push(path);
-  }
-  return files.sort();
+const sources = collectSources();
+for (const source of PUBLIC_PAGES) {
+  if (!sources.includes(source))
+    throw new Error(`Missing public page: ${source}`);
 }
+const hostedTools = selectHostedTools(data.tools);
 
 await rm(generated, { recursive: true, force: true });
 await mkdir(generated, { recursive: true });
-for (const path of await collect(docs)) {
-  const filename = relative(docs, path);
+for (const filename of PUBLIC_PAGES) {
   const content = handbookPage(
     filename,
-    await readFile(path, "utf8"),
+    await readFile(join(docs, filename), "utf8"),
     data.tools.length,
   );
   const destination = join(generated, filename);
   await mkdir(dirname(destination), { recursive: true });
   await writeFile(destination, content);
 }
-for (const tool of data.tools) {
+for (const tool of hostedTools) {
   const destination = join(
     generated,
     "tool-reference",
     `${tool.name.replaceAll("_", "-")}.md`,
   );
   await mkdir(dirname(destination), { recursive: true });
-  await writeFile(destination, toolPage(tool));
+  await writeFile(destination, hostedToolPage(tool));
 }
 await mkdir(join(site, "src/data"), { recursive: true });
 await writeFile(
   join(site, "src/data/tools.json"),
-  JSON.stringify(data, null, 2) + "\n",
+  JSON.stringify(
+    { ...data, redirects: siteRedirects(sources, data.tools) },
+    null,
+    2,
+  ) + "\n",
 );
 console.log(
-  `Prepared handbook and ${data.tools.length} tool pages without loading credentials or calling providers.`,
+  `Prepared ${PUBLIC_PAGES.length} guide pages and ${hostedTools.length} hosted tool pages; full ${data.tools.length}-tool catalog retained. No provider calls.`,
 );

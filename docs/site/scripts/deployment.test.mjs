@@ -144,7 +144,8 @@ test("launch examples and landing page do not restore retired hosted guarantees"
     /STATE_BACKEND=none DAILY_BUDGET_USD=0 MCP_TRANSPORT=http/,
   );
   assert.doesNotMatch(transport, /STATE_BACKEND=sqlite MCP_TRANSPORT=http/);
-  assert.match(source("docs/index.mdx"), /Omit `idempotency_key`/);
+  assert.match(source("docs/index.mdx"), /\/seed-mcp\/service\//);
+  assert.match(source("docs/calling-tools.md"), /Omit `idempotency_key`/);
   assert.doesNotMatch(
     source("docs/index.mdx"),
     /single-instance foundation|saved-success receipt recovery/,

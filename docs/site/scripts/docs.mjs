@@ -3,6 +3,12 @@ import { posix } from "node:path";
 import examples from "../tool-examples.json" with { type: "json" };
 import toolModels from "../tool-models.json" with { type: "json" };
 import { REPOSITORY_URL, SITE_BASE } from "../site-config.mjs";
+import {
+  appendSuffix,
+  documentTarget,
+  HOSTED_TOOLS,
+  resolveSiteLink,
+} from "./publication.mjs";
 
 export { SITE_BASE };
 export const SOURCE_BASE = `${REPOSITORY_URL}/blob/main/`;
@@ -49,6 +55,7 @@ export function handbookPage(source, content, toolCount) {
 }
 
 export function resolveDocLink(source, target) {
+  if (target.startsWith(`${SITE_BASE}/`)) return resolveSiteLink(target);
   if (/^(?:[a-z][a-z\d+.-]*:|#|\/)/i.test(target)) return target;
   const match = target.match(/^([^?#]*)(.*)$/);
   const path = posix.normalize(
@@ -57,12 +64,7 @@ export function resolveDocLink(source, target) {
   if (path.startsWith("../"))
     throw new Error(`Link outside repository: ${source}: ${target}`);
   if (path.startsWith("docs/") && /\.mdx?$/.test(path)) {
-    const slug = path
-      .slice(5)
-      .replace(/\.mdx?$/, "")
-      .replaceAll(".", "")
-      .replace(/(?:^|\/)index$/, "");
-    return `${SITE_BASE}/${slug ? `${slug}/` : ""}${match[2]}`;
+    return appendSuffix(documentTarget(path.slice(5)), match[2]);
   }
   return `${SOURCE_BASE}${path}${match[2]}`;
 }
@@ -122,6 +124,127 @@ export function schemaTable(schema) {
 }
 
 export const EXAMPLES = examples;
+
+const hostedNotes = {
+  ark_list_models:
+    "Ordinary discovery needs no credentials and returns `connection=null`. It does not verify account access. For optional image/video header checks, see [connection checks](../setup/shared-server.md).",
+  seedream_generate_image: `Use \`images\` for reference edits; \`point\` or \`bbox\` targets the first image on a 0-999 scale.
+Seedream 5.5 supports transparent PNGs from text. For 4K UHD, use \`size="3840x2160"\`, not \`"4K"\`.
+Use \`variations\` for alternatives. Review the result before approving another paid edit.
+Layer decomposition and native OCR are not supported.`,
+  seedance_create_task:
+    "Save every returned `task_id`, including IDs alongside an error. Poll with `gen_task_get`; do not call create again to check progress. A timeout can mean the request was accepted. Task access follows your provider key, not the client secret.",
+  gen_task_get:
+    "Pass known task IDs together and keep `persist_output=false`. Follow `recommended_poll_after_ms` until the tasks finish, then download their URLs. A queued task is not a failed task.",
+  gen_task_list:
+    "Lists tasks authorized by your provider key. Use its cursor for more results; listing does not create or repeat a generation.",
+  gen_task_cancel_or_delete:
+    "This changes an existing task. Confirm the intended ID and `expected_status` before calling; cancellation and deletion have different provider rules.",
+  seed_audio_generate:
+    "Describe the complete scene: speech, music and sound. Use one image reference or audio references, not both. This is scene generation, not the local-only Seed TTS tool.",
+};
+
+export function hostedToolPage(tool) {
+  if (!HOSTED_TOOLS.includes(tool.name) || !tool.transports?.http) {
+    throw new Error(`Not a hosted reference tool: ${tool.name}`);
+  }
+  if (!EXAMPLES[tool.name])
+    throw new Error(`Missing hosted example: ${tool.name}`);
+  if (
+    tool.execution !== "direct" ||
+    "background" in tool ||
+    Object.values(tool.transports).some(
+      (transport) =>
+        transport &&
+        (transport.execution !== "direct" || "background" in transport),
+    )
+  )
+    throw new Error(`Invalid direct execution metadata: ${tool.name}`);
+  const input = tool.inputSchema;
+  const inputRef = input.properties?.input?.$ref;
+  const fields = inputRef
+    ? input.$defs[inputRef.split("/").at(-1)]
+    : input.properties?.input || input;
+  const credential = tool.transports.http.credential_header;
+  const models = supportedModels(tool.name);
+  const preview = ["seedream_generate_image", "seedance_create_task"].includes(
+    tool.name,
+  );
+  const exampleNote = preview
+    ? "This is a non-billable preview (`dry_run=true`), not generated media. Generation may incur charges."
+    : tool.name === "gen_task_cancel_or_delete"
+      ? "This is a destructive call, not a preview. Replace the example ID and confirm the intended task before running it."
+      : tool.name === "seed_audio_generate"
+        ? "This example generates audio and may incur charges."
+        : "This is a read-only example. Replace example task IDs with your own.";
+  return `---
+title: ${JSON.stringify(tool.name)}
+description: ${JSON.stringify(`Usage, inputs and outputs for ${tool.name}.`)}
+editUrl: ${JSON.stringify(`${SOURCE_BASE.replace("/blob/", "/edit/")}src/ark_mcp/tools/${tool.name}.py`)}
+---
+
+${tool.description.trim().split(/\n\s*\n/)[0]}
+
+${credential ? `**Private headers:** \`${credential}\` and \`X-MCP-Client-Secret\`. [Connection setup](../setup/install.md).` : "**Credentials:** none for ordinary discovery."}
+
+## Usage
+
+${hostedNotes[tool.name]}
+
+<span id="http-call"></span>
+
+\`\`\`json
+${JSON.stringify({ name: tool.name, arguments: EXAMPLES[tool.name] }, null, 2)}
+\`\`\`
+
+${exampleNote}
+See [result handling and retries](../integration-guide.md#direct-execution).
+
+${models ? `<details>\n<summary>Supported models</summary>\n\n${models}\n</details>` : ""}
+
+## Inputs
+
+The MCP arguments use an \`input\` wrapper. Hosted calls keep persistence false.
+
+${schemaTable(fields)}
+
+## Outputs
+
+${schemaTable(tool.outputSchema)}
+
+## Nested Types
+
+<details data-pagefind-ignore>
+<summary>Field definitions</summary>
+
+${Object.entries(input.$defs || {})
+  .map(([name, schema]) => `**${name}**\n\n${schemaTable(schema)}`)
+  .join("\n")}
+
+</details>
+
+## Complete JSON Schemas
+
+<details data-pagefind-ignore>
+<summary>Full tool description and schemas</summary>
+
+${tool.description}
+
+### Input Schema
+
+\`\`\`json
+${JSON.stringify(input, null, 2)}
+\`\`\`
+
+### Output Schema
+
+\`\`\`json
+${JSON.stringify(tool.outputSchema, null, 2)}
+\`\`\`
+
+</details>
+`;
+}
 
 function supportedModels(name) {
   const entry = toolModels[name];

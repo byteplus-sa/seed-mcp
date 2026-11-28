@@ -19,13 +19,16 @@ test("primary onboarding connects to hosted MCP without installing a server", ()
   }
   const install = page("setup/install.md");
   assert.match(install, /You only connect your AI client/);
-  assert.match(install, /No server installation or Kubernetes access required/);
-  assert.match(install, /hosted-deployment-status\.md#connect/);
-  assert.match(install, /certificate-verification exception/);
+  assert.match(
+    install,
+    /No local server, software installation or Kubernetes access is needed/,
+  );
+  assert.match(install, /service\.md#privacy/);
+  assert.match(page("service.md"), /credential-exposure risk/);
   assert.match(install, /id="guided-local-setup"/);
   assert.match(install, /shared-server\.md/);
-  assert.match(install, /Temporary uploads are disabled/);
-  assert.match(install, /Seed TTS 3\.0,[\s\S]*not available over HTTP/);
+  assert.match(page("service.md"), /Temporary uploads are disabled/);
+  assert.match(install, /TTS and local file tools are\s+not hosted/);
 });
 
 test("first use leads with a generation prompt rather than tool orchestration", () => {
@@ -121,22 +124,16 @@ test("manual fallback selects a reviewed release and keeps private launch contra
 
 test("hosted setup uses private headers and makes skills optional", () => {
   const install = page("setup/install.md");
-  assert.match(install, /\/\.agents\/skills\/ark-mcp-setup/);
   assert.match(
     install,
-    /byteplus-sa\/seed-mcp\/tree\/main\/\.agents\/skills\/ark-mcp-setup/,
+    /agent skill.*is optional; it is not needed to connect/,
   );
-  assert.match(install, /Neither skill is required to connect/);
-  assert.match(install, /Skills CLI/);
-  assert.match(install, /documentation website is not an MCP endpoint/);
+  assert.match(install, /Use the `\/mcp` URL, not this documentation website/);
   assert.match(install, /independent client-generated secret/);
-  assert.match(install, /does not validate your provider key/);
+  assert.match(install, /does not validate your key or account access/);
   assert.match(install, /private custom headers/);
-  assert.match(
-    install,
-    /no OAuth login, server-issued key, or `Authorization`/i,
-  );
-  assert.match(install, /Expect seven hosted tools and `connection=null`/);
+  assert.match(install, /Do not use\s+`Authorization` or OAuth/i);
+  assert.match(install, /Expect seven tools and `connection=null`/);
   assert.doesNotMatch(
     page("setup/shared-server.md"),
     /does not provide a public hosted endpoint/,

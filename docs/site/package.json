@@ -9,7 +9,7 @@
   "scripts": {
     "prepare:docs": "node scripts/prepare-docs.mjs",
     "dev": "npm run prepare:docs && astro dev",
-    "build": "npm run prepare:docs && astro build",
+    "build": "npm run prepare:docs && astro build && node scripts/check-built-site.mjs",
     "preview": "astro preview",
     "check": "npm run prepare:docs && astro check",
     "test": "node --test scripts/*.test.mjs"

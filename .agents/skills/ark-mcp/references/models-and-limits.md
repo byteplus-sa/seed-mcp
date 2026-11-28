@@ -1,6 +1,6 @@
 # Models and limits
 
-Model discovery with `ark_list_models`, how the server binds model IDs to families, and the per-family limits for Seedance and Seedream. **This file is the one place per-family numbers live.** For the configured server, **`ark_list_models` is authoritative**: bindings are operator-configured, so a deployment can list fewer, more, or differently named models than the tables below. Tool parameters are in the tool schemas (see [API reference](https://byteplus-sa.github.io/seed-mcp/api-reference/)).
+Model discovery with `ark_list_models`, how the server binds model IDs to families, and the per-family limits for Seedance and Seedream. **This file is the one place per-family numbers live.** For the configured server, **`ark_list_models` is authoritative**: bindings are operator-configured, so a deployment can list fewer, more, or differently named models than the tables below. Tool parameters are in the tool schemas (see [API reference](https://github.com/byteplus-sa/seed-mcp/blob/main/docs/api-reference.md)).
 
 ## Discovery with `ark_list_models`
 
@@ -123,7 +123,7 @@ flag is needed. Old separate-model configuration must be removed explicitly;
 the server provides no compatibility aliases.
 This is retained server acceptance, not proof of provider support. Current
 model-specific API docs list regular 2.5 only through 1080p; confirm acceptance
-before paid 4K use. See the [contract caveat](https://byteplus-sa.github.io/seed-mcp/models/#video-capabilities-videocapabilities).
+before paid 4K use. See the [contract caveat](https://github.com/byteplus-sa/seed-mcp/blob/main/docs/models.md#video-capabilities-videocapabilities).
 
 ## Seedance (`kind: video`)
 
@@ -161,7 +161,7 @@ before paid 4K use. See the [contract caveat](https://byteplus-sa.github.io/seed
 - **5.5 background:** `auto` (default), `opaque`, `transparent`; JPEG in auto mode is always opaque. Pro accepts only `opaque` and `transparent`.
 - **Safety IDs:** optional `safety_identifier` on 5.5/Pro, 1-64 non-space printable ASCII characters; use a stable hash, not personal data.
 - **5.5 `seed`:** retained as an explicit compatibility field but absent from the current provider parameter docs and OpenAPI schema; omit unless provider acceptance is verified.
-- Discovery reports transparency, named/custom size limits, `background_modes`, `prompt_optimization_modes`, and `supports_safety_identifier`. Source and remaining live-alpha validation: [model capabilities](https://byteplus-sa.github.io/seed-mcp/models/#image-capabilities-imagecapabilities). Layer-decomposition/OCR inputs are rejected.
+- Discovery reports transparency, named/custom size limits, `background_modes`, `prompt_optimization_modes`, and `supports_safety_identifier`. Source and remaining live-alpha validation: [model capabilities](https://github.com/byteplus-sa/seed-mcp/blob/main/docs/models.md#image-capabilities-imagecapabilities). Layer-decomposition/OCR inputs are rejected.
 
 ## Seed TTS (`kind: audio`, stdio only)
 

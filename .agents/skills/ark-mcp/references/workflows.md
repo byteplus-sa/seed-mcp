@@ -3,7 +3,7 @@
 How to run work end to end: direct calls, the production workflows that
 need record-keeping, retry and error rules, and practices the tool schemas do
 not spell out. Parameters live in the tool schemas (see
-[API reference](https://byteplus-sa.github.io/seed-mcp/api-reference/)); polling and
+[API reference](https://github.com/byteplus-sa/seed-mcp/blob/main/docs/api-reference.md)); polling and
 artifact recovery are in [polling-and-artifacts.md](polling-and-artifacts.md).
 
 ## Direct execution
@@ -147,7 +147,7 @@ For Seedance:
 - Only select outputs after acceptance. Check inline previews in published
   documents/sheets; upload success alone is insufficient. Publishing/link repair
   stays in the consumer integration. No native Seedream OCR/decomposition tool
-  is exposed. Full workflow: [integration guide](https://byteplus-sa.github.io/seed-mcp/integration-guide/#seedream-review-and-edit).
+  is exposed. Full workflow: [integration guide](https://github.com/byteplus-sa/seed-mcp/blob/main/docs/integration-guide.md#seedream-review-and-edit).
 
 ### Asset-reference flow (Seedance `asset://`)
 

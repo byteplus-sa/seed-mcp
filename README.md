@@ -7,18 +7,14 @@ generation through a typed, safe tool surface.
 ## Documentation
 
 Start with the [Seed MCP documentation](https://byteplus-sa.github.io/seed-mcp/)
-and [installation guide](https://byteplus-sa.github.io/seed-mcp/setup/install/).
+and [connection guide](https://byteplus-sa.github.io/seed-mcp/setup/install/).
 This is the focused [`byteplus-sa/seed-mcp`](https://github.com/byteplus-sa/seed-mcp)
 fork of Ark MCP; Python package/module, tool and skill names remain unchanged.
-The handbook and generated schemas describe the site's source revision, not
-an assumed packaged release. Use this fork's installation and release guidance,
-not the broader upstream Ark MCP server.
-
-The source guides cover [installation](docs/setup/install.md),
-[client integrations](docs/integrations/index.md),
-[your first tool call](docs/setup/first-run.md), and
-[choosing a tool](docs/capabilities.md). See
-[site maintenance](docs/site-maintenance.md) for local development and deployment.
+The public site focuses on connecting to and using the hosted service.
+[Local setup](docs/setup/manual-install.md), [operator guides](docs/deployment.md)
+and the [full API reference](docs/api-reference.md) remain in this repository.
+Documentation describes its source revision, not an assumed packaged release.
+See [site maintenance](docs/site-maintenance.md) for publication details.
 
 > **Breaking capability removal:** the current server narrows the catalog to
 > 13 local tools (four always registered) plus optional HTTP upload preparation. MCP jobs/native tasks, media

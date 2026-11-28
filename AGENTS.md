@@ -390,8 +390,11 @@ explicitly when it matters.
 ### `docs/` — Project documentation
 
 User- and contributor-facing documentation for the project as it exists today.
-This is the published handbook: how to install, configure, run, deploy, and
-troubleshoot the server.
+This is the project handbook: how to connect, configure, run, deploy, and
+troubleshoot the server. GitHub Pages publishes only the curated hosted guide
+and seven baseline HTTP tool pages selected in `docs/site/scripts/publication.mjs`.
+Operator/local material remains in the repository, outside site search and
+navigation. Keep old public URLs redirected when consolidating pages.
 
 - Examples: `getting-started.md`, `configuration.md`, `transports.md`,
   `tools.md`, `deployment.md`, `troubleshooting.md`.

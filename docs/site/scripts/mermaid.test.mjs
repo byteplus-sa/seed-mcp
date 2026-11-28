@@ -61,7 +61,7 @@ test("Mermaid transforms real fences without losing links, tables or ordinary co
   const renderer = await createMarkdownProcessor(processor.options);
   const source = [
     '```mermaid\nflowchart LR\nA["<script>alert(1)</script>"] --> B["Server"]\n```',
-    "[Configuration](configuration.md)",
+    "[API Keys](api-keys.md)",
     "| Column |\n| --- |\n| Value |",
     "```text\nOrdinary code\n```",
   ].join("\n\n");
@@ -74,7 +74,7 @@ test("Mermaid transforms real fences without losing links, tables or ordinary co
   assert.match(code, /<pre class="mermaid">/);
   assert.match(code, /(?:&lt;|&#x3[cC];)script(?:&gt;|>)/);
   assert.doesNotMatch(code, /<script>alert/);
-  assert.match(code, /href="\/seed-mcp\/configuration\/"/);
+  assert.match(code, /href="\/seed-mcp\/api-keys\/"/);
   assert.match(code, /class="table-scroll"/);
   assert.match(code, /Ordinary code/);
   assert.ok(scripts.some((script) => script.includes("import('mermaid')")));

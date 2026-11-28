@@ -87,7 +87,7 @@ for (const name of ["ark-mcp", "ark-mcp-setup"]) {
 test("skill installation is discoverable and uses agent-native paths", () => {
   const guide = readDoc("setup/agent-skill.md");
   assert.match(readDoc("setup/install.md"), /agent-skill\.md/);
-  assert.match(readDoc("site/astro.config.mjs"), /slug: "setup\/agent-skill"/);
+  assert.match(readDoc("site/astro.config.mjs"), /slug: "agent-skill"/);
   assert.match(
     guide,
     /https:\/\/github\.com\/byteplus-sa\/seed-mcp\/tree\/main\/\.agents\/skills\/ark-mcp/,
@@ -125,7 +125,12 @@ test("skill installation prefers the scoped Skills CLI command over manual copyi
   assert.match(guide, /DO_NOT_TRACK/);
   assert.match(guide, /telemetry/i);
   assert.match(guide, /https:\/\/skills\.sh\/docs\/faq/);
-  assert.match(readDoc("setup/install.md"), /Skills CLI/);
+  assert.match(readDoc("agent-skill.md"), /Skills CLI/);
+  assert.match(
+    readDoc("agent-skill.md"),
+    /optional and does not install or run/,
+  );
+  assert.ok(readDoc("agent-skill.md").includes(command));
   for (const scope of ["-g", "-p"]) {
     for (const operation of ["check", "update"]) {
       assert.ok(guide.includes(`npx skills ${operation} ark-mcp ${scope}`));

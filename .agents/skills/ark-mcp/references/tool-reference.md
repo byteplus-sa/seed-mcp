@@ -1,6 +1,6 @@
 # Create-tool reference
 
-Per-product behaviour of the create tools that the tool schemas do not spell out: flows, cross-field rules, gotchas, and recovery. Parameters, ranges and output fields are in each tool's schema (also [API reference](https://byteplus-sa.github.io/seed-mcp/api-reference/)); per-model limits are in [models-and-limits.md](models-and-limits.md); polling, persistence and artifact handling are in [polling-and-artifacts.md](polling-and-artifacts.md); direct execution is in [workflows.md](workflows.md).
+Per-product behaviour of the create tools that the tool schemas do not spell out: flows, cross-field rules, gotchas, and recovery. Parameters, ranges and output fields are in each tool's schema (also [API reference](https://github.com/byteplus-sa/seed-mcp/blob/main/docs/api-reference.md)); per-model limits are in [models-and-limits.md](models-and-limits.md); polling, persistence and artifact handling are in [polling-and-artifacts.md](polling-and-artifacts.md); direct execution is in [workflows.md](workflows.md).
 
 **Choose transport first:** HTTP calls provider tools directly in the foreground,
 with selected provider key plus client secret headers. It has no jobs/native

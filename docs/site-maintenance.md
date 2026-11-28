@@ -2,8 +2,9 @@
 
 The Seed MCP handbook builds locally through Astro/Starlight. The site framework
 lives in `docs/site/`; human-written pages remain in `docs/`, alongside the
-existing handbook. Tool pages are generated from the static MCP catalog and
-the exact FastMCP/Pydantic input and output schemas.
+existing handbook. The public site is a concise hosted-user guide, not a mirror
+of every repository document. Tool pages use the static catalog and exact
+FastMCP/Pydantic input and output schemas.
 
 The deployment target is `https://byteplus-sa.github.io/seed-mcp/`, with
 `/seed-mcp/` as the project base. `docs/site/site-config.mjs` is the shared
@@ -57,6 +58,7 @@ the project environment is not at `.venv/`.
 | Page generation and link rewriting | `docs/site/scripts/` |
 | Navigation and theme | `docs/site/astro.config.mjs`, `docs/site/src/styles/custom.css` |
 | Site identity and publication paths | `docs/site/site-config.mjs` |
+| Published pages, hosted tools and legacy redirects | `docs/site/scripts/publication.mjs` |
 | Tool-reference categories | `docs/site/scripts/navigation.mjs` |
 | BytePlus logo variants | `docs/site/src/assets/byteplus-mark-{light,dark}.svg` |
 
@@ -67,11 +69,19 @@ endpoint aligned with the dated `hosted-deployment-status.md` record and retain
 the linked trust notes. Do not claim every client supports private custom
 headers. Templates are checked against the pure snippet generator.
 
-Local technical preparation remains in `setup/manual-install.md`, and
-client-specific local snippets stay in clearly optional disclosures.
-README, the landing page and getting-started entry points must lead to hosted
-connection, not release selection or local execution. The old installation
-URL and anchors remain for incoming links.
+`PUBLIC_PAGES` is the publication allowlist. `HOSTED_TOOLS` selects the seven
+baseline HTTP tools from the complete exporter output; it changes no server
+registration or capability. Local-only tools and optional upload preparation
+are not advertised as hosted features. Full operator/local guides stay in the
+repository, outside site navigation and search.
+
+Consolidated setup/client routes redirect to the connection guide. Other
+unpublished handbook routes redirect to their GitHub source; unpublished tool
+routes redirect to their handler source. Existing links are not silently dropped.
+Keep the old installation URL and useful section anchors.
+The public guide should have one concise page per user task, not duplicate
+setup, troubleshooting or schema explanations. `public-scope.test.mjs` guards
+the page list, redirects, link rewriting and prose budgets.
 
 `onboarding.test.mjs` guards that separation. The first-run page leads with
 copyable generation prompts, without tool names or job orchestration in those
@@ -95,9 +105,9 @@ absolute, so standalone copies do not depend on a source checkout.
 resolvable local references, as well as the guide's paths and setup boundary.
 Documentation CI also runs for changes to this skill.
 
-Audio has a dedicated navigation group and
-capability sections. Navigation tests ensure category membership and stable
-tool routes; uncategorized or duplicate catalog entries fail the build.
+Audio has a dedicated navigation group. Navigation tests ensure category
+membership and stable tool routes; uncategorized or duplicate catalog entries
+fail the build. Public navigation contains only the selected hosted tools.
 The BytePlus logo uses the original light/dark SVGs from the reference site
 in the header, with the same mark above the landing-page title. Its header
 alternative text is empty because the adjacent site title already names
@@ -120,8 +130,11 @@ gates and selected credential headers remain transport-specific; top-level
 preparation. The catalog contains 14 definitions: 13 conditional local tools,
 four always registered; HTTP has 7, plus optional
 `media_prepare_upload`. Its export has no invented stdio transport.
-The renderer rejects obsolete execution metadata and shows direct call
-envelopes on both transports, never job wrappers. `scope.test.mjs`
+The public renderer rejects obsolete execution metadata and shows one HTTP
+call example per tool, with field tables and collapsed complete schemas.
+Raw schemas and nested definitions are excluded from search to avoid drowning
+out user guidance. The complete-catalog renderer remains available for
+offline contract tests, including local tools. `scope.test.mjs`
 guards retired capability settings and tool names in current documentation,
 while dated changelog, 0.2 migration history and deprecated specs remain intact. Coordinate
 exporter changes with the owner of `scripts/export_tool_docs.py`; do not filter
@@ -133,9 +146,12 @@ client examples and transport inventories are checked by
 `tests/unit/test_export_tool_docs.py`. Current docs cannot reintroduce the
 retired shared-key HTTP setup; historical changelog text may remain.
 
-Relative Markdown handbook links become project-base-prefixed site routes.
-References outside `docs/` point to GitHub source; reference definitions are
-handled too. Build-time link validation catches missing pages and fragments.
+Links to public guides become project-base-prefixed routes. Links to
+consolidated guides resolve to their replacement; other handbook references
+point to GitHub source. Absolute site links are handled too, so archived
+operator routes are not treated as public pages. References outside `docs/`
+point to GitHub source. Build-time validation catches missing public pages
+and fragments; redirects retain access to old bookmarks.
 
 `deployment.test.mjs` guards the dedicated VKE runbook against actual Helm,
 Terraform/runtime settings and diagnostic command sources. Keep the stable

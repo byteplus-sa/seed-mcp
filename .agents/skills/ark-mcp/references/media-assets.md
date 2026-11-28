@@ -2,7 +2,7 @@
 
 Behaviour and gotchas for `media_upload`, `media_presign`, and native Seedance asset references.
 For parameters see the tool schema and
-[API reference](https://byteplus-sa.github.io/seed-mcp/api-reference/). Per-model limits:
+[API reference](https://github.com/byteplus-sa/seed-mcp/blob/main/docs/api-reference.md). Per-model limits:
 [models-and-limits.md](models-and-limits.md); env vars:
 [environment.md](environment.md); direct calls and provider polling:
 [workflows.md](workflows.md), [polling-and-artifacts.md](polling-and-artifacts.md).

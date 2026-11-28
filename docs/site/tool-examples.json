@@ -46,5 +46,18 @@
       "task_ids": ["cgt-example-replace-me"],
       "persist_output": false
     }
+  },
+  "gen_task_list": {
+    "input": {
+      "page_size": 20
+    }
+  },
+  "gen_task_cancel_or_delete": {
+    "input": {
+      "task_id": "cgt-example-replace-me",
+      "mode": "cancel",
+      "expected_status": "queued",
+      "confirm": true
+    }
   }
 }

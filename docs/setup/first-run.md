@@ -1,15 +1,13 @@
 ---
-title: Your First Tool Call
-description: Ask your agent to generate an image or video with a simple prompt.
+title: Create Media
+description: Example prompts for images, video and scene audio.
 ---
 
-After [setup](install.md), **describe what you want to create in your agent's
-chat**. The agent handles model discovery, tool calls and progress checks.
-You do not need to write JSON, choose tool names or run terminal commands.
+After [connecting](install.md), describe what you want in your client's chat.
+The client handles tool calls. **Generation may incur charges**; review the
+request before approving it.
 
 ## Generate an Image
-
-Copy this prompt into your connected agent:
 
 ```text
 Use ark-seed to generate one image of a red ceramic cup on a wooden
@@ -20,27 +18,12 @@ download link.
 
 <span id="generate-deliberately"></span>
 
-**Generation may incur charges.** Review the agent's proposed operation and
-any tool approval before proceeding. Each generation prompt is a separate
-request. If you only want to check setup without generating, use the
-[optional checks below](#discover-before-spending).
-
-Change the subject, style or composition to suit your idea. The agent should
-choose a supported model from your configured services. If image generation
-is unavailable, it should explain what is missing instead of substituting
-another service without asking.
-
-For transparent PNGs, reference edits and a no-charge request preview, see
+For transparent PNGs and reference edits, see
 [the Seedream tool reference](/seed-mcp/tool-reference/seedream-generate-image/#seedream-5-5).
-Seedream 5.5 is the built-in image default in the
-server revision documented here; older installations and explicit operator
-defaults may select a different model.
 
 <span id="video-and-other-provider-tasks"></span>
 
 ## Generate a Video
-
-When video generation is enabled, try:
 
 ```text
 Use ark-seed to generate one 5-second landscape video of a red ceramic
@@ -49,15 +32,22 @@ as steam rises in warm morning light. Realistic, cinematic style.
 Show me the finished video and a download link.
 ```
 
-This creates a new video from text; it does not reuse the image above.
-The agent should keep checking the existing request until it finishes.
-A provider task ID alone is not the finished video.
+This creates a new video; it does not reuse the image above.
+The client should poll the returned task until the video is ready.
+
+## Generate Audio
+
+```text
+Use ark-seed to create a short cafe soundscape: quiet conversation,
+gentle piano and cups being set on tables. Give me an MP3 download link.
+```
+
+Seed Audio generates a complete scene. It is separate from the local-only
+text-to-speech tool.
 
 <span id="retrieve-the-job-result"></span>
 
 ## If the Agent Pauses
-
-Send a follow-up in the same chat:
 
 ```text
 Continue checking my existing request and show me the result when it is
@@ -65,51 +55,26 @@ ready. Do not submit a new generation request. If the existing request
 cannot be recovered, explain what happened before doing anything else.
 ```
 
-Keep the same client connection open while it works. Both transports call
-tools directly; there are no MCP jobs. A timeout does not mean generation
-failed or cancel upstream work. Keep accepted task/request IDs and never
-blindly repeat the generation prompt, which could create another charge.
-
-Download results you want to keep. Provider links expire, and inline previews
-depend on your client. If a preview is unavailable, use the returned download
-link. Local stdio can explicitly opt into [Artifacts](../artifacts.md);
-persistence defaults to false. HTTP returns temporary URLs and rejects server
-persistence. Neither transport supports native tasks. HTTP has no
-local storage/artifact tools or resources. Optional
-[temporary upload preparation](../temporary-uploads.md) is for input references,
-not retaining generated outputs.
+Keep task/request IDs. A timeout does not cancel provider work, and a repeated
+request can create another charge. Download results you want to keep:
+image/video links last about 24 hours, audio links about two hours.
 
 ## Discover Before Spending
-
-This optional check lists configured capabilities without creating media:
 
 ```text
 Use ark-seed discovery only to show which media services and models are
 configured for me. Do not generate media or upload files.
 ```
 
-Discovery makes no provider calls. It does not prove that your provider key
-or account is authorized to generate.
+Discovery makes no provider calls and does not prove account access.
 
 ## Preview an Image Request
 
-To check an image request without paying for generation:
-
-```text
-Preview a text-only Seedream request for one image of a red ceramic cup
-on a wooden table. Show the request and estimated cost if available.
-Do not generate an image or make a billable request. If a no-charge
-preview is unavailable, stop and explain what is missing.
-```
-
-A request preview is not a generated image. Only approve a dry-run call
-with `dry_run: true`, never a substitute generation call. Seedream must be
-enabled even for a preview. HTTP previews still require the selected provider
-key and client secret in private headers; discovery alone is anonymous.
+Ask for a non-billable preview and approve only `dry_run: true`.
+A request preview is not a generated image. It still needs your private
+headers; any estimate is not an account quote.
 
 ## Technical Reference
 
-Developers can find exact arguments in the
-[tool reference](../api-reference.md) and direct-call/result handling in
-[Direct Execution](../integration-guide.md#direct-execution).
-For other capabilities, see [Choose a Tool](../capabilities.md).
+See [available tools](../capabilities.md) or
+[direct-call result handling](../integration-guide.md#direct-execution).

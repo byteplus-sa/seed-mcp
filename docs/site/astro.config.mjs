@@ -7,6 +7,7 @@ import starlightLinksValidator from "starlight-links-validator";
 import remarkLinks from "./scripts/remark-links.mjs";
 import { toolReferenceGroups } from "./scripts/navigation.mjs";
 import rehypeTables from "./scripts/rehype-tables.mjs";
+import { selectHostedTools } from "./scripts/publication.mjs";
 import {
   REPOSITORY_URL,
   SITE_BASE,
@@ -15,7 +16,7 @@ import {
   SITE_TITLE,
 } from "./site-config.mjs";
 
-const { tools } = JSON.parse(
+const { tools, redirects } = JSON.parse(
   readFileSync(new URL("./src/data/tools.json", import.meta.url), "utf8"),
 );
 
@@ -25,6 +26,7 @@ export default defineConfig({
   trailingSlash: "always",
   outDir: "../../out/docs-site",
   redirects: {
+    ...redirects,
     "/seedream-5-5/": `${SITE_BASE}/tool-reference/seedream-generate-image/#seedream-5-5`,
   },
   markdown: {
@@ -73,76 +75,37 @@ export default defineConfig({
         {
           label: "Get Started",
           items: [
-            { slug: "setup/install", label: "Connect to Hosted Seed MCP" },
-            { slug: "setup/agent-skill", label: "Agent Skill (Optional)" },
-            { slug: "setup/shared-server", label: "HTTP Connection Details" },
-            { slug: "api-keys", label: "Provider Keys" },
-            { slug: "setup/first-run", label: "Your First Tool Call" },
-          ],
-        },
-        {
-          label: "Client Integrations",
-          items: [
-            { slug: "integrations", label: "Choose Your Client" },
-            ...[
-              "claude-desktop",
-              "claude-code",
-              "codex",
-              "trae",
-              "cursor",
-              "vscode",
-              "opencode",
-              "python",
-            ].map((client) => ({ slug: `integrations/${client}` })),
-            { slug: "transports", label: "HTTP and Shared Servers" },
+            { slug: "setup/install", label: "Connect" },
+            { slug: "setup/first-run", label: "Create Media" },
+            { slug: "capabilities", label: "Tools at a Glance" },
           ],
         },
         {
           label: "Tool Reference",
           collapsed: true,
+          items: toolReferenceGroups(selectHostedTools(tools)),
+        },
+        {
+          label: "Help",
           items: [
-            { slug: "capabilities", label: "Choose a Tool" },
-            ...toolReferenceGroups(tools),
+            { slug: "api-keys", label: "Get API Keys" },
+            { slug: "help", label: "Troubleshooting" },
+            { slug: "service", label: "Service Limits and Privacy" },
           ],
         },
         {
-          label: "Workflows and Concepts",
+          label: "Advanced",
           collapsed: true,
           items: [
-            { slug: "models" },
-            { slug: "tools", label: "Worked Tool Examples" },
-            { slug: "seed-tts", label: "Text to Speech (Local)" },
-            { slug: "artifacts" },
-            { slug: "multi-generation" },
-            { slug: "assets" },
-            { slug: "use-cases" },
-            { slug: "integration-guide", label: "Direct Execution" },
+            { slug: "connection-checks", label: "Connection Checks" },
+            { slug: "calling-tools", label: "Calling Tools" },
+            { slug: "agent-skill", label: "Agent Skill (Optional)" },
+            {
+              label: "Operator and Local Reference",
+              link: `${REPOSITORY_URL}/tree/main/docs`,
+            },
           ],
         },
-        {
-          label: "Configuration and Operations",
-          collapsed: true,
-          items: [
-            "configuration",
-            "setup/manual-install",
-            "setup/updating",
-            "self-hosting",
-            "deployment",
-            "byteplus-terraform",
-            "secret-manager",
-            "runtime",
-            "security",
-            "observability",
-            "s3-object-storage",
-            "architecture",
-            "api-reference",
-            "releases",
-            "changelog",
-            "migration-02",
-            "site-maintenance",
-          ].map((slug) => ({ slug })),
-        },
-        { slug: "troubleshooting" },
       ],
     }),
   ],

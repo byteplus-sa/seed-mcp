@@ -1,102 +1,37 @@
 ---
 title: BytePlus Seed MCP
-description: Connect your AI client to BytePlus-hosted Seed MCP for images, video and audio. No server installation required.
+description: Create images, video and audio from your AI client with hosted Seed MCP.
 template: splash
 hero:
   tagline: Images, video and audio.<br />Connect your AI client. No server to install.
   actions:
-    - text: Connect to hosted Seed MCP
+    - text: Connect your client
       link: /seed-mcp/setup/install/
       icon: right-arrow
-    - text: Connect your client
-      link: /seed-mcp/integrations/
-      variant: minimal
-    - text: Explore the tools
-      link: /seed-mcp/capabilities/
+    - text: Try a prompt
+      link: /seed-mcp/setup/first-run/
       variant: minimal
 editUrl: https://github.com/byteplus-sa/seed-mcp/edit/main/docs/index.mdx
 ---
 
-import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
+import { CardGrid, LinkCard } from '@astrojs/starlight/components';
 
-<nav className="client-strip" aria-label="Client integrations">
-  <a href="/seed-mcp/integrations/claude-desktop/">Claude Desktop</a>
-  <a href="/seed-mcp/integrations/claude-code/">Claude Code</a>
-  <a href="/seed-mcp/integrations/codex/">Codex</a>
-  <a href="/seed-mcp/integrations/trae/">TRAE</a>
-  <a href="/seed-mcp/integrations/cursor/">Cursor</a>
-  <a href="/seed-mcp/integrations/vscode/">VS Code</a>
-  <a href="/seed-mcp/integrations/opencode/">OpenCode</a>
-  <a href="/seed-mcp/integrations/python/">Python</a>
-</nav>
+## What You Can Create
+
+Connect to the BytePlus-hosted service, bring your provider key, and describe
+what you want in your AI client's chat.
 
 <CardGrid>
-  <Card title="7 hosted tools" icon="puzzle">
-    Discover models, create images, video and scene audio, and manage video tasks through the existing BytePlus-hosted service.
-  </Card>
-  <Card title="Your workflow, connected" icon="rocket">
-    Create and poll in your AI client. HTTP returns temporary provider URLs; local stdio can explicitly preserve artifacts.
-  </Card>
-  <Card title="Request-only HTTP BYOK" icon="seti:lock">
-    Bring the selected provider key and a client-generated admission secret. HTTP keys are not persisted; no OAuth, signup or server-issued key.
-  </Card>
+  <LinkCard title="Images" description="Generate and edit images with Seedream, including transparent PNGs." href="/seed-mcp/tool-reference/seedream-generate-image/" />
+  <LinkCard title="Video" description="Create video from text and reference media with Seedance." href="/seed-mcp/tool-reference/seedance-create-task/" />
+  <LinkCard title="Audio" description="Generate speech, music and sound together with Seed Audio." href="/seed-mcp/tool-reference/seed-audio-generate/" />
 </CardGrid>
 
-## Start Building
+## Start Here
 
-From a remote connection to your first tool call. The operator runs the server;
-you do not need a checkout, Python, Docker or Kubernetes access.
+1. [Connect your client](/seed-mcp/setup/install/) with the hosted URL and private headers.
+2. [Create media](/seed-mcp/setup/first-run/) with an example prompt.
+3. Download the result before its link expires.
 
-<CardGrid>
-  <LinkCard title="Connect to hosted Seed MCP" description="Add the hosted URL and private headers to your client. No server installation or startup." href="/seed-mcp/setup/install/" />
-  <LinkCard title="Connect your client" description="Find the right configuration, from Claude and Codex to your own Python app." href="/seed-mcp/integrations/" />
-  <LinkCard title="Create with a prompt" description="Ask your agent to generate an image or video. Copy a prompt and make it your own." href="/seed-mcp/setup/first-run/" />
-  <LinkCard title="Explore the reference" description="Find every tool's requirements, inputs, outputs and execution guidance." href="/seed-mcp/capabilities/" />
-</CardGrid>
-
-Give your agent the workflow guide: [install the optional ark-mcp skill](/seed-mcp/setup/agent-skill/)
-for model discovery, progress checks and keeping results.
-
-## Create Across Modalities
-
-The BytePlus models you need, connected through one consistent interface.
-
-<div className="capability-grid">
-<CardGrid>
-  <LinkCard title="Images" description="Generate and edit images with Seedream 5.5, create transparent PNGs and explore variations." href="/seed-mcp/tool-reference/seedream-generate-image/" />
-  <LinkCard title="Video" description="Create up to 30-second videos with Seedance 2.5, or select Flash for 480p/720p workflows." href="/seed-mcp/tool-reference/seedance-create-task/" />
-  <LinkCard title="Scene Audio" description="Create full-scene speech, music and sound with Seed Audio." href="/seed-mcp/tool-reference/seed-audio-generate/" />
-  <LinkCard title="Text to Speech (Not Hosted)" description="Seed TTS 3.0 is a separate local-only capability. Local stdio only; it is not available through the hosted endpoint." href="/seed-mcp/seed-tts/" />
-</CardGrid>
-</div>
-
-Finish local workflows with [object storage and artifacts](/seed-mcp/capabilities/#uploads-and-outputs)
-and [existing Seedance asset references](/seed-mcp/assets/).
-
-Start with anonymous static HTTP discovery before making a paid generation.
-Both transports call tools directly, without MCP jobs or native tasks.
-Storage and artifact resources remain local stdio only.
-Seed TTS always saves its completed audio; other generation tools require
-explicit local persistence.
-Hosted HTTP is stateless and database-free, with multi-pod deployment support
-and per-pod limits. Task access follows the supplied provider key, not the client
-secret. Omit `idempotency_key`: supplied legacy keys are rejected on both
-transports. There is no durable replay or shared budget accounting; repeated
-creates may bill again. Save task IDs, poll, and never automatically resubmit
-uncertain creates. Live deployment and provider/client acceptance remain
-separate from source validation.
-See the [submission contract](../specs/SPEC_HOSTED_BYOK.md#http-submission-safety).
-
-## About This Server
-
-Seed MCP is the focused image, video, audio and speech fork of Ark MCP.
-It does not expose media understanding, dedicated ASR, 3D, VOD processing or
-provider asset administration. Package/module names, the `ark-seed` client
-entry and the `ark-mcp` skills remain unchanged for compatibility.
-
-The repository has __TOOL_COUNT__ tool definitions across both transports;
-the hosted connection exposes seven. This handbook tracks its build revision,
-not necessarily the deployed instance. Use the
-[connection guide](/seed-mcp/setup/install/) for the hosted URL, and the
-[deployment record](/seed-mcp/hosted-deployment-status/) for dated live evidence.
-This website is documentation, not the MCP endpoint itself.
+Generation may incur charges. [Check the available tools](/seed-mcp/capabilities/)
+or read [service limits and privacy](/seed-mcp/service/).
