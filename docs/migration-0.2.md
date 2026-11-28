@@ -118,9 +118,9 @@ unchanged by that consolidation. Both are removed from the current server.
 | `seedream_edit_image` | `seedream_generate_image` with `images`, plus optional `point` / `bbox` |
 | `seedream_generate_image_variations` | `seedream_generate_image` with `variations`; `base_seed` is now `seed` |
 
-- **New:** `background="transparent"` (Seedream 5.0 Pro): edits exactly one PNG input that already has transparent pixels and keeps the transparency (PNG output). It does not remove the background of an opaque image.
+- **Current image support:** Seedream 5.5 only. `background="transparent"` generates PNGs from text or reference images without existing alpha. Older family bindings must be replaced with verified 5.5 bindings; see the [upgrade note](configuration.md#seedream-default-model-upgrade-note).
 - **New:** `dry_run=true`.
-- **`max_images` and `variations > 1` are mutually exclusive.**
+- **`max_images` accepts only 1 or omission; use `variations` for multiple images.**
 - **`output_path` replaces `output_dir`;** it must be a directory ending in
   `/` when several images are produced.
 

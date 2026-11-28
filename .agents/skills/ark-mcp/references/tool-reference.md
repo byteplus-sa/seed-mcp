@@ -117,21 +117,20 @@ record for polling. A null ID does not prove that nothing was billed.
 
 Needs local `BYTEPLUS_MODELARK_API_KEY` or HTTP `X-ModelArk-Api-Key` plus the
 client secret. **`seedream_generate_image` is the only Seedream tool**:
-text-to-image, image-to-image, reference editing, point/box edits, provider
-batches (`max_images`), parallel `variations`, and dry runs. Both transports call directly.
+text-to-image, image-to-image, reference editing, point/box edits, parallel
+`variations`, and dry runs with Seedream 5.5 only. Both transports call directly.
 
 ### Prompt and edit rules
 
 - **`prompt` is 1-4000 characters including any markup the tool adds**; with `images` it is the edit instruction. Optional only when `variation_prompts` is set.
 - **Point and box edits** target the **first** image and require `images`. Pass structured `point` / `bbox`; **do not write the markup into the prompt**. The tool prepends `Image 1<bbox>x1 y1 x2 y2</bbox>` and/or `Image 1<point>x y</point>` (bbox first when both) to **every** variation prompt, which counts against the 4000 characters.
 - Coordinates are normalized, top-left `0,0`, bottom-right `999,999`: `normalized = min(999, round(pixel / dimension * 1000))`.
-- Reference limits and `size` / `output_format` sets differ per family; see [models-and-limits.md](models-and-limits.md).
+- Reference limits and `size` / `output_format` constraints are in [models-and-limits.md](models-and-limits.md).
 
 ### `max_images` versus `variations`
 
-- **`max_images`** is one provider call returning up to 15 images: one request, one `usage`, results in `artifacts` and `item_errors`. Only on batch-capable families (Lite, 4.x); **Seedream 5.5 and 5.0 Pro do not support it**.
-- **`variations`** is separate parallel calls: works on every model, supports `variation_prompts` and per-variation seeds, results in `summary` (`artifacts` and `usage` stay empty).
-- **They cannot be combined** (`variations > 1` with `max_images > 1` is rejected). On 5.5 and Pro, use `variations`.
+- **`max_images`** accepts only 1 or omission. Provider batches are not supported.
+- **`variations`** makes 1-10 separate parallel calls, supports `variation_prompts` and per-variation seeds, and returns `summary` when greater than one (`artifacts` and `usage` stay empty).
 
 ### Seeds
 
@@ -158,21 +157,18 @@ Use 5.5 size tiers `1K`, `1.5K`, `2K` (default), or positive `WIDTHxHEIGHT`
 with 921600-8294400 pixels and width/height ratio 1/16-16, inclusive.
 For 4K UHD use `size="3840x2160"` on the same model or bound endpoint.
 `"4K"` is not a named tier; `4096x2160` exceeds the pixel limit.
-Optional `safety_identifier` on 5.5/Pro must be a stable hashed user ID,
+Optional `safety_identifier` must be a stable hashed user ID,
 1-64 non-space printable ASCII characters. Previews and logs redact it.
 `generations` preserves per-call usage, identifier echo, and provider-reported
 image size, format and actual background, with image/variation indices and
 matching artifact IDs. Missing values stay null; successful provider metadata
 survives partial variation failures. Decomposition/OCR inputs are rejected.
 
-On Seedream 5.0 Pro, transparency **edits exactly one PNG input that already has
-transparent pixels**. It does not remove an opaque background. Non-PNG Base64
-input is rejected locally; an opaque PNG fails at the provider with HTTP 400.
-The following example selects Pro, which must be bound by the operator:
+For example, edit a reference into a transparent PNG:
 
 ```json
 {
-  "model": "dola-seedream-5-0-pro-260628",
+  "model": "dola-seedream-5-5-261028",
   "prompt": "Turn the circle into a glossy ceramic button, keep the background transparent",
   "images": [{ "kind": "url", "url": "https://cdn.example.com/circle-rgba.png" }],
   "background": "transparent",
@@ -195,11 +191,11 @@ The following example selects Pro, which must be bound by the operator:
   provider reports, and does not establish visual quality or trigger paid retries.
 - Use the bounded [review/edit workflow](workflows.md#seedream-generate-review-edit)
   before accepting text, counts or geometry; publishing previews are a separate check.
-- `output_path` (stdio local export) needs `persist=true` and **must be a directory ending in `/`** when `variations > 1` or `max_images > 1`.
+- `output_path` (stdio local export) needs `persist=true` and **must be a directory ending in `/`** when `variations > 1`.
 - `asset://` references are rejected by Seedream; there is no asset-to-URL resolution fallback.
-- Dry-run cost covers `variations x max_images` images. 5.5 uses output pixel
+- Dry-run cost covers `variations` images. 5.5 uses output pixel
   tiers plus $0.008 per input image per variation; a UHD output estimates
-  $0.079 before references. Other families retain the flat estimate.
+  $0.079 before references.
 
 ## Seed TTS 3
 

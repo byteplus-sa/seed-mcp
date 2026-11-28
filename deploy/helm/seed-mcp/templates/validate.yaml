@@ -52,9 +52,13 @@
 {{- end -}}
 {{- end -}}
 {{- $defaults := dict "seedream" "dola-seedream-5-5-261028" "seedance" "dreamina-seedance-2-5-260628" -}}
+{{- $retiredImageModels := list "dola-seedream-5-0-pro-260628" "seedream-5-0-260128" "seedream-5-0-lite-260128" "seedream-4-5-251128" "seedream-4-0-250828" "seedream-3-0-t2i-250415" -}}
 {{- range $product, $selection := .Values.models -}}
 {{- $seen := dict -}}
 {{- range $binding := $selection.bindings -}}
+{{- if and (eq $product "seedream") (has $binding.model_id $retiredImageModels) -}}
+{{- fail "Only Seedream 5.5 is supported; this model ID is retired" -}}
+{{- end -}}
 {{- if hasKey $seen $binding.model_id -}}
 {{- fail "model bindings must have unique IDs within each product" -}}
 {{- end -}}

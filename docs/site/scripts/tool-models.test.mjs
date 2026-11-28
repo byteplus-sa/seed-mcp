@@ -36,15 +36,15 @@ test("model-backed tool pages each show one supported-model table", () => {
 test("image and video tables distinguish defaults, custom IDs and gated models", () => {
   const image = toolPage(tool("seedream_generate_image"));
   const video = toolPage(tool("seedance_create_task"));
-  for (const model of [
-    "dola-seedream-5-5-261028",
-    "dola-seedream-5-0-pro-260628",
-  ]) {
+  for (const model of ["dola-seedream-5-5-261028"]) {
     assert.match(image, new RegExp(`\\|[^\\n]*${model}[^\\n]*\\|`));
     assert.doesNotMatch(video, new RegExp(model));
   }
-  for (const label of ["Seedream Lite", "Seedream 4.x"]) {
-    assert.match(image, new RegExp(`\\| ${label.replace(".", "\\.")} \\|`));
+  for (const label of ["Seedream 5.0 Pro", "Seedream Lite", "Seedream 4.x"]) {
+    assert.doesNotMatch(
+      image,
+      new RegExp(`\\| ${label.replace(".", "\\.")} \\|`),
+    );
   }
   assert.match(video, /dreamina-seedance-2-5-260628/);
   assert.match(video, /dreamina-seedance-2-0-260128/);
@@ -71,7 +71,8 @@ test("image and video tables distinguish defaults, custom IDs and gated models",
   assert.match(video, /discovery does not verify entitlement/);
   assert.match(video, /Seedance 2\.0 Fast/);
   assert.match(video, /Seedance 2\.0 Mini/);
-  assert.match(image, /no built-in ID/i);
+  assert.match(image, /Only Seedream 5\.5 is supported/);
+  assert.doesNotMatch(image, /dola-seedream-5-0-pro-260628/);
   assert.doesNotMatch(image, /^## Seedream 5\.5$/m);
   assert.doesNotMatch(image, /^### Model Limits$/m);
   assert.match(image, /id="seedream-5-5"/);

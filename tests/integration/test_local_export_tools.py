@@ -99,7 +99,7 @@ async def test_multi_image_requires_directory(
     with pytest.raises(OutputPathError, match="directory"):
         await seedream_generate_image(
             SeedreamGenerateInput(
-                prompt="x", max_images=3, output_path=str(root / "a.png"), persist=True
+                prompt="x", variations=3, output_path=str(root / "a.png"), persist=True
             ),
             fake_ctx,
         )

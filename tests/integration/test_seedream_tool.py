@@ -75,7 +75,7 @@ class TestSeedreamGenerateImageTool:
 
         assert isinstance(result, SeedreamGenerateOutput)
         assert result.provider == "byteplus-modelark"
-        assert result.model == "dola-seedream-5-0-pro-260628"
+        assert result.model == "dola-seedream-5-5-261028"
         assert len(result.artifacts) == 1
         assert result.artifacts[0].media_type == "image"
         assert result.usage.total_tokens == 20
@@ -151,12 +151,12 @@ class TestSeedreamGenerateImageTool:
         assert result.artifacts[0].id == "provider-url"
         assert result.artifacts[0].uri == "https://tos-ap-southeast.bytepluses.com/img.png"
 
-    async def test_batch_rejected_for_pro_model(
+    async def test_batch_rejected_for_seedream55(
         self,
         test_env: None,
         fake_ctx: FakeContext,
     ) -> None:
-        with pytest.raises(ValueError, match=r"batch generation\) is not supported"):
+        with pytest.raises(ValueError, match="max_images"):
             await seedream_generate_image(
                 SeedreamGenerateInput(prompt="test", max_images=3), fake_ctx
             )
@@ -177,7 +177,7 @@ class TestSeedreamGenerateImageTool:
                 SeedreamGenerateInput(prompt="test", images=images), fake_ctx
             )
 
-    async def test_prompt_optimization_defaults_to_standard_for_pro(
+    async def test_prompt_optimization_omitted_uses_provider_default(
         self,
         test_env: None,
         fake_ctx: FakeContext,
@@ -198,9 +198,9 @@ class TestSeedreamGenerateImageTool:
 
         await seedream_generate_image(SeedreamGenerateInput(prompt="test", persist=False), fake_ctx)
 
-        assert captured[0].optimize_prompt_options == {"mode": "standard"}
+        assert captured[0].optimize_prompt_options is None
 
-    async def test_prompt_optimization_explicit_fast_overrides_default(
+    async def test_prompt_optimization_explicit_standard_is_forwarded(
         self,
         test_env: None,
         fake_ctx: FakeContext,
@@ -220,11 +220,11 @@ class TestSeedreamGenerateImageTool:
         monkeypatch.setattr(SeedreamService, "generate", mock_generate)
 
         await seedream_generate_image(
-            SeedreamGenerateInput(prompt="test", prompt_optimization="fast", persist=False),
+            SeedreamGenerateInput(prompt="test", prompt_optimization="standard", persist=False),
             fake_ctx,
         )
 
-        assert captured[0].optimize_prompt_options == {"mode": "fast"}
+        assert captured[0].optimize_prompt_options == {"mode": "standard"}
 
     async def test_provider_error_propagates(
         self,
@@ -288,7 +288,6 @@ class TestSeedreamUnifiedModes:
     @pytest.mark.parametrize(
         ("extra", "message"),
         [
-            ({"images": None}, "needs exactly one input image"),
             ({"output_format": "jpeg"}, "requires output_format omitted or 'png'"),
         ],
     )
@@ -332,9 +331,9 @@ class TestSeedreamUnifiedModes:
         assert all(
             request["image"] == "https://cdn.example.com" for request in result.preview.requests
         )
-        assert result.preview.estimated_cost_usd == 0.09
+        assert result.preview.estimated_cost_usd == 0.129
         generate.assert_not_awaited()
 
     async def test_max_images_and_variations_are_exclusive(self) -> None:
-        with pytest.raises(ValueError, match="either max_images"):
+        with pytest.raises(ValueError, match="max_images"):
             SeedreamGenerateInput(prompt="x", variations=2, max_images=2)

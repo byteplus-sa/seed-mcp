@@ -132,16 +132,15 @@ is distinct from another paid generation.
 `uv run python scripts/smoke_seedream55.py` prints offline help and makes no
 provider calls. Live execution requires both `--execute` and
 `--confirm-cost <positive USD estimate limit>`, configured local ModelArk
-credentials and an exact configured 5.5 model (use `--model` if Pro is the default).
+credentials and an exact configured 5.5 model (use `--model` for another verified 5.5 binding).
 The script dry-runs every selected case and prints the aggregate estimate before
 submitting any billable generation. A rejected/ambiguous call stops the matrix;
 submissions are never retried.
 
 Default cases cover opaque JPEG, transparent PNG, reference edit, point edit and
 bbox edit, using synthetic local PNG references rather than paid setup images.
-`--case` selects a subset; `--max-cases` caps the count. Optional Pro compatibility
-requires an explicit `--pro-model` and sufficient case cap (`--max-cases 6` for
-the complete matrix). Results go to a fresh private run directory under
+`--case` selects a subset; `--max-cases` caps the count at 1-5.
+Only Seedream 5.5 is supported. Results go to a fresh private run directory under
 `.artifacts` by default, with sanitized `report.json` and durable media.
 
 The script checks persistence, hashes, decode, dimensions, format and visible
@@ -343,7 +342,7 @@ still requires the selected live provider key and client secret.
 | `BYTEPLUS_SEED_SPEECH_API_KEY` | For audio | — | Seed Speech X-Api-Key |
 | `BYTEPLUS_MODELARK_BASE_URL` | No | `https://ark.ap-southeast.bytepluses.com/api/v3` | ModelArk region endpoint |
 | `BYTEPLUS_SEED_AUDIO_BASE_URL` | No | `https://voice.ap-southeast-1.bytepluses.com` | Seed Speech endpoint |
-| `SEEDREAM_DEFAULT_MODEL` | No | `dola-seedream-5-5-261028` | Seedream 5.5 model ID; retain an explicit 5.0 Pro default if not authorized |
+| `SEEDREAM_DEFAULT_MODEL` | No | `dola-seedream-5-5-261028` | Seedream 5.5 only; account authorization required, with no older-model fallback |
 | `SEEDANCE_DEFAULT_MODEL` | No | `dreamina-seedance-2-5-260628` | Default Seedance model ID for `seedance_create_task` (Seedance 2.5) |
 | `MCP_TRANSPORT` | No | `stdio` | `stdio` or `http` |
 | `MCP_HOST` | No | `127.0.0.1` | HTTP bind address |

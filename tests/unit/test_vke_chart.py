@@ -687,7 +687,7 @@ def test_chart_preserves_verified_byoe_bindings_and_operator_limits(
             "defaultModel": "ep-custom",
             "bindings": [
                 {"model_id": "ep-custom", "family": "seedream_5_5"},
-                {"model_id": "ep-custom", "family": "pro"},
+                {"model_id": "ep-custom", "family": "seedream_5_5"},
             ],
         },
         {"defaultModel": "ep-custom\ninjected"},
@@ -697,6 +697,55 @@ def test_chart_rejects_incomplete_or_invalid_image_bindings(
     tmp_path: Path, values: dict[str, Any]
 ) -> None:
     assert render(tmp_path, {"models": {"seedream": values}}).returncode != 0
+
+
+@pytest.mark.parametrize("family", ["pro", "lite", "4x"])
+def test_chart_rejects_retired_image_families(tmp_path: Path, family: str) -> None:
+    values = {
+        "defaultModel": "ep-retired-image",
+        "bindings": [{"model_id": "ep-retired-image", "family": family}],
+    }
+    result = render(tmp_path, {"models": {"seedream": values}})
+    assert result.returncode != 0
+    assert "seedream_5_5" in result.stderr
+
+
+def test_image_binding_schema_accepts_only_seedream55() -> None:
+    import jsonschema
+
+    schema = json.loads((CHART / "values.schema.json").read_text())
+    image_schema = schema["properties"]["models"]["properties"]["seedream"]
+    image_schema = {**image_schema, "definitions": schema["definitions"]}
+    values = {
+        "defaultModel": "ep-verified-image",
+        "bindings": [{"model_id": "ep-verified-image", "family": "seedream_5_5"}],
+    }
+    jsonschema.validate(values, image_schema)
+    for family in ("pro", "lite", "4x"):
+        values["bindings"][0]["family"] = family
+        with pytest.raises(jsonschema.ValidationError):
+            jsonschema.validate(values, image_schema)
+
+
+@pytest.mark.parametrize(
+    "model",
+    [
+        "dola-seedream-5-0-pro-260628",
+        "seedream-5-0-260128",
+        "seedream-5-0-lite-260128",
+        "seedream-4-5-251128",
+        "seedream-4-0-250828",
+        "seedream-3-0-t2i-250415",
+    ],
+)
+def test_chart_rejects_retired_models_mislabeled_as_seedream55(tmp_path: Path, model: str) -> None:
+    values = {
+        "defaultModel": model,
+        "bindings": [{"model_id": model, "family": "seedream_5_5"}],
+    }
+    result = render(tmp_path, {"models": {"seedream": values}})
+    assert result.returncode != 0
+    assert "model ID is retired" in result.stderr
 
 
 @pytest.mark.parametrize(

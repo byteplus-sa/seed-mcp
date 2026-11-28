@@ -33,7 +33,7 @@ if TYPE_CHECKING:
     from ark_mcp.tools.seedream_generate_image import SeedreamGenerateInput
 
 BASE_CASES = ("t2i-opaque", "t2i-transparent", "reference-edit", "point-edit", "bbox-edit")
-CASE_NAMES = (*BASE_CASES, "pro-transparent")
+CASE_NAMES = BASE_CASES
 REPOSITORY = Path(__file__).resolve().parents[1]
 DIMENSIONS = (1024, 1024)
 
@@ -62,16 +62,12 @@ def parser() -> argparse.ArgumentParser:
         help="Explicit approved aggregate estimated USD limit; required with --execute.",
     )
     result.add_argument("--model", help="Configured 5.5 model ID; uses the configured default.")
-    result.add_argument(
-        "--pro-model",
-        help="Opt into Pro transparent compatibility with this explicitly configured Pro ID.",
-    )
     result.add_argument("--case", action="append", choices=CASE_NAMES, dest="selected")
     result.add_argument(
         "--max-cases",
         type=int,
         default=5,
-        help="Hard case cap, 1-6 (default 5); select fewer cases with repeatable --case.",
+        help="Hard case cap, 1-5 (default 5); select fewer cases with repeatable --case.",
     )
     result.add_argument(
         "--output-dir",
@@ -104,7 +100,7 @@ def safe_output_directory(directory: Path) -> Path:
 
 
 def synthetic_reference(*, transparent: bool) -> dict[str, str]:
-    """Create a deterministic PNG locally, with real alpha for the Pro compatibility case."""
+    """Create a deterministic PNG locally, optionally with real alpha."""
     from PIL import Image, ImageDraw
 
     image = Image.new(
@@ -127,7 +123,6 @@ def build_cases(
     settings: Settings,
     *,
     model: str | None = None,
-    pro_model: str | None = None,
     selected: Sequence[str] | None = None,
     max_cases: int = 5,
 ) -> list[SmokeCase]:
@@ -137,13 +132,11 @@ def build_cases(
     from ark_mcp.tools.seedream_generate_image import SeedreamGenerateInput
 
     names = list(selected) if selected is not None else list(BASE_CASES)
-    if selected is None and pro_model is not None:
-        names.append("pro-transparent")
     if (
         not names
         or len(set(names)) != len(names)
         or any(name not in CASE_NAMES for name in names)
-        or not 1 <= max_cases <= 6
+        or not 1 <= max_cases <= 5
         or len(names) > max_cases
     ):
         raise SmokeFailure("invalid_case_selection_or_cap")
@@ -152,12 +145,6 @@ def build_cases(
         primary = registry.resolve_image_model(model or settings.seedream_default_model)
         if primary.family.value != "seedream_5_5":
             raise SmokeFailure("configured_55_model_required")
-        if pro_model is not None:
-            pro = registry.resolve_image_model(pro_model)
-            if pro.family.value != "seedream_pro":
-                raise SmokeFailure("configured_pro_model_required")
-        if "pro-transparent" in names and pro_model is None:
-            raise SmokeFailure("explicit_pro_model_required")
     except ValueError:
         raise SmokeFailure("model_not_configured") from None
 
@@ -190,14 +177,6 @@ def build_cases(
             "output_format": "jpeg",
         },
     }
-    if "pro-transparent" in names:
-        definitions["pro-transparent"] = {
-            "model": pro_model,
-            "prompt": "Change the blue button to red; preserve the transparent background.",
-            "images": [synthetic_reference(transparent=True)],
-            "output_format": "png",
-            "background": "transparent",
-        }
     cases = []
     for name in names:
         request = SeedreamGenerateInput.model_validate(
@@ -485,7 +464,6 @@ async def execute(args: argparse.Namespace) -> int:
     cases = build_cases(
         settings,
         model=args.model,
-        pro_model=args.pro_model,
         selected=args.selected,
         max_cases=args.max_cases,
     )
@@ -525,7 +503,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             and args.confirm_cost > 0,
             "--execute requires --confirm-cost with a finite positive USD estimate limit",
         ),
-        (1 <= args.max_cases <= 6, "--max-cases must be 1-6"),
+        (1 <= args.max_cases <= 5, "--max-cases must be 1-5"),
         (
             math.isfinite(args.timeout) and 0 < args.timeout <= 1800,
             "--timeout must be 0-1800 seconds",

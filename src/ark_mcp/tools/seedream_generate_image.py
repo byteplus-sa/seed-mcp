@@ -94,7 +94,7 @@ class SeedreamGenerateInput(BaseModel):
     )
     model: str | None = Field(
         None,
-        description="Exact model ID from ark_list_models(kind='image'); the default if omitted.",
+        description="Exact Seedream 5.5 model or verified endpoint ID from ark_list_models(kind='image'); default if omitted.",
     )
     size: str | None = Field(
         None,
@@ -116,34 +116,30 @@ class SeedreamGenerateInput(BaseModel):
     max_images: int | None = Field(
         None,
         ge=1,
-        le=15,
+        le=1,
         description=(
-            "Images from one provider call (1-15), on models that support batches. Not "
-            "combinable with variations > 1."
+            "Compatibility field: only 1 or omitted. Seedream 5.5 has no provider batch; "
+            "use variations for multiple images."
         ),
     )
     output_format: Literal["png", "jpeg"] | None = Field(
         None,
-        description="Output format. Defaults to png on 5.5 and for transparent backgrounds; otherwise provider default.",
+        description="Output format, png (default) or jpeg. Transparent backgrounds require png.",
     )
     response_format: Literal["url", "b64_json"] | None = Field(
         None,
         description="Provider response format: URL, or Base64 JSON (stdio with persist=true only).",
     )
     watermark: bool | None = Field(None, description="Apply an AIGC watermark.")
-    prompt_optimization: Literal["standard", "fast"] | None = Field(
+    prompt_optimization: Literal["standard"] | None = Field(
         None,
-        description=(
-            "5.5: standard only (provider default); fast is rejected. "
-            "5.0 Pro: standard or fast, default SEEDREAM_PROMPT_OPTIMIZATION_MODE."
-        ),
+        description=("Standard only (provider default when omitted); fast is not supported."),
     )
     background: Literal["auto", "opaque", "transparent"] | None = Field(
         None,
         description=(
-            "5.5 defaults to auto (prompt decides; jpeg is opaque). transparent requires png "
-            "output; 5.5 accepts text or references without alpha, 5.0 Pro needs one "
-            "already-transparent PNG. auto is 5.5-only."
+            "Defaults to auto (prompt decides; jpeg is opaque). transparent requires png "
+            "output and accepts text or references without existing alpha."
         ),
     )
     safety_identifier: str | None = Field(
@@ -151,7 +147,7 @@ class SeedreamGenerateInput(BaseModel):
         min_length=1,
         max_length=64,
         pattern=r"^[\x21-\x7E]+$",
-        description="5.5/5.0 Pro: stable end-user ID, 1-64 non-space printable ASCII characters. Use a hash, not personal data.",
+        description="Stable end-user ID, 1-64 non-space printable ASCII characters. Use a hash, not personal data.",
     )
     variations: int = Field(
         1,
@@ -192,8 +188,6 @@ class SeedreamGenerateInput(BaseModel):
             raise ValueError("Either prompt or variation_prompts is required.")
         if (self.point or self.bbox) and not self.images:
             raise ValueError("point and bbox edit the first image; provide images.")
-        if self.variations > 1 and (self.max_images or 1) > 1:
-            raise ValueError("Use either max_images (one provider batch) or variations, not both.")
         for prompt in self.prompts():
             length = len(prompt)
             if length > MAX_PROMPT_CHARACTERS:
@@ -227,7 +221,7 @@ class SeedreamGeneratePreview(BaseModel):
         ...,
         description=(
             "Built-in USD estimate: 5.5 uses output pixel tiers plus input images per "
-            "variation; other families use a flat image rate. Not an account billing quote."
+            "variation. Not an account billing quote."
         ),
     )
     price_source: Literal["builtin"] = Field(
@@ -285,12 +279,12 @@ TOOL_ANNOTATIONS = {
 async def seedream_generate_image(
     input: SeedreamGenerateInput, ctx: Context
 ) -> SeedreamGenerateOutput | ToolResult:
-    """Generate or edit images with Seedream (text-to-image, image-to-image, point/box edits).
+    """Generate or edit with Seedream 5.5 only (text-to-image, image-to-image, point/box edits).
 
     Pass images to edit or use as references; point or bbox targets a spot on the first
-    image. variations (up to 10) run in parallel; max_images is one provider batch on models
-    that support it. background='transparent' generates transparent PNGs from text or
-    references on 5.5; 5.0 Pro requires an already-transparent PNG input.
+    image. variations (up to 10) run in parallel; provider batches are not supported.
+    background='transparent' generates transparent PNGs from text or references,
+    without requiring existing alpha.
     For 5.5 high-resolution 4K UHD output use size='3840x2160' on the same model.
     5.5 supports auto background and standard optimization only. Layer decomposition
     and rich-text OCR are not supported; unknown input fields are rejected.

@@ -159,7 +159,7 @@ match the actual status, preventing accidental destructive actions.
 
 ## Timeout on Long Generations
 
-Seedream Pro and long Seed Audio generation can take 1-5 minutes. The
+Seedream and long Seed Audio generation can take 1-5 minutes. The
 default request timeout is 10 minutes (`BYTEPLUS_REQUEST_TIMEOUT_MS=600000`).
 
 If you experience timeouts:
@@ -197,7 +197,7 @@ call may still have been billed.
 
 ## Client Timeouts vs Provider Latency
 
-A client-side MCP timeout is distinct from a server failure. Seedream Pro and
+A client-side MCP timeout is distinct from a server failure. Seedream and
 Seedance provider submissions can take 60–150 s (longer under cold start or
 provider queue). Both transports execute directly. Use client timeout 660
 seconds for the default cooperative `MCP_TOOL_TIMEOUT_SECONDS=600.0`

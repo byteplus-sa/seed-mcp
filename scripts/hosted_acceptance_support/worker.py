@@ -215,7 +215,7 @@ def serve(directory: Path, port: int, mode: str) -> None:
             "MCP_ALLOWED_HOSTS": "127.0.0.1,localhost",
             "ARTIFACT_DIR": str(directory / "state"),
             "SEEDREAM_DEFAULT_MODEL": IMAGE_MODEL,
-            "SEEDREAM_MODEL_BINDINGS": [{"model_id": IMAGE_MODEL, "family": "pro"}],
+            "SEEDREAM_MODEL_BINDINGS": [{"model_id": IMAGE_MODEL, "family": "seedream_5_5"}],
             "SEEDANCE_DEFAULT_MODEL": VIDEO_MODEL,
             "SEEDANCE_MODEL_BINDINGS": [{"model_id": VIDEO_MODEL, "family": "seedance_2_5"}],
             "MCP_ADMISSION_TIMEOUT_SECONDS": 0.05,

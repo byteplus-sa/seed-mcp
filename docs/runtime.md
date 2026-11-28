@@ -211,7 +211,6 @@ quotes, settlement amounts or guarantees of an actual spend ceiling.
 
 | Constant | Value |
 |---|---|
-| `COST_PER_IMAGE` | `0.03` USD (families other than Seedream 5.5) |
 | `SEEDREAM_5_5_OUTPUT_TIERS` | `0.020` / `0.035` / `0.079` USD per output image, by pixel count |
 | `COST_PER_SEEDREAM_5_5_INPUT_IMAGE` | `0.008` USD per input image per call |
 | `COST_PER_AUDIO_SECOND` | `0.0031` USD |
@@ -223,7 +222,7 @@ quotes, settlement amounts or guarantees of an actual spend ceiling.
 
 | `product` | Formula |
 |---|---|
-| `"image"` | 5.5: `round(variations * (output_rate + reference_images * 0.008), 4)`; other families: `round(variations * 0.03, 4)` |
+| `"image"` | Seedream 5.5 only: `round(variations * (output_rate + reference_images * 0.008), 4)` |
 | `"audio"` | `round(variations * max(duration_seconds, 10) * 0.0031, 2)` — **floor of 10 seconds per variation** |
 | `"tts"` | `round(variations * max(characters, 0) * 20 / 1000000, 6)`; includes SSML markup and audio tags |
 | `"video"` | `round(variations * 0.07, 2)`; regular 2.5 and Flash use `0.35` per task, selected by registry family; a registered model-specific override wins |

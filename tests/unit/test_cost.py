@@ -9,10 +9,10 @@ import pytest
 
 from ark_mcp.tools._cost import (
     COST_PER_AUDIO_SECOND,
-    COST_PER_IMAGE,
     COST_PER_VIDEO_TASK,
     COST_PER_VIDEO_TASK_2_5,
     DEFAULT_MAX_CONCURRENT,
+    SEEDREAM_5_5_OUTPUT_TIERS,
     estimate_cost,
     image_cost_estimate,
     log_cost_estimate,
@@ -26,11 +26,11 @@ class TestEstimateCostImage:
 
     def test_single_image(self) -> None:
         cost = estimate_cost(product="image", variations=1)
-        assert cost == 0.03
+        assert cost == 0.035
 
     def test_multiple_images(self) -> None:
         cost = estimate_cost(product="image", variations=5)
-        assert cost == round(5 * COST_PER_IMAGE, 2)
+        assert cost == 0.175
 
     def test_zero_variations_image(self) -> None:
         cost = estimate_cost(product="image", variations=0)
@@ -38,11 +38,11 @@ class TestEstimateCostImage:
 
     def test_large_count_images(self) -> None:
         cost = estimate_cost(product="image", variations=1000)
-        assert cost == round(1000 * COST_PER_IMAGE, 2)
+        assert cost == 35.0
 
     def test_image_ignores_duration(self) -> None:
         cost = estimate_cost(product="image", variations=1, duration_seconds=30.0)
-        assert cost == 0.03
+        assert cost == 0.035
 
 
 class TestEstimateCostAudio:
@@ -128,10 +128,10 @@ class TestEstimateCostUnknown:
 class TestBuiltinEstimates:
     @pytest.mark.parametrize("model_id", [None, "dola-seedream-5-5-261028", "ep-custom-model"])
     @pytest.mark.parametrize("count", [0, 1, 1000])
-    def test_image_estimate_without_family_keeps_flat_fallback(
+    def test_image_estimate_without_family_uses_seedream55_default(
         self, model_id: str | None, count: int
     ) -> None:
-        assert image_cost_estimate(model_id, count) == (round(count * COST_PER_IMAGE, 4), "builtin")
+        assert image_cost_estimate(model_id, count) == (round(count * 0.035, 4), "builtin")
 
     @pytest.mark.parametrize("product", ["image", "audio", "video"])
     @pytest.mark.parametrize("model_id", [None, "ep-custom-model"])
@@ -183,15 +183,16 @@ class TestSeedream55Cost:
             == expected
         )
 
-    @pytest.mark.parametrize("family", [None, "seedream_pro", "seedream_lite", "seedream_4x"])
-    def test_other_families_keep_flat_rate_even_with_55_model_id(self, family: str | None) -> None:
-        assert image_cost_estimate(
-            "dola-seedream-5-5-261028",
-            2,
-            family=family,
-            size="3840x2160",
-            reference_images=10,
-        ) == (0.06, "builtin")
+    @pytest.mark.parametrize("family", ["seedream_pro", "seedream_lite", "seedream_4x"])
+    def test_retired_families_are_not_priced(self, family: str) -> None:
+        with pytest.raises(ValueError, match=r"Only Seedream 5\.5"):
+            image_cost_estimate(
+                "dola-seedream-5-5-261028",
+                2,
+                family=family,
+                size="3840x2160",
+                reference_images=10,
+            )
 
     def test_high_resolution_logging_uses_the_same_estimate(
         self, capsys: pytest.CaptureFixture[str]
@@ -212,7 +213,7 @@ class TestCostConstants:
     """Verify cost per unit values are reasonable."""
 
     def test_image_cost_is_positive(self) -> None:
-        assert COST_PER_IMAGE > 0
+        assert all(rate > 0 for _, rate in SEEDREAM_5_5_OUTPUT_TIERS)
 
     def test_audio_cost_per_second_is_positive(self) -> None:
         assert COST_PER_AUDIO_SECOND > 0
@@ -220,8 +221,8 @@ class TestCostConstants:
     def test_video_cost_is_positive(self) -> None:
         assert COST_PER_VIDEO_TASK > 0
 
-    def test_video_more_expensive_than_image(self) -> None:
-        assert COST_PER_VIDEO_TASK > COST_PER_IMAGE
+    def test_default_video_more_expensive_than_default_image(self) -> None:
+        assert image_cost_estimate(None, 1)[0] < COST_PER_VIDEO_TASK
 
     def test_default_max_concurrent_is_positive(self) -> None:
         assert DEFAULT_MAX_CONCURRENT > 0
@@ -253,7 +254,7 @@ class TestLogCostEstimate:
         assert record["msg"] == "cost_estimate"
         assert record["product"] == "image"
         assert record["variations"] == 2
-        assert record["estimated_cost_usd"] == round(2 * COST_PER_IMAGE, 2)
+        assert record["estimated_cost_usd"] == 0.07
 
     def test_logs_audio_cost_with_duration(self, capsys: pytest.CaptureFixture[str]) -> None:
         capsys.readouterr()
@@ -283,7 +284,7 @@ class TestLogCostEstimate:
                 "cost_estimate",
                 product="image",
                 variations=1,
-                estimated_cost_usd=0.03,
+                estimated_cost_usd=0.035,
                 price_source="builtin",
             )
 

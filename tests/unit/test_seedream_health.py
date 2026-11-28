@@ -15,7 +15,6 @@ from ark_mcp.providers.base import BaseHttpGateway
 from ark_mcp.server import create_server
 
 MODEL = "dola-seedream-5-5-261028"
-PRO_MODEL = "dola-seedream-5-0-pro-260628"
 
 
 def _settings(tmp_path: Path, **overrides: Any) -> Settings:
@@ -40,21 +39,19 @@ async def _health_text(settings: Settings, *, roots: list[str] | None = None) ->
     ("model", "family", "overrides"),
     [
         (MODEL, "seedream_5_5", {}),
-        (PRO_MODEL, "pro", {"SEEDREAM_DEFAULT_MODEL": PRO_MODEL}),
         (
             "ep-custom-image",
-            "lite",
-            {"SEEDREAM_DEFAULT_MODEL": "ep-custom-image", "SEEDREAM_MODEL_FAMILY": "lite"},
+            "seedream_5_5",
+            {"SEEDREAM_DEFAULT_MODEL": "ep-custom-image", "SEEDREAM_MODEL_FAMILY": "seedream_5_5"},
         ),
         (
             "ep-bound-image",
-            "4x",
+            "seedream_5_5",
             {
                 "SEEDREAM_DEFAULT_MODEL": "ep-bound-image",
-                "SEEDREAM_MODEL_FAMILY": "pro",
                 "SEEDREAM_MODEL_BINDINGS": [
                     {"model_id": MODEL, "family": "seedream_5_5"},
-                    {"model_id": "ep-bound-image", "family": "4x"},
+                    {"model_id": "ep-bound-image", "family": "seedream_5_5"},
                 ],
             },
         ),

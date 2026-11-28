@@ -4,10 +4,9 @@ Maps logical model families to operator-configured model IDs and supported
 parameters. The server validates combinations before spending quota and can
 be updated without rewriting tool handlers.
 
-Model IDs are configuration, not hard-coded truth — the official pages use
-inconsistent 5.0 Lite aliases, and API keys / model activation / endpoint IDs
-are region-scoped. The operator binds the account-authorized model ID for
-each logical family via environment variables.
+Model IDs are configuration, not proof of provider access. API keys, model
+activation and endpoint IDs are region-scoped. The operator binds verified
+account-authorized IDs to supported families via environment variables.
 """
 
 from __future__ import annotations
@@ -24,7 +23,6 @@ if TYPE_CHECKING:
 
 from ark_mcp.config.env import (
     SeedanceFamily,
-    SeedreamFamily,
     get_settings,
     has_request_settings,
 )
@@ -34,9 +32,6 @@ class ModelFamily(StrEnum):
     """Logical product family for capability lookup."""
 
     SEEDREAM_5_5 = "seedream_5_5"
-    SEEDREAM_PRO = "seedream_pro"
-    SEEDREAM_LITE = "seedream_lite"
-    SEEDREAM_4X = "seedream_4x"
     SEEDANCE_2 = "seedance_2"
     SEEDANCE_2_FAST = "seedance_2_fast"
     SEEDANCE_2_MINI = "seedance_2_mini"
@@ -63,7 +58,7 @@ class ImageCapabilities:
     custom_size_aspect_ratio_range: tuple[float, float] | None = None
     supports_watermark: bool = True
     supports_prompt_optimization: bool = True
-    prompt_optimization_modes: tuple[str, ...] = ("standard", "fast")
+    prompt_optimization_modes: tuple[str, ...] = ("standard",)
     default_prompt_optimization_mode: str | None = None
     supports_transparent_background: bool = False
     supports_transparent_generation: bool = False
@@ -106,11 +101,8 @@ class ImageCapabilities:
     def resolve_prompt_optimization(self, requested: str | None) -> str | None:
         """Return the effective prompt optimization mode for a request.
 
-        An explicit caller value always wins. When omitted, the family
-        default applies: on Seedream 5.0 Pro that is
-        ``SEEDREAM_PROMPT_OPTIMIZATION_MODE`` (``standard`` unless the
-        operator sets ``fast``). Families without a default send nothing
-        and the provider applies its own mode.
+        An explicit caller value wins. Seedream 5.5 sends nothing when omitted
+        and the provider applies its standard mode.
         """
         if not self.supports_prompt_optimization:
             return None
@@ -151,55 +143,22 @@ def _seedream_capabilities() -> dict[str, ImageCapabilities]:
     settings = get_settings()
     capabilities: dict[str, ImageCapabilities] = {}
     for binding in settings.seedream_model_bindings:
-        if binding.family is SeedreamFamily.SEEDREAM_5_5:
-            caps = ImageCapabilities(
-                family=ModelFamily.SEEDREAM_5_5,
-                model_id=binding.model_id,
-                max_references=10,
-                supports_batch=False,
-                supports_streaming=False,
-                supported_output_formats=("png", "jpeg"),
-                supported_sizes=("1K", "1.5K", "2K"),
-                custom_size_pixels_range=(921600, 8294400),
-                custom_size_aspect_ratio_range=(1 / 16, 16),
-                prompt_optimization_modes=("standard",),
-                supports_transparent_background=True,
-                supports_transparent_generation=True,
-                supports_auto_background=True,
-                supports_safety_identifier=True,
-                default_output_format="png",
-            )
-        elif binding.family is SeedreamFamily.PRO:
-            caps = ImageCapabilities(
-                family=ModelFamily.SEEDREAM_PRO,
-                model_id=binding.model_id,
-                max_references=10,
-                supports_batch=False,
-                supports_streaming=False,
-                supported_output_formats=("png", "jpeg"),
-                default_prompt_optimization_mode=settings.seedream_prompt_optimization_mode,
-                supports_transparent_background=True,
-                supports_safety_identifier=True,
-            )
-        elif binding.family is SeedreamFamily.LITE:
-            caps = ImageCapabilities(
-                family=ModelFamily.SEEDREAM_LITE,
-                model_id=binding.model_id,
-                max_references=14,
-                supports_batch=True,
-                supports_streaming=True,
-                supported_output_formats=("png", "jpeg"),
-            )
-        else:
-            caps = ImageCapabilities(
-                family=ModelFamily.SEEDREAM_4X,
-                model_id=binding.model_id,
-                max_references=14,
-                supports_batch=True,
-                supports_streaming=True,
-                supported_output_formats=("jpeg",),
-            )
-        capabilities[binding.model_id] = caps
+        capabilities[binding.model_id] = ImageCapabilities(
+            family=ModelFamily.SEEDREAM_5_5,
+            model_id=binding.model_id,
+            max_references=10,
+            supports_batch=False,
+            supports_streaming=False,
+            supported_output_formats=("png", "jpeg"),
+            supported_sizes=("1K", "1.5K", "2K"),
+            custom_size_pixels_range=(921600, 8294400),
+            custom_size_aspect_ratio_range=(1 / 16, 16),
+            supports_transparent_background=True,
+            supports_transparent_generation=True,
+            supports_auto_background=True,
+            supports_safety_identifier=True,
+            default_output_format="png",
+        )
     return capabilities
 
 

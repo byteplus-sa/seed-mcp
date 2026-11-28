@@ -24,9 +24,6 @@ See [Seed TTS 3.0](seed-tts.md).
 | Member | Value |
 |---|---|
 | `SEEDREAM_5_5` | `seedream_5_5` |
-| `SEEDREAM_PRO` | `seedream_pro` |
-| `SEEDREAM_LITE` | `seedream_lite` |
-| `SEEDREAM_4X` | `seedream_4x` |
 | `SEEDANCE_2` | `seedance_2` |
 | `SEEDANCE_2_FAST` | `seedance_2_fast` |
 | `SEEDANCE_2_MINI` | `seedance_2_mini` |
@@ -35,38 +32,37 @@ See [Seed TTS 3.0](seed-tts.md).
 
 The binding enums (`config/env.py`):
 
-- `SeedreamFamily`: `SEEDREAM_5_5 = "seedream_5_5"`, `PRO = "pro"`, `LITE = "lite"`, `V4X = "4x"`.
+- `SeedreamFamily`: `SEEDREAM_5_5 = "seedream_5_5"` only.
 - `SeedanceFamily`: `STANDARD = "standard"`, `FAST = "fast"`, `MINI = "mini"`,
   `SEEDANCE_2_5 = "seedance_2_5"`, `SEEDANCE_2_5_FLASH = "seedance_2_5_flash"`.
 
 ## Image capabilities (`ImageCapabilities`)
 
-| Field | `SEEDREAM_5_5` | `PRO` | `LITE` | `4X` |
-|---|---|---|---|---|
-| `max_references` | 10 | 10 | 14 | 14 |
-| `supports_batch` | `False` | `False` | `True` | `True` |
-| `supports_streaming` | `False` | `False` | `True` | `True` |
-| `supported_output_formats` | `("png", "jpeg")` | `("png", "jpeg")` | `("png", "jpeg")` | `("jpeg",)` |
-| `default_output_format` | `"png"` | `None` | `None` | `None` |
-| `supported_sizes` | `("1K", "1.5K", "2K")` | `None` | `None` | `None` |
-| `custom_size_pixels_range` | `(921600, 8294400)` | `None` | `None` | `None` |
-| `custom_size_aspect_ratio_range` | `(1/16, 16)` | `None` | `None` | `None` |
-| `supports_watermark` | `True` | `True` | `True` | `True` |
-| `supports_prompt_optimization` | `True` | `True` | `True` | `True` |
-| `prompt_optimization_modes` | `("standard",)` | `("standard", "fast")` | `("standard", "fast")` | `("standard", "fast")` |
-| `default_prompt_optimization_mode` | `None` | `SEEDREAM_PROMPT_OPTIMIZATION_MODE` (`"standard"`) | `None` | `None` |
-| `supports_transparent_background` | `True` | `True` | `False` | `False` |
-| `supports_transparent_generation` | `True` | `False` | `False` | `False` |
-| `supports_auto_background` | `True` | `False` | `False` | `False` |
-| `supports_safety_identifier` | `True` | `True` | `False` | `False` |
+| Field | `SEEDREAM_5_5` |
+|---|---|
+| `max_references` | 10 |
+| `supports_batch` | `False` |
+| `supports_streaming` | `False` |
+| `supported_output_formats` | `("png", "jpeg")` |
+| `default_output_format` | `"png"` |
+| `supported_sizes` | `("1K", "1.5K", "2K")` |
+| `custom_size_pixels_range` | `(921600, 8294400)` |
+| `custom_size_aspect_ratio_range` | `(1/16, 16)` |
+| `supports_watermark` | `True` |
+| `supports_prompt_optimization` | `True` |
+| `prompt_optimization_modes` | `("standard",)` |
+| `default_prompt_optimization_mode` | `None` |
+| `supports_transparent_background` | `True` |
+| `supports_transparent_generation` | `True` |
+| `supports_auto_background` | `True` |
+| `supports_safety_identifier` | `True` |
 
-**Seedream 5.5 is the built-in image default.** Start with the
+**Seedream 5.5 is the only supported image family and built-in default.** Start with the
 [Seedream tool reference](/seed-mcp/tool-reference/seedream-generate-image/#seedream-5-5)
 for transparent images and request previews.
 This integration covers generation and editing,
 not layer decomposition or OCR; those input fields are rejected. `background="transparent"` supports a text-only
-prompt or up to ten references without requiring existing alpha. 5.0 Pro retains
-its requirement for exactly one already-transparent PNG. Transparent output
+prompt or up to ten references without requiring existing alpha. Transparent output
 uses PNG when `output_format` is omitted; JPEG is rejected locally.
 
 5.5 accepts named tiers `1K`, `1.5K`, `2K` (provider default), or positive
@@ -76,18 +72,17 @@ on the same `dola-seedream-5-5-261028` model or an endpoint bound to
 `seedream_5_5`. Portrait `2160x3840` and square `2880x2880` also fit the
 maximum. `4096x2160` exceeds it. No extra model or high-resolution flag is needed.
 `auto`, `3K`, and the undocumented `4K` shorthand remain rejected; use explicit
-dimensions for high-resolution output. Older-family size validation is unchanged
-and remains provider-side.
+dimensions for high-resolution output.
 
 `background` defaults to `auto` on 5.5: the prompt determines transparency,
 except JPEG is always opaque. Explicit `prompt_optimization="standard"` is
 accepted; `fast` is rejected. Omitted optimization uses the provider's standard
-default, not the Pro-only operator setting.
+default.
 
 Discovery exposes named tiers, custom-size bounds, `background_modes`,
 `prompt_optimization_modes`, and `supports_safety_identifier`, alongside the
 transparency flags. Optional `safety_identifier` accepts 1-64 non-space printable
-ASCII characters on 5.5 and Pro. Use a stable hashed user identifier, not raw
+ASCII characters. Use a stable hashed user identifier, not raw
 personal data. Dry-run previews and structured logs redact it; generation
 metadata preserves the provider's echo.
 
@@ -116,24 +111,14 @@ dimensions and actual alpha without replacing provider reports. It does not
 prove prompt adherence or visual quality; see [artifacts](artifacts.md#seedream-image-inspection)
 and the [review/edit workflow](integration-guide.md#seedream-review-and-edit).
 
-> `default_prompt_optimization_mode` controls what 5.0 Pro sends as
-> `optimize_prompt_options.mode` when a caller omits `prompt_optimization`. It
-> is operator-configurable through `SEEDREAM_PROMPT_OPTIMIZATION_MODE` and
-> defaults to `standard` for prompt-following quality; set `fast` to favor
-> latency.
->
-> **Both modes are accepted by the 5.0 Pro API** — verified against the live
-> endpoint, where `fast` and `standard` each returned HTTP 200 with an image.
-> An earlier field report that `fast` is rejected did not reproduce. The choice
-> is a quality-versus-latency tradeoff, not a compatibility constraint.
->
-> An explicit per-call `prompt_optimization` always wins over the configured
-> default; families without a default send no mode and the provider applies its
-> own.
+Seedream 5.0 Pro and lower are no longer supported. Legacy families (`pro`,
+`lite`, `4x`) fail configuration validation. Remove the obsolete
+`SEEDREAM_PROMPT_OPTIMIZATION_MODE` setting; it has no effect.
+`max_images` accepts only 1 or omission; use 1-10 `variations` for multiple outputs.
 
 > Images have no separate `ratio` tool input. 5.5 custom `WIDTHxHEIGHT`
 > dimensions are checked against `custom_size_aspect_ratio_range` and
-> `custom_size_pixels_range`; older families leave those bounds unspecified.
+> `custom_size_pixels_range`.
 
 ## Video capabilities (`VideoCapabilities`)
 
@@ -201,8 +186,8 @@ request against the selected model's `VideoCapabilities` (including
 
 The "implied family" defaults are hard-coded in `Settings.validate_model_bindings`
 and apply only when the default model ID equals one of the recognized built-in
-IDs. `dola-seedream-5-0-pro-260628` remains recognized as `PRO` when explicitly
-configured. See the [default upgrade note](configuration.md#seedream-default-model-upgrade-note).
+IDs. Only the 5.5 image ID is recognized.
+See the [default upgrade note](configuration.md#seedream-default-model-upgrade-note).
 `ark_list_models` returns configured models, limits and service availability,
 not account-specific pricing. Cost previews use built-in estimates for
 budgeting; they are not provider quotes.
@@ -211,7 +196,7 @@ budgeting; they are not provider quotes.
 
 | Env var | Format | Default |
 |---|---|---|
-| `SEEDREAM_MODEL_BINDINGS` | JSON array of `{"model_id": str, "family": "seedream_5_5"\|"pro"\|"lite"\|"4x"}` | `[]` |
+| `SEEDREAM_MODEL_BINDINGS` | JSON array of `{"model_id": str, "family": "seedream_5_5"}` | `[]` |
 | `SEEDANCE_MODEL_BINDINGS` | JSON array of `{"model_id": str, "family": "standard"\|"fast"\|"mini"\|"seedance_2_5"\|"seedance_2_5_flash"}` | `[]` |
 | `SEEDREAM_MODEL_FAMILY` | single family string | `""` |
 | `SEEDANCE_MODEL_FAMILY` | single family string | `""` |
@@ -219,7 +204,7 @@ budgeting; they are not provider quotes.
 Examples (from `.env.example`):
 
 ```
-SEEDREAM_MODEL_BINDINGS=[{"model_id":"my-image-endpoint","family":"pro"}]
+SEEDREAM_MODEL_BINDINGS=[{"model_id":"my-image-endpoint","family":"seedream_5_5"}]
 SEEDANCE_MODEL_BINDINGS=[{"model_id":"my-video-endpoint","family":"standard"}]
 ```
 
@@ -239,7 +224,7 @@ from the model ID string):
    `SEEDANCE_MODEL_FAMILY`) is non-empty, a single binding is synthesized
    from the default model ID + that family.
 3. If both are empty and the default model ID equals a recognized built-in
-   ID, its known family is used (Seedream `SEEDREAM_5_5` or legacy `PRO`,
+   ID, its known family is used (Seedream `SEEDREAM_5_5`,
    Seedance `STANDARD`, `SEEDANCE_2_5`, or `SEEDANCE_2_5_FLASH`).
 4. Otherwise (custom default model, no family, no bindings) → startup fails
    with `ValueError`.
@@ -259,8 +244,8 @@ the default. Explicit non-empty binding lists are never augmented. Regular
 | Check | Rejected when |
 |---|---|
 | Unknown `model_id` | Not in the registry; unknown image/video `ep-*` values use safe `ENDPOINT_NOT_CONFIGURED` guidance without echoing the ID. Other unknown IDs can receive configured-ID suggestions |
-| Image `output_format` | not in `supported_output_formats` (e.g. `png` on a `4X` model, which only supports `jpeg`) |
-| Image `size` | Not a supported named tier or valid custom dimensions. 5.5 enforces pixel-count and aspect-ratio bounds; older families leave sizes to the provider |
+| Image `output_format` | Not `png` or `jpeg`; transparent output requires `png` |
+| Image `size` | Not a supported named tier or valid custom dimensions within pixel-count and aspect-ratio bounds |
 | Video `resolution` | not in `supported_resolutions` (e.g. `1080p`/`4k` on `MINI`/`FAST`) |
 | Video `duration` | outside `duration_range` unless `-1` (auto) |
 

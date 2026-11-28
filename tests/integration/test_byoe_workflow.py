@@ -53,9 +53,9 @@ def byoe_settings(tmp_path: Path, **overrides: Any) -> Settings:
         tmp_path,
         **{
             "SEEDREAM_MODEL_BINDINGS": [
-                {"model_id": IMAGE_MODEL, "family": "pro"},
+                {"model_id": IMAGE_MODEL, "family": "seedream_5_5"},
                 {"model_id": IMAGE_ENDPOINT, "family": "seedream_5_5"},
-                {"model_id": OTHER_IMAGE_ENDPOINT, "family": "pro"},
+                {"model_id": OTHER_IMAGE_ENDPOINT, "family": "seedream_5_5"},
             ],
             "SEEDANCE_MODEL_BINDINGS": [
                 {"model_id": VIDEO_MODEL, "family": "seedance_2_5"},
@@ -289,7 +289,7 @@ async def test_preflight_filters_only_selected_routes_and_never_writes_state(
             configured_route(
                 IMAGE_TOOL,
                 IMAGE_ENDPOINT if source == "request_header" else IMAGE_MODEL,
-                "seedream_5_5" if source == "request_header" else "seedream_pro",
+                "seedream_5_5",
                 source=source,
             )
         )
@@ -572,9 +572,7 @@ async def test_overlapping_clients_keep_endpoint_key_preflight_and_replay_isolat
             assert_connection(
                 checked,
                 [
-                    configured_route(
-                        IMAGE_TOOL, images[index], ("seedream_5_5", "seedream_pro")[index]
-                    ),
+                    configured_route(IMAGE_TOOL, images[index], "seedream_5_5"),
                     configured_route(
                         VIDEO_TOOL, videos[index], ("seedance_2_5", "seedance_2_5_flash")[index]
                     ),
@@ -676,7 +674,7 @@ async def test_configuration_valid_is_not_authentication_even_when_provider_reje
     [
         ("image", {"size": "4K"}, "size"),
         ("image", {"size": "1x1"}, "pixel count"),
-        ("image", {"max_images": 2}, "batch generation"),
+        ("image", {"max_images": 2}, "max_images"),
         ("image", {"prompt_optimization": "fast"}, "prompt_optimization"),
         ("video", {"resolution": "4k"}, "resolution"),
         ("video", {"draft": True}, "Draft mode"),
@@ -707,8 +705,11 @@ async def test_configured_endpoint_still_enforces_its_bound_family_capabilities(
         denied = await call_tool(client, tool, input_data, headers=headers)
         assert_denied(denied)
         assert message in str(denied)
-        assert model in str(denied)
-        assert family in str(denied)
+        if kind == "image" and ("max_images" in extra or "prompt_optimization" in extra):
+            assert "validation error" in str(denied)
+        else:
+            assert model in str(denied)
+            assert family in str(denied)
         assert_no_canaries(json.dumps(denied))
     assert not provider_mock.calls
 

@@ -330,7 +330,7 @@ class TestSettings:
             _env_file=None,
             SEEDREAM_DEFAULT_MODEL="custom-model",
             SEEDANCE_DEFAULT_MODEL="custom-video",
-            SEEDREAM_MODEL_FAMILY="lite",
+            SEEDREAM_MODEL_FAMILY="seedream_5_5",
             SEEDANCE_MODEL_FAMILY="fast",
         )
         assert settings.seedream_default_model == "custom-model"
@@ -344,11 +344,11 @@ class TestSettings:
         settings = Settings(
             _env_file=None,
             SEEDREAM_DEFAULT_MODEL="image-a",
-            SEEDREAM_MODEL_BINDINGS=[{"model_id": "image-a", "family": "4x"}],
+            SEEDREAM_MODEL_BINDINGS=[{"model_id": "image-a", "family": "seedream_5_5"}],
             SEEDANCE_DEFAULT_MODEL="video-a",
             SEEDANCE_MODEL_BINDINGS=[{"model_id": "video-a", "family": "mini"}],
         )
-        assert settings.seedream_model_bindings[0].family == "4x"
+        assert settings.seedream_model_bindings[0].family == "seedream_5_5"
         assert settings.seedance_model_bindings[0].family == "mini"
 
 

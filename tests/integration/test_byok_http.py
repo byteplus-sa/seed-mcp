@@ -30,7 +30,7 @@ from ark_mcp.server import create_server
 MODELARK = "https://ark.ap-southeast.bytepluses.com/api/v3"
 SPEECH = "https://voice.ap-southeast-1.bytepluses.com"
 VIDEO_MODEL = "dreamina-seedance-2-5-260628"
-IMAGE_MODEL = "dola-seedream-5-0-pro-260628"
+IMAGE_MODEL = "dola-seedream-5-5-261028"
 MODELARK_KEY = "synthetic-modelark-canary!+/="
 SPEECH_KEY = "synthetic-speech-canary!+/="
 CLIENT_SECRET = "b1" * 32  # pragma: allowlist secret

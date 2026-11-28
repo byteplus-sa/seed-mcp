@@ -82,7 +82,7 @@ straight to a local file, so a client does not need a separate
 
 | Tool | Field | Notes |
 |---|---|---|
-| `seedream_generate_image` | `output_path` | Must be a directory (ending with `/`) when `variations > 1` or `max_images > 1`; extra images written to a file path get `-2`, `-3` suffixes |
+| `seedream_generate_image` | `output_path` | Must be a directory (ending with `/`) when `variations > 1`; unexpected extra images written to a file path get `-2`, `-3` suffixes |
 | `seed_audio_generate` | `output_path` | Must be a directory (ending with `/`) when `variations > 1` |
 | `seed_tts_generate` | `output_path` | One synthesized clip; always persists; stdio only |
 | `gen_task_get` | `output_dir` | One file per artifact: every output of each succeeded task |
@@ -345,9 +345,8 @@ Three takes written to a local directory:
 ## seedream_generate_image
 
 **The only Seedream tool**: text-to-image, image-to-image and reference
-editing, point or box edits, transparent PNG generation (5.5), transparency-preserving
-edits (5.0 Pro), provider batches
-(`max_images`), and parallel variations. Registered when
+editing, point or box edits, transparent PNG generation,
+and parallel variations with Seedream 5.5 only. Registered when
 `BYTEPLUS_MODELARK_API_KEY` is set and has catalog capability label `seedream:generate`.
 
 **Execution:** Direct call where registered. Explicit persistence is stdio-only; use a 660-second client timeout. Provider video generation is polled separately.
@@ -360,7 +359,7 @@ edits (5.0 Pro), provider batches
 - **`model` takes an exact configured ID** from `ark_list_models(kind='image')`;
   omit it to use `SEEDREAM_DEFAULT_MODEL`.
 - **Model limits are checked at runtime.** Every violation (reference count,
-  `output_format`, `size`, `max_images` without batch support,
+  `output_format`, `size`,
   `prompt_optimization`, transparent background rules) is reported in one
   error that ends with `Call ark_list_models(kind='image') for per-model limits.`
 
@@ -369,14 +368,11 @@ Built-in family limits (`ark_list_models` is authoritative for your server):
 | Family | Max reference images | `max_images` batch | `output_format` | `background="transparent"` |
 |---|---|---|---|---|
 | Seedream 5.5 (default) | 10 | No (use `variations`) | `png` (default), `jpeg` | Text-only or reference-based generation |
-| Seedream 5.0 Pro | 10 | No (use `variations`) | `png`, `jpeg` | Existing transparent PNG only |
-| Seedream Lite | 14 | Yes | `png`, `jpeg` | No |
-| Seedream 4.x | 14 | Yes | `jpeg` | No |
 
 5.5's model ID is `dola-seedream-5-5-261028`; account authorization is required.
 Its `seed` compatibility field is not documented by the GA API; omit it unless
 provider acceptance has been verified. See the [contract notes](models.md#image-capabilities-imagecapabilities).
-Explicit existing defaults stay unchanged. See the
+Older image families and their defaults are no longer supported. See the
 [upgrade note](configuration.md#seedream-default-model-upgrade-note).
 
 ### Input
@@ -384,24 +380,24 @@ Explicit existing defaults stay unchanged. See the
 | Field | Type | Required | Description |
 |---|---|---|---|
 | `prompt` | string | No* | What to generate, or the edit instruction when `images` are given (1-4000 chars, including any point/bbox markup) |
-| `images` | list[ReferenceImageInput] | No | Reference or source images; per-model maximum checked at runtime. Accepts URLs, Base64, and `asset://<asset_id>` |
+| `images` | list[ReferenceImageInput] | No | Up to 10 reference or source images. Accepts HTTPS URLs and Base64; native `asset://` references are rejected |
 | `point` | EditCoordinate | No | Edit mode: `{x, y}` in normalized `0..999` space on the **first** image. Requires `images` |
 | `bbox` | EditBbox | No | Edit mode: `{x1, y1, x2, y2}` in normalized `0..999` space (`x1 <= x2`, `y1 <= y2`) on the **first** image. Requires `images` |
 | `model` | string | No | Exact configured model ID; omit for the default |
-| `size` | string | No | 5.5: `1K`, `1.5K`, `2K` (default), or positive `WIDTHxHEIGHT` with 921600-8294400 pixels and width/height ratio 1/16-16, inclusive. For 4K UHD use `3840x2160`, not `"4K"`. `auto` is not a generation size. Older families remain provider-validated |
+| `size` | string | No | `1K`, `1.5K`, `2K` (default), or positive `WIDTHxHEIGHT` with 921600-8294400 pixels and width/height ratio 1/16-16, inclusive. For 4K UHD use `3840x2160`, not `"4K"`. `auto` is not a generation size |
 | `seed` | integer | No | `-1` to `2147483647`. For a single call it is sent as is. **With `variations > 1` it is the base seed**: omitted lets the provider randomize each variation, `-1` picks a random seed per variation (recorded in `summary`), and `N` uses `N`, `N+1`, `N+2`, ... |
-| `max_images` | integer | No | Images from one provider call (1-15), batch-capable models only. **Cannot be combined with `variations > 1`** |
-| `output_format` | `"png"` \| `"jpeg"` | No | Defaults to `png` on 5.5 and for transparent output; otherwise provider default |
+| `max_images` | integer | No | Only 1 or omission; use `variations` for multiple images |
+| `output_format` | `"png"` \| `"jpeg"` | No | Defaults to `png`; transparent output requires PNG |
 | `response_format` | `"url"` \| `"b64_json"` | No | Base64 requires `persist=true`; invalid combinations are rejected before submission, even for dry runs |
 | `watermark` | boolean | No | AIGC watermark |
-| `prompt_optimization` | `"standard"` \| `"fast"` | No | 5.5: `standard` only (provider default); `fast` rejected. 5.0 Pro defaults to `SEEDREAM_PROMPT_OPTIMIZATION_MODE` (`standard`) |
-| `background` | `"auto"` \| `"opaque"` \| `"transparent"` | No | 5.5 defaults to `auto` (prompt decides; JPEG always opaque). `auto` is 5.5-only. `transparent` requires PNG output; 5.5 accepts text or references without alpha; Pro requires exactly one already-transparent PNG |
-| `safety_identifier` | string | No | 5.5/Pro: stable hashed end-user ID, 1-64 non-space printable ASCII characters. Never send raw personal data; redacted from previews and logs |
+| `prompt_optimization` | `"standard"` | No | Provider default when omitted; `fast` rejected |
+| `background` | `"auto"` \| `"opaque"` \| `"transparent"` | No | Defaults to `auto` (prompt decides; JPEG always opaque). `transparent` requires PNG output and accepts text or references without alpha |
+| `safety_identifier` | string | No | Stable hashed end-user ID, 1-64 non-space printable ASCII characters. Never send raw personal data; redacted from previews and logs |
 | `variations` | integer | No | Independent generations to run in parallel (1-10, default 1); partial failures are reported per variation |
 | `variation_prompts` | list[string] | No | One prompt per variation, overriding `prompt`; must have exactly `variations` entries |
 | `persist` | boolean | No | Persist output locally (default: false; HTTP rejects true) |
 | `dry_run` | boolean | No | Validate and return the provider request bodies and a cost estimate without calling the provider or billing (default: false) |
-| `output_path` | string | No | Local file, or directory ending with `/` (**required when `variations > 1` or `max_images > 1`**); stdio only, requires `persist=true`. See [local output paths](#writing-outputs-to-local-paths) |
+| `output_path` | string | No | Local file, or directory ending with `/` (**required when `variations > 1`**); stdio only, requires `persist=true`. See [local output paths](#writing-outputs-to-local-paths) |
 | `overwrite` | boolean | No | Allow `output_path` to replace an existing file (default: false) |
 
 \* Either `prompt` or `variation_prompts` must be provided.
@@ -476,8 +472,7 @@ Generate a transparent PNG from text with Seedream 5.5 (`arguments.input`):
 }
 ```
 
-Edit an image with transparency on Seedream 5.0 Pro (bind/select Pro; the input PNG must
-already have transparent pixels):
+Edit a reference into a transparent PNG on Seedream 5.5:
 
 ```json
 {
