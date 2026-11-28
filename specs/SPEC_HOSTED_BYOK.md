@@ -113,6 +113,10 @@ Large client files go directly to ModelArk through `seed-mcp-upload`, using
 only an explicitly named key environment variable and `--confirm-upload`.
 The helper reads no env files, never changes client configuration, and emits
 metadata without signed URLs. It has a 600-second cooperative bound.
+On deadline, the helper reports whether dispatch began and preserves at most
+two safe invocation-local sent/observed request IDs for reconciliation.
+These IDs are not proof of acceptance. No automatic retry or provider
+cancellation is implied; no diagnostics are persisted.
 
 File retention is provider-managed: default seven days, optionally 1-30 days
 through Unix `expire_at`. Documented managed quota is 20 GB per account.

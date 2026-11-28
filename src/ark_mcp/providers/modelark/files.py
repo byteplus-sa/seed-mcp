@@ -38,7 +38,7 @@ from ark_mcp.security.credentials import redact_request_secrets
 from ark_mcp.sqlite_io import drain_task
 
 if TYPE_CHECKING:
-    from collections.abc import AsyncIterator
+    from collections.abc import AsyncIterator, Callable
 
 MAX_RESPONSE_BYTES = 2 * 1024 * 1024
 CHUNK_BYTES = 64 * 1024
@@ -130,6 +130,7 @@ class ModelArkFilesGateway(ModelArkGateway):
         *,
         expected_id: str | None = None,
         upload: bool = False,
+        on_request_id: Callable[[str | None], None] | None = None,
         **kwargs: Any,
     ) -> T:
         client = await self._ensure_client()
@@ -143,12 +144,16 @@ class ModelArkFilesGateway(ModelArkGateway):
         operation = "upload_file" if upload else "delete_file" if mutation else "read_files"
         await authorize_provider_request(side_effect=mutation)
         record_dispatched_request(correlation)
+        if on_request_id is not None:
+            on_request_id(self._safe_id(correlation))
         try:
             async with client.stream(
                 method, self.base_url + path, headers=headers, **kwargs
             ) as response:
                 request_id = self._safe_id(self.extract_request_id(response)) or correlation
                 record_dispatched_request(request_id)
+                if on_request_id is not None:
+                    on_request_id(self._safe_id(request_id))
                 raw = bytearray()
                 async for chunk in response.aiter_bytes(CHUNK_BYTES):
                     if len(raw) + len(chunk) > MAX_RESPONSE_BYTES:
@@ -237,8 +242,9 @@ class ModelArkFilesGateway(ModelArkGateway):
         file_path: str | None = None,
         purpose: FilePurpose = "agent",
         expire_at: int | None = None,
+        on_request_id: Callable[[str | None], None] | None = None,
     ) -> ManagedFile:
-        """Upload once; callers retrieve the returned ID for readiness and download_url."""
+        """Upload once; optionally report safe request IDs to this invocation's observer."""
         if (url is None) == (file_path is None):
             raise ValueError("Provide exactly one upload source.")
         validate_expiry(expire_at)
@@ -252,6 +258,7 @@ class ModelArkFilesGateway(ModelArkGateway):
                 "/files",
                 ManagedFile,
                 upload=True,
+                on_request_id=on_request_id,
                 files={key: (None, value) for key, value in fields.items()},
             )
         if file_path is None:
@@ -263,6 +270,7 @@ class ModelArkFilesGateway(ModelArkGateway):
                 "/files",
                 ManagedFile,
                 upload=True,
+                on_request_id=on_request_id,
                 content=stream,
                 headers={
                     "Content-Type": f"multipart/form-data; boundary={stream.boundary}",

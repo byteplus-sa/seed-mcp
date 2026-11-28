@@ -126,14 +126,21 @@ test H1 negotiation, exact mock receipts and no retries; they do not establish
 public APIG behavior, live drain or certificate rotation.
 
 The optional `deploy-vke.yml` GitHub Actions workflow supplies manual main-only
-Helm delivery with explicit `target=staging|production` mapping to protected
-`byteplus-staging|byteplus-production` approval and a workflow-
+Helm delivery with the sole target `production`, literal protected
+`byteplus-production` approval and a workflow-
 restricted private runner group. A same-VPC runner needs no laptop VPN/CEN;
 ordinary GitHub-hosted runners do not gain private API reachability from keys.
 Production needs a pre-existing verified protected environment, separate
 enablement/runner-ready/group variables and protected production approval.
-Both targets serialize delivery. Service mode is required; there is no
-implicit CLB fallback. Source support does not provision those protections.
+Only production-specific readiness/group variables are used. The operation
+defaults to `check`; explicit staging targets and modes other than
+`apig-production` are rejected. Preserve the legacy concurrency key so old and
+current runs serialize. The live namespace `seed-mcp-staging` is production,
+not a disposable test installation. The old GitHub staging record remains
+protected and disabled until its rerun window expires and deletion is approved.
+Do not provision or delete environments during client setup.
+The generic chart/helper retain synthetic test and CLB support outside the
+hosted workflow. Source support does not provision deployment protections.
 Read `docs/github-actions-deployment.md` in the selected checkout for bootstrap,
 isolation, existing kubeconfig/Secrets and nonsecret reference variables.
 It does not provision VKE, establish GitHub IAM/OIDC federation, synchronize

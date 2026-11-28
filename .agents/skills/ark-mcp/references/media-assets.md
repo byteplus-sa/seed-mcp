@@ -92,6 +92,8 @@ support and local smoke results do not establish public cloud availability.
 
 Use `seed-mcp-upload --file /absolute/reference.mp4 --api-key-env
 BYTEPLUS_MODELARK_API_KEY --confirm-upload` only after exact-file consent.
+Its 600-second deadline retains available safe request IDs and reports dispatch
+uncertainty. Reconcile those IDs; a timeout is not provider cancellation.
 Get/list/delete can affect files authorized by a shared provider key.
 Deletion requires explicit `confirm=true`; wait for dependent generation first.
 The helper emits the ID, not signed URLs, and reads no .env/client config.

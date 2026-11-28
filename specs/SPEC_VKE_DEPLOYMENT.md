@@ -4,7 +4,7 @@ type: spec
 status: accepted
 horizon: current
 created: 2026-11-17
-updated: 2026-11-27
+updated: 2026-11-28
 tags: [vke, terraform, helm, stateless, security]
 source:
   - https://registry.terraform.io/providers/byteplus-sdk/bytepluscc/0.0.63/docs/resources/vke_cluster
@@ -20,6 +20,8 @@ source:
   - https://gofastmcp.com/deployment/http
   - https://github.com/kubernetes/autoscaler/blob/cluster-autoscaler-1.30.3/cluster-autoscaler/FAQ.md
   - https://kubernetes.io/docs/concepts/scheduling-eviction/topology-spread-constraints/
+  - https://docs.github.com/en/actions/how-tos/manage-workflow-runs/re-run-workflows-and-jobs
+  - https://docs.github.com/en/actions/how-tos/deploy/configure-and-manage-deployments/manage-environments
 related:
   - specs/SPEC_HOSTED_BYOK.md
   - specs/SPEC_DIRECT_EXECUTION.md
@@ -70,11 +72,17 @@ or legacy upload flag. Existing identity/TLS Secrets and private ingress
 remain required. Large binary uploads bypass APIG/MCP and go directly to
 ModelArk. Source removal does not delete any existing cloud resource.
 
+The private control plane requires operator private connectivity; possession
+of kubeconfig alone is insufficient. No public API fallback is supplied.
+
 ### GitHub Actions Delivery
 
 `.github/workflows/deploy-vke.yml` supplies manual `check`/`deploy` operations
-from `main` only. Explicit `target=staging|production` maps to the protected
-`byteplus-staging|byteplus-production` environment. CI and
+from `main` only. The sole accepted target is `production`, and the delivery
+job binds literally to the pre-existing protected `byteplus-production`
+environment. The required target input defaults to production when GitHub fills
+an omitted input; an explicit staging/unknown or empty runtime target is
+rejected, not redirected. The operation defaults to `check`. CI and
 image publishing remain GitHub-hosted; Helm runs on an explicitly configured
 workflow-restricted private runner group. A runner in the VKE VPC does not
 require a laptop VPN or CEN. Public-repository runner isolation is an operator
@@ -83,8 +91,36 @@ Production requires separate repository enablement and runner-ready/group
 variables plus a protected-environment approval acknowledgement. Provision and
 verify that environment's reviewer/main-only/no-bypass policy before enablement;
 no workflow creates or verifies GitHub environment protections automatically.
-Staging readiness does not authorize production. Both targets retain a single
-concurrency group and the helper/workflow require explicit service mode.
+Only production-specific readiness/group variables are consumed. The workflow
+requires `apig-production`, a backend hostname, confirmed prerequisites and the
+protected production approval before helper dispatch. Generic helper/chart
+support for `public-clb` and synthetic `apig-staging` remains unchanged, but
+these are not hosted Actions targets.
+
+The exact `byteplus-staging-delivery` concurrency key is retained with
+`cancel-in-progress=false` so historical and current deliveries serialize.
+The legacy-named production namespace/release remains `seed-mcp-staging` /
+`seed-mcp`; retirement does not rename or delete application infrastructure.
+
+Retire the legacy GitHub environment in two phases. First, under operator
+approval and with a complete paginated inventory and no active deliveries,
+keep repository `VKE_RUNNER_READY=false`, set staging's
+`VKE_PREREQUISITES_CONFIRMED=false`, remove its reviewed deployment references,
+and retain its reviewer/main-only/no-bypass protections. Remove the obsolete
+repository runner-group pointer only after the current workflow stops using it;
+the actual shared runner group and production pointer remain.
+
+Retain this protected disabled record while pre-cutover runs remain within
+GitHub's 30-day original-creation rerun window or legacy attempts remain active,
+waiting or queued. Delivery-only reruns can reuse prior configuration outputs,
+so readiness flags alone cannot prevent all queueing. The environment-level
+guard and removed references also block historical helper invocation.
+Delete only the GitHub environment after a fresh inventory establishes the
+gate and deletion is approved. Deletion before consumer retirement can allow
+unprotected implicit recreation. Preserve historical runs, private files,
+production configuration and independently held operator authority throughout.
+The runbook holds the retirement procedure; dated status records distinguish
+verified operational quarantine from still-pending final deletion.
 
 The workflow uses existing private token/certificate kubeconfig and values
 files outside the checkout, not GitHub-to-BytePlus IAM federation. It creates

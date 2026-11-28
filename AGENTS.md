@@ -153,7 +153,9 @@ entry after MCP parsing and before credentials and admission.
 Stdio reserves budget after admission. Active/waiting owner limiters remain pinned.
 `ADMISSION_TIMEOUT` means this attempt did not dispatch, not the whole batch.
 `TOOL_DEADLINE_EXCEEDED` is text-only and preserves mutation uncertainty and
-known safe accepted IDs. External cancellation propagates. SDK/SQLite draining
+known safe accepted IDs. TTS also retains bounded request-only IDs after
+dispatch, including persistence deadlines; these are not tasks or proof of
+acceptance and are cleared at invocation exit. External cancellation propagates. SDK/SQLite draining
 may exceed the cooperative deadline; timeout is not provider cancellation.
 HTTP keeps safe accepted IDs only in the live invocation for deadline diagnostics.
 Stdio cancellation drains local bookkeeping; dispatched reservations commit,
@@ -190,8 +192,8 @@ existing identity and TLS Secrets without an upload/storage Secret.
 Private API access requires operator private connectivity.
 
 Manual `.github/workflows/deploy-vke.yml` Helm delivery uses main-only dispatch,
-explicit `target=staging|production` mapped to protected
-`byteplus-staging|byteplus-production` approval and a workflow-restricted private runner
+production-only `target=production` and literal protected
+`byteplus-production` approval with a workflow-restricted private runner
 group. Labels alone are not isolation for this public repository. A same-VPC
 runner needs no laptop VPN/CEN. `scripts/deploy_vke.py` checks explicit private
 kubeconfig/API, nodes, metrics and existing identity/TLS fields, then optionally
@@ -203,8 +205,16 @@ VKE IRSA docs. See `docs/github-actions-deployment.md`; keep readiness flags fal
 until private runner isolation and live prerequisites are independently verified.
 Production needs a pre-existing verified protected environment, separate
 `VKE_PRODUCTION_ENABLED`, runner-ready/group variables and protected
-`VKE_PRODUCTION_APPROVED`. Both targets share delivery concurrency. The helper
-and workflow require explicit service mode; there is no implicit CLB fallback.
+`VKE_PRODUCTION_APPROVED`. The workflow consumes only production readiness/group
+variables, defaults to `operation=check` and rejects staging targets and
+non-production service modes. Keep the historical `byteplus-staging-delivery`
+concurrency key to serialize old and current runs; do not rename the live
+`seed-mcp-staging` namespace or `seed-mcp` release. Retain the protected disabled
+GitHub staging record and explicit false legacy/prerequisite guards until
+pre-cutover rerun windows expire and no old attempts remain active or queued.
+Final environment deletion is a separate verified operator action, not cloud
+decommissioning. The generic helper/chart retain synthetic and CLB support;
+there is no implicit CLB fallback.
 
 Terraform keeps two fixed private on-demand baseline nodes by default.
 `burst_node_max_count=0` disables a separate optional burst pool; positive

@@ -139,7 +139,8 @@ download endpoint.
 All four operations are single-attempt direct calls with bounded admission
 and response metadata (2 MiB maximum). Upload/delete failures after dispatch
 may be uncertain. Retain accepted file/request IDs and reconcile; do not
-automatically resubmit. The client uploader has a 600-second cooperative bound.
+automatically resubmit. The uploader's 600-second deadline retains safe sent/provider
+request IDs and reports dispatch uncertainty; it does not cancel provider work.
 HTTP retains accepted IDs only in the live invocation for deadline diagnostics.
 
 ## Evidence

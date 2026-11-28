@@ -11,7 +11,7 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from ark_mcp.domain.errors import ProviderError
+from ark_mcp.domain.errors import NormalizedProviderError, ProviderError
 from ark_mcp.providers.modelark.files import ModelArkFilesGateway
 
 if TYPE_CHECKING:
@@ -34,9 +34,43 @@ async def upload_local_file(
         timeout=600,
         connect_timeout=15,
     )
+    dispatched = False
+    request_ids: list[str] = []
+
+    def capture_request_id(request_id: str | None) -> None:
+        nonlocal dispatched
+        dispatched = True
+        if request_id is not None and request_id not in request_ids and len(request_ids) < 2:
+            request_ids.append(request_id)
+
     try:
         async with asyncio.timeout(600):
-            return await gateway.upload(file_path=file_path, purpose=purpose, expire_at=expire_at)
+            return await gateway.upload(
+                file_path=file_path,
+                purpose=purpose,
+                expire_at=expire_at,
+                on_request_id=capture_request_id,
+            )
+    except TimeoutError:
+        message = (
+            "Upload deadline exceeded; the provider may have accepted it. "
+            "Do not upload again blindly; reconcile the original attempt."
+            if dispatched
+            else "Upload deadline exceeded before provider dispatch. No upload was sent."
+        )
+        if request_ids:
+            message += " Known request IDs: " + ", ".join(request_ids) + "."
+        raise ProviderError(
+            NormalizedProviderError(
+                provider="modelark",
+                operation="upload_file",
+                code="UPLOAD_DEADLINE_EXCEEDED",
+                message=message,
+                request_id=request_ids[-1] if request_ids else None,
+                retryable=False,
+                ambiguous_completion=dispatched,
+            )
+        ) from None
     finally:
         await gateway.close()
 
@@ -85,15 +119,15 @@ def main() -> None:
     except ProviderError as exc:
         print(exc.error.model_dump_json(), file=sys.stderr)
         raise SystemExit(1) from None
-    except (OSError, ValueError):
-        print(
-            "Upload failed validation or local I/O. No automatic retry was attempted.",
-            file=sys.stderr,
-        )
-        raise SystemExit(1) from None
     except (TimeoutError, KeyboardInterrupt):
         print(
             "Upload interrupted; the provider may have accepted it. Do not upload again blindly.",
+            file=sys.stderr,
+        )
+        raise SystemExit(1) from None
+    except (OSError, ValueError):
+        print(
+            "Upload failed validation or local I/O. No automatic retry was attempted.",
             file=sys.stderr,
         )
         raise SystemExit(1) from None
