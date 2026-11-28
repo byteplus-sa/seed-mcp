@@ -1,7 +1,7 @@
 # Integration Guide
 
 This is the technical reference for direct execution. For everyday setup,
-start with [Set Up Ark MCP](setup/install.md) and [your client guide](integrations/index.md).
+start with [Set Up Seed MCP](setup/install.md) and [your client guide](integrations/index.md).
 Users can ask their client in plain language; the client handles tool calls.
 
 **Choose the transport first.** Both transports use direct tool calls.
@@ -90,7 +90,7 @@ apply. See [Direct Execution](../specs/SPEC_DIRECT_EXECUTION.md).
 ## Seedream Review And Edit
 
 Generation delivery and visual acceptance are separate outcomes. This workflow
-uses existing tools; the Ark MCP integration exposes no native OCR or layer
+uses existing tools; the Seed MCP integration exposes no native OCR or layer
 decomposition, even when the provider API supports those operations.
 
 1. Discover the model and dry-run the intended request. Record an explicit
@@ -264,7 +264,7 @@ the file, so investigate shadowing without displaying values.
 ## Claude Desktop
 
 Use the [Claude Desktop guide](integrations/claude-desktop.md). A separate
-coding agent can prepare local setup; Desktop then starts Ark automatically.
+coding agent can prepare local setup; Desktop then starts Seed MCP automatically.
 
 ## Cursor IDE
 

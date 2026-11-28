@@ -1,6 +1,6 @@
 ---
 title: Update and Roll Back
-description: Stage a reviewed Ark MCP release without overwriting credentials, active calls or development work.
+description: Stage a reviewed Seed MCP release without overwriting credentials, active calls or development work.
 ---
 
 Updating the repository does not automatically update a client connection.

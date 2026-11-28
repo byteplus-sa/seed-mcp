@@ -1,9 +1,9 @@
 ---
 title: Connect to a Shared Server
-description: Use an existing administrator-managed Ark MCP server without installing Python, Git or uv locally.
+description: Use an existing administrator-managed Seed MCP server without installing Python, Git or uv locally.
 ---
 
-**Already have an Ark server URL from your team? Skip local installation.**
+**Already have a Seed MCP server URL from your team? Skip local installation.**
 Your operator runs the server; your client connects over HTTPS with BYOK.
 You do not need Python, Git, uv or a local server checkout.
 
@@ -138,7 +138,7 @@ error; inspect names/options privately rather than printing secret values.
 Ask your connected client:
 
 ```text
-Use the Ark MCP server I just connected. List its tools and call
+Use the Seed MCP server I just connected. List its tools and call
 ark_list_models with {"input": {}}. Report its static models and services
 and confirm connection is null.
 Do not generate or upload.

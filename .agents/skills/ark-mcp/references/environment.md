@@ -1,8 +1,9 @@
 # Environment, transports, and architecture
 
 Use the selected `byteplus-sa/seed-mcp` checkout and its current schemas.
-Upstream Ark MCP pages describe retained tools, not this fork's publication,
-inventory or hosted contract. No release or public endpoint is assumed.
+The [Seed MCP handbook](https://byteplus-sa.github.io/seed-mcp/) follows its
+build revision, not necessarily the connected server. Documentation publication
+does not establish a stable release or provide a trusted MCP endpoint.
 
 ## Transport and Auth
 

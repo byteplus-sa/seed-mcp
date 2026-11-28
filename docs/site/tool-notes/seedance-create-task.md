@@ -25,7 +25,7 @@ Never resubmit accepted tasks. HTTP polling uses provider-key authorization,
 not client-secret ownership. Reconcile uncertain acceptance using task/request IDs.
 Trusted stdio permits unrecorded IDs, but still rejects a recorded owner mismatch.
 A null `task_id` can mean unknown acceptance, not proof that nothing was billed.
-See [retry and recovery guidance](/ark-mcp/runtime/#retry-policy-providersretrypy).
+See [retry and recovery guidance](/seed-mcp/runtime/#retry-policy-providersretrypy).
 
 Omit `idempotency_key`; supplied legacy keys are rejected on both transports.
 There is no durable replay or automatic partial-batch resume. Repeated creates

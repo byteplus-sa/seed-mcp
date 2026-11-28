@@ -3,13 +3,14 @@ name: ark-mcp-setup
 description: Set up or update Seed MCP in Claude, Codex, TRAE or another client. Use for local stdio installation or a trusted HTTP BYOK connection with private credential entry.
 ---
 
-# Ark MCP Setup
+# Seed MCP Setup
 
 This project-local skill installs the narrowed Seed MCP fork from
 `byteplus-sa/seed-mcp`. Package, module, tool and skill names remain unchanged.
-Upstream Ark MCP documentation is retained-tool detail only, not an
-installation or release source for this fork. No Seed MCP Pages deployment
-or release is assumed.
+Use the [Seed MCP installation guide](https://byteplus-sa.github.io/seed-mcp/setup/install/)
+and the selected revision's source documentation. The website is documentation,
+not an MCP endpoint or evidence of a stable release. No fork release is assumed.
+Upstream Ark MCP is not an installation or release source for this fork.
 
 Install the server into the user's preferred MCP client, not the client
 application itself. Use this skill for onboarding, updates, registration,

@@ -1,9 +1,9 @@
 ---
 title: OpenCode
-description: Connect Ark to OpenCode using the MCP schema supported by your edition and a private env-file path.
+description: Connect Seed MCP to OpenCode using the MCP schema supported by your edition and a private env-file path.
 ---
 
-OpenCode starts Ark from its saved MCP configuration. Let its coding agent
+OpenCode starts Seed MCP from its saved MCP configuration. Let its coding agent
 choose the format supported by the version you have installed.
 
 ## Recommended Setup
@@ -105,7 +105,7 @@ connection, and `codemode: false` requests directly exposed tools:
 
 Replace all absolute-path placeholders on the actual execution host.
 `type: "local"` means subprocess transport, not project scope. Both variants
-contain only non-secret environment settings; Ark reads credentials from the
+contain only non-secret environment settings; Seed MCP reads credentials from the
 private file. OpenCode may inherit other environment variables that override
 that file, so check presence/names without printing values.
 

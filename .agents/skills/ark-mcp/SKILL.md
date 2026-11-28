@@ -6,15 +6,15 @@ description: Generate media with Seed MCP. Use for Seedream, Seedance and Seed A
 # Ark Seed Multimodal MCP Server
 
 This project-local skill describes the narrowed `byteplus-sa/seed-mcp` server.
-External Ark MCP Pages links below are upstream references for retained-tool
-details only, not this fork's published site or proof of supported inventory.
-Use this server's discovery and schemas for current contracts.
+Handbook links below target the Seed MCP documentation, not the broader
+upstream Ark MCP site. The handbook follows its build revision; use the
+connected server's discovery and schemas for current contracts.
 
 Typed MCP tools for BytePlus multimodal generation, over `stdio` or Streamable
 HTTP. The server already publishes every tool's description and schema, so this
 skill covers only what the schemas cannot tell you: the flow, the rules that
 span tools, and where to look things up. **Parameters live in the tool
-schemas** (upstream retained-tool detail: [API reference](https://byteplus-sa.github.io/ark-mcp/api-reference/)).
+schemas** ([Seed MCP API reference](https://byteplus-sa.github.io/seed-mcp/api-reference/)).
 
 Determine the transport before choosing a workflow. HTTP BYOK has 7 tools
 and runs provider tools directly in the foreground.
@@ -217,7 +217,7 @@ flowchart LR
   not generation failure. Layer-decomposition/OCR inputs are rejected.
 - Published tool pages list supported models in one table per capability,
   including defaults, configuration gates and key limits. See the
-  [Seedream tool reference](https://byteplus-sa.github.io/ark-mcp/tool-reference/seedream-generate-image/#supported-models)
+  [Seedream tool reference](https://byteplus-sa.github.io/seed-mcp/tool-reference/seedream-generate-image/#supported-models)
   for the image model table and shared editing guidance; discovery remains
   authoritative for your connection.
 
@@ -351,4 +351,4 @@ Read these only when you need the detail:
 - [workflows.md](references/workflows.md): direct calls, production workflows, retry policy, common issues.
 - [environment.md](references/environment.md): credentials, flags, transport, auth, architecture.
 - [local-output.md](references/local-output.md): local-write options in direct calls.
-- [Upstream API reference](https://byteplus-sa.github.io/ark-mcp/api-reference/): retained-tool detail only; this server's schemas are authoritative.
+- [Seed MCP API reference](https://byteplus-sa.github.io/seed-mcp/api-reference/): generated for the site's build revision; the connected server's schemas are authoritative.

@@ -74,7 +74,7 @@ test("Mermaid transforms real fences without losing links, tables or ordinary co
   assert.match(code, /<pre class="mermaid">/);
   assert.match(code, /(?:&lt;|&#x3[cC];)script(?:&gt;|>)/);
   assert.doesNotMatch(code, /<script>alert/);
-  assert.match(code, /href="\/ark-mcp\/configuration\/"/);
+  assert.match(code, /href="\/seed-mcp\/configuration\/"/);
   assert.match(code, /class="table-scroll"/);
   assert.match(code, /Ordinary code/);
   assert.ok(scripts.some((script) => script.includes("import('mermaid')")));

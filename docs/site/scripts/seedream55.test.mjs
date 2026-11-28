@@ -6,7 +6,7 @@ import { toolReferenceGroups } from "./navigation.mjs";
 
 const read = (path) => readFileSync(new URL(path, import.meta.url), "utf8");
 const model = "dola-seedream-5-5-261028";
-const route = "/ark-mcp/tool-reference/seedream-generate-image/";
+const route = "/seed-mcp/tool-reference/seedream-generate-image/";
 const tool = (name) => ({
   name,
   description: "Create media.",
@@ -105,7 +105,7 @@ test("entry points use the tool reference instead of a standalone guide", () => 
   }
   assert.ok(
     read("../astro.config.mjs").includes(
-      '"/ark-mcp/tool-reference/seedream-generate-image/#seedream-5-5"',
+      "`${SITE_BASE}/tool-reference/seedream-generate-image/#seedream-5-5`",
     ),
   );
 });

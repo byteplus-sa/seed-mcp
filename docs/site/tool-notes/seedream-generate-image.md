@@ -1,6 +1,6 @@
 This reference describes the server revision built with this site. Older
 installations, including `v0.2.0`, may not include 5.5. Follow
-[Update and Roll Back](/ark-mcp/setup/updating/) to select a reviewed revision.
+[Update and Roll Back](/seed-mcp/setup/updating/) to select a reviewed revision.
 
 ### Transparent Images and Editing
 
@@ -36,12 +36,13 @@ requires `persist=true` and is therefore local stdio only; HTTP rejects
 persistence true and uses URL delivery. Pro transparency still requires exactly one
 already-transparent PNG; it does not gain text-to-transparent generation.
 Custom endpoint IDs must bind to family `seedream_5_5`. See the
-[model capabilities](/ark-mcp/models/#image-capabilities-imagecapabilities)
-and [default upgrade note](/ark-mcp/configuration/#seedream-default-model-upgrade-note).
+[model capabilities](/seed-mcp/models/#image-capabilities-imagecapabilities)
+and [default upgrade note](/seed-mcp/configuration/#seedream-default-model-upgrade-note).
 
 The adapter sends `POST /api/v3/images/generations` with Bearer authentication
-and `stream: false`. `persist`, `dry_run` and the job envelope are MCP controls,
-not provider payload fields. Keep keys in private server configuration.
+and `stream: false`. `persist`, `dry_run` and the MCP call envelope are server
+controls, not provider payload fields. Use private startup credentials on stdio
+or private request headers on HTTP; never put keys in tool arguments.
 Seedream 5.5 does not document the retained `seed` compatibility field in its
 GA parameters or OpenAPI schema; omit it unless provider acceptance is verified.
 
@@ -72,7 +73,7 @@ The built-in 5.5 estimate is $0.079 per UHD output plus $0.008 per input
 reference per variation, not an account quote. High-resolution limits and
 rates follow the supplied 261028 output table; live provider acceptance and
 account access were not established by offline tests. See the
-[contract notes](/ark-mcp/models/#image-capabilities-imagecapabilities).
+[contract notes](/seed-mcp/models/#image-capabilities-imagecapabilities).
 
 ### Output Checks and Scope
 
@@ -84,8 +85,8 @@ extension or a provider claim. Inspection is advisory and never triggers a
 paid retry; URL-only delivery can leave inspection null.
 
 Review text, composition and edit accuracy visually. See
-[image inspection](/ark-mcp/artifacts/#seedream-image-inspection) and the
-[bounded review/edit workflow](/ark-mcp/integration-guide/#seedream-review-and-edit).
+[image inspection](/seed-mcp/artifacts/#seedream-image-inspection) and the
+[bounded review/edit workflow](/seed-mcp/integration-guide/#seedream-review-and-edit).
 After a timeout, recover the existing job instead of submitting again.
 
 **Layer decomposition and native rich-text OCR are not supported by this MCP

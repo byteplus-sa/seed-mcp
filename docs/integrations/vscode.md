@@ -1,17 +1,17 @@
 ---
 title: VS Code
-description: Select the correct VS Code MCP format and scope for a private local Ark connection.
+description: Select the correct VS Code MCP format and scope for a private local Seed MCP connection.
 ---
 
 Use VS Code's MCP support for your selected chat profile or harness.
-VS Code starts a configured local Ark server automatically.
+VS Code starts a configured local Seed MCP server automatically.
 
 ## Recommended Setup
 
 1. Give the [guided setup request](../setup/install.md#guided-local-setup)
    to an agent with terminal and file-editing access. Name **VS Code** and
    whether you are working locally, over SSH or in a Dev Container.
-2. Let it prepare Ark and the configuration for your installed MCP format;
+2. Let it prepare Seed MCP and the configuration for your installed MCP format;
    enter keys in the private editor.
 3. Use **MCP: Add Server** or your edition's MCP settings when UI confirmation
    is needed, select the intended user/profile scope, and approve `ark-seed`.
@@ -76,7 +76,7 @@ the supported configuration command. Use `servers`, not `mcpServers`:
 
 Replace all placeholder paths. Optional `inputs` belongs at the top level,
 not inside `servers`; this example needs no interactive credential inputs.
-Do not use `envFile` to distribute provider keys. Ark reads its private file
+Do not use `envFile` to distribute provider keys. Seed MCP reads its private file
 through the non-secret `ARK_MCP_ENV_FILE` path.
 
 ## Portable Copilot Format

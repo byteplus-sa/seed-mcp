@@ -29,7 +29,7 @@
     ]
   },
   "seedance_create_task": {
-    "selection": "Pass an exact configured ID as `model`, or omit it for the default. On HTTP, `X-ModelArk-Seedance-Endpoint` can select an exact registered default; explicit tool `model` wins. Custom IDs require an explicit family binding in `SEEDANCE_MODEL_BINDINGS`; arbitrary opaque endpoint lineage is never inferred. Otherwise `SEEDANCE_DEFAULT_MODEL` applies. Limits below are family limits; discovery is authoritative for your server. Regular 2.5 4K is retained server acceptance, not confirmed by current model-specific provider docs; see the [contract caveat](/ark-mcp/models/#video-capabilities-videocapabilities).",
+    "selection": "Pass an exact configured ID as `model`, or omit it for the default. On HTTP, `X-ModelArk-Seedance-Endpoint` can select an exact registered default; explicit tool `model` wins. Custom IDs require an explicit family binding in `SEEDANCE_MODEL_BINDINGS`; arbitrary opaque endpoint lineage is never inferred. Otherwise `SEEDANCE_DEFAULT_MODEL` applies. Limits below are family limits; discovery is authoritative for your server. Regular 2.5 4K is retained server acceptance, not confirmed by current model-specific provider docs; see the [contract caveat](/seed-mcp/models/#video-capabilities-videocapabilities).",
     "models": [
       {
         "name": "Seedance 2.5",

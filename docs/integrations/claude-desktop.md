@@ -1,10 +1,10 @@
 ---
 title: Claude Desktop
-description: Register a local Ark stdio server in Claude Desktop without putting keys in client configuration.
+description: Register a local Seed MCP stdio server in Claude Desktop without putting keys in client configuration.
 ---
 
 This guide is for **Claude Desktop**, not [Claude Code](claude-code.md).
-Desktop launches the local Ark server automatically after setup.
+Desktop launches the local Seed MCP server automatically after setup.
 
 ## Recommended Setup
 
@@ -14,7 +14,7 @@ Desktop launches the local Ark server automatically after setup.
    to have installation access.
 2. Let it prepare your installation and Desktop configuration, and enter
    your provider keys in the private editor.
-3. Finish active calls, fully reopen Desktop, and approve the Ark connection.
+3. Finish active calls, fully reopen Desktop, and approve the Seed MCP connection.
 
 No setup-capable agent available? Use [manual installation](../setup/manual-install.md)
 or ask your administrator for help. For a team-hosted endpoint, follow the

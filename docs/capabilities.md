@@ -1,9 +1,9 @@
 ---
 title: Choose a Tool
-description: Find the right Ark MCP capability and learn its credentials, execution mode and result lifecycle.
+description: Find the right Seed MCP capability and learn its credentials, execution mode and result lifecycle.
 ---
 
-Ark MCP has one tool per capability. Models, variations, edits and previews
+Seed MCP has one tool per capability. Models, variations, edits and previews
 are parameters, not separate tool names. Start with `ark_list_models`.
 HTTP has 7 tools, plus optional upload preparation; anonymous static discovery
 and direct foreground provider calls. Local stdio has a 13-tool conditional
@@ -18,12 +18,12 @@ execution guidance. The tables below help you choose a starting point.
 
 | Task | Tool | What to know |
 | --- | --- | --- |
-| Generate or edit images | [seedream_generate_image](/ark-mcp/tool-reference/seedream-generate-image/) | ModelArk key; reference edits, point/bbox edits, variations and `dry_run` |
-| Create video | [seedance_create_task](/ark-mcp/tool-reference/seedance-create-task/) | ModelArk key; select an enabled Seedance model, then poll the provider task |
-| Poll Seedance tasks | [gen_task_get](/ark-mcp/tool-reference/gen-task-get/) | Batch status checks; lightweight calls can skip output persistence |
-| List or cancel/delete tasks | [gen_task_list](/ark-mcp/tool-reference/gen-task-list/), [gen_task_cancel_or_delete](/ark-mcp/tool-reference/gen-task-cancel-or-delete/) | Owned-task lifecycle; cancellation/deletion has provider-specific semantics |
+| Generate or edit images | [seedream_generate_image](/seed-mcp/tool-reference/seedream-generate-image/) | ModelArk key; reference edits, point/bbox edits, variations and `dry_run` |
+| Create video | [seedance_create_task](/seed-mcp/tool-reference/seedance-create-task/) | ModelArk key; select an enabled Seedance model, then poll the provider task |
+| Poll Seedance tasks | [gen_task_get](/seed-mcp/tool-reference/gen-task-get/) | Batch status checks; lightweight calls can skip output persistence |
+| List or cancel/delete tasks | [gen_task_list](/seed-mcp/tool-reference/gen-task-list/), [gen_task_cancel_or_delete](/seed-mcp/tool-reference/gen-task-cancel-or-delete/) | HTTP access follows the supplied provider key, not the client secret; cancellation/deletion has provider-specific semantics |
 
-[Seedream 5.5](/ark-mcp/tool-reference/seedream-generate-image/#seedream-5-5) is the built-in image default
+[Seedream 5.5](/seed-mcp/tool-reference/seedream-generate-image/#seedream-5-5) is the built-in image default
 (`dola-seedream-5-5-261028`). It supports text-to-image, reference and point/bbox
 editing, and transparent PNG generation without an already-transparent input.
 High-resolution 4K UHD uses `size="3840x2160"` on the same model; custom
@@ -36,15 +36,15 @@ same model, with no separate model or feature gate. Flash uses the same create
 tool at 480p/720p without Draft. Empty bindings add Flash alongside the selected
 default; explicit lists remain authoritative. Discovery does not prove account
 entitlement. The models enabled on the ComfyUI node pack are not automatically
-available in Ark MCP.
+available in Seed MCP.
 
 
 ## Audio
 
 | Task | Tool | Credential |
 | --- | --- | --- |
-| Generate full-scene audio | [seed_audio_generate](/ark-mcp/tool-reference/seed-audio-generate/) | Seed Speech key |
-| Speak supplied text or SSML | [seed_tts_generate](/ark-mcp/tool-reference/seed-tts-generate/) | Seed Speech key; stdio only; compatible authorized voice required |
+| Generate full-scene audio | [seed_audio_generate](/seed-mcp/tool-reference/seed-audio-generate/) | Seed Speech key |
+| Speak supplied text or SSML | [seed_tts_generate](/seed-mcp/tool-reference/seed-tts-generate/) | Seed Speech key; stdio only; compatible authorized voice required |
 
 ## Uploads and Outputs
 
@@ -57,11 +57,11 @@ bytes, not a URL. See [TTS controls and voice selection](seed-tts.md).
 
 | Task | Tool |
 | --- | --- |
-| Upload local/Base64 references to TOS/S3 | [media_upload](/ark-mcp/tool-reference/media-upload/) |
-| Renew object URLs | [media_presign](/ark-mcp/tool-reference/media-presign/) |
-| Read stored artifacts inline | [seed_media_get_artifact](/ark-mcp/tool-reference/seed-media-get-artifact/) |
-| Export stored artifacts to a local path | [seed_media_export_artifact](/ark-mcp/tool-reference/seed-media-export-artifact/) |
-| Recover a provider URL after persistence failed | [seed_media_persist_url](/ark-mcp/tool-reference/seed-media-persist-url/) |
+| Upload local/Base64 references to TOS/S3 | [media_upload](/seed-mcp/tool-reference/media-upload/) |
+| Renew object URLs | [media_presign](/seed-mcp/tool-reference/media-presign/) |
+| Read stored artifacts inline | [seed_media_get_artifact](/seed-mcp/tool-reference/seed-media-get-artifact/) |
+| Export stored artifacts to a local path | [seed_media_export_artifact](/seed-mcp/tool-reference/seed-media-export-artifact/) |
+| Recover a provider URL after persistence failed | [seed_media_persist_url](/seed-mcp/tool-reference/seed-media-persist-url/) |
 
 Video references need public HTTPS URLs. `media_upload` requires configured
 object storage and accepts local paths only over stdio. Private-network URLs

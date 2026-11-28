@@ -1,9 +1,9 @@
 ---
 title: Manual Installation
-description: Technical fallback and instructions for an agent or administrator preparing a local Ark MCP installation.
+description: Technical fallback and instructions for an agent or administrator preparing a local Seed MCP installation.
 ---
 
-Use this page only if you are setting up Ark yourself, or as instructions for
+Use this page only if you are setting up Seed MCP yourself, or as instructions for
 the coding agent handling [guided setup](install.md). Most users should start
 with guided setup or [connect to an existing shared server](shared-server.md).
 Local installation still needs software preparation; an agent can run these
@@ -35,7 +35,7 @@ downloaded installation script automatically.
 
 Use a new dedicated directory, not an existing development checkout. These
 commands run once in a terminal on the same machine where the client will
-launch Ark:
+launch Seed MCP:
 
 ```bash
 git clone --no-checkout https://github.com/byteplus-sa/seed-mcp.git seed-mcp
@@ -76,7 +76,7 @@ keys only when needed; see [Provider Keys](../api-keys.md). Match the provider
 base URL to the account region. Keep optional feature flags off unless requested.
 
 Never paste keys into chat, client JSON, command arguments, or screenshots.
-Do not read back the populated file or `source` it as a shell script. Ark
+Do not read back the populated file or `source` it as a shell script. Seed MCP
 parses dotenv as data. Recheck file permissions after the user saves it.
 Owner-only plaintext is not encrypted; processes under the same OS user can
 still read it.
@@ -88,7 +88,7 @@ Resolve these three paths on the **server's execution host**:
 | Path | How to resolve it |
 | --- | --- |
 | uv executable | `command -v uv` in a POSIX shell, or `(Get-Command uv).Source` in PowerShell |
-| Ark checkout | Absolute path to the prepared directory containing `pyproject.toml` and `uv.lock` |
+| Seed MCP checkout | Absolute path to the prepared directory containing `pyproject.toml` and `uv.lock` |
 | Private credential file | Absolute path to the user's private `.env` |
 
 Use [your client's configuration format](../integrations/index.md). Prefer
@@ -114,7 +114,7 @@ the user needs to run or keep open:
 }
 ```
 
-The client starts Ark automatically using this entry. `--no-sync` assumes
+The client starts Seed MCP automatically using this entry. `--no-sync` assumes
 the locked installation above succeeded. GUI clients may not inherit the
 terminal's PATH. JSON does not universally expand `~`, `$HOME`, or
 `${workspaceFolder}`. Preserve spaces and use host-native paths.
@@ -149,11 +149,11 @@ the previous installation active and report what remains incomplete.
 
 [FastMCP registration helpers](https://gofastmcp.com/cli/install-mcp) can
 generate client configuration, but do not by themselves install a reviewed
-Ark revision, establish private credentials, or guarantee this launch contract.
+Seed MCP revision, establish private credentials, or guarantee this launch contract.
 Their `--env-file` option imports variables into generated client configuration;
-it is not equivalent to passing Ark the non-secret `ARK_MCP_ENV_FILE` path.
+it is not equivalent to passing Seed MCP the non-secret `ARK_MCP_ENV_FILE` path.
 Do not substitute it for the private-file workflow.
 
-Ark currently ships no one-click installer. A shorter command is not a better
+Seed MCP currently ships no one-click installer. A shorter command is not a better
 setup path if it loses locked dependencies, private credential handling, or
 the correct client format.

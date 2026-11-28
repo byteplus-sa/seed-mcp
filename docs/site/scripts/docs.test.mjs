@@ -30,22 +30,22 @@ test("handbook metadata links to canonical sources and preserves explicit overri
 test("documentation links retain the project base and section fragments", () => {
   assert.equal(
     resolveDocLink("setup/updating.md", "../migration-0.2.md"),
-    "/ark-mcp/migration-02/",
+    "/seed-mcp/migration-02/",
   );
   assert.equal(
     resolveDocLink("integrations/codex.md", "../configuration.md#providers"),
-    "/ark-mcp/configuration/#providers",
+    "/seed-mcp/configuration/#providers",
   );
   assert.equal(
     resolveDocLink("setup/install.md", "../integrations/index.md"),
-    "/ark-mcp/integrations/",
+    "/seed-mcp/integrations/",
   );
   assert.equal(
     resolveDocLink(
       "getting-started.md",
       "integration-guide.md?view=1#direct-execution",
     ),
-    "/ark-mcp/integration-guide/?view=1#direct-execution",
+    "/seed-mcp/integration-guide/?view=1#direct-execution",
   );
 });
 

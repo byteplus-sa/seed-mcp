@@ -7,19 +7,25 @@ import starlightLinksValidator from "starlight-links-validator";
 import remarkLinks from "./scripts/remark-links.mjs";
 import { toolReferenceGroups } from "./scripts/navigation.mjs";
 import rehypeTables from "./scripts/rehype-tables.mjs";
+import {
+  REPOSITORY_URL,
+  SITE_BASE,
+  SITE_DESCRIPTION,
+  SITE_ORIGIN,
+  SITE_TITLE,
+} from "./site-config.mjs";
 
 const { tools } = JSON.parse(
   readFileSync(new URL("./src/data/tools.json", import.meta.url), "utf8"),
 );
 
 export default defineConfig({
-  site: "https://byteplus-sa.github.io",
-  base: "/ark-mcp",
+  site: SITE_ORIGIN,
+  base: SITE_BASE,
   trailingSlash: "always",
   outDir: "../../out/docs-site",
   redirects: {
-    "/seedream-5-5/":
-      "/ark-mcp/tool-reference/seedream-generate-image/#seedream-5-5",
+    "/seedream-5-5/": `${SITE_BASE}/tool-reference/seedream-generate-image/#seedream-5-5`,
   },
   markdown: {
     processor: unified({
@@ -36,23 +42,22 @@ export default defineConfig({
       },
     }),
     starlight({
-      title: "BytePlus Ark MCP",
+      title: SITE_TITLE,
       logo: {
         light: "./src/assets/byteplus-mark-light.svg",
         dark: "./src/assets/byteplus-mark-dark.svg",
         alt: "",
       },
-      description:
-        "Set up Ark MCP in your AI client and use BytePlus image, video, audio and media tools.",
+      description: SITE_DESCRIPTION,
       social: [
         {
           icon: "github",
           label: "GitHub",
-          href: "https://github.com/byteplus-sa/seed-mcp",
+          href: REPOSITORY_URL,
         },
       ],
       editLink: {
-        baseUrl: "https://github.com/byteplus-sa/seed-mcp/edit/main/docs/",
+        baseUrl: `${REPOSITORY_URL}/edit/main/docs/`,
       },
       customCss: ["./src/styles/custom.css"],
       plugins: [starlightLinksValidator({ errorOnRelativeLinks: false })],
@@ -68,7 +73,7 @@ export default defineConfig({
         {
           label: "Get Started",
           items: [
-            { slug: "setup/install", label: "Set Up Ark MCP" },
+            { slug: "setup/install", label: "Set Up Seed MCP" },
             { slug: "setup/agent-skill", label: "Install the Agent Skill" },
             { slug: "setup/shared-server", label: "Use a Shared Server" },
             { slug: "api-keys", label: "Provider Keys" },
@@ -107,6 +112,7 @@ export default defineConfig({
           items: [
             { slug: "models" },
             { slug: "tools", label: "Worked Tool Examples" },
+            { slug: "seed-tts", label: "Text to Speech (Local)" },
             { slug: "artifacts" },
             { slug: "multi-generation" },
             { slug: "assets" },

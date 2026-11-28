@@ -2,9 +2,10 @@ import { readFileSync } from "node:fs";
 import { posix } from "node:path";
 import examples from "../tool-examples.json" with { type: "json" };
 import toolModels from "../tool-models.json" with { type: "json" };
+import { REPOSITORY_URL, SITE_BASE } from "../site-config.mjs";
 
-export const SITE_BASE = "/ark-mcp";
-export const SOURCE_BASE = "https://github.com/byteplus-sa/seed-mcp/blob/main/";
+export { SITE_BASE };
+export const SOURCE_BASE = `${REPOSITORY_URL}/blob/main/`;
 const toolNotes = new Map([
   [
     "ark_list_models",
@@ -171,11 +172,13 @@ export function toolPage(tool) {
   const httpArgs = args;
   const call = args && { name, arguments: args };
   const execution =
-    "Call this tool directly on either supported transport, keeping its `input` wrapper. Inspect `is_error` before using `structured_content`. No MCP jobs, worker queue or native tasks exist. Local stdio supports explicit persistence; HTTP remains URL-only.";
+    name === "seed_tts_generate"
+      ? `Call this tool directly on local stdio, keeping its \`input\` wrapper. Inspect \`is_error\` before using \`structured_content\`. Seed TTS always persists the completed audio stream; it has no \`persist\` switch or provider download URL. No automatic synthesis retries, MCP jobs or native tasks exist. See [voice selection and TTS controls](${SITE_BASE}/seed-tts/).`
+      : "Call this tool directly on either supported transport, keeping its `input` wrapper. Inspect `is_error` before using `structured_content`. No MCP jobs, worker queue or native tasks exist. Local stdio supports explicit persistence; HTTP remains URL-only.";
   const httpExecution = !http
     ? "**HTTP: unavailable.** This is a local stdio tool."
     : upload
-      ? "**HTTP: opt-in upload preparation.** Supply only operator-enrolled `X-MCP-Client-Secret` privately. No generation-provider key is needed for preparation. The upload-capable client sends binary data directly to TOS using every signed field unchanged and the file field LAST. Wait for upload success before using `reference_url`. This tool does not upload, inspect bytes or verify the object. See [temporary uploads](/ark-mcp/temporary-uploads/)."
+      ? `**HTTP: opt-in upload preparation.** Supply only operator-enrolled \`X-MCP-Client-Secret\` privately. No generation-provider key is needed for preparation. The upload-capable client sends binary data directly to TOS using every signed field unchanged and the file field LAST. Wait for upload success before using \`reference_url\`. This tool does not upload, inspect bytes or verify the object. See [temporary uploads](${SITE_BASE}/temporary-uploads/).`
       : http.credential_header
         ? `**HTTP: direct foreground calls only.** Supply \`${http.credential_header}\` and \`X-MCP-Client-Secret\` privately in request headers, including dry runs. The client secret is client-generated 32 random bytes encoded as 64 lowercase hex. Only the selected provider key is needed. Keep persistence false; HTTP rejects true, local paths and stored artifact references. No jobs, native tasks, local storage/artifact tools or resources exist on HTTP. Optional temporary upload preparation is separate.`
         : "**HTTP: anonymous static discovery.** No provider key or client secret is required; it lists configured model bindings even without environment provider keys. `services[].enabled` reports registration, not entitlement. No provider calls are made.";

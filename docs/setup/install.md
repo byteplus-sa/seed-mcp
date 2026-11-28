@@ -1,23 +1,26 @@
 ---
-title: Set Up Ark MCP
+title: Set Up Seed MCP
 description: Let a coding agent prepare your local connection, or connect to a server your team already runs.
 ---
 
-**Set up once, then use Ark from your AI client.** The client starts a local
-Ark server automatically when needed. You do not need ComfyUI, a terminal
+**Set up once, then use Seed MCP from your AI client.** The client starts a local
+Seed MCP server automatically when needed. You do not need ComfyUI, a terminal
 left open, or a separate server-start command each time.
 
 This guide installs the narrowed `byteplus-sa/seed-mcp` fork. Package, module,
-tool and skill names remain unchanged. No Seed MCP Pages site or stable release
-is assumed; upstream Ark MCP pages are retained-tool detail only.
+tool and skill names remain unchanged, including `ark_mcp`, `ark_list_models`
+and the `ark-mcp` skills. The examples use `ark-seed` as the client connection
+name. This handbook tracks the site's source revision; it does not imply a
+stable release. Select a reviewed Seed MCP revision, not an upstream Ark MCP
+release. The documentation website is not an MCP endpoint.
 
 ## Choose Your Path
 
 | Your situation | Start here |
 | --- | --- |
 | You use a coding agent with terminal and file-editing access | [Guided local setup](#guided-local-setup) |
-| Your team already runs Ark and gave you a server URL | [Connect to that server](shared-server.md), with no local installation |
-| Ark is already installed on your machine | [Connect your client](../integrations/index.md) |
+| Your team already runs Seed MCP and gave you a server URL | [Connect to that server](shared-server.md), with no local installation |
+| Seed MCP is already installed on your machine | [Connect your client](../integrations/index.md) |
 | You have no setup-capable agent or prefer doing it yourself | [Manual installation](manual-install.md), the technical fallback |
 
 ## Guided Local Setup
@@ -71,12 +74,14 @@ done. Never paste keys into chat or client configuration.
 | What you want | Key to obtain |
 | --- | --- |
 | Images and video | ModelArk |
-| Audio generation | Seed Speech |
+| Scene audio or local text to speech | Seed Speech |
 
 See [Provider Keys](../api-keys.md) for where to obtain each key. Flash
 and other optional products may have extra account access requirements.
 Regular Seedance 2.5 4K uses the same model and key, without another flag.
 You do not need to configure every service.
+Seed TTS 3.0 is local stdio only and also requires an authorized compatible
+voice ID; see [voice selection](../seed-tts.md#choose-a-voice).
 
 The credential file is private plaintext, not a secrets vault; software
 running as your OS user can still read it.

@@ -31,7 +31,7 @@ is unavailable, it should explain what is missing instead of substituting
 another service without asking.
 
 For transparent PNGs, reference edits and a no-charge request preview, see
-[the Seedream tool reference](/ark-mcp/tool-reference/seedream-generate-image/#seedream-5-5).
+[the Seedream tool reference](/seed-mcp/tool-reference/seedream-generate-image/#seedream-5-5).
 Seedream 5.5 is the built-in image default in the
 server revision documented here; older installations and explicit operator
 defaults may select a different model.
@@ -51,7 +51,7 @@ Show me the finished video and a download link.
 
 This creates a new video from text; it does not reuse the image above.
 The agent should keep checking the existing request until it finishes.
-A job or task ID alone is not the finished video.
+A provider task ID alone is not the finished video.
 
 <span id="retrieve-the-job-result"></span>
 
@@ -110,6 +110,6 @@ key and client secret in private headers; discovery alone is anonymous.
 ## Technical Reference
 
 Developers can find exact arguments in the
-[tool reference](../api-reference.md) and job/result handling in
+[tool reference](../api-reference.md) and direct-call/result handling in
 [Direct Execution](../integration-guide.md#direct-execution).
 For other capabilities, see [Choose a Tool](../capabilities.md).

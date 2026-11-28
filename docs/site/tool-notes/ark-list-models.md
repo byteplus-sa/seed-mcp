@@ -37,7 +37,7 @@ wins over endpoint headers; `models[].is_default` remains the server default.
 The Seedream example elsewhere explicitly selects 5.5, so omit that `model`
 when you intend to use an operator-verified image endpoint default.
 
-Use the [setup check table](/ark-mcp/setup/shared-server/#optional-imagevideo-configuration-check)
+Use the [setup check table](/seed-mcp/setup/shared-server/#optional-imagevideo-configuration-check)
 for remediation and the
 [BYOE authority contract](https://github.com/byteplus-sa/seed-mcp/blob/main/specs/SPEC_HOSTED_BYOK.md#byoe-endpoint-authority)
 for the GetEndpoint AK/SK boundary. No arbitrary endpoint self-service,

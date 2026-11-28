@@ -24,7 +24,7 @@ acceptance, and an invalid or unusable reference can fail after submission.
 There is no asset-to-URL resolution fallback.
 
 See [model limits](models.md) and the
-[Seedance tool reference](/ark-mcp/tool-reference/seedance-create-task/).
+[Seedance tool reference](/seed-mcp/tool-reference/seedance-create-task/).
 
 ## Submit And Poll
 
@@ -32,25 +32,24 @@ See [model limits](models.md) and the
 2. Discover the configured Seedance model and check its limits.
 3. Call directly on either transport, referring to inputs by
    position, such as "Image 1" or "Video 1", not by asset ID.
-4. Keep the provider task IDs and, on stdio, the Ark job ID.
+4. Keep the provider task IDs and diagnostic request IDs on either transport.
 5. Poll `gen_task_get` with `persist_output=false`, then persist completed
    output through a direct local poll or download the HTTP result URL.
    Never resubmit generation to poll.
 
-This exact MCP job envelope is a non-billable local request preview:
+This direct MCP call is a non-billable request preview. On HTTP, configure
+the required BYOK headers privately before calling:
 
 ```json
 {
-  "input": {
-    "tool_name": "seedance_create_task",
-    "arguments": {
-      "input": {
-        "prompt": "Image 1 walks through a softly lit studio.",
-        "images": ["asset://asset-EXAMPLE"],
-        "duration": 5,
-        "resolution": "480p",
-        "dry_run": true
-      }
+  "name": "seedance_create_task",
+  "arguments": {
+    "input": {
+      "prompt": "Image 1 walks through a softly lit studio.",
+      "images": ["asset://asset-EXAMPLE"],
+      "duration": 5,
+      "resolution": "480p",
+      "dry_run": true
     }
   }
 }

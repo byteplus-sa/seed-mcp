@@ -60,7 +60,7 @@ The binding enums (`config/env.py`):
 | `supports_safety_identifier` | `True` | `True` | `False` | `False` |
 
 **Seedream 5.5 is the built-in image default.** Start with the
-[Seedream tool reference](/ark-mcp/tool-reference/seedream-generate-image/#seedream-5-5)
+[Seedream tool reference](/seed-mcp/tool-reference/seedream-generate-image/#seedream-5-5)
 for transparent images and request previews.
 This integration covers generation and editing,
 not layer decomposition or OCR; those input fields are rejected. `background="transparent"` supports a text-only

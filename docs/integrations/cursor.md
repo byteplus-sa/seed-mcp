@@ -1,9 +1,9 @@
 ---
 title: Cursor
-description: Add Ark to Cursor at user or project scope using an absolute stdio launch and private env file.
+description: Add Seed MCP to Cursor at user or project scope using an absolute stdio launch and private env file.
 ---
 
-Cursor starts Ark automatically from its saved MCP configuration.
+Cursor starts Seed MCP automatically from its saved MCP configuration.
 
 ## Recommended Setup
 
@@ -12,7 +12,7 @@ Cursor starts Ark automatically from its saved MCP configuration.
 2. Approve installation/configuration changes and enter provider keys privately.
 3. Open Cursor's MCP settings, enable `ark-seed`, and review tool permissions.
 
-Use user-level setup unless only one project should see Ark. The agent should
+Use user-level setup unless only one project should see Seed MCP. The agent should
 prepare the correct entry without replacing your other MCP servers.
 
 <details>
@@ -59,7 +59,7 @@ absolute paths on the server host:
 }
 ```
 
-The private `.env` is read by Ark, not embedded in Cursor configuration.
+The private `.env` is read by Seed MCP, not embedded in Cursor configuration.
 Although some Cursor editions support `envFile` and path interpolation,
 this template deliberately uses literal absolute paths and only non-secret
 `env` settings. Remote workspaces need paths and an installation on the

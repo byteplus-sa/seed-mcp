@@ -1,9 +1,9 @@
 ---
 title: Codex
-description: Connect Codex to Ark using global or trusted-project MCP configuration and private env-file paths.
+description: Connect Codex to Seed MCP using global or trusted-project MCP configuration and private env-file paths.
 ---
 
-Use a Codex session with terminal and file-editing access to prepare Ark.
+Use a Codex session with terminal and file-editing access to prepare Seed MCP.
 Ordinary chat without those permissions cannot perform local installation.
 
 ## Recommended Setup
@@ -14,7 +14,7 @@ Ordinary chat without those permissions cannot perform local installation.
 3. Review `ark-seed` in `/mcp` or your edition's MCP settings.
 
 The agent resolves paths and uses the installed client's registration
-mechanism. Once configured, Codex starts Ark automatically.
+mechanism. Once configured, Codex starts Seed MCP automatically.
 
 <details>
 <summary>Manual configuration and scope options</summary>
@@ -30,7 +30,7 @@ project trust automatically or delete a competing same-name entry. Clients
 sharing the same Codex configuration do not need duplicate registrations.
 
 Complete the [shared prerequisites](index.md#prepare-the-launch). Registration
-scope does not change where Ark's checkout or private credentials live.
+scope does not change where Seed MCP's checkout or private credentials live.
 
 ## Global CLI Registration
 

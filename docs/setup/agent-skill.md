@@ -1,6 +1,6 @@
 ---
 title: Install the Agent Skill
-description: Install the Ark MCP workflow guide with the Skills CLI for Codex, Claude Code and other supported agents.
+description: Install the Seed MCP workflow guide with the Skills CLI for Codex, Claude Code and other supported agents.
 ---
 
 The **ark-mcp skill** teaches your agent how to use the connected server:
@@ -15,7 +15,7 @@ reintroduce instructions for removed capabilities.
 **The server provides tools. The skill provides instructions.** Installing
 the skill does not install the server, connect a client, add credentials or
 enable unavailable products. Complete [server setup](install.md) separately.
-Ark MCP does not have a tool that installs agent skills.
+Seed MCP does not have a tool that installs agent skills.
 
 ## Ask Your Agent to Install It
 
@@ -90,7 +90,7 @@ skill installation for Claude Desktop or claude.ai.
 Select both agents in the CLI and use its symlink installation mode.
 The canonical folder is `.agents/skills/ark-mcp/`; `.claude/skills/ark-mcp`
 can point to `../../.agents/skills/ark-mcp`. This is also the layout used by
-the Ark repository. Edit the canonical folder, not a second copy.
+the Seed MCP repository. Edit the canonical folder, not a second copy.
 
 Ask before replacing any existing folder or link. Verify the target resolves
 and both agents discover it. Where symlinks are unavailable or disallowed,

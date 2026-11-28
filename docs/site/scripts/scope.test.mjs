@@ -96,7 +96,7 @@ test("all 14 exported tools retain direct metadata and exclude retired contracts
   }
 });
 
-test("project-local setup selects the narrowed fork without assuming publication", () => {
+test("project-local setup selects the narrowed fork without assuming a release", () => {
   const setup = readFileSync(
     new URL(".agents/skills/ark-mcp-setup/SKILL.md", root),
     "utf8",
@@ -115,7 +115,8 @@ test("project-local setup selects the narrowed fork without assuming publication
     /Clone `https:\/\/github\.com\/byteplus-sa\/seed-mcp\.git`/,
   );
   assert.doesNotMatch(releases, /gh api .*repos\/byteplus-sa\/ark-mcp/);
-  assert.match(setup, /No Seed MCP Pages deployment/);
+  assert.match(setup, /No fork release is assumed/);
+  assert.match(setup, /github\.io\/seed-mcp\/setup\/install\//);
 });
 
 test("retained skills document bindings services hosts and accurate persistence", () => {

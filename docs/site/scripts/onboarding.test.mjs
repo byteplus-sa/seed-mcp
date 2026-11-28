@@ -112,7 +112,9 @@ test("guided setup distinguishes the setup skill from the usage skill", () => {
     install,
     /byteplus-sa\/seed-mcp\/tree\/main\/\.agents\/skills\/ark-mcp-setup/,
   );
-  assert.match(install, /No Seed MCP Pages site or stable release/);
+  assert.match(install, /does not imply a\s+stable release/);
+  assert.match(install, /documentation website is not an MCP endpoint/);
+  assert.match(install, /Seed TTS 3\.0 is local stdio only/);
 });
 
 test("legacy onboarding does not advise inline provider keys or new dependency edits", () => {

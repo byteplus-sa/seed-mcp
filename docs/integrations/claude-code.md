@@ -1,9 +1,9 @@
 ---
 title: Claude Code
-description: Choose user, private-project, or shared-project scope for Ark in Claude Code.
+description: Choose user, private-project, or shared-project scope for Seed MCP in Claude Code.
 ---
 
-Use Claude Code's terminal-enabled agent to prepare Ark for you. This guide is
+Use Claude Code's terminal-enabled agent to prepare Seed MCP for you. This guide is
 for the coding client, not [Claude Desktop](claude-desktop.md).
 
 ## Recommended Setup
@@ -30,7 +30,7 @@ registration command below yourself if your setup agent has completed it.
 Claude Code's default `local` scope is **not global**. `CLAUDE_CONFIG_DIR`
 can change user configuration locations; prefer the CLI over editing that
 file manually. For either project scope, run registration from the intended
-project, which need not be the Ark checkout.
+project, which need not be the Seed MCP checkout.
 
 ## Register
 

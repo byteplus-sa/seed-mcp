@@ -4,6 +4,7 @@ on:
   push:
     branches: [main]
     paths:
+      - "README.md"
       - "docs/**"
       - ".agents/skills/ark-mcp/**"
       - ".agents/skills/ark-mcp-setup/**"
@@ -15,6 +16,7 @@ on:
       - ".github/workflows/docs.yml"
   pull_request:
     paths:
+      - "README.md"
       - "docs/**"
       - ".agents/skills/ark-mcp/**"
       - ".agents/skills/ark-mcp-setup/**"
@@ -57,7 +59,7 @@ jobs:
       - name: Test documentation utilities
         run: npm --prefix docs/site test
       - name: Format check
-        run: npm --prefix docs/site exec -- prettier --check docs/site/astro.config.mjs docs/site/src/content.config.ts "docs/site/scripts/*.mjs" docs/site/src/styles/custom.css
+        run: npm --prefix docs/site exec -- prettier --check docs/site/astro.config.mjs docs/site/site-config.mjs docs/site/src/content.config.ts "docs/site/scripts/*.mjs" docs/site/src/styles/custom.css
       - name: Type check
         run: npm --prefix docs/site run check
       - name: Build and validate links
@@ -67,7 +69,7 @@ jobs:
           path: out/docs-site
 
   deploy:
-    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    if: github.repository == 'byteplus-sa/seed-mcp' && github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
     needs: build
     runs-on: ubuntu-latest
     concurrency:
@@ -80,5 +82,17 @@ jobs:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
+      - name: Verify Pages configuration
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          build_type=$(gh api "repos/${GITHUB_REPOSITORY}/pages" --jq '.build_type') || {
+            echo "::error::Enable GitHub Pages with GitHub Actions in ${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/settings/pages before deploying."
+            exit 1
+          }
+          if [ "$build_type" != "workflow" ]; then
+            echo "::error::GitHub Pages must use the GitHub Actions build source."
+            exit 1
+          fi
       - id: deployment
         uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346

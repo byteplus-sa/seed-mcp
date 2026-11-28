@@ -1,16 +1,16 @@
 # Documentation Site
 
-The Ark MCP handbook builds locally through Astro/Starlight. The site framework
+The Seed MCP handbook builds locally through Astro/Starlight. The site framework
 lives in `docs/site/`; human-written pages remain in `docs/`, alongside the
 existing handbook. Tool pages are generated from the static MCP catalog and
 the exact FastMCP/Pydantic input and output schemas.
 
-This narrowed fork has no verified Pages deployment or published release.
-The inherited `/ark-mcp/` site base is retained for local build compatibility,
-not as a claim that the fork is published at the upstream URL. Source and edit
-links point to `byteplus-sa/seed-mcp`; external Ark MCP Pages links are upstream
-retained-tool references only. Generated contracts and validation apply to
-the checkout used for the build. Historical releases can have different
+The deployment target is `https://byteplus-sa.github.io/seed-mcp/`, with
+`/seed-mcp/` as the project base. `docs/site/site-config.mjs` is the shared
+source for site identity, origin, base and repository links. Source and edit
+links point to `byteplus-sa/seed-mcp`. Generated contracts and validation apply
+to the checkout used for the build; publishing documentation does not publish
+a server release or an MCP endpoint. Historical releases can have different
 dependencies and capabilities. Keep
 the [installation revision guidance](setup/manual-install.md#choose-an-installation)
 current when a suitable patched release is published.
@@ -27,7 +27,7 @@ npm --prefix docs/site ci
 npm --prefix docs/site run dev -- --host 127.0.0.1
 ```
 
-Open the URL printed by Astro, including `/ark-mcp/`. Search is generated for
+Open the URL printed by Astro, including `/seed-mcp/`. Search is generated for
 production builds; use the preview command to test the real search index:
 
 ```bash
@@ -56,6 +56,7 @@ the project environment is not at `.venv/`.
 | Tool-specific usage guidance | `docs/site/tool-notes/`, injected by `docs/site/scripts/docs.mjs` into the relevant tool page only |
 | Page generation and link rewriting | `docs/site/scripts/` |
 | Navigation and theme | `docs/site/astro.config.mjs`, `docs/site/src/styles/custom.css` |
+| Site identity and publication paths | `docs/site/site-config.mjs` |
 | Tool-reference categories | `docs/site/scripts/navigation.mjs` |
 | BytePlus logo variants | `docs/site/src/assets/byteplus-mark-{light,dark}.svg` |
 
@@ -82,8 +83,8 @@ install the complete `.agents/skills/ark-mcp/` bundle, including references and
 agent metadata. A skills.sh listing depends on directory indexing and is not
 proof of a tested install; do not promise immediate listing or generate fake
 installation activity.
-Keep links between bundled files relative and links to the handbook absolute,
-so standalone copies do not depend on an Ark source checkout.
+Keep links between bundled files relative and links to the Seed MCP handbook
+absolute, so standalone copies do not depend on a source checkout.
 `skill-install.test.mjs` tests a relocated copy for identical contents and
 resolvable local references, as well as the guide's paths and setup boundary.
 Documentation CI also runs for changes to this skill.
@@ -173,15 +174,40 @@ Source notes under `docs/site/tool-notes/` are not standalone site pages.
 The former `/seedream-5-5/` URL is an Astro static redirect; the old section
 anchors now resolve above the supported-model table.
 
-## Publication Boundary
+## Publish to GitHub Pages
 
-The inherited `.github/workflows/docs.yml` can test, build and deploy on its
-configured events, but its presence does not prove fork Pages setup or a live
-site. Publication requires separately reviewed repository settings, workflow
-permissions, hostname and base configuration. Do not use the upstream
-`https://byteplus-sa.github.io/ark-mcp/` as this fork's deployment target.
-Local generation, checking and building do not publish anything or change
-repository settings, and need no provider credentials.
+The `.github/workflows/docs.yml` workflow tests, builds and uploads the static
+site. Pull requests validate only; qualifying pushes to `main` and manual runs
+on `main` also deploy through the `github-pages` environment. Deployment is
+restricted to `byteplus-sa/seed-mcp`; forks can build without publishing.
+
+One-time repository setup requires an administrator:
+
+1. Open [Settings > Pages](https://github.com/byteplus-sa/seed-mcp/settings/pages)
+   and select **GitHub Actions** as the build source.
+2. Verify Actions is enabled and the `github-pages` environment permits
+   deployment from `main`. Keep existing environment protections.
+3. Merge the reviewed site changes to `main`, or manually run **Documentation**
+   on a `main` revision that includes them. Do not rerun an old artifact built
+   with the upstream base.
+4. Confirm both `build` and `deploy` succeed, then open
+   [the installation page](https://byteplus-sa.github.io/seed-mcp/setup/install/).
+   Check navigation, styling, search and tool-reference links under `/seed-mcp/`.
+
+`HttpError: Not Found` from `actions/deploy-pages` can mean Pages is not enabled;
+a successful build alone does not prove publication. A failed deploy can leave
+an older site live. Inspect the deployment's source SHA before reporting success.
+The workflow's read-only Pages preflight checks repository setup before deployment;
+it does not create or change Pages settings.
+
+`publication.test.mjs` guards the shared base, branding, fork deployment guard,
+current documentation/skill links and direct-call examples. Link validation also
+runs against the generated production site. Do not change upstream Ark MCP Pages
+or use it as this fork's deployment target.
+
+Local generation, checking and building publish nothing, change no repository
+settings, and need no provider credentials. This workflow is independent of VKE,
+APIG and the MCP server deployment; it must not generate media or deploy servers.
 
 ## Reference and License
 
@@ -190,7 +216,7 @@ Framework, layout and theme patterns are adapted from the local
 [published site](https://byteplus-sa.github.io/ComfyUI-BytePlus-ModelArk/).
 The original MIT copyright and license notice is retained in
 `docs/site/LICENSE`. ComfyUI nodes, workflows, screenshots and generated media
-are not copied into the Ark MCP tool reference.
+are not copied into the Seed MCP tool reference.
 
 Documentation consulted 2026-11-10:
 

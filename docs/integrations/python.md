@@ -1,6 +1,6 @@
 ---
 title: Python Client
-description: Use FastMCP StdioTransport for safe Ark discovery and an opt-in direct dry run.
+description: Use FastMCP StdioTransport for safe Seed MCP discovery and an opt-in direct dry run.
 ---
 
 Use the checkout's locked FastMCP environment, not an independently upgraded

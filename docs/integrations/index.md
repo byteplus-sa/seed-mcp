@@ -1,10 +1,10 @@
 ---
 title: Client Integrations
-description: Connect local MCP clients to Ark with private credentials and non-billable discovery.
+description: Connect local MCP clients to Seed MCP with private credentials and non-billable discovery.
 ---
 
 Choose the client you want to use. **You configure the connection once; the
-client starts Ark automatically.** You do not need to run the launch command
+client starts Seed MCP automatically.** You do not need to run the launch command
 yourself whenever you open a chat.
 
 ## Choose a Client
@@ -29,7 +29,7 @@ Local launch instructions below are stdio-only. HTTP has 7 tools, plus optional 
 jobs/native tasks/local storage/artifact tools/resources. See the private-header
 examples for [Codex](codex.md#http-byok) and [Claude Code](claude-code.md#http-byok).
 
-Default to user-level registration so Ark is available across projects.
+Default to user-level registration so Seed MCP is available across projects.
 Choose project-only scope when you need it. Your agent should preserve other
 MCP entries and ask before replacing an existing connection.
 

@@ -1,9 +1,9 @@
 ---
 title: TRAE
-description: Configure Ark in TRAE IDE or Work with explicit scope, local runtime paths, and private credentials.
+description: Configure Seed MCP in TRAE IDE or Work with explicit scope, local runtime paths, and private credentials.
 ---
 
-TRAE can launch Ark automatically after its MCP connection is configured.
+TRAE can launch Seed MCP automatically after its MCP connection is configured.
 Tell your setup agent whether you use **IDE or Work**, **International or CN**,
 and a **local or cloud** execution environment.
 
@@ -12,7 +12,7 @@ and a **local or cloud** execution environment.
 1. In a coding session with terminal and file access, use the
    [guided setup request](../setup/install.md#guided-local-setup) and name
    your TRAE edition as the target.
-2. Let the agent prepare Ark and resolve the configuration paths. Enter
+2. Let the agent prepare Seed MCP and resolve the configuration paths. Enter
    keys in the private editor, not in chat.
 3. If user-level registration requires the MCP settings UI, paste the
    agent-prepared non-secret entry there and enable `ark-seed`.
@@ -73,7 +73,7 @@ path on the selected server host:
 }
 ```
 
-The `env` contains no key values. The Ark checkout does not need to be the
+The `env` contains no key values. The Seed MCP checkout does not need to be the
 project being edited; do not substitute `${workspaceFolder}` for its path
 unless that folder actually contains the prepared server checkout.
 Preserve existing servers and any same-name entry at a different scope.

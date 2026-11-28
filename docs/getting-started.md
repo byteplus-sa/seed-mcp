@@ -1,12 +1,12 @@
 # Getting Started
 
-Connect Ark MCP to your AI client, then ask it to create media.
+Connect Seed MCP to your AI client, then ask it to create media.
 Your client handles tool calls and starts the local server automatically.
 You do not need to keep a terminal open.
 
 ## Installation
 
-Start with [Set Up Ark MCP](setup/install.md). A terminal-capable coding
+Start with [Set Up Seed MCP](setup/install.md). A terminal-capable coding
 agent can prepare the installation and client configuration with your
 permission. If your administrator already provides an endpoint, use
 [Connect to a Shared Server](setup/shared-server.md) and skip local setup.
@@ -39,7 +39,7 @@ You do not need every service.
 ## Running the Server
 
 Enable `ark-seed` in your client's MCP settings. The saved configuration
-tells the client how to start Ark; a manual server-start command is not an
+tells the client how to start Seed MCP; a manual server-start command is not an
 additional user step. For a shared server, your administrator handles startup.
 
 ## Verifying Your Setup
@@ -47,7 +47,7 @@ additional user step. For a shared server, your administrator handles startup.
 Ask your connected client:
 
 ```text
-Check my Ark connection with ark_list_models.
+Check my Seed MCP connection with ark_list_models.
 List the services and tools available to me. Do not generate or upload.
 ```
 
