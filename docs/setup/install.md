@@ -1,147 +1,175 @@
 ---
-title: Set Up Seed MCP
-description: Let a coding agent prepare your local connection, or connect to a server your team already runs.
+title: Connect to Hosted Seed MCP
+description: Add the BytePlus-hosted MCP endpoint to your AI client. No server installation or Kubernetes access required.
 ---
 
-**Set up once, then use Seed MCP from your AI client.** The client starts a local
-Seed MCP server automatically when needed. You do not need ComfyUI, a terminal
-left open, or a separate server-start command each time.
-
-This guide installs the narrowed `byteplus-sa/seed-mcp` fork. Package, module,
-tool and skill names remain unchanged, including `ark_mcp`, `ark_list_models`
-and the `ark-mcp` skills. The examples use `ark-seed` as the client connection
-name. This handbook tracks the site's source revision; it does not imply a
-stable release. Select a reviewed Seed MCP revision, not an upstream Ark MCP
-release. The documentation website is not an MCP endpoint.
-
-## Choose Your Path
-
-| Your situation | Start here |
-| --- | --- |
-| You use a coding agent with terminal and file-editing access | [Guided local setup](#guided-local-setup) |
-| Your team already runs Seed MCP and gave you a server URL | [Connect to that server](shared-server.md), with no local installation |
-| Seed MCP is already installed on your machine | [Connect your client](../integrations/index.md) |
-| You have no setup-capable agent or prefer doing it yourself | [Manual installation](manual-install.md), the technical fallback |
-
-## Guided Local Setup
-
-Use a coding agent that can run terminal commands and edit files on your
-machine, such as an appropriately enabled Claude Code, Codex, TRAE IDE,
-Cursor, VS Code agent, or OpenCode session. Approve only the setup actions
-you understand. An ordinary chat without those tools cannot install software.
-
-### 1. Ask Your Agent
-
-Copy this request into that agent. Replace the client and desired capabilities:
-
-```text
-Set up https://github.com/byteplus-sa/seed-mcp for [my client],
-user-wide, on this machine. I need [images and video].
-Read docs/setup/manual-install.md and my client's integration guide
-from the selected fork revision before making changes.
-Use the reviewed patched revision, check prerequisites, and ask before
-installing missing software. Preserve existing projects and MCP entries.
-Resolve paths and prepare the client configuration for me.
-Open a private blank credential file in a local non-AI text editor;
-I will enter my keys there. Do not read back the populated file
-or ask me to paste keys into chat.
-Verify with discovery only, without generating, uploading, or spending.
-Ask before restarting a client with active calls. Report any unfinished steps.
-```
-
-This is **agent-assisted setup, not a one-click installer**. The agent performs
-the one-time software and configuration steps; you approve changes and enter
-credentials. If it cannot access the instructions or required tools, stop
-and use the manual fallback or ask your administrator for help.
-
-For **Claude Desktop**, run the request in a separate coding agent and name
-Claude Desktop as the target. Desktop chat alone is not assumed to have
-installation access.
-
-The [ark-mcp-setup skill](https://github.com/byteplus-sa/seed-mcp/tree/main/.agents/skills/ark-mcp-setup)
-bundles this workflow for supported agents. To install only those instructions,
-use the [Skills CLI guidance](agent-skill.md) with
-`--skill ark-mcp-setup` instead of `--skill ark-mcp`. Review the bundle and
-target only your chosen agent. Installing it is separate from authorizing it
-to prepare the server and MCP connection.
-
-### 2. Enter Your Keys Privately
-
-You need a BytePlus account and access to the products you choose. Enter only
-those keys in the private file the agent prepares, save, then tell it you are
-done. Never paste keys into chat or client configuration.
-
-| What you want | Key to obtain |
-| --- | --- |
-| Images and video | ModelArk |
-| Scene audio or local text to speech | Seed Speech |
-
-See [Provider Keys](../api-keys.md) for where to obtain each key. Flash
-and other optional products may have extra account access requirements.
-Regular Seedance 2.5 4K uses the same model and key, without another flag.
-You do not need to configure every service.
-Seed TTS 3.0 is local stdio only and also requires an authorized compatible
-voice ID; see [voice selection](../seed-tts.md#choose-a-voice).
-
-The credential file is private plaintext, not a secrets vault; software
-running as your OS user can still read it.
-
-### 3. Enable and Verify
-
-Follow any remaining step in [your client guide](../integrations/index.md).
-Some clients require you to paste the agent-prepared configuration into a
-settings screen or approve server access.
-
-Then ask your client:
-
-```text
-Check the ark-seed connection using only ark_list_models.
-Tell me which services and tools are available. Do not generate or upload.
-```
-
-Success means the expected tools return discovery results. A green connection
-indicator alone is not enough. Discovery makes no provider calls and does not
-prove provider-key validity or account entitlement. If tools are missing,
-see [Troubleshooting](../troubleshooting.md).
-
-### 4. Add the Usage Skill (Optional)
-
-The **ark-mcp skill** teaches your agent the server's workflows, including
-progress checks and keeping generated results. In a file-capable coding
-agent, send:
-
-```text
-Use the Skills CLI to install only the ark-mcp usage skill from
-byteplus-sa/seed-mcp for [my agent], user-wide.
-Follow docs/setup/agent-skill.md from that fork
-for the command, prerequisites and verification. Preserve existing skills
-and ask before installing missing software or replacing anything.
-Do not read credentials, change my MCP connection, or run paid tests.
-```
-
-The CLI handles `.agents/skills` and `.claude/skills` locations for supported
-clients. See [Install the Agent Skill](agent-skill.md) for agent selection,
-project-only installs, and the manual fallback.
-The skill supplies instructions; it does not install or connect the server.
-
-Continue with [Your First Tool Call](first-run.md).
+**Seed MCP is already hosted on BytePlus. You only connect your AI client.**
+You do not need to clone a repository, install Python, Git, uv or Docker, run
+a server, or access Kubernetes. The operator runs and updates the service.
 
 <span id="prerequisites"></span>
 <span id="choose-an-installation"></span>
-<span id="enter-credentials-privately"></span>
 <span id="connect-a-client"></span>
+
+## 1. Add the Hosted Endpoint
+
+Open your client's MCP or connector settings and add a **remote Streamable
+HTTP** server:
+
+| Setting | Value |
+| --- | --- |
+| Connection name | `ark-seed` |
+| Transport | Streamable HTTP |
+| MCP URL | `https://st63a28rvt0o3d9htd28d.apigateway-ap-southeast-1.apigw-byteplus.com/mcp` |
+| Tool timeout, where supported | 660 seconds (660000 milliseconds) |
+
+Keep the `/mcp` path. The documentation website is not an MCP endpoint.
+Do not choose a local command, stdio launcher, or Kubernetes connection.
+Preserve other MCP entries and ask before replacing an existing `ark-seed`.
+
+Use this endpoint only when you trust its operator: the service receives
+your prompts, media references and live provider credentials. Review the
+[deployment and security notes](../hosted-deployment-status.md#connect),
+including the accepted private-hop certificate-verification exception.
+That record is not an availability SLA.
+
+<span id="enter-credentials-privately"></span>
+
+## 2. Configure Private Headers
+
+Generation uses **your own BytePlus provider key** and may incur charges.
+Add headers through your client's protected secret settings or supported
+environment-backed configuration, not as tool arguments.
+
+| Header | Value you supply privately |
+| --- | --- |
+| `X-ModelArk-Api-Key` | Your ModelArk API key for Seedream images and Seedance video |
+| `X-Seed-Speech-Api-Key` | Your Seed Speech API key for Seed Audio |
+| `X-MCP-Client-Secret` | An independent client-generated secret, required for every provider call |
+
+Supply only the provider key for the capabilities you use. For both image/video
+and audio, configure both provider headers. See [Provider Keys](../api-keys.md)
+for where to obtain them; you do not need the server's environment-file setup.
+
+Generate the client secret once using a trusted secret manager or your OS
+cryptographic random generator: **32 random bytes encoded as 64 lowercase hex
+characters**. Keep it stable and different from every provider key.
+Generate and enter it privately, outside agent output and shared terminals.
+Do not use a sample value, an arbitrary password, or a provider key as this secret.
+
+Never paste credentials into chat, shared JSON/TOML, screenshots or Git.
+There is no OAuth login, server-issued key, or `Authorization` header.
+The server does not persist provider keys. Discovery alone needs no credentials,
+but generation and dry runs require the headers above.
+
+## 3. Configure Your Client
+
+The templates below contain environment **names**, not secret values.
+Make those private variables available to the actual client process using its
+supported secret/environment mechanism. A variable set in a different terminal
+may not be visible to a desktop app.
+
+### Codex
+
+Merge this entry into your chosen Codex configuration scope, preserving other
+settings. For user-wide setup, use the user configuration, normally
+`~/.codex/config.toml` or the configured `CODEX_HOME` location:
+
+```toml
+[mcp_servers."ark-seed"]
+url = "https://st63a28rvt0o3d9htd28d.apigateway-ap-southeast-1.apigw-byteplus.com/mcp"
+tool_timeout_sec = 660
+
+[mcp_servers."ark-seed".env_http_headers]
+"X-ModelArk-Api-Key" = "SEED_MCP_MODELARK_KEY"
+"X-MCP-Client-Secret" = "SEED_MCP_CLIENT_SECRET" # pragma: allowlist secret
+```
+
+### Claude Code
+
+Merge the remote entry through Claude Code's configuration workflow in the
+intended user or project scope. It uses `${VAR}` references and a timeout in
+milliseconds; this is not a Claude Desktop connector template:
+
+```json
+{
+  "mcpServers": {
+    "ark-seed": {
+      "type": "http",
+      "url": "https://st63a28rvt0o3d9htd28d.apigateway-ap-southeast-1.apigw-byteplus.com/mcp",
+      "timeout": 660000,
+      "headers": {
+        "X-ModelArk-Api-Key": "${SEED_MCP_MODELARK_KEY}",
+        "X-MCP-Client-Secret": "${SEED_MCP_CLIENT_SECRET}"
+      }
+    }
+  }
+}
+```
+
+For Seed Audio, replace or supplement the ModelArk header with
+`X-Seed-Speech-Api-Key`, using the independent variable
+`SEED_MCP_SEED_SPEECH_KEY` (Codex) or `${SEED_MCP_SEED_SPEECH_KEY}` (Claude Code).
+
+### Other Clients
+
+In TRAE, Cursor, VS Code, OpenCode or another client, use its supported remote
+MCP configuration with the URL and headers above. Exact fields and secret
+handling differ by client and edition. Do not reuse the Claude Code JSON
+blindly, including in Claude Desktop.
+
+**Your client must support Streamable HTTP and private custom headers.**
+If it does not, use a supported client; do not install a local server or
+weaken credential protection to work around it. Template parsing is not proof
+of successful tool execution in every edition.
+
 <span id="verify"></span>
 
-## Technical Details
+## 4. Verify Without Spending
 
-Path resolution, locked dependencies, private-file permissions and the
-client launch contract are documented once in
-[Manual Installation](manual-install.md). They are instructions for your
-setup agent or administrator, not extra steps after guided setup.
+Enable `ark-seed`, approve the connection, and ask your client:
 
-Follow [fork release selection](manual-install.md#choose-an-installation) and
-verify the selected revision's lockfile and migration notes before setup.
-Historical upstream Ark MCP releases are not fork installation targets.
-Read the [breaking-capability migration](../migration-0.2.md#breaking-capability-migration)
-before replacing an older server. This handbook describes the checkout,
-not an assumed published Seed MCP release.
+```text
+Use only the ark-seed server. List its tools and call ark_list_models
+with {"input": {}}. Report available services and models.
+Do not generate media, upload files, or make paid calls.
+```
+
+Expect seven hosted tools and `connection=null` for ordinary discovery.
+Discovery makes no provider calls and does not validate your provider key or
+account entitlement. A green connection indicator alone is not sufficient.
+The optional [image/video configuration check](shared-server.md#optional-imagevideo-configuration-check)
+checks header presence and configured bindings, not provider authentication.
+
+Then continue to [Your First Tool Call](first-run.md). Download generated
+results before their URLs expire: about two hours for audio and 24 hours for
+images/video. Keep accepted task IDs and never repeat uncertain generation
+requests automatically.
+
+### Hosted Availability
+
+The hosted service provides Seedream, Seedance and Seed Audio. Seed TTS 3.0,
+local file/artifact tools and MCP resources are not available over HTTP.
+Temporary uploads are disabled on this deployment. Use provider-accessible
+URLs for reference media; a chat attachment is not automatically uploaded.
+
+<span id="guided-local-setup"></span>
+
+## Optional Agent Assistance
+
+A configuration-capable agent can help connect your client, without installing
+or running Seed MCP. Give it this request:
+
+```text
+Connect my client to the hosted Seed MCP endpoint in this guide, user-wide.
+Use remote Streamable HTTP, not a local command or stdio server.
+Preserve existing MCP entries. Set up only private header references;
+I will enter my provider key and independent client secret privately.
+Do not install or run the server, clone its repository, or access Kubernetes.
+Verify using discovery only, with no generation, uploads or paid calls.
+```
+
+The [ark-mcp-setup skill](https://github.com/byteplus-sa/seed-mcp/tree/main/.agents/skills/ark-mcp-setup)
+contains the HTTP connection workflow. The optional
+[Skills CLI usage-skill guide](agent-skill.md) adds agent instructions only.
+Neither skill is required to connect.

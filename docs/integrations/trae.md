@@ -1,28 +1,18 @@
 ---
 title: TRAE
-description: Configure Seed MCP in TRAE IDE or Work with explicit scope, local runtime paths, and private credentials.
+description: Connect TRAE to hosted Seed MCP when its edition supports private HTTP headers.
 ---
 
-TRAE can launch Seed MCP automatically after its MCP connection is configured.
-Tell your setup agent whether you use **IDE or Work**, **International or CN**,
-and a **local or cloud** execution environment.
-
-## Recommended Setup
-
-1. In a coding session with terminal and file access, use the
-   [guided setup request](../setup/install.md#guided-local-setup) and name
-   your TRAE edition as the target.
-2. Let the agent prepare Seed MCP and resolve the configuration paths. Enter
-   keys in the private editor, not in chat.
-3. If user-level registration requires the MCP settings UI, paste the
-   agent-prepared non-secret entry there and enable `ark-seed`.
-
-For local setup, select **local runtime**. A cloud runtime cannot use your
-computer's paths or credential file. Do not transfer keys to a cloud host
-without a separate, deliberate setup decision.
+For **hosted Seed MCP**, follow the [remote connection guide](../setup/install.md#other-clients).
+No server installation or startup is needed. Choose remote Streamable HTTP
+and private custom headers in your edition's MCP settings. Verify support
+for **IDE or Work** and **International or CN**; do not assume their fields match.
 
 <details>
-<summary>Manual configuration, scope and runtime options</summary>
+<summary>Optional local stdio configuration, not hosted setup</summary>
+
+The following applies only to a deliberately separate
+[local installation](../setup/manual-install.md).
 
 ## Scope and Runtime
 

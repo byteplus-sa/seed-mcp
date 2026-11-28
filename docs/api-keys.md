@@ -4,7 +4,7 @@ HTTP BYOK uses your provider key in the selected `X-ModelArk-Api-Key` or
 `X-Seed-Speech-Api-Key` header, plus
 `X-MCP-Client-Secret` (client-generated 32 random bytes as 64 lowercase hex).
 Only the selected key is needed. Discovery is anonymous/static and never
-validates your provider entitlement. See [private HTTP setup](setup/shared-server.md).
+validates your provider entitlement. See [hosted connection setup](setup/install.md#enter-credentials-privately).
 There is no OAuth, signup or server-issued key; `Authorization` is rejected.
 
 The table below describes **local stdio startup settings and upstream auth**,
@@ -24,11 +24,14 @@ HTTP registration is credential-independent.
 | TOS | `TOS_ACCESS_KEY` + `TOS_SECRET_KEY` + `TOS_BUCKET` | AK/SK signing | `media_upload`, `media_presign` |
 | S3 | `S3_ACCESS_KEY` + `S3_SECRET_KEY` + `S3_BUCKET` | AK/SK signing | `media_upload`, `media_presign` |
 
-With [guided setup](setup/install.md), your agent prepares a private blank
-credential file and opens it for you. **Enter keys there, not in chat or MCP
-client JSON.** You do not need to copy the full example configuration or
-configure services you do not use. HTTP clients supply their own provider
-headers privately; the operator must be trusted with those live requests.
+For the hosted service, obtain the provider key using the console instructions
+below, then enter it through your client's protected header/environment
+mechanism. No server `.env`, local installation or startup is needed.
+The operator must be trusted with the live credentials. Never paste them into
+chat or shared client JSON.
+
+The dotenv examples and storage configuration below are only for local
+operators. They are not additional steps after connecting to hosted Seed MCP.
 
 All env keys below are **local startup configuration**, never tool arguments. The
 examples are field-name references for that private file, not shell commands.
@@ -38,7 +41,9 @@ only when preparing the file yourself.
 
 ## ModelArk
 
-ModelArk provides **Seedream** and **Seedance**. The key is sent as a Bearer token.
+ModelArk provides **Seedream** and **Seedance**. The server sends the key to
+the provider as a Bearer token. Hosted clients instead supply
+`X-ModelArk-Api-Key`; do not send `Authorization` to Seed MCP.
 
 **Env vars:**
 
@@ -52,7 +57,7 @@ ModelArk provides **Seedream** and **Seedance**. The key is sent as a Bearer tok
 1. Sign in to the BytePlus console at **<https://console.byteplus.com>**.
 2. Open **ModelArk** (Ark) and navigate to **API Key** management.
 3. Create a new API key. Copy it immediately — it is shown once.
-4. (Optional) Create an **inference endpoint** for the Seedream or Seedance
+4. (Local operators only) Optionally create an **inference endpoint** for the Seedream or Seedance
    model you want to use, then set its ID as `SEEDREAM_DEFAULT_MODEL` or
    `SEEDANCE_DEFAULT_MODEL`. The built-in defaults already have known families;
    a custom endpoint ID must be bound via `SEEDREAM_MODEL_BINDINGS` /
@@ -69,7 +74,8 @@ base; HTTP fixes official origins and never accepts arbitrary endpoint hosts.
 
 Seed Speech provides **Seed Audio** (full-scene audio generation) and
 **Seed TTS 3** (text/SSML speech synthesis, stdio only).
-It is separate from ModelArk and uses `X-Api-Key`, not Bearer.
+It is separate from ModelArk and uses `X-Api-Key` on the provider connection,
+not Bearer. Hosted clients supply `X-Seed-Speech-Api-Key` for Seed Audio.
 
 **Env vars:**
 
@@ -175,7 +181,10 @@ S3-compatible storage (MinIO, R2, TOS-via-boto3).
 
 ## Verifying your setup
 
-After saving the private file, reconnect Ark through your client's MCP
+For hosted connections, use the [discovery-only check](setup/install.md#verify).
+There is no local server to start.
+
+For local stdio, after saving the private file, reconnect through your client's MCP
 settings, taking care to finish active calls first. The client starts the
 server automatically. Use the [discovery-only connection check](integrations/index.md#verify-without-paid-calls);
 do not start development mode just to test keys.

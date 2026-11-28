@@ -1,11 +1,11 @@
 ---
 title: BytePlus Seed MCP
-description: Create with Seedream, Seedance, Seed Audio and local Seed TTS from your AI client.
+description: Connect your AI client to BytePlus-hosted Seed MCP for images, video and audio. No server installation required.
 template: splash
 hero:
-  tagline: Images, video and audio.<br />One MCP server, in the AI client you already use.
+  tagline: Images, video and audio.<br />Connect your AI client. No server to install.
   actions:
-    - text: Get started
+    - text: Connect to hosted Seed MCP
       link: /seed-mcp/setup/install/
       icon: right-arrow
     - text: Connect your client
@@ -31,8 +31,8 @@ import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
 </nav>
 
 <CardGrid>
-  <Card title="__TOOL_COUNT__ tool definitions" icon="puzzle">
-    The local catalog has 13 conditional tools, including Seed TTS 3, with four always registered. HTTP exposes 7, plus optional temporary TOS preparation.
+  <Card title="7 hosted tools" icon="puzzle">
+    Discover models, create images, video and scene audio, and manage video tasks through the existing BytePlus-hosted service.
   </Card>
   <Card title="Your workflow, connected" icon="rocket">
     Create and poll in your AI client. HTTP returns temporary provider URLs; local stdio can explicitly preserve artifacts.
@@ -44,10 +44,11 @@ import { Card, CardGrid, LinkCard } from '@astrojs/starlight/components';
 
 ## Start Building
 
-From a fresh installation to your first tool call.
+From a remote connection to your first tool call. The operator runs the server;
+you do not need a checkout, Python, Docker or Kubernetes access.
 
 <CardGrid>
-  <LinkCard title="Set up your connection" description="Let a coding agent handle local setup, or connect to your team's existing server." href="/seed-mcp/setup/install/" />
+  <LinkCard title="Connect to hosted Seed MCP" description="Add the hosted URL and private headers to your client. No server installation or startup." href="/seed-mcp/setup/install/" />
   <LinkCard title="Connect your client" description="Find the right configuration, from Claude and Codex to your own Python app." href="/seed-mcp/integrations/" />
   <LinkCard title="Create with a prompt" description="Ask your agent to generate an image or video. Copy a prompt and make it your own." href="/seed-mcp/setup/first-run/" />
   <LinkCard title="Explore the reference" description="Find every tool's requirements, inputs, outputs and execution guidance." href="/seed-mcp/capabilities/" />
@@ -65,7 +66,7 @@ The BytePlus models you need, connected through one consistent interface.
   <LinkCard title="Images" description="Generate and edit images with Seedream 5.5, create transparent PNGs and explore variations." href="/seed-mcp/tool-reference/seedream-generate-image/" />
   <LinkCard title="Video" description="Create up to 30-second videos with Seedance 2.5, or select Flash for 480p/720p workflows." href="/seed-mcp/tool-reference/seedance-create-task/" />
   <LinkCard title="Scene Audio" description="Create full-scene speech, music and sound with Seed Audio." href="/seed-mcp/tool-reference/seed-audio-generate/" />
-  <LinkCard title="Text to Speech" description="Speak text or SSML with an authorized Seed TTS 3.0 voice. Local stdio only, with saved audio and optional word alignment." href="/seed-mcp/seed-tts/" />
+  <LinkCard title="Text to Speech (Not Hosted)" description="Seed TTS 3.0 is a separate local-only capability. Local stdio only; it is not available through the hosted endpoint." href="/seed-mcp/seed-tts/" />
 </CardGrid>
 </div>
 
@@ -93,7 +94,9 @@ It does not expose media understanding, dedicated ASR, 3D, VOD processing or
 provider asset administration. Package/module names, the `ark-seed` client
 entry and the `ark-mcp` skills remain unchanged for compatibility.
 
-This handbook tracks the source revision used to build the site, not an
-assumed packaged release. Use the [installation guide](/seed-mcp/setup/install/)
-to select a reviewed Seed MCP release or commit. This website is documentation,
-not a hosted MCP endpoint.
+The repository has __TOOL_COUNT__ tool definitions across both transports;
+the hosted connection exposes seven. This handbook tracks its build revision,
+not necessarily the deployed instance. Use the
+[connection guide](/seed-mcp/setup/install/) for the hosted URL, and the
+[deployment record](/seed-mcp/hosted-deployment-status/) for dated live evidence.
+This website is documentation, not the MCP endpoint itself.

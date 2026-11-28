@@ -1,22 +1,18 @@
 ---
 title: Cursor
-description: Add Seed MCP to Cursor at user or project scope using an absolute stdio launch and private env file.
+description: Connect Cursor to hosted Seed MCP using private HTTP headers, with optional local stdio reference.
 ---
 
-Cursor starts Seed MCP automatically from its saved MCP configuration.
-
-## Recommended Setup
-
-1. Use the [guided setup request](../setup/install.md#guided-local-setup)
-   in a Cursor agent with terminal and file-editing access.
-2. Approve installation/configuration changes and enter provider keys privately.
-3. Open Cursor's MCP settings, enable `ark-seed`, and review tool permissions.
-
-Use user-level setup unless only one project should see Seed MCP. The agent should
-prepare the correct entry without replacing your other MCP servers.
+For **hosted Seed MCP**, follow the [remote connection guide](../setup/install.md#other-clients).
+No server installation or startup is needed. Use Cursor's remote HTTP
+configuration and verify private custom-header support in your edition.
+Preserve existing MCP entries and choose your intended user or project scope.
 
 <details>
-<summary>Manual configuration and scope options</summary>
+<summary>Optional local stdio configuration, not hosted setup</summary>
+
+The following applies only to a deliberately separate
+[local installation](../setup/manual-install.md).
 
 ## Choose the Scope
 

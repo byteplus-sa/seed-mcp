@@ -5,16 +5,24 @@ description: Set up or update Seed MCP in Claude, Codex, TRAE or another client.
 
 # Seed MCP Setup
 
-This project-local skill installs the narrowed Seed MCP fork from
-`byteplus-sa/seed-mcp`. Package, module, tool and skill names remain unchanged.
+This project-local skill connects clients to Seed MCP, or installs the
+`byteplus-sa/seed-mcp` server only when local stdio is explicitly requested.
+Package, module, tool and skill names remain unchanged.
 Use the [Seed MCP installation guide](https://byteplus-sa.github.io/seed-mcp/setup/install/)
 and the selected revision's source documentation. The website is documentation,
 not an MCP endpoint or evidence of a stable release. No fork release is assumed.
 Upstream Ark MCP is not an installation or release source for this fork.
 
-Install the server into the user's preferred MCP client, not the client
-application itself. Use this skill for onboarding, updates, registration,
-and credential-file setup. Use `ark-mcp` for generating media.
+The published installation guide is a **hosted connection workflow**.
+Users following it need no checkout, release selection, Python, uv, server
+startup or Kubernetes access. After the user accepts the operator and endpoint,
+configure remote HTTP with private header references and discovery-only
+verification. Skip sections 2-4 and the local launch contract in that case.
+Do not substitute local installation when a client lacks private HTTP headers;
+explain the compatibility requirement instead.
+
+Configure the user's preferred MCP client, not the client application itself.
+Use `ark-mcp` for generating media.
 Do not install an editor or CLI, change the agent's model provider, or deploy
 public HTTP as a side effect.
 

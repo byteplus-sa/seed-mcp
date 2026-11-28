@@ -1,27 +1,20 @@
 ---
 title: Claude Desktop
-description: Register a local Seed MCP stdio server in Claude Desktop without putting keys in client configuration.
+description: Check hosted connection compatibility in Claude Desktop, with optional local stdio reference.
 ---
 
 This guide is for **Claude Desktop**, not [Claude Code](claude-code.md).
-Desktop launches the local Seed MCP server automatically after setup.
-
-## Recommended Setup
-
-1. Use the [guided setup request](../setup/install.md#guided-local-setup)
-   in a separate coding agent with local terminal and file-editing access.
-   Name **Claude Desktop** as the target; Desktop chat alone is not assumed
-   to have installation access.
-2. Let it prepare your installation and Desktop configuration, and enter
-   your provider keys in the private editor.
-3. Finish active calls, fully reopen Desktop, and approve the Seed MCP connection.
-
-No setup-capable agent available? Use [manual installation](../setup/manual-install.md)
-or ask your administrator for help. For a team-hosted endpoint, follow the
-[shared-server guide](../setup/shared-server.md) instead.
+For **hosted Seed MCP**, follow the [remote connection requirements](../setup/install.md#other-clients).
+No server installation or startup is needed. Your edition must support
+Streamable HTTP and private custom headers; this is not assumed for every
+Desktop connector. Do not use the Claude Code JSON or OAuth as a substitute.
+Use a supported client if those headers cannot be supplied privately.
 
 <details>
-<summary>Manual Desktop configuration</summary>
+<summary>Optional local stdio configuration, not hosted setup</summary>
+
+The following applies only to a deliberately separate
+[local installation](../setup/manual-install.md).
 
 ## Scope and Prerequisites
 

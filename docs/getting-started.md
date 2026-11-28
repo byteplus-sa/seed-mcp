@@ -1,77 +1,52 @@
 # Getting Started
 
-Connect Seed MCP to your AI client, then ask it to create media.
-Your client handles tool calls and starts the local server automatically.
-You do not need to keep a terminal open.
+Connect your AI client to the existing BytePlus-hosted Seed MCP service.
+There is no server to install or run on your computer and no Kubernetes
+access to configure.
 
-## Installation
+## Connect
 
-Start with [Set Up Seed MCP](setup/install.md). A terminal-capable coding
-agent can prepare the installation and client configuration with your
-permission. If your administrator already provides an endpoint, use
-[Connect to a Shared Server](setup/shared-server.md) and skip local setup.
+Follow [Connect to Hosted Seed MCP](setup/install.md):
 
-The [ark-mcp-setup skill](https://github.com/byteplus-sa/seed-mcp/tree/main/.agents/skills/ark-mcp-setup) guides
-installation and updates in the user's preferred agent. It detects the current
-client where possible and asks when ambiguous, distinguishes Claude Code from
-Desktop and TRAE IDE from Work, and defaults to **global/user-level MCP
-registration**. Request project-only setup to change that scope.
-
-The workflow selects a verified `byteplus-sa/seed-mcp` stable release and stages a
-locked installation before changing client configuration. If no stable release
-is published, it asks before using a reviewed commit; no fork release is assumed.
-Never substitute the broader upstream Ark MCP server. Existing credentials,
-other MCP servers, and development checkouts are preserved.
-
-This is an agent-executed workflow, not an unattended installer. Credential
-entry and some clients' configuration UIs need user interaction. Verification
-checks startup and tool discovery without paid generation; provider key validity
-and account entitlement are not established by those local checks.
+1. Add the hosted URL as a remote Streamable HTTP MCP connection.
+2. Configure your selected provider API key and independent client secret
+   through private custom headers.
+3. Enable `ark-seed` and verify with discovery only.
 
 ## Configuration
 
-For local setup, enter the [provider keys](api-keys.md) you need in the
-private file prepared for you. Never paste keys into chat or shared client
-configuration. Images and video use ModelArk; audio generation
-uses Seed Speech.
-You do not need every service.
-
-## Running the Server
-
-Enable `ark-seed` in your client's MCP settings. The saved configuration
-tells the client how to start Seed MCP; a manual server-start command is not an
-additional user step. For a shared server, your administrator handles startup.
+Use the [Codex](setup/install.md#codex), [Claude Code](setup/install.md#claude-code)
+or [other-client](setup/install.md#other-clients) instructions.
+You do not need Git, Python, uv, Docker or a local checkout.
+ModelArk keys cover images/video; Seed Speech keys cover Seed Audio.
+The client secret must be an independent 32-random-byte value encoded as
+64 lowercase hex characters. Never paste keys or that secret into chat.
 
 ## Verifying Your Setup
 
 Ask your connected client:
 
 ```text
-Check my Seed MCP connection with ark_list_models.
-List the services and tools available to me. Do not generate or upload.
+Use only ark-seed. List its tools and call ark_list_models with {"input": {}}.
+Report the available services and models. Do not generate or upload.
 ```
 
-Confirm that the tools you need appear in actual results. Discovery makes
-no provider calls; it does not validate provider keys or account entitlement.
-See [Troubleshooting](troubleshooting.md) if the connection or tools are missing.
+Ordinary discovery returns `connection=null` and makes no provider calls.
+It does not validate provider credentials or account entitlement.
+See [HTTP connection details](setup/shared-server.md) for optional
+header-presence checks and troubleshooting.
 
-## Using with MCP Clients
+## Create Media
 
-Choose [your client guide](integrations/index.md), then try
-[Your First Tool Call](setup/first-run.md). Copy an example prompt into your
-agent and describe the image or video you want. Developers can find exact
-JSON envelopes in the [tool reference](api-reference.md).
+Try [Your First Tool Call](setup/first-run.md). Describe the image or video
+you want; your client handles tool calls and video polling.
+Generation may incur provider charges. Save returned task IDs and download
+results before provider URLs expire; do not repeat uncertain creates.
+The hosted service has seven tools for discovery, images, video and scene
+audio. Seed TTS and local storage/artifact tools are not part of HTTP.
 
-For clients that support skills, [install the optional ark-mcp skill](setup/agent-skill.md)
-to give your agent workflow instructions. This is separate from connecting
-the MCP server.
-
-## Technical Setup
-
-Installing without an agent? Use [Manual Installation](setup/manual-install.md).
-Developing or deploying the server? Use [Transports](transports.md),
-[Direct Execution](integration-guide.md#direct-execution), and
-[Configuration](configuration.md). These are not prerequisites for ordinary use.
+The [optional ark-mcp usage skill](setup/agent-skill.md) provides workflow
+instructions. It is not required to connect and does not run the server.
 
 <span id="prerequisites"></span>
 <span id="stdio-default-for-local-mcp-clients"></span>
@@ -83,5 +58,5 @@ Developing or deploying the server? Use [Transports](transports.md),
 ## Next Steps
 
 - [Choose a Tool](capabilities.md) for images, video and audio.
-- [Update and Roll Back](setup/updating.md) for an existing installation.
-- [Migrating to 0.2.0](migration-0.2.md) when upgrading old 0.1.x prompts or clients.
+- [Client Integrations](integrations/index.md) for connection compatibility.
+- [Direct Execution](integration-guide.md#direct-execution) for developers.

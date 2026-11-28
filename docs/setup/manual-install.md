@@ -3,12 +3,13 @@ title: Manual Installation
 description: Technical fallback and instructions for an agent or administrator preparing a local Seed MCP installation.
 ---
 
-Use this page only if you are setting up Seed MCP yourself, or as instructions for
-the coding agent handling [guided setup](install.md). Most users should start
-with guided setup or [connect to an existing shared server](shared-server.md).
-Local installation still needs software preparation; an agent can run these
-steps with permission, but an ordinary chat without terminal and file access
-cannot.
+This page is only for an explicitly requested **local stdio installation**,
+not for users of the hosted service. Follow
+[Connect to Hosted Seed MCP](install.md) to use the existing BytePlus endpoint
+without installing or starting a server.
+
+For a deliberate local installation, a coding agent can perform the following
+steps with permission. This separate workflow requires terminal and file access.
 
 ## Choose an Installation
 

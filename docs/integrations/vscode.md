@@ -1,27 +1,19 @@
 ---
 title: VS Code
-description: Select the correct VS Code MCP format and scope for a private local Seed MCP connection.
+description: Connect VS Code to hosted Seed MCP using private HTTP headers, with optional local stdio reference.
 ---
 
-Use VS Code's MCP support for your selected chat profile or harness.
-VS Code starts a configured local Seed MCP server automatically.
-
-## Recommended Setup
-
-1. Give the [guided setup request](../setup/install.md#guided-local-setup)
-   to an agent with terminal and file-editing access. Name **VS Code** and
-   whether you are working locally, over SSH or in a Dev Container.
-2. Let it prepare Seed MCP and the configuration for your installed MCP format;
-   enter keys in the private editor.
-3. Use **MCP: Add Server** or your edition's MCP settings when UI confirmation
-   is needed, select the intended user/profile scope, and approve `ark-seed`.
-
-If an entry was already added, review it rather than adding a duplicate.
-VS Code and portable Copilot formats differ; the fallback examples below are
-alternatives, not steps that everyone must complete.
+For **hosted Seed MCP**, follow the [remote connection guide](../setup/install.md#other-clients).
+No server installation or startup is needed. Use **MCP: Add Server** or your
+edition's MCP settings to select remote HTTP and private custom headers.
+VS Code and portable Copilot formats differ; verify the selected harness's
+supported schema rather than copying another client's JSON.
 
 <details>
-<summary>Manual configuration formats and scope</summary>
+<summary>Optional local stdio configuration, not hosted setup</summary>
+
+The following applies only to a deliberately separate
+[local installation](../setup/manual-install.md).
 
 ## Choose Scope and Format
 

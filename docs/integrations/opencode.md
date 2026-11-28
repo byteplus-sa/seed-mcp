@@ -1,24 +1,18 @@
 ---
 title: OpenCode
-description: Connect Seed MCP to OpenCode using the MCP schema supported by your edition and a private env-file path.
+description: Connect OpenCode to hosted Seed MCP using private HTTP headers, with optional local stdio reference.
 ---
 
-OpenCode starts Seed MCP from its saved MCP configuration. Let its coding agent
-choose the format supported by the version you have installed.
-
-## Recommended Setup
-
-1. Send the [guided setup request](../setup/install.md#guided-local-setup)
-   to an OpenCode session with terminal and file-editing access.
-2. Approve the setup changes and enter keys in the private editor.
-3. Review the `ark-seed` connection and tool permissions in OpenCode.
-
-The classic and V2 configuration shapes below are alternatives for manual
-setup. You do not need to choose or edit JSON yourself when the setup agent
-can verify your installed schema.
+For **hosted Seed MCP**, follow the [remote connection guide](../setup/install.md#other-clients).
+No server installation or startup is needed. Use your edition's remote MCP
+schema and verify private custom-header support. Classic and V2 configuration
+shapes differ; do not use the local launcher examples for the hosted service.
 
 <details>
-<summary>Manual configuration for classic and V2 editions</summary>
+<summary>Optional local stdio configuration, not hosted setup</summary>
+
+The following applies only to a deliberately separate
+[local installation](../setup/manual-install.md).
 
 ## Choose the Scope
 

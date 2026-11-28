@@ -1,23 +1,17 @@
 ---
 title: Codex
-description: Connect Codex to Seed MCP using global or trusted-project MCP configuration and private env-file paths.
+description: Connect Codex to hosted Seed MCP; local stdio configuration is an optional advanced reference.
 ---
 
-Use a Codex session with terminal and file-editing access to prepare Seed MCP.
-Ordinary chat without those permissions cannot perform local installation.
-
-## Recommended Setup
-
-1. Send the [guided setup request](../setup/install.md#guided-local-setup),
-   naming **Codex** and your actual execution host.
-2. Approve setup changes and enter keys privately when prompted.
-3. Review `ark-seed` in `/mcp` or your edition's MCP settings.
-
-The agent resolves paths and uses the installed client's registration
-mechanism. Once configured, Codex starts Seed MCP automatically.
+For **hosted Seed MCP**, use the [remote Codex template](../setup/install.md#codex).
+No server installation or startup is needed. Configure the private header
+variables, review `ark-seed` in `/mcp`, and verify discovery.
 
 <details>
-<summary>Manual configuration and scope options</summary>
+<summary>Advanced configuration, including optional local stdio</summary>
+
+Local launch sections below apply only to a deliberately separate
+[local installation](../setup/manual-install.md), not the hosted service.
 
 ## Choose the Scope
 

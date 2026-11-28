@@ -60,12 +60,18 @@ the project environment is not at `.venv/`.
 | Tool-reference categories | `docs/site/scripts/navigation.mjs` |
 | BytePlus logo variants | `docs/site/src/assets/byteplus-mark-{light,dark}.svg` |
 
-The primary setup page offers a request for a terminal/file-capable coding
-agent and an existing shared-server route. It does not claim a one-click
-installer exists. Technical preparation lives in `setup/manual-install.md`;
-client-specific fallback snippets remain inside disclosures. Keep README and
-older handbook entry points linked to these canonical guides instead of
-duplicating commands or credential-bearing client examples.
+The primary setup page is hosted-only onboarding: the existing BytePlus
+endpoint, private BYOK header entry, remote Codex/Claude Code templates and
+discovery without spending. Users do not install or start a server. Keep the
+endpoint aligned with the dated `hosted-deployment-status.md` record and retain
+the linked trust notes. Do not claim every client supports private custom
+headers. Templates are checked against the pure snippet generator.
+
+Local technical preparation remains in `setup/manual-install.md`, and
+client-specific local snippets stay in clearly optional disclosures.
+README, the landing page and getting-started entry points must lead to hosted
+connection, not release selection or local execution. The old installation
+URL and anchors remain for incoming links.
 
 `onboarding.test.mjs` guards that separation. The first-run page leads with
 copyable generation prompts, without tool names or job orchestration in those

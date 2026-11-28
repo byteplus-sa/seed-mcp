@@ -1,23 +1,17 @@
 ---
 title: Claude Code
-description: Choose user, private-project, or shared-project scope for Seed MCP in Claude Code.
+description: Connect Claude Code to hosted Seed MCP; advanced scope and local stdio details remain available separately.
 ---
 
-Use Claude Code's terminal-enabled agent to prepare Seed MCP for you. This guide is
-for the coding client, not [Claude Desktop](claude-desktop.md).
-
-## Recommended Setup
-
-1. Send the [guided setup request](../setup/install.md#guided-local-setup)
-   to Claude Code, naming **Claude Code** as the target.
-2. Approve setup changes and enter provider keys in the private editor.
-3. Open `/mcp`, review the connection and enable `ark-seed`.
-
-Claude Code starts the server automatically. You do not need to run the
-registration command below yourself if your setup agent has completed it.
+For **hosted Seed MCP**, use the [remote Claude Code template](../setup/install.md#claude-code).
+No server installation or startup is needed. Configure private headers and
+enable `ark-seed` in `/mcp`. This is the coding client, not Claude Desktop.
 
 <details>
-<summary>Manual configuration and scope options</summary>
+<summary>Advanced configuration, including optional local stdio</summary>
+
+Local launch sections below apply only to a deliberately separate
+[local installation](../setup/manual-install.md), not the hosted service.
 
 ## Choose the Scope
 

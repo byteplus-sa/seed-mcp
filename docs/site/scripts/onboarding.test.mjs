@@ -5,16 +5,27 @@ import { test } from "node:test";
 const page = (path) =>
   readFileSync(new URL(`../../${path}`, import.meta.url), "utf8");
 
-test("primary onboarding offers guided setup without shell commands", () => {
+test("primary onboarding connects to hosted MCP without installing a server", () => {
   for (const path of ["setup/install.md", "getting-started.md"]) {
     const content = page(path);
-    assert.doesNotMatch(content, /```(?:bash|sh|shell|powershell|json|toml)\b/);
-    assert.match(content, /manual-install\.md/);
+    assert.doesNotMatch(content, /```(?:bash|sh|shell|powershell)\b/);
+    assert.doesNotMatch(
+      content,
+      /git clone|uv sync|ARK_MCP_ENV_FILE|--transport stdio|manual-install\.md|## Running the Server/,
+    );
+    assert.match(content, /hosted/i);
+    assert.match(content, /Streamable HTTP/);
+    assert.match(content, /64 lowercase hex/);
   }
   const install = page("setup/install.md");
-  assert.match(install, /terminal.*file/i);
-  assert.match(install, /not.*one-click installer/i);
+  assert.match(install, /You only connect your AI client/);
+  assert.match(install, /No server installation or Kubernetes access required/);
+  assert.match(install, /hosted-deployment-status\.md#connect/);
+  assert.match(install, /certificate-verification exception/);
+  assert.match(install, /id="guided-local-setup"/);
   assert.match(install, /shared-server\.md/);
+  assert.match(install, /Temporary uploads are disabled/);
+  assert.match(install, /Seed TTS 3\.0,[\s\S]*not available over HTTP/);
 });
 
 test("first use leads with a generation prompt rather than tool orchestration", () => {
@@ -68,7 +79,12 @@ test("client guides put optional manual configuration behind disclosure", () => 
     const start = content.indexOf("<details>");
     const end = content.indexOf("</details>", start);
     assert.ok(start > 0 && end > start, client);
-    assert.match(content.slice(0, start), /guided setup/i, client);
+    assert.match(content.slice(0, start), /hosted Seed MCP/i, client);
+    assert.match(
+      content.slice(0, start),
+      /No server installation or startup is needed/,
+      client,
+    );
     assert.doesNotMatch(
       content.slice(0, start),
       /```(?:bash|json|toml|powershell)\b/,
@@ -103,18 +119,28 @@ test("manual fallback selects a reviewed release and keeps private launch contra
   assert.match(manual, /v0\.2\.0/);
 });
 
-test("guided setup distinguishes the setup skill from the usage skill", () => {
+test("hosted setup uses private headers and makes skills optional", () => {
   const install = page("setup/install.md");
   assert.match(install, /\/\.agents\/skills\/ark-mcp-setup/);
-  assert.match(install, /--skill ark-mcp-setup/);
-  assert.match(install, /separate from authorizing it/);
   assert.match(
     install,
     /byteplus-sa\/seed-mcp\/tree\/main\/\.agents\/skills\/ark-mcp-setup/,
   );
-  assert.match(install, /does not imply a\s+stable release/);
+  assert.match(install, /Neither skill is required to connect/);
+  assert.match(install, /Skills CLI/);
   assert.match(install, /documentation website is not an MCP endpoint/);
-  assert.match(install, /Seed TTS 3\.0 is local stdio only/);
+  assert.match(install, /independent client-generated secret/);
+  assert.match(install, /does not validate your provider key/);
+  assert.match(install, /private custom headers/);
+  assert.match(
+    install,
+    /no OAuth login, server-issued key, or `Authorization`/i,
+  );
+  assert.match(install, /Expect seven hosted tools and `connection=null`/);
+  assert.doesNotMatch(
+    page("setup/shared-server.md"),
+    /does not provide a public hosted endpoint/,
+  );
 });
 
 test("legacy onboarding does not advise inline provider keys or new dependency edits", () => {

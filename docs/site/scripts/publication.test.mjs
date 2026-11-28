@@ -46,9 +46,17 @@ test("Astro and generated links share the Seed MCP publication identity", () => 
   }
   assert.match(config, /from "\.\/site-config\.mjs"/);
   assert.match(config, /slug: "seed-tts"/);
+  const onboarding = config
+    .split('label: "Get Started"')[1]
+    .split('label: "Client Integrations"')[0];
+  assert.match(onboarding, /Connect to Hosted Seed MCP/);
+  assert.match(onboarding, /Agent Skill \(Optional\)/);
+  assert.doesNotMatch(onboarding, /setup\/manual-install|setup\/updating/);
   const home = read("docs/index.mdx");
   assert.ok(home.includes(`title: ${SITE_TITLE}`));
   assert.match(home, /__TOOL_COUNT__ tool definitions/);
+  assert.match(home, /title="7 hosted tools"/);
+  assert.match(home, /No server to install/);
   assert.match(home, /href="\/seed-mcp\/seed-tts\/"/);
   assert.match(home, /Local stdio only/);
   const notFound = read("docs/404.md");

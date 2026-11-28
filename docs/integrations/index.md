@@ -1,55 +1,49 @@
 ---
 title: Client Integrations
-description: Connect local MCP clients to Seed MCP with private credentials and non-billable discovery.
+description: Connect your MCP client to hosted Seed MCP with private headers and non-billable discovery.
 ---
 
-Choose the client you want to use. **You configure the connection once; the
-client starts Seed MCP automatically.** You do not need to run the launch command
-yourself whenever you open a chat.
+**Connect to the existing hosted service; do not install or run Seed MCP.**
+Start with [the hosted connection guide](../setup/install.md). It provides the
+endpoint, private-header requirements and client templates.
 
 ## Choose a Client
 
-| Client | Easiest starting point |
+| Client | Hosted connection |
 | --- | --- |
-| [Claude Desktop](claude-desktop.md) | Have a coding agent prepare its configuration, then enable it in Desktop |
-| [Claude Code](claude-code.md) | Ask Claude Code to perform guided setup |
-| [Codex](codex.md) | Ask a terminal-enabled Codex session to perform guided setup |
-| [TRAE](trae.md) | Ask its coding agent to prepare setup; confirm any MCP settings UI steps |
-| [Cursor](cursor.md) | Use a file/terminal-enabled agent for guided setup |
-| [VS Code](vscode.md) | Use an enabled coding agent, then review the MCP connection |
-| [OpenCode](opencode.md) | Ask OpenCode to perform guided setup for its installed version |
-| [Python](python.md) | Developer example for building your own client |
+| Codex | [Remote TOML template](../setup/install.md#codex) |
+| Claude Code | [Remote JSON template](../setup/install.md#claude-code) |
+| TRAE, Cursor, VS Code, OpenCode | [Remote connection requirements](../setup/install.md#other-clients); verify private custom-header support in your edition |
+| Claude Desktop | Verify remote custom-header support; the Claude Code JSON is not a Desktop connector template |
+| Custom clients | Implement Streamable HTTP with the [documented headers](../setup/shared-server.md#connect) and a 660-second tool timeout |
 
-Use the [guided setup request](../setup/install.md#guided-local-setup) before
-opening manual configuration snippets. It requires terminal and file-editing
-access; ordinary chat alone cannot install software. For a team-provided
-endpoint, [connect over HTTPS](../setup/shared-server.md) instead.
+Use only clients that can supply credentials privately. Unsupported or
+unverified remote-header handling is not a reason to inline secrets or
+silently switch to a locally installed server.
 
-Local launch instructions below are stdio-only. HTTP has 7 tools, plus optional temporary upload preparation, anonymous static discovery and direct foreground calls, with no
-jobs/native tasks/local storage/artifact tools/resources. See the private-header
-examples for [Codex](codex.md#http-byok) and [Claude Code](claude-code.md#http-byok).
+HTTP has seven tools, anonymous static discovery and direct foreground calls.
+The hosted deployment has temporary uploads disabled, no local storage/artifact
+tools or resources, and no Seed TTS. No MCP jobs or native tasks are exposed.
 
 Default to user-level registration so Seed MCP is available across projects.
 Choose project-only scope when you need it. Your agent should preserve other
 MCP entries and ask before replacing an existing connection.
 
-## Prepare the Launch
+<span id="prepare-the-launch"></span>
 
-Your setup agent resolves the executable, checkout and private credential-file
-paths, installs the reviewed locked environment, and prepares the correct
-client entry. You only need to approve changes, enter keys privately and
-complete any required UI confirmation.
+## Existing Local Connections
 
-The fallback snippets in each client guide are for manual setup or
-troubleshooting, not additional steps after guided setup. Their prerequisites
-and exact launch contract are in [Manual Installation](../setup/manual-install.md).
-Do not paste unresolved placeholder paths into a client.
+The client-specific pages in the sidebar retain stdio examples for people
+who deliberately maintain a separate local installation. Those examples and
+[manual installation](../setup/manual-install.md) are not hosted setup steps.
+No executable, checkout, local credential-file path or server launch command
+belongs in the hosted connection.
 
 ## Keep Credentials Private
 
-Enter only the [keys you need](../api-keys.md) in a private local text editor.
-The file stays outside your repository and shared folders; client configuration
-contains its path, not key values. Preserve existing credentials. Never paste
+Enter only the [keys you need](../api-keys.md) and the independent client secret
+through the client's protected environment or secret mechanism. Templates
+contain variable names, not values. Preserve existing credentials. Never paste
 populated configuration, raw logs or validation errors into chat.
 
 ## Verify Without Paid Calls
@@ -72,14 +66,11 @@ Do not generate or upload.
 ```
 
 `ark_list_models` is read-only and makes no provider calls.
-It describes configured models and services. A connected local server with
-empty models may simply have no provider credentials loaded.
+It describes the hosted server's configured models and services.
 Discovery proves configuration and tool availability, not API-key validity,
 account entitlement, or model whitelist access.
 
-The setup agent's isolated preflight procedure is in
-[Manual Installation](../setup/manual-install.md#verify-without-spending).
-There is no need for users to run a separate validation script.
+There is no need for users to start a server or run a validation script.
 
 ## Long-Running Work
 
@@ -96,11 +87,12 @@ or blindly resubmit after a lost response. Technical result handling is in
 
 ## Troubleshooting
 
-- **Server does not start:** check the resolved executable, checkout, completed
-  locked sync, JSON/TOML syntax, and selected execution host.
-- **Connected but expected tools are missing:** check private env-file
-  metadata, enabled services, feature flags, and inherited-variable shadowing.
-  Never request the populated env file or raw validation exceptions in chat.
+- **Cannot connect:** check the HTTPS URL including `/mcp`, client transport
+  support, network access and service availability.
+- **Discovery works but generation fails:** check private header mappings and
+  provider account access. Discovery does not verify credentials.
+- **A tool is missing:** verify it is available on HTTP. TTS and local artifact
+  tools are not; do not substitute a new local installation automatically.
 - **A provider task ID is unavailable:** use the original credentials and
   ownership scope; reconcile acceptance instead of recreating it.
 - **Edition rejects the configuration:** use that client's guide and official
@@ -108,11 +100,7 @@ or blindly resubmit after a lost response. Technical result handling is in
 
 ## Sources
 
-Official client references are listed in each sibling guide. The shared
-launch contract follows the current server configuration.
-These protocol/runtime references were consulted on
-2026-11-10:
-
-- [MCP local-server connections](https://modelcontextprotocol.io/docs/develop/connect-local-servers)
-- [uv project environments and locked execution](https://docs.astral.sh/uv/concepts/projects/sync/)
-- [FastMCP client transports](https://gofastmcp.com/clients/transports)
+Official client references and validation limits are listed in the sibling
+guides. The [hosted contract](../../specs/SPEC_HOSTED_BYOK.md) defines the server
+boundary; the [deployment record](../hosted-deployment-status.md) records dated
+live acceptance separately from client-template checks.

@@ -73,12 +73,11 @@ export default defineConfig({
         {
           label: "Get Started",
           items: [
-            { slug: "setup/install", label: "Set Up Seed MCP" },
-            { slug: "setup/agent-skill", label: "Install the Agent Skill" },
-            { slug: "setup/shared-server", label: "Use a Shared Server" },
+            { slug: "setup/install", label: "Connect to Hosted Seed MCP" },
+            { slug: "setup/agent-skill", label: "Agent Skill (Optional)" },
+            { slug: "setup/shared-server", label: "HTTP Connection Details" },
             { slug: "api-keys", label: "Provider Keys" },
             { slug: "setup/first-run", label: "Your First Tool Call" },
-            { slug: "setup/updating", label: "Update and Roll Back" },
           ],
         },
         {
@@ -126,6 +125,7 @@ export default defineConfig({
           items: [
             "configuration",
             "setup/manual-install",
+            "setup/updating",
             "self-hosting",
             "deployment",
             "byteplus-terraform",

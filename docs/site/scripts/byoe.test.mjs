@@ -104,6 +104,39 @@ for (const [client, language] of [
   });
 }
 
+test("hosted onboarding templates match the generator and deployment record", () => {
+  const status = read("docs/hosted-deployment-status.md");
+  const endpoint = status.match(
+    /Streamable HTTP MCP endpoint:\s*```text\n([^\n]+)\n```/,
+  )?.[1];
+  assert.ok(endpoint);
+  assert.ok(endpoint.startsWith("https://"));
+  assert.ok(endpoint.endsWith("/mcp"));
+  const install = read("docs/setup/install.md");
+  assert.ok(install.includes(`| MCP URL | \`${endpoint}\` |`));
+  for (const [client, language] of [
+    ["codex", "toml"],
+    ["claude-code", "json"],
+  ]) {
+    const generated = runScript("scripts/configure_http_client.py", [
+      "--client",
+      client,
+      "--url",
+      endpoint,
+      "--name",
+      "ark-seed",
+    ]);
+    const snippet = install.match(
+      new RegExp("```" + language + "\\n([\\s\\S]*?)\\n```"),
+    )?.[1];
+    assert.equal(
+      snippet?.replaceAll(" # pragma: allowlist secret", "").trim(),
+      generated.trim(),
+      client,
+    );
+  }
+});
+
 test("setup separates supported binding checks from external acceptance", () => {
   const shared = read("docs/setup/shared-server.md");
   for (const text of [

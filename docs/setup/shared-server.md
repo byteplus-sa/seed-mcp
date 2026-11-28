@@ -1,15 +1,16 @@
 ---
-title: Connect to a Shared Server
-description: Use an existing administrator-managed Seed MCP server without installing Python, Git or uv locally.
+title: HTTP Connection Details
+description: Private headers, discovery checks and troubleshooting for the hosted Seed MCP connection.
 ---
 
-**Already have a Seed MCP server URL from your team? Skip local installation.**
-Your operator runs the server; your client connects over HTTPS with BYOK.
-You do not need Python, Git, uv or a local server checkout.
+Start with [Connect to Hosted Seed MCP](install.md) for the BytePlus-hosted
+endpoint and ready-to-use client templates. The operator runs the server;
+you do not need Python, Git, uv or a local checkout.
 
-This repository does not provide a public hosted endpoint. The documentation
-website is not an MCP server. Without an existing managed endpoint, use
-[guided local setup](install.md).
+This page covers additional HTTP diagnostics and custom operator-managed
+connections. The documentation website is not an MCP server. The
+[deployment record](../hosted-deployment-status.md#connect) describes the
+existing hosted endpoint and its scoped security assumptions.
 
 ## What You Need
 
