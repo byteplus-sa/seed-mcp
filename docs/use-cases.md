@@ -350,25 +350,36 @@ seedance_create_task({
 gen_task_get({"task_ids": ["<provider task ID from direct result>"]})
 ```
 
-## 16. Batch Storyboard with Seedream
+<a id="16-batch-storyboard-with-seedream"></a>
 
-Generate a coherent set of related images using the provider's native batch
-mode (not parallel variations — these share visual continuity).
+## 16. Storyboard Variations with Seedream
+
+Preview four independent Seedream 5.5 images with a shared visual direction
+and one seasonal prompt per variation.
 
 **Tool:** `seedream_generate_image`
 
 ```json
 {
-  "prompt": "A set of four seasons landscape illustrations: spring, summer, autumn, winter",
-  "max_images": 4,
+  "model": "dola-seedream-5-5-261028",
+  "variations": 4,
+  "variation_prompts": [
+    "Watercolor landscape, a red lakeside cabin viewed from across the lake, spring blossoms",
+    "Watercolor landscape, a red lakeside cabin viewed from across the lake, summer greenery",
+    "Watercolor landscape, a red lakeside cabin viewed from across the lake, autumn foliage",
+    "Watercolor landscape, a red lakeside cabin viewed from across the lake, winter snow"
+  ],
   "size": "1024x1024",
-  "persist": true
+  "persist": true,
+  "dry_run": true
 }
 ```
 
-This requires an explicitly selected bound Lite/4.x model; the 5.5 default
-and Pro reject `max_images > 1`. It uses `sequential_image_generation: "auto"`
-for related outputs; visual coherence still needs review.
+This stdio example validates all four requests and returns a cost preview
+without generation. Set `dry_run=false` only after approving the cost; each
+variation is a separately billed provider call. Inspect each result in
+`summary.variations`. Visual continuity is not guaranteed between independent
+calls, so review the cabin, viewpoint and style before accepting the storyboard.
 
 ## 17. Reference Video Upload via Object Storage
 

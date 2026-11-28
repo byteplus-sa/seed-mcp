@@ -159,8 +159,8 @@ flowchart LR
   account activation; custom Flash endpoints use family `seedance_2_5_flash`.
 - `variations`: Seedance 1-5 (separate billed tasks, `tasks[]`), Seedream 1-10
   (`summary`), Seed Audio 1-5 (`summary`). Failures are per variation. Seedream
-  `seed` is the base seed (`N, N+1, ...`); `max_images` and `variations > 1`
-  are mutually exclusive.
+  `seed` is the base seed (`N, N+1, ...`); `max_images` accepts only 1 or
+  omission, so use `variations` for multiple images.
 - `dry_run` returns `preview` (request bodies, cost estimate) and bills nothing.
   Video estimates are static and do not account for resolution or duration.
   Flash currently reuses the static 2.5 per-task fallback, not its token price.
@@ -259,7 +259,7 @@ flowchart LR
 - `output_path`, `output_dir` write to local disk on **stdio only**,
   inside the client's MCP roots (or `OUTPUT_ROOTS`), and need persistence
   (`persist` / `persist_output`). A directory ending in `/` is required when
-  several files are written (variations or `max_images > 1`).
+  several files are written (`variations > 1`).
 
 ### Media upload and assets
 

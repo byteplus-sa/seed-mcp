@@ -36,14 +36,15 @@ test("model-backed tool pages each show one supported-model table", () => {
 test("image and video tables distinguish defaults, custom IDs and gated models", () => {
   const image = toolPage(tool("seedream_generate_image"));
   const video = toolPage(tool("seedance_create_task"));
-  for (const model of [
-    "dola-seedream-5-5-261028",
-  ]) {
+  for (const model of ["dola-seedream-5-5-261028"]) {
     assert.match(image, new RegExp(`\\|[^\\n]*${model}[^\\n]*\\|`));
     assert.doesNotMatch(video, new RegExp(model));
   }
   for (const label of ["Seedream 5.0 Pro", "Seedream Lite", "Seedream 4.x"]) {
-    assert.doesNotMatch(image, new RegExp(`\\| ${label.replace(".", "\\.")} \\|`));
+    assert.doesNotMatch(
+      image,
+      new RegExp(`\\| ${label.replace(".", "\\.")} \\|`),
+    );
   }
   assert.match(video, /dreamina-seedance-2-5-260628/);
   assert.match(video, /dreamina-seedance-2-0-260128/);

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import json
+import re
 from collections.abc import Iterator
+from pathlib import Path
 
 import pytest
 from pydantic import ValidationError
@@ -154,6 +157,41 @@ def test_schema_advertises_only_supported_controls() -> None:
     properties = SeedreamGenerateInput.model_json_schema()["properties"]
     assert properties["max_images"]["anyOf"][0]["maximum"] == 1
     assert properties["prompt_optimization"]["anyOf"][0]["const"] == "standard"
+
+
+def test_documented_storyboard_uses_valid_independent_variations(
+    registry: CapabilityRegistry,
+) -> None:
+    root = Path(__file__).resolve().parents[2]
+    guide = (root / "docs/use-cases.md").read_text()
+    section = guide.split("## 16. Storyboard Variations with Seedream", 1)[1].split("\n## 17.", 1)[
+        0
+    ]
+    example = re.search(r"```json\n(.*?)\n```", section, re.DOTALL)
+    assert example is not None
+    request = SeedreamGenerateInput.model_validate(json.loads(example.group(1)))
+    assert request.model == MODEL
+    assert request.variations == 4
+    assert request.variation_prompts is not None and len(set(request.variation_prompts)) == 4
+    assert request.max_images is None
+    assert request.dry_run
+    assert request.persist
+    caps = registry.resolve_image_model(request.model)
+    assert check_image_request(request, caps) == []
+    bodies = [
+        build_seedream_request(request, caps, None, prompt=prompt, seed=None).model_dump(
+            exclude_none=True
+        )
+        for prompt in request.prompts()
+    ]
+    assert len(bodies) == 4
+    assert all("sequential_image_generation" not in body for body in bodies)
+    assert "Lite/4.x" not in section
+    assert "sequential_image_generation" not in section
+    assert "Visual continuity is not guaranteed" in section
+    skill = (root / ".agents/skills/ark-mcp/SKILL.md").read_text()
+    assert "`max_images` and `variations > 1`" not in skill
+    assert "variations or `max_images > 1`" not in skill
 
 
 @pytest.mark.parametrize("output_format", [None, "png", "jpeg"])
