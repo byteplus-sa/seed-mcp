@@ -165,6 +165,8 @@ addons or apply resources as a side effect of client setup.
 
 Helm provides `models.seedream`/`models.seedance` `defaultModel` and verified
 `{model_id, family}` binding lists, with strict families and default inclusion.
+Seedream supports only 5.5 (`seedream_5_5`); migrate older image defaults and
+bindings to verified 5.5 IDs before startup. Do not relabel older endpoints.
 Alternate defaults require bindings. This does not verify lineage or permit
 arbitrary endpoint headers: explicit tool `model` wins and exact registry
 matching remains required. No arbitrary env or provider-secret map is accepted.

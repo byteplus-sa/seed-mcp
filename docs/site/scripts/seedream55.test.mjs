@@ -40,7 +40,8 @@ test("Seedream tool reference includes model guidance and a safe image preview",
   assert.match(page, /has_transparency/);
   assert.match(page, /921,600-8,294,400/);
   assert.match(page, /4K UHD/);
-  assert.match(page, /already-transparent PNG/);
+  assert.match(page, /Only Seedream 5\.5 is supported/);
+  assert.doesNotMatch(page, /already-transparent PNG/);
 });
 
 test("Seedream tool reference includes a non-billable UHD dimension example", () => {

@@ -85,6 +85,7 @@ async def test_provenance_parity_and_private_reference_exclusion(
                 ],
                 bbox={"x1": 0, "y1": 0, "x2": 999, "y2": 999},
                 safety_identifier="hashed-test-user",
+                prompt_optimization="standard",
                 persist=False,
             ),
             fake_ctx,

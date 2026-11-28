@@ -51,7 +51,7 @@ def e2e_server(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> object:
     monkeypatch.setenv("TOS_BUCKET", "test-bucket")
     monkeypatch.setenv("BYTEPLUS_MODELARK_BASE_URL", ARK_BASE)
     monkeypatch.setenv("BYTEPLUS_SEED_AUDIO_BASE_URL", "https://voice.test.example.com")
-    monkeypatch.setenv("SEEDREAM_DEFAULT_MODEL", "dola-seedream-5-0-pro-260628")
+    monkeypatch.setenv("SEEDREAM_DEFAULT_MODEL", "dola-seedream-5-5-261028")
     monkeypatch.setenv("SEEDANCE_DEFAULT_MODEL", "dreamina-seedance-2-0-260128")
     monkeypatch.setenv("ARTIFACT_DIR", str(tmp_path / ".artifacts"))
     monkeypatch.setenv("ARTIFACT_BACKEND", "filesystem")
@@ -230,7 +230,7 @@ class TestSeedreamGenerateImageE2E:
 
         assert not result.is_error
         data = result.structured_content
-        assert data["model"] == "dola-seedream-5-0-pro-260628"
+        assert data["model"] == "dola-seedream-5-5-261028"
         assert len(data["artifacts"]) == 1
         artifact = data["artifacts"][0]
         assert artifact["uri"].startswith("seed-media://artifacts/")

@@ -314,10 +314,7 @@
                   },
                   "family": {
                     "enum": [
-                      "seedream_5_5",
-                      "pro",
-                      "lite",
-                      "4x"
+                      "seedream_5_5"
                     ]
                   }
                 }

@@ -40,7 +40,6 @@ def settings(monkeypatch):
         json.dumps(
             [
                 {"model_id": MODEL, "family": "seedream_5_5"},
-                {"model_id": PRO_MODEL, "family": "pro"},
             ]
         ),
     )
@@ -111,6 +110,8 @@ def test_default_and_help_are_offline_and_write_nothing(smoke, tmp_path, monkeyp
         ["--execute", "--confirm-cost", "inf"],
         ["--execute", "--confirm-cost", "1", "--max-cases", "0"],
         ["--execute", "--confirm-cost", "1", "--max-cases", "7"],
+        ["--execute", "--confirm-cost", "1", "--max-cases", "6"],
+        ["--pro-model", PRO_MODEL],
         ["--execute", "--confirm-cost", "1", "--timeout", "0"],
         ["--execute", "--confirm-cost", "1", "--timeout", "nan"],
         ["--execute", "--confirm-cost", "1", "--poll-interval", "0"],
@@ -125,7 +126,7 @@ def test_execution_gate_rejects_invalid_flags_before_client(smoke, arguments, mo
     smoke.execute.assert_not_called()
 
 
-def test_matrix_uses_synthetic_references_and_explicit_pro(smoke, settings):
+def test_matrix_uses_synthetic_references_and_only_seedream55(smoke, settings):
     from PIL import Image
 
     cases = smoke.build_cases(settings)
@@ -141,12 +142,7 @@ def test_matrix_uses_synthetic_references_and_explicit_pro(smoke, settings):
             assert image.mode == "RGB"
     assert cases[3].request.point.x == 500
     assert cases[4].request.bbox.x1 == 250
-    cases = smoke.build_cases(settings, pro_model=PRO_MODEL, max_cases=6)
-    pro = cases[-1]
-    assert pro.name == "pro-transparent"
-    assert pro.request.model == PRO_MODEL
-    with Image.open(BytesIO(base64.b64decode(pro.request.images[0].data))) as image:
-        assert image.getextrema()[3] == (0, 255)
+    assert all(case.request.model == MODEL for case in cases)
 
 
 @pytest.mark.parametrize(
@@ -154,9 +150,7 @@ def test_matrix_uses_synthetic_references_and_explicit_pro(smoke, settings):
     [
         {"model": PRO_MODEL},
         {"model": "not-configured"},
-        {"pro_model": "not-configured", "max_cases": 6},
-        {"pro_model": MODEL, "max_cases": 6},
-        {"pro_model": PRO_MODEL},
+        {"max_cases": 6},
         {"max_cases": 1},
         {"selected": ["t2i-opaque", "t2i-opaque"]},
         {"selected": ["pro-transparent"]},
@@ -458,9 +452,8 @@ async def test_metadata_echo_stays_distinct_from_local_observations(smoke, setti
     assert result["observed"]["has_transparency"] is False
 
 
-@pytest.mark.parametrize("include_pro", [False, True])
 async def test_execute_runs_full_matrix_with_direct_calls_without_network(
-    smoke, settings, tmp_path, monkeypatch, include_pro, capsys
+    smoke, settings, tmp_path, monkeypatch, capsys
 ):
     from fastmcp.server.dependencies import get_context
 
@@ -495,15 +488,12 @@ async def test_execute_runs_full_matrix_with_direct_calls_without_network(
         "--timeout",
         "15",
     ]
-    if include_pro:
-        arguments.extend(["--pro-model", PRO_MODEL, "--max-cases", "6"])
     assert await smoke.execute(smoke.parser().parse_args(arguments)) == 0
-    expected_count = 6 if include_pro else 5
+    expected_count = 5
     assert len(requests) == expected_count
     assert requests[3].prompt.startswith("Image 1<point>500 500</point>")
     assert requests[4].prompt.startswith("Image 1<bbox>250 250 750 750</bbox>")
-    if include_pro:
-        assert requests[-1].model == PRO_MODEL
+    assert all(request.model == MODEL for request in requests)
     report_path = next(tmp_path.glob("seedream55-*/report.json"))
     report = json.loads(report_path.read_text())
     assert len(report["cases"]) == expected_count

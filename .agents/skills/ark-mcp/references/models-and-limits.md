@@ -87,21 +87,19 @@ BYOE self-service is implemented. Authority and source:
 | `SEEDREAM_MODEL_BINDINGS`, `SEEDANCE_MODEL_BINDINGS` | JSON list of `{"model_id": "...", "family": "..."}` for explicit model or endpoint bindings |
 | `SEEDREAM_MODEL_FAMILY`, `SEEDANCE_MODEL_FAMILY` | Family for a single custom default model when no bindings are set |
 | `SEEDREAM_DEFAULT_MODEL`, `SEEDANCE_DEFAULT_MODEL` | Model used when `model` is omitted |
-| `SEEDREAM_PROMPT_OPTIMIZATION_MODE` | `standard` (default) or `fast`; applies only to Seedream 5.0 Pro when the caller omits `prompt_optimization` |
 
-Family values: Seedream `seedream_5_5` / `pro` / `lite` / `4x`; Seedance `standard` (2.0) / `fast` / `mini` / `seedance_2_5` / `seedance_2_5_flash`.
+Family values: Seedream `seedream_5_5` only; Seedance `standard` (2.0) / `fast` / `mini` / `seedance_2_5` / `seedance_2_5_flash`.
 
 ### Built-in model IDs (no binding needed)
 
 | Product | Default model ID | Family |
 |---|---|---|
 | Seedream 5.5 (default) | `dola-seedream-5-5-261028` | `seedream_5_5` |
-| Seedream 5.0 Pro (opt-in) | `dola-seedream-5-0-pro-260628` | Pro |
 | Seedance | `dreamina-seedance-2-5-260628` | 2.5 |
 | Seedance Flash | `dreamina-seedance-2-5-flash-261115` | 2.5 Flash |
 | Seedance 2.0 (opt-in) | `dreamina-seedance-2-0-260128` | Standard |
 
-Seedream Lite, Seedream 4.x, Seedance 2.0 Fast, and Seedance 2.0 Mini have no built-in ID; bind the account's authorized ID to the family.
+Seedance 2.0 Fast and Seedance 2.0 Mini have no built-in ID; bind the account's authorized ID to the family.
 
 When Seedance bindings are empty, Flash is added alongside the selected default,
 unless it is already the default. Regular 2.5 remains the default when omitted.
@@ -111,7 +109,7 @@ provider activation or account-entitlement check.
 ### Rules that fail startup
 
 - **The default model must be one of the bound IDs, and bound IDs must be unique.** Startup fails with `... default model '<id>' is missing from its bindings. Set the default model env var to one of the bound IDs: [...]`.
-- **5.5 is the image default and requires account authorization.** Existing explicit defaults are unchanged. A bindings list containing only older models needs an explicit default or a 5.5 entry. Set `SEEDREAM_DEFAULT_MODEL=dola-seedream-5-0-pro-260628` to retain Pro; discovery does not prove provider access.
+- **Only Seedream 5.5 is supported and requires account authorization.** Older family settings and bindings fail startup. Replace them with verified 5.5 bindings; never relabel an older endpoint as 5.5. The obsolete `SEEDREAM_PROMPT_OPTIMIZATION_MODE` setting has no effect. Discovery does not prove provider access.
 - **`SEEDANCE_DEFAULT_MODEL` defaults to Seedance 2.5.** A `SEEDANCE_MODEL_BINDINGS` that lists only a 2.0 model therefore fails startup unless `SEEDANCE_DEFAULT_MODEL` is set to that 2.0 ID (to keep 2.0 as the default) or a 2.5 binding is added.
 - A custom default model ID with no family, no bindings, and no built-in match also fails startup (set the matching `*_MODEL_FAMILY` or bindings).
 
@@ -150,16 +148,13 @@ before paid 4K use. See the [contract caveat](https://github.com/byteplus-sa/see
 | Family | Max references | `max_images` batch | `output_format` | Prompt optimization | Transparent background |
 |---|---|---|---|---|---|
 | 5.5 (default) | 10 | No | `png` (default), `jpeg` | `standard` only (provider default) | Text-only or references without alpha |
-| Pro (5.0 Pro) | 10 | No | `png`, `jpeg` | Yes; omitted value uses `SEEDREAM_PROMPT_OPTIMIZATION_MODE` | Existing transparent PNG only |
-| Lite | 14 | Yes | `png`, `jpeg` | Yes; provider default when omitted | No |
-| 4.x | 14 | Yes | `jpeg` only | Yes; provider default when omitted | No |
 
-- **5.5 sizes:** `1K`, `1.5K`, `2K` (default), or positive `WIDTHxHEIGHT` with inclusive pixel count 921600-8294400 and width/height ratio 1/16-16. 4K UHD uses `3840x2160` on the same model or custom 5.5 endpoint; portrait `2160x3840` and square `2880x2880` also fit. `4096x2160` is too large. `auto`, `3K`, and the undocumented `4K` shorthand remain rejected. Older families keep `supported_sizes=null` (provider validation).
+- **5.5 sizes:** `1K`, `1.5K`, `2K` (default), or positive `WIDTHxHEIGHT` with inclusive pixel count 921600-8294400 and width/height ratio 1/16-16. 4K UHD uses `3840x2160` on the same model or custom 5.5 endpoint; portrait `2160x3840` and square `2880x2880` also fit. `4096x2160` is too large. `auto`, `3K`, and the undocumented `4K` shorthand remain rejected.
 - **5.5 estimates:** output pixel tiers are $0.020 through 2.61M, $0.035 above 2.61M through 4.63M, and $0.079 above 4.63M through the 8294400-pixel limit; add $0.008 per input image per variation. These static estimates follow the supplied 261028 high-resolution table, not account pricing or live 4K validation.
-- **`max_images` vs `variations`.** `max_images` is one provider batch (one request, one usage record) and only works where batch is supported (Lite, 4.x). `variations` (1-10) runs separate calls in parallel and works on every model. **On 5.5 and Pro use `variations`.** Passing both is rejected.
-- **`background="transparent"`** requires `output_format` omitted or `png`. 5.5 supports text-only and reference-based generation without existing alpha. Pro edits exactly one already-transparent PNG; it does not remove an opaque background.
-- **5.5 background:** `auto` (default), `opaque`, `transparent`; JPEG in auto mode is always opaque. Pro accepts only `opaque` and `transparent`.
-- **Safety IDs:** optional `safety_identifier` on 5.5/Pro, 1-64 non-space printable ASCII characters; use a stable hash, not personal data.
+- **`max_images` vs `variations`.** `max_images` accepts only 1 or omission. `variations` (1-10) runs separate calls in parallel.
+- **`background="transparent"`** requires `output_format` omitted or `png`. 5.5 supports text-only and reference-based generation without existing alpha.
+- **5.5 background:** `auto` (default), `opaque`, `transparent`; JPEG in auto mode is always opaque.
+- **Safety IDs:** optional `safety_identifier`, 1-64 non-space printable ASCII characters; use a stable hash, not personal data.
 - **5.5 `seed`:** retained as an explicit compatibility field but absent from the current provider parameter docs and OpenAPI schema; omit unless provider acceptance is verified.
 - Discovery reports transparency, named/custom size limits, `background_modes`, `prompt_optimization_modes`, and `supports_safety_identifier`. Source and remaining live-alpha validation: [model capabilities](https://github.com/byteplus-sa/seed-mcp/blob/main/docs/models.md#image-capabilities-imagecapabilities). Layer-decomposition/OCR inputs are rejected.
 

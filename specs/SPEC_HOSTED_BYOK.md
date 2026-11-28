@@ -163,6 +163,12 @@ store or use customer AK/SK, fetch endpoint metadata, infer lineage, or activate
 models. Automatic arbitrary-endpoint onboarding remains unimplemented and
 requires a separately approved authority/credential design.
 
+Seedream bindings accept only `seedream_5_5`. Seedream 5.0 Pro and lower
+are not supported on either transport; legacy families fail startup and
+unconfigured model selections fail before dispatch. Custom image endpoints
+must be independently verified as 5.5, not relabeled from an older version.
+The built-in default is `dola-seedream-5-5-261028`, with no older-model fallback.
+
 Unknown image/video `ep-*` selections fail with `ENDPOINT_NOT_CONFIGURED`
 guidance before provider dispatch, without echoing the unknown ID. The operator
 must verify and bind it; do not guess a family or bypass the check.

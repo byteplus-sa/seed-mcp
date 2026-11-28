@@ -26,8 +26,7 @@ def registry(monkeypatch: pytest.MonkeyPatch) -> Iterator[CapabilityRegistry]:
     monkeypatch.setenv("SEEDREAM_DEFAULT_MODEL", MODEL)
     monkeypatch.setenv(
         "SEEDREAM_MODEL_BINDINGS",
-        f'[{{"model_id":"{MODEL}","family":"seedream_5_5"}},'
-        f'{{"model_id":"{PRO_MODEL}","family":"pro"}}]',
+        f'[{{"model_id":"{MODEL}","family":"seedream_5_5"}}]',
     )
     get_settings.cache_clear()
     yield refresh_capability_registry()
@@ -43,10 +42,38 @@ def test_seedream55_is_default_without_configuration() -> None:
     ]
 
 
-@pytest.mark.parametrize(("model", "family"), [(MODEL, "seedream_5_5"), (PRO_MODEL, "pro")])
-def test_recognized_seedream_ids_infer_their_own_family(model: str, family: str) -> None:
-    settings = Settings(_env_file=None, SEEDREAM_DEFAULT_MODEL=model)
-    assert settings.seedream_model_bindings[0].family.value == family
+@pytest.mark.parametrize(
+    "model",
+    [
+        PRO_MODEL,
+        "seedream-5-0-260128",
+        "seedream-5-0-lite-260128",
+        "seedream-4-5-251128",
+        "seedream-4-0-250828",
+        "seedream-3-0-t2i-250415",
+    ],
+)
+@pytest.mark.parametrize("binding", ["implicit", "family", "explicit"])
+def test_retired_seedream_defaults_are_rejected(model: str, binding: str) -> None:
+    options = {}
+    if binding == "family":
+        options["SEEDREAM_MODEL_FAMILY"] = "seedream_5_5"
+    elif binding == "explicit":
+        options["SEEDREAM_MODEL_BINDINGS"] = [{"model_id": model, "family": "seedream_5_5"}]
+    with pytest.raises(ValidationError, match=r"Only Seedream 5\.5"):
+        Settings(_env_file=None, SEEDREAM_DEFAULT_MODEL=model, **options)
+
+
+@pytest.mark.parametrize("family", ["pro", "lite", "4x"])
+@pytest.mark.parametrize("explicit_bindings", [False, True])
+def test_retired_seedream_families_are_rejected(family: str, explicit_bindings: bool) -> None:
+    options = (
+        {"SEEDREAM_MODEL_BINDINGS": [{"model_id": MODEL, "family": family}]}
+        if explicit_bindings
+        else {"SEEDREAM_MODEL_FAMILY": family}
+    )
+    with pytest.raises(ValidationError, match="seedream_5_5"):
+        Settings(_env_file=None, **options)
 
 
 def test_seedream55_custom_endpoint_binding() -> None:
@@ -63,11 +90,11 @@ def test_explicit_bindings_still_require_the_default_to_be_present() -> None:
     with pytest.raises(ValueError, match="missing from its bindings"):
         Settings(
             _env_file=None,
-            SEEDREAM_MODEL_BINDINGS=[{"model_id": PRO_MODEL, "family": "pro"}],
+            SEEDREAM_MODEL_BINDINGS=[{"model_id": "ep-image-test", "family": "seedream_5_5"}],
         )
 
 
-def test_seedream55_capabilities_are_distinct_from_pro(registry: CapabilityRegistry) -> None:
+def test_seedream55_is_the_only_image_family(registry: CapabilityRegistry) -> None:
     caps = registry.resolve_image_model(None)
     assert caps.model_id == MODEL
     assert caps.family.value == "seedream_5_5"
@@ -80,7 +107,9 @@ def test_seedream55_capabilities_are_distinct_from_pro(registry: CapabilityRegis
     assert caps.supports_transparent_background
     assert caps.supports_transparent_generation
     assert caps.resolve_prompt_optimization(None) is None
-    assert not registry.resolve_image_model(PRO_MODEL).supports_transparent_generation
+    assert registry.list_image_models() == [MODEL]
+    with pytest.raises(ValueError, match="not configured"):
+        registry.resolve_image_model(PRO_MODEL)
 
 
 @pytest.mark.parametrize("count", [0, 1, 10])
@@ -99,8 +128,6 @@ def test_seedream55_transparency_accepts_optional_non_png_references(
     ("arguments", "violation"),
     [
         ({"output_format": "jpeg", "background": "transparent"}, "requires output_format"),
-        ({"max_images": 2}, "batch generation"),
-        ({"prompt_optimization": "fast"}, "prompt_optimization 'fast' is not supported"),
         (
             {"images": [{"kind": "url", "url": "https://example.com/image.png"}] * 11},
             "maximum of 10",
@@ -117,17 +144,16 @@ def test_seedream55_rejects_invalid_combinations(
     )
 
 
-@pytest.mark.parametrize(
-    "images", [None, [], [{"kind": "url", "url": "https://example.com/a.png"}] * 2]
-)
-def test_pro_still_requires_one_transparent_input(
-    registry: CapabilityRegistry, images: list[dict[str, str]] | None
-) -> None:
-    request = SeedreamGenerateInput(prompt="test", background="transparent", images=images)
-    assert any(
-        "exactly one input" in item
-        for item in check_image_request(request, registry.resolve_image_model(PRO_MODEL))
-    )
+@pytest.mark.parametrize("arguments", [{"max_images": 2}, {"prompt_optimization": "fast"}])
+def test_legacy_controls_are_rejected_by_input_schema(arguments: dict[str, object]) -> None:
+    with pytest.raises(ValidationError):
+        SeedreamGenerateInput(prompt="test", **arguments)
+
+
+def test_schema_advertises_only_supported_controls() -> None:
+    properties = SeedreamGenerateInput.model_json_schema()["properties"]
+    assert properties["max_images"]["anyOf"][0]["maximum"] == 1
+    assert properties["prompt_optimization"]["anyOf"][0]["const"] == "standard"
 
 
 @pytest.mark.parametrize("output_format", [None, "png", "jpeg"])
@@ -278,15 +304,11 @@ def test_seedream55_size_schema_explains_uhd_dimensions() -> None:
 
 
 @pytest.mark.parametrize("output_format", [None, "png", "jpeg"])
-def test_auto_background_is_55_only(
+def test_auto_background_is_supported(
     registry: CapabilityRegistry, output_format: str | None
 ) -> None:
     request = SeedreamGenerateInput(prompt="test", background="auto", output_format=output_format)
     assert check_image_request(request, registry.resolve_image_model(MODEL)) == []
-    assert any(
-        "background='auto'" in error
-        for error in check_image_request(request, registry.resolve_image_model(PRO_MODEL))
-    )
 
 
 def test_55_standard_optimization_does_not_inherit_pro_fast_default(
@@ -300,7 +322,7 @@ def test_55_standard_optimization_does_not_inherit_pro_fast_default(
     assert check_image_request(request, caps) == []
     assert caps.resolve_prompt_optimization(None) is None
     assert caps.resolve_prompt_optimization("standard") == "standard"
-    assert registry.resolve_image_model(PRO_MODEL).resolve_prompt_optimization(None) == "fast"
+    assert "seedream_prompt_optimization_mode" not in Settings.model_fields
     body = build_seedream_request(request, caps, None, prompt="test", seed=None).model_dump(
         exclude_none=True
     )
@@ -311,7 +333,6 @@ def test_55_standard_optimization_does_not_inherit_pro_fast_default(
 def test_safety_identifier_is_forwarded(registry: CapabilityRegistry, identifier: str) -> None:
     request = SeedreamGenerateInput(prompt="test", safety_identifier=identifier)
     assert check_image_request(request, registry.resolve_image_model(MODEL)) == []
-    assert check_image_request(request, registry.resolve_image_model(PRO_MODEL)) == []
     body = build_seedream_request(
         request, registry.resolve_image_model(MODEL), None, prompt="test", seed=None
     ).model_dump(exclude_none=True)

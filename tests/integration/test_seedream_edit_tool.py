@@ -41,7 +41,7 @@ def _patch_seedream_service(monkeypatch: pytest.MonkeyPatch, response_data: dict
 
 
 class TestSeedreamEditImageTool:
-    async def test_prompt_optimization_defaults_to_standard(
+    async def test_prompt_optimization_omitted_uses_provider_default(
         self,
         test_env: None,
         fake_ctx: FakeContext,
@@ -70,7 +70,7 @@ class TestSeedreamEditImageTool:
             fake_ctx,
         )
 
-        assert captured[0].optimize_prompt_options == {"mode": "standard"}
+        assert captured[0].optimize_prompt_options is None
 
     async def test_point_edit_with_url_persistence(
         self,
@@ -113,7 +113,7 @@ class TestSeedreamEditImageTool:
 
         assert isinstance(result, SeedreamGenerateOutput)
         assert result.provider == "byteplus-modelark"
-        assert result.model == "dola-seedream-5-0-pro-260628"
+        assert result.model == "dola-seedream-5-5-261028"
         assert len(result.artifacts) == 1
         assert result.artifacts[0].media_type == "image"
         assert result.usage.total_tokens == 20

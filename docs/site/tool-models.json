@@ -1,30 +1,12 @@
 {
   "seedream_generate_image": {
-    "selection": "Pass an exact configured ID as `model`, or omit it for the default. On HTTP, `X-ModelArk-Seedream-Endpoint` can select an exact registered default; explicit tool `model` wins. Custom IDs require an explicit family binding in `SEEDREAM_MODEL_BINDINGS`; arbitrary opaque endpoint lineage is never inferred. Otherwise `SEEDREAM_DEFAULT_MODEL` applies.",
+    "selection": "Only Seedream 5.5 is supported. Pass an exact configured ID as `model`, or omit it for the default. On HTTP, `X-ModelArk-Seedream-Endpoint` can select an exact registered default; explicit tool `model` wins. Custom IDs require a verified `seedream_5_5` binding in `SEEDREAM_MODEL_BINDINGS`; arbitrary opaque endpoint lineage is never inferred. Otherwise `SEEDREAM_DEFAULT_MODEL` applies.",
     "models": [
       {
         "name": "Seedream 5.5",
         "id": "`dola-seedream-5-5-261028`",
         "availability": "Built-in default; account authorization required.",
         "capabilities": "10 references; `1K`, `1.5K`, `2K` (default); custom dimensions up to 8,294,400 pixels, including 4K UHD via `3840x2160`; PNG (default) or JPEG; text-to-transparent PNG; `auto`, `opaque`, `transparent` backgrounds; `standard` optimization only; independent variations, no provider batch."
-      },
-      {
-        "name": "Seedream 5.0 Pro",
-        "id": "`dola-seedream-5-0-pro-260628`",
-        "availability": "Opt-in default or configured binding (`pro`).",
-        "capabilities": "10 references; PNG/JPEG; transparent edits require one already-transparent PNG; `standard`/`fast` optimization; independent variations, no provider batch."
-      },
-      {
-        "name": "Seedream Lite",
-        "id": "Authorized custom ID; no built-in ID",
-        "availability": "Configure a `lite` family binding.",
-        "capabilities": "14 references; PNG/JPEG; provider batch supported; no transparent background."
-      },
-      {
-        "name": "Seedream 4.x",
-        "id": "Authorized custom ID; no built-in ID",
-        "availability": "Configure a `4x` family binding.",
-        "capabilities": "14 references; JPEG only; provider batch supported; no transparent background."
       }
     ]
   },

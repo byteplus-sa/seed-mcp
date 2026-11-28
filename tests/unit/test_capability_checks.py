@@ -186,14 +186,15 @@ def test_raise_on_violations_is_silent_without_violations() -> None:
     raise_on_violations([], model_id="m", family="f", kind="video")
 
 
-SEEDREAM_PRO = ImageCapabilities(
-    family=ModelFamily.SEEDREAM_PRO,
-    model_id="dola-seedream-5-0-pro-260628",
+SEEDREAM_5_5 = ImageCapabilities(
+    family=ModelFamily.SEEDREAM_5_5,
+    model_id="dola-seedream-5-5-261028",
     max_references=10,
     supports_batch=False,
     supports_streaming=False,
     supported_output_formats=("png", "jpeg"),
     supports_transparent_background=True,
+    supports_transparent_generation=True,
 )
 
 
@@ -219,12 +220,12 @@ class Image:
     [
         (Image(kind="base64", mime_type="image/png"), True),
         (Image(kind="url"), True),
-        (Image(kind="base64", mime_type="image/jpeg"), False),
+        (Image(kind="base64", mime_type="image/jpeg"), True),
     ],
 )
-def test_transparent_background_needs_png_input(image: Image, valid: bool) -> None:
+def test_transparent_background_accepts_non_png_input(image: Image, valid: bool) -> None:
     violations = check_image_request(
-        ImageRequest(images=[image], background="transparent"), SEEDREAM_PRO
+        ImageRequest(images=[image], background="transparent"), SEEDREAM_5_5
     )
     assert (not any("PNG input" in violation for violation in violations)) is valid
 

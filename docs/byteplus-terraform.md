@@ -417,7 +417,7 @@ evidence of customer entitlement.
 | `app.principalMaxConcurrency` | `3` | `PRINCIPAL_MAX_CONCURRENCY`; per-pod slots per derived HTTP owner |
 | `app.rateLimitBurst` | `0` | `RATE_LIMIT_BURST`; zero inherits RPM, default 60 |
 
-Seedream families are `seedream_5_5`, `pro`, `lite`, `4x`; Seedance families
+Seedream accepts only `seedream_5_5`; Seedance families
 are `standard`, `fast`, `mini`, `seedance_2_5`, `seedance_2_5_flash`.
 Each product accepts at most 100 bindings with unique IDs. A nonempty list
 must include its selected `defaultModel`. **Any alternate default requires

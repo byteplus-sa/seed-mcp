@@ -186,15 +186,15 @@ flowchart LR
 
 ### Seedream
 
-- Default: Seedream 5.5 (`dola-seedream-5-5-261028`; requires
-  account authorization). Explicit operator defaults remain unchanged.
+- Only Seedream 5.5 is supported (`dola-seedream-5-5-261028` by default;
+  account authorization required). Custom endpoints must be verified and
+  bound to `seedream_5_5`; older families fail startup.
 - `images` plus optional `point` or `bbox` (0-999, on the first image) edits;
   without images it is text-to-image.
 - `background="transparent"` on 5.5 accepts text-only prompts or references
-  without existing alpha. On 5.0 Pro it requires **exactly one PNG input that
-  already has transparent pixels** and preserves that transparency.
-  Both require `output_format` omitted or `png`. 5.5 defaults to PNG.
-- Use `variations`, not provider batches, on 5.5 and 5.0 Pro.
+  without existing alpha. It requires `output_format` omitted or `png`.
+  5.5 defaults to PNG.
+- Use `variations` for multiple images; `max_images` accepts only 1 or omission.
 - Seedream 5.5 does not document the retained `seed` compatibility field;
   omit it unless provider acceptance is verified.
 - 5.5 sizes: `1K`, `1.5K`, `2K` (default), or positive `WIDTHxHEIGHT` with
@@ -204,9 +204,8 @@ flowchart LR
   Built-in estimates use pixel tiers ($0.020/$0.035/$0.079) plus $0.008 per
   input image per variation; UHD uses $0.079 per output, not an account quote.
 - 5.5 `prompt_optimization` accepts `standard` only (provider default);
-  `background` defaults to `auto` (JPEG always opaque). Pro's operator
-  optimization setting never applies to 5.5.
-- `safety_identifier` on 5.5/Pro must be a stable hashed user ID, 1-64 non-space
+  `background` defaults to `auto` (JPEG always opaque).
+- `safety_identifier` must be a stable hashed user ID, 1-64 non-space
   printable ASCII characters; previews and logs redact it.
 - `response_format="b64_json"` requires `persist=true`, including dry runs.
   Missing output is an explicit error, not an artifact-less success.

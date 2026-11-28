@@ -34,9 +34,8 @@ client is missing tools and that warning is absent, look at
 | `BYTEPLUS_MODELARK_BASE_URL` | AP Southeast ModelArk URL | HTTPS data-plane base URL |
 | `BYTEPLUS_SEED_AUDIO_BASE_URL` | AP Southeast Seed Speech URL | Shared HTTPS service base URL for Seed Audio and Seed TTS 3 |
 | `SEEDREAM_DEFAULT_MODEL` | `dola-seedream-5-5-261028` | Default image model/endpoint ID (Seedream 5.5; account authorization required) |
-| `SEEDREAM_PROMPT_OPTIMIZATION_MODE` | `standard` | Mode 5.0 Pro sends when a caller omits `prompt_optimization`: `standard` (prompt-following quality) or `fast` (lower latency). Both are provider-accepted; an explicit per-call value wins |
 | `SEEDANCE_DEFAULT_MODEL` | `dreamina-seedance-2-5-260628` | Default video model/endpoint ID used by `seedance_create_task` when `model` is omitted (Seedance 2.5; was 2.0 before the tool consolidation, see the [upgrade note](#seedance-default-model-upgrade-note)) |
-| `SEEDREAM_MODEL_FAMILY` | empty | Family for a custom default: `seedream_5_5`, `pro`, `lite`, or `4x` |
+| `SEEDREAM_MODEL_FAMILY` | empty | Family for a verified custom 5.5 default: `seedream_5_5` only |
 | `SEEDANCE_MODEL_FAMILY` | empty | Family for a custom default: `standard`, `fast`, `mini`, `seedance_2_5` (through 4K), or `seedance_2_5_flash` (480p/720p, no Draft) |
 | `SEEDREAM_MODEL_BINDINGS` | empty | JSON list of `{model_id, family}` bindings |
 | `SEEDANCE_MODEL_BINDINGS` | empty | JSON list of `{model_id, family}` bindings |
@@ -47,35 +46,31 @@ For example:
 
 ```dotenv
 SEEDREAM_DEFAULT_MODEL=my-image-endpoint
-SEEDREAM_MODEL_BINDINGS=[{"model_id":"my-image-endpoint","family":"pro"}]
+SEEDREAM_MODEL_BINDINGS=[{"model_id":"my-image-endpoint","family":"seedream_5_5"}]
 ```
 
 ### Seedream default model upgrade note
 
-The default is now **Seedream 5.5 (`dola-seedream-5-5-261028`)**.
-This changes only deployments that omit `SEEDREAM_DEFAULT_MODEL`; existing
-explicit defaults stay unchanged. Discovery reflects configured models, not
-provider authorization. Accounts without 5.5 access should retain 5.0 Pro:
+**Only Seedream 5.5 (`dola-seedream-5-5-261028`) is supported.** Seedream
+5.0 Pro, Lite and 4.x families have been removed. Old family settings and
+bindings fail startup; replace them with an authorized 5.5 model or verified
+5.5 endpoint. Do not relabel an older endpoint as 5.5. Discovery reports
+configuration, not provider authorization, and there is no older-model fallback.
 
-```dotenv
-SEEDREAM_DEFAULT_MODEL=dola-seedream-5-0-pro-260628
-```
-
-Both built-in IDs resolve without a family setting. For a custom 5.5 endpoint,
-set `SEEDREAM_MODEL_FAMILY=seedream_5_5`. If `SEEDREAM_MODEL_BINDINGS` contains
-only older models and no explicit default, startup fails until the default is
-set to a bound ID or a 5.5 binding is added. To offer both:
+For the built-in model:
 
 ```dotenv
 SEEDREAM_DEFAULT_MODEL=dola-seedream-5-5-261028
-SEEDREAM_MODEL_BINDINGS=[{"model_id":"dola-seedream-5-5-261028","family":"seedream_5_5"},{"model_id":"dola-seedream-5-0-pro-260628","family":"pro"}]
+SEEDREAM_MODEL_BINDINGS=[{"model_id":"dola-seedream-5-5-261028","family":"seedream_5_5"}]
 ```
 
+For a custom 5.5 endpoint, set `SEEDREAM_MODEL_FAMILY=seedream_5_5` or supply
+explicit bindings including the selected default.
+Remove the obsolete `SEEDREAM_PROMPT_OPTIMIZATION_MODE` setting; it has no effect.
 5.5 uses PNG output when omitted and accepts transparent text-to-image.
-`SEEDREAM_PROMPT_OPTIMIZATION_MODE` remains specific to 5.0 Pro; explicit
-`prompt_optimization="standard"` is accepted on 5.5, while `fast` is rejected
-even when the Pro-only operator setting is `fast`. Omitted 5.5 optimization
-uses the provider's standard default. Background defaults to `auto` on 5.5.
+`prompt_optimization="standard"` is accepted; `fast` is rejected.
+Omitted optimization uses the provider's standard default. Background defaults
+to `auto`. `max_images` accepts only 1 or omission; use `variations` for multiple images.
 See [image model limits](models.md#image-capabilities-imagecapabilities).
 
 Read `seed-health://status` to confirm the effective Seedream default model and

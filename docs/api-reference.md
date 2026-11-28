@@ -129,7 +129,7 @@ On stdio transport, these fields write output straight to a local file:
 | Path form | Absolute. `output_path` names a file, or a directory when it ends with `/` (files named `<artifact_id>.<ext>`) |
 | Allowed roots | Live client MCP roots (`roots/list`) first, otherwise `OUTPUT_ROOTS`; with neither, path writing is disabled |
 | Timing | Validated before any provider call |
-| Preconditions | Media-output paths require `persist=true` or `persist_output=true`; image/audio `output_path` must be a directory ending `/` for `variations > 1` or image `max_images > 1` |
+| Preconditions | Media-output paths require `persist=true` or `persist_output=true`; image/audio `output_path` must be a directory ending `/` for `variations > 1` |
 | Existing files | Replaced only with `overwrite=true`; identical content is success |
 | Failure | A failed local write never fails the call; see `ArtifactRef.local_path` / `export_error` |
 
@@ -473,8 +473,8 @@ The same mapping applies to variations and persistence fallbacks.
 ## 3. seedream_generate_image
 
 **The only Seedream tool**: text-to-image, image-to-image and reference
-editing, point/bbox edits, provider batches (`max_images`), parallel variations,
-and dry runs. Registered whenever `BYTEPLUS_MODELARK_API_KEY` is set on stdio;
+editing, point/bbox edits, parallel variations,
+and dry runs with Seedream 5.5 only. Registered whenever `BYTEPLUS_MODELARK_API_KEY` is set on stdio;
 catalog capability label `seedream:generate`. Call directly on either transport.
 
 ### Input
@@ -486,20 +486,20 @@ catalog capability label `seedream:generate`. Call directly on either transport.
 | `point` | EditCoordinate | No | — | `x`, `y` in 0-999 (normalized) on the **first** image; requires `images` |
 | `bbox` | EditBbox | No | — | `x1`, `y1`, `x2`, `y2` in 0-999 on the **first** image, `x1 <= x2`, `y1 <= y2`; requires `images` |
 | `model` | string | No | `SEEDREAM_DEFAULT_MODEL` | Exact configured ID from `ark_list_models(kind='image')` |
-| `size` | string | No | `2K` on 5.5 | 5.5: `1K`, `1.5K`, `2K`, or positive `WIDTHxHEIGHT` with 921600-8294400 pixels and ratio 1/16-16, inclusive. For 4K UHD use `3840x2160`, not `"4K"`. No generation `auto`; older families remain provider-validated |
+| `size` | string | No | `2K` | `1K`, `1.5K`, `2K`, or positive `WIDTHxHEIGHT` with 921600-8294400 pixels and ratio 1/16-16, inclusive. For 4K UHD use `3840x2160`, not `"4K"`. No generation `auto` |
 | `seed` | integer | No | — | -1 to 2147483647; undocumented compatibility field on 5.5, omit unless verified; the **base seed** when `variations > 1` (see below) |
-| `max_images` | integer | No | — | 1-15 images from **one provider call**; batch-capable models only. **Cannot be combined with `variations > 1`** |
-| `output_format` | `"png"` \| `"jpeg"` | No | `png` on 5.5 and transparent output; provider default otherwise | Model-dependent |
+| `max_images` | integer | No | — | Only 1 or omission; use `variations` for multiple images |
+| `output_format` | `"png"` \| `"jpeg"` | No | `png` | Transparent output requires PNG |
 | `response_format` | `"url"` \| `"b64_json"` | No | — | Base64 requires `persist=true`; the unusable combination is rejected even for dry runs, before submission |
 | `watermark` | boolean | No | — | AIGC watermark |
-| `prompt_optimization` | `"standard"` \| `"fast"` | No | `standard` on 5.5; operator setting on Pro | 5.5 rejects `fast`; Pro accepts both. Omitted 5.5 mode uses the provider default |
-| `background` | `"auto"` \| `"opaque"` \| `"transparent"` | No | `auto` on 5.5; `opaque` otherwise | `auto` is 5.5-only; JPEG always opaque in auto mode. Transparent output requires PNG. 5.5 accepts text or references without alpha; Pro needs exactly one already-transparent PNG |
-| `safety_identifier` | string | No | — | 5.5/Pro: 1-64 non-space printable ASCII characters; use a stable hashed user ID, not personal data. Redacted in previews and logs |
+| `prompt_optimization` | `"standard"` | No | Provider standard default | `fast` is rejected |
+| `background` | `"auto"` \| `"opaque"` \| `"transparent"` | No | `auto` | JPEG always opaque in auto mode. Transparent output requires PNG and accepts text or references without alpha |
+| `safety_identifier` | string | No | — | 1-64 non-space printable ASCII characters; use a stable hashed user ID, not personal data. Redacted in previews and logs |
 | `variations` | integer | No | `1` | **1-10** independent parallel generations |
 | `variation_prompts` | list[string] | No | — | Exactly `variations` entries (each 1-4000 chars); overrides `prompt` |
 | `persist` | boolean | No | `false` | Explicit local persistence; HTTP rejects true |
 | `dry_run` | boolean | No | `false` | Validate and return `preview`; **no provider call, nothing billed** |
-| `output_path` | string | No | — | Local file, or directory ending `/`; **must be a directory when `variations > 1` or `max_images > 1`**; stdio only, requires `persist=true` |
+| `output_path` | string | No | — | Local file, or directory ending `/`; **must be a directory when `variations > 1`**; stdio only, requires `persist=true` |
 | `overwrite` | boolean | No | `false` | Replace existing files at `output_path` |
 
 \* Provide `prompt` or `variation_prompts`.
@@ -531,25 +531,21 @@ reported per variation in `summary` rather than failing the call.
 Model limits are checked **before any provider call** against the resolved
 model's capabilities. All violations are returned in **one error** that ends
 with `Call ark_list_models(kind='image') for per-model limits.` Checks:
-reference image count, `output_format`, `size`, `max_images > 1` without batch
-support, `prompt_optimization` support, and the `background="transparent"`
-rules.
+reference image count, `output_format`, `size`, and the `background="transparent"`
+rules. Schema validation rejects `max_images > 1` and nonstandard optimization earlier.
 
 Built-in family limits (**`ark_list_models(kind='image')` is authoritative**):
 
 | Family | Max references | `max_images` batch | `output_format` | `prompt_optimization` | Transparent background |
 |---|---|---|---|---|---|
 | 5.5 (default `dola-seedream-5-5-261028`) | 10 | No (use `variations`) | png (default), jpeg | `standard` only (provider default) | Text-only and reference-based |
-| Pro (Seedream 5.0 Pro, `dola-seedream-5-0-pro-260628`) | 10 | No (use `variations`) | png, jpeg | Yes (default `SEEDREAM_PROMPT_OPTIMIZATION_MODE`) | Existing transparent PNG only |
-| Lite | 14 | Yes | png, jpeg | Yes | No |
-| 4.x | 14 | Yes | jpeg | Yes | No |
 
 Discovery's image limits include `supports_transparent_generation` and
 `supports_prompt_optimization`, named size tiers, custom pixel/ratio bounds,
 `background_modes`, `prompt_optimization_modes`, and `supports_safety_identifier`.
 5.5 requires account authorization; see the
 [default upgrade note](configuration.md#seedream-default-model-upgrade-note).
-Examples below that return a 5.0 Pro model ID assume Pro is configured explicitly.
+Older image models are not supported.
 
 ### Output
 
@@ -614,7 +610,7 @@ Variations report missing/undeliverable outputs as explicit errors in `summary`.
 // Direct result
 {
   "provider": "byteplus-modelark",
-  "model": "dola-seedream-5-0-pro-260628",
+  "model": "dola-seedream-5-5-261028",
   "created_at": "2026-07-21T05:36:04+00:00",
   "dry_run": false,
   "artifacts": [
@@ -644,9 +640,9 @@ Variations report missing/undeliverable outputs as explicit errors in `summary`.
 ```
 
 ```json
-// Edit an image with transparency on Seedream 5.0 Pro (arguments.input)
+// Edit an image with transparency on Seedream 5.5 (arguments.input)
 {
-  "model": "dola-seedream-5-0-pro-260628",
+  "model": "dola-seedream-5-5-261028",
   "prompt": "Turn the circle into a glossy ceramic button, keep the background transparent",
   "images": [{ "kind": "url", "url": "https://example.com/circle-transparent.png", "mime_type": "image/png" }],
   "background": "transparent",
@@ -657,7 +653,7 @@ Variations report missing/undeliverable outputs as explicit errors in `summary`.
 ```json
 // Three variations with a base seed (arguments.input)
 {
-  "model": "dola-seedream-5-0-pro-260628",
+  "model": "dola-seedream-5-5-261028",
   "prompt": "A futuristic city skyline, cyberpunk",
   "variations": 3,
   "seed": 42,
@@ -667,7 +663,7 @@ Variations report missing/undeliverable outputs as explicit errors in `summary`.
 // Direct result
 {
   "provider": "byteplus-modelark",
-  "model": "dola-seedream-5-0-pro-260628",
+  "model": "dola-seedream-5-5-261028",
   "created_at": "2026-07-21T...",
   "dry_run": false,
   "artifacts": [],
@@ -694,7 +690,7 @@ Variations report missing/undeliverable outputs as explicit errors in `summary`.
 // Direct result
 {
   "provider": "byteplus-modelark",
-  "model": "dola-seedream-5-0-pro-260628",
+  "model": "dola-seedream-5-5-261028",
   "created_at": "2026-07-21T...",
   "dry_run": true,
   "artifacts": [],
@@ -703,10 +699,10 @@ Variations report missing/undeliverable outputs as explicit errors in `summary`.
   "summary": null,
   "preview": {
     "requests": [
-      { "model": "dola-seedream-5-0-pro-260628", "prompt": "A lighthouse at dusk", "seed": 7, "stream": false, "optimize_prompt_options": { "mode": "standard" } },
-      { "model": "dola-seedream-5-0-pro-260628", "prompt": "A lighthouse at dusk", "seed": 8, "stream": false, "optimize_prompt_options": { "mode": "standard" } }
+      { "model": "dola-seedream-5-5-261028", "prompt": "A lighthouse at dusk", "seed": 7, "stream": false, "output_format": "png" },
+      { "model": "dola-seedream-5-5-261028", "prompt": "A lighthouse at dusk", "seed": 8, "stream": false, "output_format": "png" }
     ],
-    "estimated_cost_usd": 0.06,
+    "estimated_cost_usd": 0.07,
     "price_source": "builtin"
   }
 }

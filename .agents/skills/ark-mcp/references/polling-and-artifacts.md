@@ -103,7 +103,7 @@ storage or a download URL. Save it client-side; there is no recovery API.
 - **Need persistence:** `output_path`/`output_dir` require `persist=true` / `persist_output=true` for Seed Audio/Seedream/Seedance. Seed TTS always persists.
 - **`output_path` ending in `/` is a directory**, with files named
   `<artifact_id>.<ext>`. A directory is required for Seedream
-  `variations > 1` or `max_images > 1`, and Seed Audio `variations > 1`.
+  `variations > 1`, and Seed Audio `variations > 1`.
 - **`output_dir`** is the `gen_task_get` equivalent.
 - **A failed local write never fails the call.** The durable artifact is kept and the `ArtifactRef` reports `local_path` on success or `export_error` on failure. Always read these fields.
 - Direct calls use client MCP roots first, then `OUTPUT_ROOTS`; see [local-output.md](local-output.md).

@@ -46,6 +46,7 @@ async def test_seedream55_discovery_reports_default_and_transparency(configured:
     async with Client(create_server(get_settings())) as client:
         result = await client.call_tool("ark_list_models", {"input": {"kind": "image"}})
     assert result.structured_content is not None
+    assert len(result.structured_content["models"]) == 1
     model = result.structured_content["models"][0]
     assert model["model_id"] == MODEL
     assert model["is_default"]
@@ -414,7 +415,6 @@ async def test_seedream55_dry_run_redacts_safety_identifier(configured: None) ->
         {"size": "3841x2160"},
         {"size": "2881x2880"},
         {"size": "4096x2160"},
-        {"prompt_optimization": "fast"},
     ],
 )
 async def test_invalid_api_controls_never_reach_provider(
@@ -433,6 +433,8 @@ async def test_invalid_api_controls_never_reach_provider(
         {"layer_decomposition": True},
         {"layer_decomposition_options": {"max_images": 10}},
         {"safety_identifier": "a" * 65},
+        {"prompt_optimization": "fast"},
+        {"max_images": 2},
     ],
 )
 async def test_unsupported_input_is_rejected_before_provider_dispatch(
@@ -445,6 +447,31 @@ async def test_unsupported_input_is_rejected_before_provider_dispatch(
                     "seedream_generate_image", {"input": {"prompt": "test", **arguments}}
                 )
     assert not router.calls
+
+
+@pytest.mark.parametrize(
+    "model",
+    [
+        "dola-seedream-5-0-pro-260628",
+        "seedream-5-0-260128",
+        "seedream-5-0-lite-260128",
+        "seedream-4-5-251128",
+        "seedream-4-0-250828",
+        "seedream-3-0-t2i-250415",
+    ],
+)
+@pytest.mark.parametrize("dry_run", [False, True])
+async def test_retired_models_never_reach_provider(
+    configured: None, model: str, dry_run: bool
+) -> None:
+    with respx.mock(assert_all_called=False) as router:
+        async with Client(create_server(get_settings())) as client:
+            result = await _image_call(
+                client, {"prompt": "test", "model": model, "dry_run": dry_run}
+            )
+    assert not router.calls
+    assert result["is_error"]
+    assert "not configured" in str(result["content"])
 
 
 async def test_seedream55_metadata_survives_partial_variation_failure(configured: None) -> None:

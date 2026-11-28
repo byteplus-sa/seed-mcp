@@ -104,9 +104,6 @@ def _warn_if_http_body_limit_blocks_media_upload(body_bytes: int) -> None:
 
 class SeedreamFamily(StrEnum):
     SEEDREAM_5_5 = "seedream_5_5"
-    PRO = "pro"
-    LITE = "lite"
-    V4X = "4x"
 
 
 class SeedanceFamily(StrEnum):
@@ -129,6 +126,21 @@ class AuthMode(StrEnum):
 class ImageModelBinding(BaseModel):
     model_id: str = Field(min_length=1)
     family: SeedreamFamily
+
+    @field_validator("model_id")
+    @classmethod
+    def reject_retired_model(cls, value: str) -> str:
+        """Reject known retired public IDs, even if mislabeled as a 5.5 binding."""
+        if value in {
+            "dola-seedream-5-0-pro-260628",
+            "seedream-5-0-260128",
+            "seedream-5-0-lite-260128",
+            "seedream-4-5-251128",
+            "seedream-4-0-250828",
+            "seedream-3-0-t2i-250415",
+        }:
+            raise ValueError("Only Seedream 5.5 is supported; this model ID is retired.")
+        return value
 
 
 class VideoModelBinding(BaseModel):
@@ -181,16 +193,6 @@ class Settings(BaseSettings):
     )
     # --- Model bindings ------------------------------------------------------
 
-    seedream_prompt_optimization_mode: Literal["standard", "fast"] = Field(
-        default="standard",
-        validation_alias="SEEDREAM_PROMPT_OPTIMIZATION_MODE",
-        description=(
-            "Prompt optimization mode Seedream 5.0 Pro uses when a caller omits "
-            "prompt_optimization: 'standard' for prompt-following quality, 'fast' for "
-            "lower latency. Both are accepted by the provider. An explicit per-call "
-            "value always wins, and other Seedream families send no mode regardless."
-        ),
-    )
     seedream_default_model: str = Field(
         default="dola-seedream-5-5-261028",
         validation_alias="SEEDREAM_DEFAULT_MODEL",
@@ -199,10 +201,10 @@ class Settings(BaseSettings):
         default="dreamina-seedance-2-5-260628",
         validation_alias="SEEDANCE_DEFAULT_MODEL",
     )
-    seedream_model_family: str = Field(
+    seedream_model_family: Literal["", "seedream_5_5"] = Field(
         default="",
         validation_alias="SEEDREAM_MODEL_FAMILY",
-        description="Explicit family: 'seedream_5_5', 'pro', 'lite', or '4x'. Empty = infer from model ID.",
+        description="Only 'seedream_5_5' is supported. Empty = use the built-in model's family.",
     )
     seedance_model_family: str = Field(
         default="",
@@ -498,7 +500,7 @@ class Settings(BaseSettings):
         validation_alias="BYTEPLUS_REQUEST_TIMEOUT_MS",
         description=(
             "10-minute request timeout covers long synchronous generations "
-            "(Seedream Pro can take 60-150s, longer under cold start or queue)."
+            "(Seedream can take 60-150s, longer under cold start or queue)."
         ),
     )
 
@@ -687,12 +689,11 @@ class Settings(BaseSettings):
             if not family:
                 if self.seedream_default_model == "dola-seedream-5-5-261028":
                     family = SeedreamFamily.SEEDREAM_5_5
-                elif self.seedream_default_model == "dola-seedream-5-0-pro-260628":
-                    family = SeedreamFamily.PRO
                 else:
                     raise ValueError(
-                        "A custom SEEDREAM_DEFAULT_MODEL requires "
-                        "SEEDREAM_MODEL_FAMILY or SEEDREAM_MODEL_BINDINGS."
+                        "Only Seedream 5.5 is supported. A custom SEEDREAM_DEFAULT_MODEL "
+                        "requires SEEDREAM_MODEL_FAMILY=seedream_5_5 or "
+                        "SEEDREAM_MODEL_BINDINGS with verified 5.5 endpoints."
                     )
             self.seedream_model_bindings = [
                 ImageModelBinding(

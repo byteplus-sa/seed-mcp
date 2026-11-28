@@ -34,10 +34,10 @@ class TestSeedreamRequestBuilding:
 
     def test_text_to_image_request(self) -> None:
         request = SeedreamService.build_request(
-            model="dola-seedream-5-0-pro-260628",
+            model="dola-seedream-5-5-261028",
             prompt="a cat sitting on a mat",
         )
-        assert request.model == "dola-seedream-5-0-pro-260628"
+        assert request.model == "dola-seedream-5-5-261028"
         assert request.prompt == "a cat sitting on a mat"
         assert request.image is None
         assert request.stream is False
@@ -45,7 +45,7 @@ class TestSeedreamRequestBuilding:
 
     def test_edit_request_with_single_image_url(self) -> None:
         request = SeedreamService.build_request(
-            model="dola-seedream-5-0-pro-260628",
+            model="dola-seedream-5-5-261028",
             prompt="make it night time",
             images=[{"url": "https://cdn.example.com/input.png"}],
         )
@@ -53,7 +53,7 @@ class TestSeedreamRequestBuilding:
 
     def test_edit_request_with_multiple_images(self) -> None:
         request = SeedreamService.build_request(
-            model="seedream-5-0-260128",
+            model="dola-seedream-5-5-261028",
             prompt="combine these",
             images=[
                 {"url": "https://cdn.example.com/a.png"},
@@ -65,7 +65,7 @@ class TestSeedreamRequestBuilding:
 
     def test_base64_image_becomes_data_uri(self) -> None:
         request = SeedreamService.build_request(
-            model="dola-seedream-5-0-pro-260628",
+            model="dola-seedream-5-5-261028",
             prompt="edit this",
             images=[{"kind": "base64", "data": "aV9hbV9hbl9pbWFnZQ==", "mime_type": "image/png"}],
         )
@@ -73,7 +73,7 @@ class TestSeedreamRequestBuilding:
 
     def test_base64_image_without_mime_defaults_to_png(self) -> None:
         request = SeedreamService.build_request(
-            model="dola-seedream-5-0-pro-260628",
+            model="dola-seedream-5-5-261028",
             prompt="edit this",
             images=[{"kind": "base64", "data": "aV9hbV9hbl9pbWFnZQ=="}],
         )
@@ -81,24 +81,23 @@ class TestSeedreamRequestBuilding:
 
     def test_url_image_passed_through_unchanged(self) -> None:
         request = SeedreamService.build_request(
-            model="dola-seedream-5-0-pro-260628",
+            model="dola-seedream-5-5-261028",
             prompt="edit this",
             images=[{"url": "https://cdn.example.com/input.png"}],
         )
         assert request.image == "https://cdn.example.com/input.png"
 
-    def test_batch_request_derives_sequential(self) -> None:
-        request = SeedreamService.build_request(
-            model="seedream-5-0-260128",
-            prompt="generate 3 variants",
-            max_images=3,
-        )
-        assert request.sequential_image_generation == "auto"
-        assert request.sequential_image_generation_options == {"max_images": 3}
+    def test_batch_request_is_rejected(self) -> None:
+        with pytest.raises(ValueError, match="only one image per call"):
+            SeedreamService.build_request(
+                model="dola-seedream-5-5-261028",
+                prompt="generate 3 variants",
+                max_images=3,
+            )
 
     def test_single_image_does_not_set_sequential(self) -> None:
         request = SeedreamService.build_request(
-            model="dola-seedream-5-0-pro-260628",
+            model="dola-seedream-5-5-261028",
             prompt="single image",
             max_images=1,
         )
@@ -106,15 +105,15 @@ class TestSeedreamRequestBuilding:
 
     def test_prompt_optimization(self) -> None:
         request = SeedreamService.build_request(
-            model="dola-seedream-5-0-pro-260628",
+            model="dola-seedream-5-5-261028",
             prompt="optimized prompt",
-            prompt_optimization="fast",
+            prompt_optimization="standard",
         )
-        assert request.optimize_prompt_options == {"mode": "fast"}
+        assert request.optimize_prompt_options == {"mode": "standard"}
 
     def test_stream_always_false(self) -> None:
         request = SeedreamService.build_request(
-            model="seedream-5-0-260128",
+            model="dola-seedream-5-5-261028",
             prompt="test",
         )
         assert request.stream is False
@@ -159,7 +158,9 @@ class TestSeedreamResponseParsing:
         assert response.data[0].b64_json == "aV9hbV9hbl9pbWFnZQ=="
 
     @respx.mock
-    async def test_batch_response(self, service: SeedreamService) -> None:
+    async def test_unexpected_multiple_outputs_are_preserved(
+        self, service: SeedreamService
+    ) -> None:
         respx.post(f"{MODELARK_BASE}/images/generations").mock(
             return_value=httpx.Response(
                 200,
@@ -173,9 +174,7 @@ class TestSeedreamResponseParsing:
                 },
             )
         )
-        request = SeedreamService.build_request(
-            model="seedream-5-0-260128", prompt="batch", max_images=3
-        )
+        request = SeedreamService.build_request(model="dola-seedream-5-5-261028", prompt="test")
         response, _ = await service.generate(request)
         assert len(response.data) == 3
 
@@ -193,9 +192,7 @@ class TestSeedreamResponseParsing:
                 },
             )
         )
-        request = SeedreamService.build_request(
-            model="seedream-5-0-260128", prompt="batch", max_images=2
-        )
+        request = SeedreamService.build_request(model="dola-seedream-5-5-261028", prompt="test")
         response, _ = await service.generate(request)
         errors = SeedreamService.extract_item_errors(response)
         assert len(errors) == 1

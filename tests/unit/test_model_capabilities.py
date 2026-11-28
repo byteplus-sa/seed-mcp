@@ -5,7 +5,6 @@ from __future__ import annotations
 from collections.abc import Iterator
 
 import pytest
-from pydantic import ValidationError
 
 from ark_mcp.config.model_capabilities import (
     ImageCapabilities,
@@ -28,12 +27,7 @@ class TestCapabilityRegistry:
         registry = get_capability_registry()
         caps = registry.get_image_capabilities()
         assert isinstance(caps, ImageCapabilities)
-        assert caps.family in (
-            ModelFamily.SEEDREAM_5_5,
-            ModelFamily.SEEDREAM_PRO,
-            ModelFamily.SEEDREAM_LITE,
-            ModelFamily.SEEDREAM_4X,
-        )
+        assert caps.family is ModelFamily.SEEDREAM_5_5
 
     def test_get_default_video_capabilities(self) -> None:
         registry = get_capability_registry()
@@ -137,66 +131,10 @@ class TestCapabilityRegistry:
 class TestPromptOptimizationDefaults:
     """Tests for Seedream prompt optimization default resolution."""
 
-    @staticmethod
-    def _pro_caps(monkeypatch: pytest.MonkeyPatch, configured_mode: str) -> ImageCapabilities:
-        """Build the PRO capability under an explicitly pinned operator mode.
-
-        The mode is always set here rather than inherited, because
-        ``refresh_settings`` reads the ``.env`` in the working directory and a
-        developer who configures ``fast`` locally would otherwise fail a suite
-        that passes in CI.
-        """
-        from ark_mcp.config.env import refresh_settings
-        from ark_mcp.config.model_capabilities import refresh_capability_registry
-
-        monkeypatch.setenv("SEEDREAM_DEFAULT_MODEL", "dola-seedream-5-0-pro-260628")
-        monkeypatch.setenv("SEEDREAM_MODEL_FAMILY", "pro")
-        monkeypatch.setenv("SEEDREAM_PROMPT_OPTIMIZATION_MODE", configured_mode)
-        monkeypatch.delenv("SEEDREAM_MODEL_BINDINGS", raising=False)
-        refresh_settings()
-        registry = refresh_capability_registry()
-        return registry.get_image_capabilities("dola-seedream-5-0-pro-260628")
-
-    def test_pro_family_uses_configured_standard_default(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """The shipped default sends standard when the caller omits the field."""
-        caps = self._pro_caps(monkeypatch, "standard")
-
-        assert caps.family is ModelFamily.SEEDREAM_PRO
-        assert caps.default_prompt_optimization_mode == "standard"
-        assert caps.resolve_prompt_optimization(None) == "standard"
-        assert caps.resolve_prompt_optimization("standard") == "standard"
-        assert caps.resolve_prompt_optimization("fast") == "fast"
-
-    def test_pro_family_honors_configured_fast_default(
-        self, monkeypatch: pytest.MonkeyPatch
-    ) -> None:
-        """SEEDREAM_PROMPT_OPTIMIZATION_MODE=fast changes only the omitted-value case."""
-        caps = self._pro_caps(monkeypatch, "fast")
-
-        assert caps.default_prompt_optimization_mode == "fast"
-        assert caps.resolve_prompt_optimization(None) == "fast"
-        assert caps.resolve_prompt_optimization("standard") == "standard"
-
-    def test_invalid_configured_mode_is_rejected(self, monkeypatch: pytest.MonkeyPatch) -> None:
-        """An unsupported operator value fails closed at settings validation."""
-        from ark_mcp.config.env import refresh_settings
-
-        monkeypatch.setenv("SEEDREAM_PROMPT_OPTIMIZATION_MODE", "turbo")
-        with pytest.raises(ValidationError):
-            refresh_settings()
-
-    def test_family_without_default_uses_provider_mode(self) -> None:
-        """Families without a default send no optimize_prompt_options unless requested."""
-        caps = ImageCapabilities(
-            family=ModelFamily.SEEDREAM_LITE,
-            model_id="test-lite-model",
-            max_references=14,
-            supports_batch=True,
-            supports_streaming=True,
-            supported_output_formats=("png", "jpeg"),
-        )
+    def test_seedream55_uses_provider_standard_mode(self) -> None:
+        """Omitted optimization sends no optimize_prompt_options."""
+        caps = get_capability_registry().get_image_capabilities()
+        assert caps.prompt_optimization_modes == ("standard",)
         assert caps.default_prompt_optimization_mode is None
         assert caps.resolve_prompt_optimization(None) is None
         assert caps.resolve_prompt_optimization("standard") == "standard"
@@ -204,14 +142,14 @@ class TestPromptOptimizationDefaults:
     def test_resolver_disabled_capability_returns_none(self) -> None:
         """When prompt optimization is unsupported, no mode is ever sent."""
         caps = ImageCapabilities(
-            family=ModelFamily.SEEDREAM_PRO,
-            model_id="test-pro-model",
+            family=ModelFamily.SEEDREAM_5_5,
+            model_id="test-image-model",
             max_references=10,
             supports_batch=False,
             supports_streaming=False,
             supported_output_formats=("png", "jpeg"),
             supports_prompt_optimization=False,
-            default_prompt_optimization_mode="fast",
+            default_prompt_optimization_mode="standard",
         )
         assert caps.resolve_prompt_optimization(None) is None
         assert caps.resolve_prompt_optimization("standard") is None

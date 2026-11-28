@@ -25,16 +25,15 @@ the first image on a normalized 0-999 scale. Ordinary reference edits and
 region prompts do not enable layer decomposition.
 
 5.5 also accepts a positive custom `WIDTHxHEIGHT`: 921,600-8,294,400 pixels
-inclusive, with width/height ratio 1/16-16. Every family supports 1-10 independent
-`variations`; only batch-capable families accept `max_images > 1`, and batching
-cannot be combined with multiple variations. On 5.5/Pro, optional
+inclusive, with width/height ratio 1/16-16. Use 1-10 independent
+`variations` for multiple images; `max_images` accepts only 1 or omission.
+Optional
 `safety_identifier` accepts 1-64 non-space printable ASCII characters; prefer a
 stable hash, not personal data. It is redacted from previews and structured logs.
 
 JPEG is always opaque, including with `background="auto"`. Base64 delivery
 requires `persist=true` and is therefore local stdio only; HTTP rejects
-persistence true and uses URL delivery. Pro transparency still requires exactly one
-already-transparent PNG; it does not gain text-to-transparent generation.
+persistence true and uses URL delivery. Only Seedream 5.5 is supported.
 Custom endpoint IDs must bind to family `seedream_5_5`. See the
 [model capabilities](/seed-mcp/models/#image-capabilities-imagecapabilities)
 and [default upgrade note](/seed-mcp/configuration/#seedream-default-model-upgrade-note).

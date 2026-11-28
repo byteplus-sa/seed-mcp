@@ -1,8 +1,7 @@
 # Multi-Generation
 
-The server supports two mechanisms for producing multiple outputs from one
-tool call: **native provider batch** (one API call, many outputs) and
-**client-side parallel variation** (many independent API calls with bounded
+The server produces multiple outputs from one tool call through
+**client-side parallel variations** (independent API calls with bounded
 concurrency). Both transports await ordinary direct calls and return the
 original typed tool result. Neither exposes MCP jobs or native tasks.
 
@@ -13,36 +12,13 @@ default. Download HTTP provider URLs yourself before expiry.
 
 ## Native provider batch
 
-Seedream supports generating multiple images in a single provider API call
-via the `max_images` parameter. This is a native capability of the BytePlus
-API and is only supported by **Lite** and **4.x** model families.
-
-**How it works:**
-
-1. The client passes `max_images` (1-15) on `seedream_generate_image`.
-2. The handler validates it against the capability registry:
-   - Lite and 4.x allow batch; Pro rejects `max_images > 1`.
-3. The provider adapter translates `max_images` into
-   `sequential_image_generation: "auto"` with
-   `sequential_image_generation_options: {"max_images": N}`.
-4. The provider returns images in one response. Each is returned as a
-   provider-URL reference, or explicitly persisted as a local artifact.
-
-This is a **single `POST /images/generations` call** — one request, one
-response, multiple outputs. It is the most efficient path and should be
-preferred over variations when the model supports it.
-
-| Model family | Supports `max_images` | Max images |
-|---|---|---|
-| **Pro** (`seedream_pro`) | No | 1 |
-| **5.5** (`seedream_5_5`, default) | No | 1 |
-| **Lite** (`seedream_lite`) | Yes | 15 |
-| **4.x** (`seedream_4x`) | Yes | 15 |
+Provider image batches are not supported. Seedream 5.5 is the only supported
+image family and generates one image per provider call. The compatibility
+field `max_images` accepts only 1 or omission; use `variations` for multiple images.
 
 ## Client-side parallel variations
 
-When a product does not support native batch (or when the client needs
-per-variation control like distinct prompts or seeds), the `variations`
+For multiple outputs with optional distinct prompts or seeds, the `variations`
 field on the generation tools makes multiple independent API calls in
 parallel. There are no separate `*_variations` tools; every variation shares
 the call's other inputs, including reference media.
@@ -51,7 +27,7 @@ the call's other inputs, including reference media.
 
 | Tool | Product | Uses native batch? | Parallel mechanism |
 |---|---|---|---|
-| `seedream_generate_image` with `variations` 2-10 | Seedream (any model; cannot be combined with `max_images > 1`) | No (always parallel calls) | `run_variation_batch` |
+| `seedream_generate_image` with `variations` 2-10 | Seedream 5.5 | No (always parallel calls) | `run_variation_batch` |
 | `seed_audio_generate` with `variations` 2-5 | Seed Audio | No | `run_variation_batch` |
 | `seedance_create_task` with `variations` 2-5 | Seedance (every configured model) | No | `run_variation_batch` |
 
@@ -180,8 +156,7 @@ usage fields.
 
 | Scenario | Use |
 |---|---|
-| Multiple images, same prompt, Lite or 4.x model | `max_images` on `seedream_generate_image` |
-| Multiple images, 5.5 or Pro model | `variations` on `seedream_generate_image` |
+| Multiple images, Seedream 5.5 | `variations` on `seedream_generate_image` |
 | Per-variation prompts or seeds | `variations` plus `variation_prompts` (and `seed` on Seedream) |
 | Multiple audio outputs | `variations` on `seed_audio_generate` |
 | Check requests and cost first | `dry_run=true` on `seedream_generate_image` or `seedance_create_task` |

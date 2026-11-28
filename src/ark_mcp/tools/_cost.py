@@ -13,7 +13,6 @@ from typing import Literal
 from ark_mcp.observability.logger import info as log_info
 
 # Provider cost estimates (USD per unit).
-COST_PER_IMAGE = 0.03
 COST_PER_AUDIO_SECOND = 0.0031
 COST_PER_TTS_MILLION_CHARACTERS = 20.0
 COST_PER_VIDEO_TASK = 0.07
@@ -57,8 +56,8 @@ def image_cost_estimate(
     reference_images: int = 0,
 ) -> tuple[float, Literal["builtin"]]:
     """Estimate each output and its references, using the resolved registry family."""
-    if family != "seedream_5_5":
-        return round(count * COST_PER_IMAGE, 4), "builtin"
+    if family not in (None, "seedream_5_5"):
+        raise ValueError("Only Seedream 5.5 image estimates are supported.")
     pixels = {None: 2048 * 2048, "1K": 1024 * 1024, "1.5K": 1536 * 1536, "2K": 2048 * 2048}.get(
         size
     )

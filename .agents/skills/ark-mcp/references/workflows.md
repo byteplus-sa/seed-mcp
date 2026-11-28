@@ -101,9 +101,8 @@ For Seedance:
   write the markup into `prompt`**: the server prepends `Image 1<point>...`
   or `Image 1<bbox>...` itself, and applies it to every variation prompt.
 - `background="transparent"` supports text-only generation or references
-  without alpha on Seedream 5.5. On 5.0 Pro it is a transparency-preserving
-  edit requiring exactly one PNG that already has transparent pixels.
-  Both require `output_format` omitted or `png`.
+  without alpha on Seedream 5.5, the only supported image family.
+  It requires `output_format` omitted or `png`.
 - 5.5 defaults to `background="auto"`; use `generations[].images[].background`
   to read the actual returned background, not infer it from the request.
   `prompt_optimization` is omitted or `standard`, never `fast`.
@@ -112,7 +111,7 @@ For Seedance:
   custom dimensions allow up to 8,294,400 pixels. Preview with `dry_run=true`
   to see the output-tier and repeated input-image cost before paid generation.
   `auto` size and layer-decomposition/OCR controls are rejected.
-- Use only a stable hashed `safety_identifier` (5.5/Pro, 1-64 non-space ASCII);
+- Use only a stable hashed `safety_identifier` (1-64 non-space ASCII);
   previews/logs redact it, while `generations` preserves the provider echo.
 - To iterate on a generated image, pass its provider URL (valid 24 h) or
   re-upload via stdio `media_upload` or an upload-capable HTTP client with
@@ -120,7 +119,7 @@ For Seedance:
 - A fixed `seed` helps reproduce request settings, not guaranteed pixels. With
   `variations > 1`, `seed` is a base: `N` gives `N, N+1, ...`, `-1` picks a
   random recorded seed per variation, omitted leaves them unrecorded. On
-  Seedream 5.5 and 5.0 Pro use `variations` instead of `max_images`.
+  Seedream 5.5 use `variations` instead of `max_images`.
 
 ### Seedream generate, review, edit
 

@@ -1,8 +1,8 @@
 """Seedream adapter — image generation and editing through ModelArk.
 
 Translates domain input models to provider DTOs, calls the ModelArk gateway,
-and maps provider responses to domain output models. Forces ``stream: false``
-for MVP — streaming events are deferred per the plan.
+and maps provider responses to domain output models. Seedream 5.5 supports
+neither streaming nor provider batch generation.
 """
 
 from __future__ import annotations
@@ -94,9 +94,10 @@ class SeedreamService:
     ) -> SeedreamProviderRequest:
         """Build a provider request from domain-level parameters.
 
-        - Derives ``sequential_image_generation`` from ``max_images``.
-        - Forces ``stream: false`` for MVP.
+        Rejects provider batches and forces ``stream: false`` for Seedream 5.5.
         """
+        if max_images not in (None, 1):
+            raise ValueError("Seedream 5.5 supports only one image per call; use variations.")
         image_field: str | list[str] | None = None
         if images:
             if len(images) == 1:
@@ -105,12 +106,6 @@ class SeedreamService:
                 image_field = [
                     value for value in (_image_value(item) for item in images) if value is not None
                 ]
-
-        sequential = None
-        sequential_options = None
-        if max_images is not None and max_images > 1:
-            sequential = "auto"
-            sequential_options = {"max_images": max_images}
 
         optimize_options = None
         if prompt_optimization:
@@ -122,8 +117,6 @@ class SeedreamService:
             image=image_field,
             size=size,
             seed=seed,
-            sequential_image_generation=sequential,
-            sequential_image_generation_options=sequential_options,
             stream=False,
             output_format=output_format,
             response_format=response_format,

@@ -279,9 +279,9 @@ class TestNonSensitiveData:
     """Verify non-sensitive data is NOT redacted."""
 
     def test_model_id_preserved(self, capsys: pytest.CaptureFixture[str]) -> None:
-        logger.info("test", model_id="dola-seedream-5-0-pro-260628")
+        logger.info("test", model_id="dola-seedream-5-5-261028")
         records = _parse_stderr(capsys)
-        assert records[0]["model_id"] == "dola-seedream-5-0-pro-260628"
+        assert records[0]["model_id"] == "dola-seedream-5-5-261028"
 
     def test_artifact_id_preserved(self, capsys: pytest.CaptureFixture[str]) -> None:
         logger.info("test", artifact_id="550e8400-e29b-41d4-a716-446655440000")
