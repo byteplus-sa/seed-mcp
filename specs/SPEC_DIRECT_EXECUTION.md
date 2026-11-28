@@ -61,8 +61,8 @@ direct MCP execution does not mean a video finishes within the create call.
 | --- | --- | --- | --- |
 | `MCP_ADMISSION_TIMEOUT_SECONDS` | `2.0` | Finite, positive, at most 30 | Total wait for owner and provider slots |
 | `MCP_TOOL_TIMEOUT_SECONDS` | `600.0` | Finite, positive, at most 3600 | Cooperative deadline for the whole direct handler |
-| `PROVIDER_MAX_CONCURRENCY` | `5` | Positive integer | Per-pod slots per provider bucket |
-| `PRINCIPAL_MAX_CONCURRENCY` | `3` | Positive integer | Per-pod slots per derived HTTP owner; skipped for trusted local stdio |
+| `PROVIDER_MAX_CONCURRENCY` | `10` | Positive integer | Per-pod slots per provider bucket |
+| `PRINCIPAL_MAX_CONCURRENCY` | `10` | Positive integer | Per-pod slots per derived HTTP owner; skipped for trusted local stdio |
 
 The tool deadline starts at wrapper entry after MCP input parsing, before
 credential/binding checks, admission and provider execution.

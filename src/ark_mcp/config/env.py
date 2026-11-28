@@ -536,12 +536,12 @@ class Settings(BaseSettings):
         ),
     )
     provider_max_concurrency: int = Field(
-        default=5,
+        default=10,
         ge=1,
         validation_alias="PROVIDER_MAX_CONCURRENCY",
     )
     principal_max_concurrency: int = Field(
-        default=3,
+        default=10,
         ge=1,
         validation_alias="PRINCIPAL_MAX_CONCURRENCY",
     )

@@ -123,8 +123,8 @@ class ProviderLimiters:
     def __init__(
         self,
         *,
-        provider_limit: int = 5,
-        principal_limit: int = 3,
+        provider_limit: int = 10,
+        principal_limit: int = 10,
         principal_cache_size: int = 10_000,
         admission_timeout_seconds: float = 2.0,
     ) -> None:

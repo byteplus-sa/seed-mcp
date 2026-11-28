@@ -32,13 +32,26 @@ class TestSettings:
         assert settings.artifact_backend == "filesystem"
         assert settings.artifact_ttl_seconds == 604800
         assert settings.mcp_inline_media_max_bytes == 8388608
+        assert settings.provider_max_concurrency == 10
+        assert settings.principal_max_concurrency == 10
 
     def test_http_admission_defaults_are_bounded(self) -> None:
         settings = _http_settings()
         assert settings.mcp_http_max_body_bytes == 2 * 1024 * 1024
         assert settings.http_max_in_flight == 64
+        assert settings.provider_max_concurrency == 10
+        assert settings.principal_max_concurrency == 10
         assert settings.state_max_records == 100_000
         assert settings.trusted_proxy_networks == ()
+
+    def test_concurrency_environment_overrides_remain_authoritative(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setenv("PROVIDER_MAX_CONCURRENCY", "7")
+        monkeypatch.setenv("PRINCIPAL_MAX_CONCURRENCY", "2")
+        settings = _http_settings()
+        assert settings.provider_max_concurrency == 7
+        assert settings.principal_max_concurrency == 2
 
     def test_has_modelark_false_when_empty(self) -> None:
         settings = Settings(_env_file=None)

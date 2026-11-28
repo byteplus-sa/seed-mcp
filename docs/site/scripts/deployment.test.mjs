@@ -36,6 +36,20 @@ test("hosted chart is database-free and preserves bounded pod scaling", () => {
   assert.match(source("deploy/helm/seed-mcp/Chart.yaml"), />=1\.30\.0-0/);
 });
 
+test("operator and setup guidance match ten-slot Helm defaults", () => {
+  const values = source("deploy/helm/seed-mcp/values.yaml");
+  assert.match(values, /providerMaxConcurrency: 10\b/);
+  assert.match(values, /principalMaxConcurrency: 10\b/);
+  for (const path of [
+    "docs/self-hosting.md",
+    ".agents/skills/ark-mcp-setup/SKILL.md",
+  ]) {
+    const text = source(path).replace(/\s+/g, " ");
+    assert.match(text, /provider\/owner concurrency defaults to 10\/10/i, path);
+    assert.doesNotMatch(text, /provider\/owner concurrency[^.;]*5\/3/i, path);
+  }
+});
+
 test("stateless deployment keeps proxy and private-operation boundaries", () => {
   const proxy = source("deploy/helm/seed-mcp/files/Caddyfile");
   const service = source("deploy/helm/seed-mcp/templates/service.yaml");

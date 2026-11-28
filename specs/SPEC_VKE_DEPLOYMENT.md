@@ -387,9 +387,12 @@ and explicit lists include the selected default. Alternate defaults require
 verified bindings. Used endpoint headers still require exact registry matches;
 explicit tool `model` wins.
 
-Chart defaults are `app.dailyBudgetUsd=0`, `providerMaxConcurrency=5`,
-`principalMaxConcurrency=3` and `rateLimitBurst=0`. These are explicit env
+Chart defaults are `app.dailyBudgetUsd=0`, `providerMaxConcurrency=10`,
+`principalMaxConcurrency=10` and `rateLimitBurst=0`. These are explicit env
 mappings, not arbitrary env maps or account-wide spend controls.
+The ten provider slots are shared across owners per pod, not reserved per
+client. Resources and CPU-only HPA settings are unchanged; ten-way maximum-size
+TTS response capacity requires separate load validation before rollout.
 
 ## Network and Shutdown
 

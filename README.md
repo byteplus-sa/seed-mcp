@@ -307,6 +307,10 @@ HTTP requires operator `MCP_IDENTITY_HMAC_KEY` (64 lowercase hex) and positive
 `MCP_IDENTITY_KEY_VERSION` (default 1), not operator provider keys.
 `STATE_BACKEND` automatically selects `none`; `DAILY_BUDGET_USD` must be zero.
 Rate and concurrency limits are per pod and reset at restart.
+Provider and HTTP-owner concurrency both default to **10**. Provider slots are
+shared across clients, not reserved per client; explicit operator overrides
+still apply. Pod resources and CPU-based autoscaling are unchanged. See
+[runtime capacity](docs/runtime.md#pod-capacity) before production rollout.
 
 Client `X-MCP-Client-Secret` must differ from every supplied provider API key.
 Reuse returns HTTP 400 `CREDENTIAL_REUSE` before tool execution. Generate an

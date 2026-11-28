@@ -56,8 +56,8 @@ generation, not agent-visible secret output or identity resets.
 | `RATE_LIMIT_BURST` | `0`, inherits RPM |
 | `MCP_HTTP_MAX_BODY_BYTES` | `2097152` (2 MiB) |
 | `MCP_HTTP_MAX_IN_FLIGHT` | `64` |
-| `PROVIDER_MAX_CONCURRENCY` | `5` |
-| `PRINCIPAL_MAX_CONCURRENCY` | `3`, per derived owner |
+| `PROVIDER_MAX_CONCURRENCY` | `10`, shared per provider bucket |
+| `PRINCIPAL_MAX_CONCURRENCY` | `10`, per derived owner |
 | `MCP_ADMISSION_TIMEOUT_SECONDS` | `2.0`, finite positive, max 30; owner-first then provider wait |
 | `MCP_TOOL_TIMEOUT_SECONDS` | `600.0`, finite positive, max 3600; cooperative whole-tool deadline |
 | `MCP_METRICS_PORT` | `0`, disabled; optional HTTP listener only on 127.0.0.1, ports 1024-65535 |
@@ -68,7 +68,7 @@ Positive daily budgets are local stdio only. HTTP has no budget ledger and
 rejects nonzero values; use provider-console spending controls.
 
 The table describes standalone application defaults. VKE Helm sets
-`app.dailyBudgetUsd=0`, while provider/owner concurrency remains 5/3 and
+`app.dailyBudgetUsd=0`, while provider/owner concurrency defaults to 10/10 and
 burst 0 inherits RPM. `models.seedream` and `models.seedance` provide explicit
 `defaultModel` and verified `{model_id, family}` binding lists; nonempty lists
 must include the default, and alternate defaults require bindings. No

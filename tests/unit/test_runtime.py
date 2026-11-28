@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import sqlite3
-from contextlib import closing, suppress
+from contextlib import AsyncExitStack, closing, suppress
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
 from types import SimpleNamespace
@@ -382,6 +382,51 @@ async def test_budget_reservations_block_and_release(tmp_path: Path) -> None:
     second = await ledger.reserve(owner, CostEstimate(product="image", amount_usd=0.03))
     await ledger.commit(second)
     await ledger.close()
+
+
+@pytest.mark.parametrize("runtime_transport", [None, "stdio", "http"])
+async def test_default_limiters_admit_ten_and_recover_after_saturation(
+    tmp_path: Path, runtime_transport: str | None
+) -> None:
+    runtime = None
+    if runtime_transport is None:
+        limiters = ProviderLimiters(admission_timeout_seconds=0.01)
+    else:
+        runtime = await create_runtime_services(
+            Settings(
+                _env_file=None,
+                MCP_TRANSPORT=runtime_transport,
+                MCP_IDENTITY_HMAC_KEY="a" * 64,
+                MCP_ADMISSION_TIMEOUT_SECONDS=0.01,
+                ARTIFACT_DIR=str(tmp_path / "artifacts"),
+            )
+        )
+        limiters = runtime.provider_limiters
+    alice = AuthContext(principal_id="alice", tenant_id="tenant", transport="http")
+    bob = AuthContext(principal_id="bob", tenant_id="tenant", transport="http")
+    try:
+        # Repeat to prove that timeout and release restore all ten slots.
+        for _ in range(2):
+            async with AsyncExitStack() as held:
+                for _ in range(10):
+                    await held.enter_async_context(limiters.acquire("modelark", alice))
+                for provider, owner in [
+                    ("modelark", alice),
+                    ("seed-speech", alice),  # The same owner has used all ten slots.
+                    ("modelark", bob),  # Another owner still shares the provider cap.
+                ]:
+                    with pytest.raises(ProviderError) as raised:
+                        async with limiters.acquire(provider, owner):  # type: ignore[arg-type]
+                            pytest.fail("The eleventh admission must not dispatch")
+                    assert raised.value.code == "ADMISSION_TIMEOUT"
+                    assert raised.value.ambiguous_completion is False
+                # Other owners retain independent capacity in another provider bucket.
+                for _ in range(10):
+                    await held.enter_async_context(limiters.acquire("seed-speech", bob))
+            assert not limiters._principals
+    finally:
+        if runtime is not None:
+            await close_runtime_services(runtime)
 
 
 async def test_provider_limit_is_shared_across_principals() -> None:

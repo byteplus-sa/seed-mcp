@@ -125,6 +125,19 @@ def documents(result: subprocess.CompletedProcess[str]) -> list[dict[str, Any]]:
     return [document for document in yaml.safe_load_all(result.stdout) if document]
 
 
+def test_chart_defaults_render_ten_provider_and_principal_slots(tmp_path: Path) -> None:
+    rendered = documents(render(tmp_path))
+    deployment = next(item for item in rendered if item["kind"] == "Deployment")
+    app = next(
+        item
+        for item in deployment["spec"]["template"]["spec"]["containers"]
+        if item["name"] == "app"
+    )
+    environment = {item["name"]: item.get("value") for item in app["env"]}
+    assert environment["PROVIDER_MAX_CONCURRENCY"] == "10"
+    assert environment["PRINCIPAL_MAX_CONCURRENCY"] == "10"
+
+
 def test_ci_values_lint_and_scalable_workload(tmp_path: Path) -> None:
     lint = helm(tmp_path, "lint", str(CHART), "-f", str(CHART / "values.ci.yaml"), "--strict")
     assert lint.returncode == 0, lint.stdout + lint.stderr
