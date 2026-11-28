@@ -22,7 +22,7 @@ from ark_mcp.security.credentials import (
 
 ModelKind = Literal["video", "image", "audio"]
 EndpointTool = Literal["seedance_create_task", "seedream_generate_image"]
-ConnectionIssueCode = Literal["missing_modelark_key", "missing_client_secret"]
+ConnectionIssueCode = Literal["missing_modelark_key"]
 
 VIDEO_TOOL = "seedance_create_task"
 IMAGE_TOOL = "seedream_generate_image"
@@ -179,13 +179,13 @@ class HttpConnectionCheck(BaseModel):
     """Local HTTP configuration diagnostics, not provider authentication or live lineage."""
 
     configuration_valid: bool = Field(
-        description="True only when both required headers are present and all checked routes are configured."
+        description="True only when the ModelArk key header is present and all checked routes are configured. The client secret is optional."
     )
     modelark_key_present: bool = Field(
         description="Whether the live request includes a ModelArk key header."
     )
     client_secret_present: bool = Field(
-        description="Whether the live request includes the independent client secret."
+        description="Whether the live request includes an optional independent client secret. False is valid and uses shared provider-key admission."
     )
     authentication_verified: Literal[False] = Field(
         False,
@@ -196,7 +196,7 @@ class HttpConnectionCheck(BaseModel):
         description="Always false: this check performs no provider or endpoint metadata requests.",
     )
     issues: list[ConnectionIssueCode] = Field(
-        description="Missing required headers: missing_modelark_key and/or missing_client_secret."
+        description="missing_modelark_key when the required ModelArk key header is absent. Omission of the optional client secret is not an issue."
     )
     routes: list[EndpointSelectionCheck] = Field(
         description="Endpoint header or server-default checks for the requested image/video kinds."
@@ -232,7 +232,7 @@ async def ark_list_models(input: ArkListModelsInput, ctx: Context) -> ArkListMod
     presence and configured image/video endpoint defaults, not upstream authorization or
     live lineage. Unknown endpoints need verified operator bindings. Explicit create-tool
     model arguments override endpoint headers. Default discovery is static and anonymous.
-    Seed TTS is listed on HTTP when output storage is enabled, or on stdio with a speech key.
+    The client secret is optional. Seed TTS is listed on HTTP, or on stdio with a speech key.
     """
     settings = get_settings()
     return ArkListModelsOutput(
@@ -254,8 +254,6 @@ def _connection_check(input: ArkListModelsInput, settings: Settings) -> HttpConn
     issues: list[ConnectionIssueCode] = []
     if not key_present:
         issues.append("missing_modelark_key")
-    if not secret_present:
-        issues.append("missing_client_secret")
     with settings_scope(settings):
         routes = [
             _endpoint_selection(kind) for kind in ("video", "image") if input.kind in (None, kind)

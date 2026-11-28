@@ -42,7 +42,7 @@ belongs in the hosted connection.
 
 ## Keep Credentials Private
 
-Enter only the [keys you need](../api-keys.md) and the independent client secret
+Enter only the [keys you need](../api-keys.md), and optionally a client secret,
 through the client's protected environment or secret mechanism. Templates
 contain variable names, not values. Preserve existing credentials. Never paste
 populated configuration, raw logs or validation errors into chat.

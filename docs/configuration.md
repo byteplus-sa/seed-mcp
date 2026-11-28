@@ -218,10 +218,11 @@ Helm requires `app.dailyBudgetUsd=0`. HTTP has no budget ledger.
 `app.providerMaxConcurrency=5`, `app.principalMaxConcurrency=3` and
 `app.rateLimitBurst=0` map to per-pod limits.
 
-Clients send `X-MCP-Client-Secret` (client-generated 32 random bytes as
-64 lowercase hex) plus only the selected provider header:
-`X-ModelArk-Api-Key` or `X-Seed-Speech-Api-Key`.
-Provider operations including dry runs require these; discovery is anonymous.
+Clients send only the selected provider header, `X-ModelArk-Api-Key` or
+`X-Seed-Speech-Api-Key`, including for dry runs. Discovery is anonymous.
+Optional `X-MCP-Client-Secret` separates principal concurrency; omission
+shares it among callers of the same key. If supplied, use 32 random bytes
+encoded as 64 lowercase hex.
 `Authorization` is rejected. There is no OAuth, signup or server-issued key.
 The client secret must differ from every supplied provider key; equality
 returns HTTP 400 `CREDENTIAL_REUSE` before tool execution. Use a separate
@@ -360,7 +361,8 @@ seconds. Pod termination grace uses the same maximum plus 60 (defaults
 There are no MCP jobs, native tasks, snapshots or execution claims.
 
 Task get/list/cancel and Draft lookup are authorized by the supplied provider
-key. `X-MCP-Client-Secret` separates per-pod admission scopes, not task access.
+key. Optional `X-MCP-Client-Secret` separates per-pod admission scopes, not task access.
+Without it, callers using the same provider key share one per-pod principal concurrency allowance.
 Clients sharing a provider key can access whatever that key authorizes.
 Use separate provider credentials when independent authorization is required.
 

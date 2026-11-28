@@ -351,12 +351,12 @@ Then optionally call `{"input":{"check_connection":true}}` on live HTTP:
 only ModelArk image/video header presence and exact endpoint defaults are
 checked. Omit `kind` for both routes or select `"image"` / `"video"`;
 Other kinds and stdio checks are rejected.
-Missing headers return `missing_modelark_key` / `missing_client_secret`.
+A missing key returns `missing_modelark_key`; an omitted client secret is valid.
 HTTP 400 `CREDENTIAL_REUSE` rejects a client secret equal to any supplied
 provider key before tool execution. Generate an independent 32-random-byte
 secret as 64 lowercase hex and update only its protected client entry, keeping
 provider keys unchanged. Never expose the raw secret; no file-upload enrollment is needed.
-`configuration_valid=true` requires both headers and every checked route;
+`configuration_valid=true` requires the ModelArk key header and every checked route;
 `authentication_verified` and `provider_calls_made` always stay false.
 This does not prove authentication, endpoint existence/current lineage,
 activation, entitlement, balance or reachability. Unknown IDs are not echoed;
@@ -366,7 +366,7 @@ Official GetEndpoint body and OpenAPI require AK/SK signing, not ModelArk
 Bearer auth; never ask for customer ModelArk AK/SK or imply arbitrary BYOE self-service is done.
 See `specs/SPEC_HOSTED_BYOK.md#byoe-endpoint-authority` in the selected checkout.
 Dry runs still
-require the selected provider header plus client secret and are optional;
+require the selected provider header, not a client secret, and are optional;
 never use a billable call for setup without explicit approval.
 
 Actual model-driven Codex/Claude tool execution and paid provider validation

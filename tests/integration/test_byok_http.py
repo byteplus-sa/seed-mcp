@@ -76,11 +76,11 @@ def http_settings(tmp_path: Path, **overrides: Any) -> Settings:
 
 def credentials(
     key: str = MODELARK_KEY,
-    secret: str = CLIENT_SECRET,
+    secret: str | None = CLIENT_SECRET,
     *,
     header: str = "X-ModelArk-Api-Key",
 ) -> dict[str, str]:
-    return {header: key, "X-MCP-Client-Secret": secret}
+    return {header: key, **({"X-MCP-Client-Secret": secret} if secret is not None else {})}
 
 
 @asynccontextmanager
@@ -280,9 +280,10 @@ async def test_anonymous_catalog_and_resources_are_static(tmp_path: Path) -> Non
         ("seed_audio_generate", {"text_prompt": "tone"}, "X-Seed-Speech-Api-Key", SPEECH_KEY),
     ],
 )
+@pytest.mark.parametrize("with_secret", [False, True])
 @respx.mock
 async def test_only_selected_customer_key_is_sent_to_official_origin(
-    tmp_path: Path, name: str, input_data: dict[str, Any], header: str, key: str
+    tmp_path: Path, name: str, input_data: dict[str, Any], header: str, key: str, with_secret: bool
 ) -> None:
     routes = {
         "seedream_generate_image": (
@@ -303,7 +304,14 @@ async def test_only_selected_customer_key_is_sent_to_official_origin(
     )
     async with http_server(tmp_path, settings=settings) as (_, _, client):
         result = successful(
-            await call_tool(client, name, input_data, headers=credentials(key, header=header))
+            await call_tool(
+                client,
+                name,
+                input_data,
+                headers=credentials(
+                    key, secret=CLIENT_SECRET if with_secret else None, header=header
+                ),
+            )
         )
     assert route.call_count == len(respx.calls) == 1
     request = route.calls[0].request
@@ -373,7 +381,7 @@ async def test_http_audio_format_metadata_and_controls(
         ("seed_audio_generate", {"text_prompt": "tone"}),
     ],
 )
-@pytest.mark.parametrize("supplied", ["none", "key_only", "secret_only", "wrong_provider"])
+@pytest.mark.parametrize("supplied", ["none", "secret_only", "wrong_provider"])
 @respx.mock
 async def test_missing_credentials_never_fall_back_to_operator(
     tmp_path: Path, name: str, input_data: dict[str, Any], supplied: str
@@ -381,7 +389,6 @@ async def test_missing_credentials_never_fall_back_to_operator(
     selected = "X-Seed-Speech-Api-Key" if name == "seed_audio_generate" else "X-ModelArk-Api-Key"
     headers = {
         "none": {},
-        "key_only": {selected: MODELARK_KEY},
         "secret_only": {"X-MCP-Client-Secret": CLIENT_SECRET},
         "wrong_provider": credentials(
             SPEECH_KEY,

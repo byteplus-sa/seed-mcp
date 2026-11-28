@@ -239,15 +239,15 @@ installations require separately reviewed transition and reconciliation.
 
 ## HTTP Authentication Fails
 
-Configure only the selected provider key header and `X-MCP-Client-Secret`,
-including dry runs. The client secret is 32 random bytes as 64 lowercase hex.
+Configure the selected provider key header, including for dry runs. The optional
+`X-MCP-Client-Secret`, when supplied, is 32 random bytes as 64 lowercase hex.
 Duplicate, empty or malformed values fail; `Authorization` is rejected.
 HTTP 400 `CREDENTIAL_REUSE` means the client secret exactly matches a supplied
 provider key. Generate a separate 32-random-byte secret as 64 lowercase hex
 characters and update only the client's private client-secret entry. Keep
 provider keys unchanged. The rejected request did not execute a tool or dispatch
-provider work. Temporary-upload users must have the replacement secret's
-SHA-256 digest enrolled by the operator; do not share its raw value.
+provider work. You may instead omit the optional header. No upload enrollment
+exists; do not share secret values.
 There is no OAuth, signup or server-issued key. Discovery is anonymous/static
 and does not validate provider keys. Never print secrets while troubleshooting.
 Task access depends on provider authorization. Client-secret/HMAC changes affect
@@ -264,8 +264,8 @@ are rejected. Default discovery returns `connection=null`.
 | Result | Action |
 | --- | --- |
 | `missing_modelark_key` | Check the selected client's environment-name mapping for `X-ModelArk-Api-Key`, without printing its value |
-| `missing_client_secret` | Configure the independent `X-MCP-Client-Secret` variable privately |
-| HTTP 400 `CREDENTIAL_REUSE` | Generate an independent client secret and update its private entry, keeping provider keys unchanged; upload enrollment must use the replacement digest |
+| `client_secret_present=false` | Valid key-only setup; add a private optional secret only for separate client admission |
+| HTTP 400 `CREDENTIAL_REUSE` | Generate an independent client secret and update its private entry, keeping provider keys unchanged; or omit the optional header entirely |
 | `endpoint_not_configured` / `ENDPOINT_NOT_CONFIGURED` | Operator must verify the endpoint's model/version and exact product binding; unknown ID/family are not echoed in preflight |
 | `configuration_valid=true` but provider later rejects the request | Presence and bindings passed, not provider authentication, entitlement, live lineage, balance or reachability |
 | Generator returns `invalid configuration arguments` | Use `--help`; check HTTPS URL, variable-name grammar, distinct selected variables and `modelark` selection for optional endpoint flags |
@@ -287,7 +287,7 @@ actions are in [shared-server setup](setup/shared-server.md#generate-a-client-sn
 
 Check `ark_list_models.services`. HTTP exposes 12 tools, including managed Files.
 Registration is independent of operator keys. Files require the live ModelArk
-key and client secret. For local paths use the client helper, not HTTP tool
+key; the client secret is optional. For local paths use the client helper, not HTTP tool
 arguments. No jobs, native tasks, local artifacts, storage enrollment or
 asset administration exist on HTTP. Never resubmit uncertain provider work.
 

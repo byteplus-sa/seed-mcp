@@ -561,7 +561,6 @@ def test_http_client_examples_use_private_headers_and_no_bearer(client: str) -> 
         headers = config["mcp_servers"]["ark-seed"]["env_http_headers"]
         assert headers == {
             "X-ModelArk-Api-Key": "SEED_MCP_MODELARK_KEY",
-            "X-MCP-Client-Secret": "SEED_MCP_CLIENT_SECRET",  # pragma: allowlist secret
         }
         assert config["mcp_servers"]["ark-seed"]["tool_timeout_sec"] == 660
     else:
@@ -569,7 +568,6 @@ def test_http_client_examples_use_private_headers_and_no_bearer(client: str) -> 
         headers = config["mcpServers"]["ark-seed"]["headers"]
         assert headers == {
             "X-ModelArk-Api-Key": "${SEED_MCP_MODELARK_KEY}",
-            "X-MCP-Client-Secret": "${SEED_MCP_CLIENT_SECRET}",
         }
         assert config["mcpServers"]["ark-seed"]["timeout"] == 660000
     generated = subprocess.run(

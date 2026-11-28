@@ -126,10 +126,16 @@ Managed reference uploads use `ark_file_upload/get/list/delete` with the ModelAr
 Use only an operator-approved trusted HTTPS URL. The server receives live
 provider credentials but does not persist them or fall back to startup keys.
 Prepare private client environment/secret-store entries for only the desired
-provider headers, plus `X-MCP-Client-Secret`. Do not create a server-side
+provider headers, optionally adding `X-MCP-Client-Secret` for separate admission. Do not create a server-side
 provider-key bundle or ask for `MCP_IDENTITY_HMAC_KEY`; it is operator-only.
 
-Generate the client secret once using the OS cryptographic RNG or trusted
+Default to URL plus the selected provider key. Do not ask the user to generate
+a client secret unless they want separate per-client admission. Omission shares
+principal concurrency among callers of that key; it does not change file/task
+permissions. The snippet generator omits this header unless
+`--client-secret-env VAR` explicitly selects it. Never send an empty header.
+
+Only when opting in, generate the client secret once using the OS cryptographic RNG or trusted
 secret manager: exactly 32 random bytes encoded as 64 lowercase hex.
 For a manual private session, `openssl rand -hex 32` produces that format.
 Never run it where agent tools, shared terminals, screenshots or logs capture
@@ -137,7 +143,7 @@ the output. The user enters the generated value directly into protected client
 configuration. Do not read it back or substitute an example/test value.
 
 Map the selected `X-ModelArk-Api-Key` or `X-Seed-Speech-Api-Key`, plus
-the required `X-MCP-Client-Secret`, to private environment entries
+the optional `X-MCP-Client-Secret`, to private environment entries
 as supported by the target client. Only the selected key is required, including
 dry runs; discovery is anonymous. No OAuth, signup, server-issued key or
 `Authorization` is used. Protect plaintext env files as described above and
@@ -157,7 +163,7 @@ Optional endpoint variables require selected provider `modelark`; their values
 must be operator-verified exact bindings. Unknown endpoints require operator
 verification/binding, not customer AK/SK entry into this server.
 
-The selected provider key authorizes earlier tasks; the client secret and
+The selected provider key authorizes tasks/files; the optional client secret and
 operator HMAC scope per-pod admission only. There is no local task-ownership
 ledger or saved create receipt to recover. Clients sharing a provider key share
 whatever access the provider permits. Use separate provider credentials for

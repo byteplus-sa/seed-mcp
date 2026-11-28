@@ -12,7 +12,6 @@ DEFAULT_OPTIONS = {
     "--client": "",
     "--url": "",
     "--name": "seed-mcp",
-    "--client-secret-env": "SEED_MCP_CLIENT_SECRET",
     "--modelark-key-env": "SEED_MCP_MODELARK_KEY",
     "--seed-speech-key-env": "SEED_MCP_SEED_SPEECH_KEY",
     "--tool-timeout-seconds": "660",
@@ -40,7 +39,8 @@ Options:
                                   letters, digits, underscores or hyphens.
   --provider PROVIDER             Repeat for modelark or seed-speech.
                                   Default: modelark. Repeats are deduplicated.
-  --client-secret-env VAR         Default: SEED_MCP_CLIENT_SECRET.
+  --client-secret-env VAR         Optional independent client-secret source.
+                                  Omitted by default: provider key alone suffices.
   --modelark-key-env VAR          Default: SEED_MCP_MODELARK_KEY.
   --seed-speech-key-env VAR       Default: SEED_MCP_SEED_SPEECH_KEY.
   --seedance-endpoint-env VAR     Optional video endpoint source; needs modelark.
@@ -60,7 +60,7 @@ ERROR = "error: invalid configuration arguments; use --help for usage.\n"
 
 def parse_options(arguments: list[str]) -> tuple[dict[str, str], set[str], bool]:
     options = dict(DEFAULT_OPTIONS)
-    allowed = options.keys() | ENDPOINT_HEADERS.keys() | {"--provider"}
+    allowed = options.keys() | ENDPOINT_HEADERS.keys() | {"--provider", "--client-secret-env"}
     providers: set[str] = set()
     seen: set[str] = set()
     allow_loopback_http = False
@@ -138,7 +138,8 @@ def select_headers(options: dict[str, str], providers: set[str]) -> dict[str, st
         for provider, (header, option) in PROVIDER_HEADERS.items()
         if provider in providers
     }
-    headers["X-MCP-Client-Secret"] = options["--client-secret-env"]
+    if "--client-secret-env" in options:
+        headers["X-MCP-Client-Secret"] = options["--client-secret-env"]
     for option, header in ENDPOINT_HEADERS.items():
         if option in options:
             if "modelark" not in providers:

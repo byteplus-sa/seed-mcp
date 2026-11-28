@@ -25,10 +25,12 @@ TASKS = f"{MODELARK}/contents/generations/tasks"
 
 
 @pytest.mark.parametrize("replicas", [2, 4])
+@pytest.mark.parametrize("with_secret", [False, True])
 @respx.mock
 async def test_tasks_follow_provider_credentials_across_instances_and_restart(
-    tmp_path: Path, replicas: int
+    tmp_path: Path, replicas: int, with_secret: bool
 ) -> None:
+    headers = credentials() if with_secret else credentials(secret=None)
     creates = respx.post(TASKS).respond(200, json={"id": "provider-authorized-task"})
     task = provider_task("provider-authorized-task")
     reads = respx.get(TASKS).respond(200, json={"data": [task], "has_more": False})
@@ -39,7 +41,7 @@ async def test_tasks_follow_provider_credentials_across_instances_and_restart(
         ]
         output = successful(
             await call_tool(
-                clients[0], "seedance_create_task", {"prompt": "Synthetic"}, headers=credentials()
+                clients[0], "seedance_create_task", {"prompt": "Synthetic"}, headers=headers
             )
         )
         assert output["tasks"][0]["task_id"] == task["id"]
@@ -53,15 +55,13 @@ async def test_tasks_follow_provider_credentials_across_instances_and_restart(
                 )
             )
             assert polled["tasks"][0]["task_id"] == task["id"]
-            listed = successful(await call_tool(client, "gen_task_list", {}, headers=credentials()))
+            listed = successful(await call_tool(client, "gen_task_list", {}, headers=headers))
             assert listed["tasks"][0]["task_id"] == task["id"]
             assert (await client.get("/ready")).json() == {"status": "ready"}
     async with http_server(tmp_path / "restart") as (_, _, client):
         assert (
             successful(
-                await call_tool(
-                    client, "gen_task_get", {"task_ids": [task["id"]]}, headers=credentials()
-                )
+                await call_tool(client, "gen_task_get", {"task_ids": [task["id"]]}, headers=headers)
             )["tasks"][0]["task_id"]
             == task["id"]
         )
@@ -116,14 +116,20 @@ async def test_identical_mock_creates_are_independent_not_saved_replays(tmp_path
     assert route.call_count == 2
 
 
+@pytest.mark.parametrize("with_secret", [False, True])
 @respx.mock
-async def test_provider_denial_is_not_bypassed_by_client_secret(tmp_path: Path) -> None:
+async def test_provider_denial_is_not_bypassed_by_client_secret(
+    tmp_path: Path, with_secret: bool
+) -> None:
     route = respx.get(TASKS).respond(
         403, json={"error": {"code": "AccessDenied", "message": "Denied"}}
     )
     async with http_server(tmp_path) as (_, _, client):
         result = await call_tool(
-            client, "gen_task_get", {"task_ids": ["unknown-task"]}, headers=credentials()
+            client,
+            "gen_task_get",
+            {"task_ids": ["unknown-task"]},
+            headers=credentials() if with_secret else credentials(secret=None),
         )
         assert_denied(result)
         assert "AccessDenied" in str(result)

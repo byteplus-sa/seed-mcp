@@ -93,7 +93,8 @@ flowchart LR
 Hosted HTTP is database-free: provider-key task authorization, no durable replay or shared budget accounting. Omit legacy operation keys; never automatically resubmit uncertain creates. Local stdio persistence remains available.
 
 Task get/list/cancel and Draft lookup are authorized by the supplied provider
-key. `X-MCP-Client-Secret` separates per-pod admission scopes, not task access.
+key. Optional `X-MCP-Client-Secret` separates per-pod admission scopes, not task access.
+Without it, callers using the same provider key share one per-pod principal concurrency allowance.
 Clients sharing a provider key can access whatever that key authorizes.
 Use separate provider credentials when independent authorization is required.
 
@@ -143,9 +144,9 @@ implied by source checks.
 ## Client Access
 
 Follow [Connect to a Shared Server](setup/shared-server.md). Only the provider
-being called needs a key. Each client generates a private
-`X-MCP-Client-Secret`, 64 lowercase hex characters from 32 random bytes,
-and keeps it stable for subsequent polls. There is no OAuth, signup or
+being called needs a key. Optionally generate a private `X-MCP-Client-Secret`,
+64 lowercase hex characters from 32 random bytes, for separate client
+admission. Otherwise callers of the same key share principal concurrency. There is no OAuth, signup or
 server-issued key. `Authorization` headers are rejected.
 
 An explicit tool `model` overrides `X-ModelArk-Seedance-Endpoint` or

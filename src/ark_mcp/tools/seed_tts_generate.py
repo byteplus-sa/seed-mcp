@@ -175,7 +175,7 @@ async def seed_tts_generate(
     """Synthesize text or SSML with Seed TTS 3 and an authorized voice_id.
 
     Call directly; collects at most 30 MiB of complete audio, not live MCP audio.
-    HTTP requires live Seed Speech/client-secret headers and returns complete audio
+    HTTP requires the live Seed Speech key; the client secret is optional. Returns audio
     directly as an MCP AudioContent block at content[0], Base64-encoded on the wire.
     Metadata contains encoding, byte count and SHA-256, but no duplicated audio bytes.
     No TOS, download URL, hosted persistence or recovery API. Clients must save the

@@ -90,7 +90,9 @@ SERVER_INSTRUCTIONS = (
 HTTP_SERVER_INSTRUCTIONS = (
     "Seed MCP: customer-key ModelArk and Seed Speech. "
     "Call ark_list_models first, then call provider tools directly in the foreground. "
-    "Configure provider keys and X-MCP-Client-Secret privately in client HTTP headers, "
+    "Configure the selected provider key privately in client HTTP headers; "
+    "X-MCP-Client-Secret is optional for separate per-client admission. Without it, "
+    "clients using the same provider key share admission limits. Put credentials in headers, "
     "never prompts or tool arguments. No OAuth, signup or MCP bearer key is used. "
     "Poll existing video task IDs; never resubmit a create call to poll. "
     "HTTP is stateless: no task ownership ledger, durable replay or budget accounting. "

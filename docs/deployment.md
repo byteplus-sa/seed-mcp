@@ -21,7 +21,8 @@ Follow the [staged VKE runbook](byteplus-terraform.md#staged-vke-deployment).
 Use dedicated fresh Terraform state, separate from unrelated deployments.
 
 Task get/list/cancel and Draft lookup are authorized by the supplied provider
-key. `X-MCP-Client-Secret` separates per-pod admission scopes, not task access.
+key. Optional `X-MCP-Client-Secret` separates per-pod admission scopes, not task access.
+Without it, callers using the same provider key share one per-pod principal concurrency allowance.
 Clients sharing a provider key can access whatever that key authorizes.
 Use separate provider credentials when independent authorization is required.
 

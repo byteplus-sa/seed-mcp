@@ -166,7 +166,6 @@ tool_timeout_sec = 660
 
 [mcp_servers."ark-seed".env_http_headers]
 "X-ModelArk-Api-Key" = "SEED_MCP_MODELARK_KEY"
-"X-MCP-Client-Secret" = "SEED_MCP_CLIENT_SECRET" # pragma: allowlist secret
 ```
 
 Claude Code uses `${VAR}` references and a timeout in milliseconds:
@@ -179,8 +178,7 @@ Claude Code uses `${VAR}` references and a timeout in milliseconds:
       "url": "https://mcp.example.com/mcp",
       "timeout": 660000,
       "headers": {
-        "X-ModelArk-Api-Key": "${SEED_MCP_MODELARK_KEY}",
-        "X-MCP-Client-Secret": "${SEED_MCP_CLIENT_SECRET}"
+        "X-ModelArk-Api-Key": "${SEED_MCP_MODELARK_KEY}"
       }
     }
   }
@@ -192,16 +190,16 @@ selected provider key is required. Use `X-Seed-Speech-Api-Key` with a
 separate private variable for Seed Audio.
 Repeated `--provider` selects `modelark` or `seed-speech`; default
 is `modelark`. Defaults are `SEED_MCP_MODELARK_KEY`,
-`SEED_MCP_SEED_SPEECH_KEY` and
-`SEED_MCP_CLIENT_SECRET`. `--modelark-key-env`, `--seed-speech-key-env` and
-`--client-secret-env` override names only.
+`SEED_MCP_SEED_SPEECH_KEY`. `--modelark-key-env` and `--seed-speech-key-env`
+override names only. `--client-secret-env VAR` explicitly adds the optional
+client-secret header; default snippets omit it.
 Names must match `[A-Za-z_][A-Za-z0-9_]{0,127}` and be distinct across selected
 headers. Supply independent values privately in the actual client process
 environment; the generator never reads or validates them.
 `--tool-timeout-seconds` accepts 1-3600, default 660: Codex `tool_timeout_sec`
 is seconds, Claude `timeout` is milliseconds. Proxy/provider timeouts are separate.
-`X-MCP-Client-Secret` is required for provider calls including dry runs:
-client-generated 32 random bytes as 64 lowercase hex.
+`X-MCP-Client-Secret` is optional, including for dry runs. If used, generate
+32 random bytes as 64 lowercase hex privately and keep it stable.
 Do not configure `Authorization`, OAuth, signup or server-issued keys.
 
 Endpoint headers `X-ModelArk-Seedance-Endpoint` and

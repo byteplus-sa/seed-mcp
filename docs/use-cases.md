@@ -7,7 +7,7 @@ Here are common scenarios and how to achieve them.
 calls provider tools directly with `{"input": {...}}`, uses persistence false
 and has no jobs/native tasks/local storage/artifact tools/resources. Managed
 [Files uploads](files.md) use the ModelArk key without bucket setup. Generation-provider keys
-and the client secret go in private request headers, never tool arguments.
+and any optional client secret go in private request headers, never tool arguments.
 Retrieve expiring output URLs on the client. See [HTTP setup](setup/shared-server.md).
 
 Hosted HTTP is database-free: provider-key task authorization, no durable replay or shared budget accounting. Omit legacy operation keys; never automatically resubmit uncertain creates. Local stdio persistence remains available.

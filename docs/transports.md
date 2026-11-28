@@ -45,7 +45,7 @@ For non-loopback access use trusted TLS ingress and explicit
 protection are enforced by `HardenedFastMCP.http_app()` and the normal CLI.
 Building an HTTP app from stdio-configured settings is rejected.
 
-Clients supply `X-MCP-Client-Secret` and only the selected provider header:
+Clients supply only the selected provider header; `X-MCP-Client-Secret` is optional:
 `X-ModelArk-Api-Key` or `X-Seed-Speech-Api-Key`.
 The client secret is client-generated 32 random bytes as 64 lowercase hex.
 `Authorization` is rejected. There is no OAuth, signup or server-issued key.

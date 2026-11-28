@@ -7,7 +7,7 @@ for full-scene speech, music and sound generation.
 ## Availability
 
 **Hosted HTTP:** returns complete audio directly, with no TOS or output storage.
-Supply live `X-Seed-Speech-Api-Key` and independent `X-MCP-Client-Secret` headers.
+Supply live `X-Seed-Speech-Api-Key`; `X-MCP-Client-Secret` is optional.
 **Local stdio:** uses `BYTEPLUS_SEED_SPEECH_API_KEY` and local artifact storage.
 Both share the Seed Speech gateway. `ark_list_models` with
 `{"input":{"kind":"audio"}}` lists TTS; discovery does not verify voice entitlement.

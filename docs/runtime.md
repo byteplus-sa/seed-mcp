@@ -33,7 +33,8 @@ releasing locks or propagating cancellation, including repeated cancellation.
 These local stores are single-process only, not shared state for HTTP replicas.
 
 Task get/list/cancel and Draft lookup are authorized by the supplied provider
-key. `X-MCP-Client-Secret` separates per-pod admission scopes, not task access.
+key. Optional `X-MCP-Client-Secret` separates per-pod admission scopes, not task access.
+Without it, callers using the same provider key share one per-pod principal concurrency allowance.
 Clients sharing a provider key can access whatever that key authorizes.
 Use separate provider credentials when independent authorization is required.
 
@@ -92,7 +93,8 @@ bounded only by the provider limit. Without this, the default
 every provider at 3 — below the per-provider limit of 5 — making parallel
 local generation appear to "serialize under load." The per-principal bound
 applies to HTTP owners derived from the selected provider credential and
-client secret. Unrelated provider keys do not change that scope.
+optional client secret. Without a secret, callers of that key share the owner
+limit. Unrelated provider keys do not change that scope.
 
 | Env var | Default | Constraint | Used as |
 |---|---|---|---|

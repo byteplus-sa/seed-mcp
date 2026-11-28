@@ -27,10 +27,15 @@ Asset administration is unavailable on either transport. Setup and rotation:
 [environment.md](references/environment.md#transport-and-auth).
 
 HTTP needs the selected `X-ModelArk-Api-Key` or `X-Seed-Speech-Api-Key`,
-plus required `X-MCP-Client-Secret` (client-generated
+plus optional `X-MCP-Client-Secret` (client-generated
 32 random bytes as 64 lowercase hex), including dry runs. Discovery is
 anonymous/static. Never put keys in tool arguments or chat. No OAuth, signup
 or server-issued key exists; `Authorization` is rejected.
+
+Start with URL plus the selected provider key. Without a client secret, callers
+of that key share one per-pod principal concurrency allowance. Only add a
+manually configured secret for separate client admission, never file/task
+isolation or spend control. Empty or malformed optional values still reject.
 
 | Product | Create tool | Poll / result | Enabled by |
 |---|---|---|---|
@@ -91,17 +96,18 @@ flowchart LR
 - HTTP 400 `CREDENTIAL_REUSE` means `X-MCP-Client-Secret` matches a supplied
   provider key, including an unused provider. No tool ran. Generate an
   independent 32-random-byte secret as 64 lowercase hex and update only its
-  private client entry; keep provider keys unchanged. File operations use the same live ModelArk/client-secret boundary.
+  private client entry, or omit the optional header; keep provider keys unchanged.
+  File operations require only the live ModelArk key.
 - Call `ark_list_models` with `{"input":{"check_connection":true}}` only on
   live HTTP. Omit `kind` for both image/video routes, or select `"image"` /
   `"video"`; other kinds and stdio checks are rejected.
 - Inspect `modelark_key_present`, `client_secret_present`, `issues`, and
-  `routes`. `configuration_valid` means both headers present and every checked
+  `routes`. `configuration_valid` means the ModelArk key header is present and every checked
   route exactly bound. It is not authentication, live lineage, entitlement,
   balance or reachability proof. `authentication_verified` and
   `provider_calls_made` always remain false.
-- `missing_modelark_key` / `missing_client_secret` require private client
-  header setup. A route with `endpoint_not_configured` has null ID/family;
+- `missing_modelark_key` requires private provider-key setup; an omitted
+  client secret is valid. A route with `endpoint_not_configured` has null ID/family;
   unknown IDs are not echoed. The operator must verify model/version and
   bind the exact ID. Do not guess a family or accept caller claims as proof.
 - Official GetEndpoint metadata requires AK/SK signing, not ModelArk Bearer
@@ -234,7 +240,8 @@ flowchart LR
   storage, download URL or recovery API. The cap is 30 MiB decoded audio (40 MiB
   Base64 before metadata). Save the audio block with client-side support;
   playback/saving UI is client-dependent. Never put the Base64 in chat or logs.
-- HTTP requires live Seed Speech/client-secret headers, not TOS credentials.
+- HTTP requires the live Seed Speech key; the client-secret header is optional.
+  No TOS credentials are needed.
 - No automatic synthesis retry. A timeout or incomplete stream may be billed;
   retain diagnostics and reconcile. See [TTS details](references/tool-reference.md#seed-tts-3).
 

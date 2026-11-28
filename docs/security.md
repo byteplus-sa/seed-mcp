@@ -32,8 +32,8 @@ This key derives identity; it is not a customer credential.
 
 There is no OAuth, signup, server-issued key or bearer-token passthrough.
 `Authorization` is rejected with safe guidance. Clients send
-`X-MCP-Client-Secret` and the selected `X-ModelArk-Api-Key`
-or `X-Seed-Speech-Api-Key`. The client secret must be
+the selected `X-ModelArk-Api-Key` or `X-Seed-Speech-Api-Key`.
+`X-MCP-Client-Secret` is optional; when supplied, it must be
 client-generated 32 random bytes encoded as 64 lowercase hex.
 Only the selected provider key is required, including on dry runs.
 
@@ -53,14 +53,15 @@ credentials for HTTP.
 
 ## Principal and Tenant
 
-The credential tenant and client-secret digest are ephemeral per-pod admission scopes,
+The credential tenant and optional client-secret digest are ephemeral per-pod admission scopes,
 not a durable task authorization boundary. `MCP_IDENTITY_HMAC_KEY` and
 `MCP_IDENTITY_KEY_VERSION` never replace provider authorization.
 
 Hosted HTTP is database-free: provider-key task authorization, no durable replay or shared budget accounting. Omit legacy operation keys; never automatically resubmit uncertain creates. Local stdio persistence remains available.
 
 Task get/list/cancel and Draft lookup are authorized by the supplied provider
-key. `X-MCP-Client-Secret` separates per-pod admission scopes, not task access.
+key. Optional `X-MCP-Client-Secret` separates per-pod admission scopes, not task access.
+Without it, callers using the same provider key share one per-pod principal concurrency allowance.
 Clients sharing a provider key can access whatever that key authorizes.
 Use separate provider credentials when independent authorization is required.
 
@@ -386,7 +387,8 @@ stateful-release migration tooling are not part of this repository.
 See the database-free HTTP contract above; local stdio persistence is unchanged.
 
 Task get/list/cancel and Draft lookup are authorized by the supplied provider
-key. `X-MCP-Client-Secret` separates per-pod admission scopes, not task access.
+key. Optional `X-MCP-Client-Secret` separates per-pod admission scopes, not task access.
+Without it, callers using the same provider key share one per-pod principal concurrency allowance.
 Clients sharing a provider key can access whatever that key authorizes.
 Use separate provider credentials when independent authorization is required.
 

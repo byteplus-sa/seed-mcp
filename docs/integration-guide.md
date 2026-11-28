@@ -332,7 +332,7 @@ On local stdio, if only some products' tools are registered:
 
 `ark_list_models` reports which optional services are enabled. HTTP registers
 provider tools without operator keys; invocation
-still requires the selected live provider key and client secret.
+requires the selected live provider key; the client secret is optional.
 
 ## Environment Variables Reference
 
@@ -356,7 +356,7 @@ still requires the selected live provider key and client secret.
 | `ARTIFACT_TTL_SECONDS` | No | `604800` (7 days) | Artifact retention |
 
 HTTP clients send only the selected `X-ModelArk-Api-Key` or
-`X-Seed-Speech-Api-Key`, plus required
+`X-Seed-Speech-Api-Key`, plus optional
 `X-MCP-Client-Secret` (client-generated 32 random bytes as 64 lowercase hex).
 Discovery is anonymous/static; provider calls including dry runs need headers.
 Keys are not persisted and there is no environment fallback, OAuth, signup or

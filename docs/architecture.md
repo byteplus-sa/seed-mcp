@@ -12,7 +12,7 @@ flowchart TD
     Transport -->|HTTP| Limits["Per-pod rate, body, in-flight and Host/Origin checks"]
     Limits --> Discovery{"Discovery?"}
     Discovery -->|Yes| Catalog["Anonymous static catalog"]
-    Discovery -->|No| Headers["Live selected BYOK key and client secret"]
+    Discovery -->|No| Headers["Live selected BYOK key and optional client secret"]
     Headers --> Validate["Exact model binding and input validation"]
     Validate --> Slots["Per-pod generation admission"]
     Slots --> Gateway["Explicit-key provider gateway"]
@@ -36,7 +36,7 @@ a pod restart. Provider work remains asynchronous independently of the pods.
 | Seed Speech | `https://voice.ap-southeast-1.bytepluses.com` | `X-Api-Key`; Seed Audio and Seed TTS 3 |
 
 Clients privately send `X-ModelArk-Api-Key` or `X-Seed-Speech-Api-Key`,
-plus `X-MCP-Client-Secret`. Credentials live only for the
+and optional `X-MCP-Client-Secret`. Credentials live only for the
 HTTP request and never fall back to operator provider keys. The client secret
 and operator HMAC define ephemeral admission scopes, not provider task access.
 Clients sharing a provider key have the task access that provider authorizes.

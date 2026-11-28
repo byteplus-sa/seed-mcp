@@ -85,7 +85,7 @@ enrollment, TOS signer, IRSA, application file database or cleanup worker remain
 Never automatically retry an uncertain upload/delete; keep file/request IDs.
 
 On HTTP, all four Files tools require the user's own `X-ModelArk-Api-Key`
-and independent `X-MCP-Client-Secret`; neither is persisted by the MCP server.
+and optional `X-MCP-Client-Secret`; neither is persisted by the MCP server.
 The client secret separates admission, not file ownership. No TOS bucket or
 operator upload enrollment is needed. Check tools/list before use: source
 support and local smoke results do not establish public cloud availability.

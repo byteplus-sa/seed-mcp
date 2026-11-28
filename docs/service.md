@@ -15,7 +15,7 @@ administration are not hosted features. Managed Files import HTTPS URLs;
 the [client-side helper](files.md) streams local files to ModelArk without a bucket.
 Chat attachments do not upload automatically.
 
-All four Files operations use your own ModelArk API key plus the independent
+All four Files operations use your own ModelArk API key with an optional independent
 client secret. No storage credentials or upload enrollment are needed.
 
 Seed TTS 3 returns complete native audio directly, up to 30 MiB decoded audio.

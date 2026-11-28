@@ -3,7 +3,7 @@
 Per-product behaviour of the create tools that the tool schemas do not spell out: flows, cross-field rules, gotchas, and recovery. Parameters, ranges and output fields are in each tool's schema (also [API reference](https://github.com/byteplus-sa/seed-mcp/blob/main/docs/api-reference.md)); per-model limits are in [models-and-limits.md](models-and-limits.md); polling, persistence and artifact handling are in [polling-and-artifacts.md](polling-and-artifacts.md); direct execution is in [workflows.md](workflows.md).
 
 **Choose transport first:** HTTP calls provider tools directly in the foreground,
-with selected provider key plus client secret headers. It has no jobs/native
+with selected provider key and optional client-secret header. It has no jobs/native
 tasks/local storage/artifact tools/resources. Managed Files tools use the ModelArk key; no bucket setup is needed.
 Stdio also calls directly;
 persistence guidance below is local-only.
@@ -141,7 +141,7 @@ record for polling. A null ID does not prove that nothing was billed.
 
 ## Seedream
 
-Needs local `BYTEPLUS_MODELARK_API_KEY` or HTTP `X-ModelArk-Api-Key` plus the
+Needs local `BYTEPLUS_MODELARK_API_KEY` or HTTP `X-ModelArk-Api-Key` and optional
 client secret. **`seedream_generate_image` is the only Seedream tool**:
 text-to-image, image-to-image, reference editing, point/box edits, parallel
 `variations`, and dry runs with Seedream 5.5 only. Both transports call directly.

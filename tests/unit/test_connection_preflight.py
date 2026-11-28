@@ -59,19 +59,12 @@ async def test_preflight_reports_presence_not_authentication(
     headers = ([HEADERS[0]] if key_present else []) + ([HEADERS[1]] if secret_present else [])
     result = await inspect_connection(settings, headers)
     check = result["connection"]
-    assert check["configuration_valid"] is (key_present and secret_present)
+    assert check["configuration_valid"] is key_present
     assert check["modelark_key_present"] is key_present
     assert check["client_secret_present"] is secret_present
     assert check["authentication_verified"] is False
     assert check["provider_calls_made"] is False
-    assert set(check["issues"]) == {
-        issue
-        for issue, missing in (
-            ("missing_modelark_key", not key_present),
-            ("missing_client_secret", not secret_present),
-        )
-        if missing
-    }
+    assert check["issues"] == ([] if key_present else ["missing_modelark_key"])
     assert len(check["routes"]) == 2
     assert all(route["configured"] for route in check["routes"])
     text = json.dumps(result)

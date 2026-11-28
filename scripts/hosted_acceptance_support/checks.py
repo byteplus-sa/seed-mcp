@@ -153,7 +153,6 @@ async def credential_checks(
     before = dispatches(directory)
     for headers in (
         {},
-        {"X-ModelArk-Api-Key": values["key"]},
         {"X-MCP-Client-Secret": values["secret"]},
         {"X-Seed-Speech-Api-Key": values["speech_key"], "X-MCP-Client-Secret": values["secret"]},
     ):
@@ -179,6 +178,16 @@ async def credential_checks(
         require(response.status_code == 400, "malformed_headers")
         require(values["key"] not in response.text, "credential_response_leak")
     require(dispatches(directory) == before, "rejected_credentials_dispatched")
+    successful(
+        await call(
+            client,
+            url,
+            "seedream_generate_image",
+            {"prompt": "key-only preview", "dry_run": True},
+            {"X-ModelArk-Api-Key": values["key"]},
+        )
+    )
+    require(dispatches(directory) == before, "key_only_preview_dispatched")
     response = await call(
         client,
         url,

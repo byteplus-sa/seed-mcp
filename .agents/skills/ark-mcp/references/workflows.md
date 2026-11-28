@@ -10,7 +10,7 @@ artifact recovery are in [polling-and-artifacts.md](polling-and-artifacts.md).
 
 **Both transports call the product tool directly, without MCP jobs or native tasks.**
 For HTTP, read provider IDs from the direct result, poll with an authorized
-provider key and required client secret, keep persistence false and download
+provider key and optional client secret, keep persistence false and download
 URLs yourself. The client secret scopes admission, not task access.
 All persistence/export instructions below describe local stdio.
 Both transports reject explicit per-call `io.modelcontextprotocol/tasks` opt-in, including
@@ -277,7 +277,7 @@ captures safe IDs in the live invocation.
 | `media_upload` rejected for `MEDIA_UPLOAD_BATCH_MAX_BYTES` | Total size over the cap; nothing uploaded | Split into smaller calls |
 | `media_upload` succeeds with `failed > 0` | Some items failed (validation, missing file, uninferable `mime_type`, provider) | Read `items[].error`; re-upload only those, retrying when `retryable=true` |
 | Presigned URL expired / `NOT_OWNED` | TTL elapsed (default 30 min) / key not uploaded by this caller | `media_presign` with the `object_keys`; re-upload foreign keys |
-| HTTP credential rejection | Missing or malformed selected provider key/client secret | Configure private BYOK headers; never use `Authorization` or paste values into chat |
+| HTTP credential rejection | Missing/malformed selected provider key, or malformed/reused optional secret | Configure the private provider header; omit the optional secret or supply a valid independent value. Never use `Authorization` or paste values into chat |
 | Asset administration unavailable | Not part of this server | Use an authorized provider console or external workflow |
 
 ## Best practices beyond the schemas

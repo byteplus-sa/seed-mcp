@@ -64,7 +64,12 @@ test("discovery docs retain anonymous defaults and a separate HTTP-only check", 
   assert.equal(connection.properties.authentication_verified.const, false);
   assert.equal(connection.properties.provider_calls_made.const, false);
   const table = schemaTable(connection);
-  assert.match(table, /configuration_valid.*both required headers/);
+  assert.match(table, /configuration_valid.*ModelArk key header/);
+  assert.equal(
+    connection.properties.issues.items.const,
+    "missing_modelark_key",
+  );
+  assert.match(table, /client_secret_present.*optional/);
   assert.match(table, /provider_calls_made.*false.*no provider/);
   const routes = schemaTable(
     discovery.outputSchema.$defs.EndpointSelectionCheck,
@@ -143,7 +148,7 @@ test("setup separates supported binding checks from external acceptance", () => 
     "--seedance-endpoint-env",
     "--seedream-endpoint-env",
     "missing_modelark_key",
-    "missing_client_secret",
+    "client_secret_present=false",
     "endpoint_not_configured",
     "configuration_valid",
     "stdout",

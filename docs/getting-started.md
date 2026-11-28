@@ -9,7 +9,7 @@ access to configure.
 Follow [Connect to Hosted Seed MCP](setup/install.md):
 
 1. Add the hosted URL as a remote Streamable HTTP MCP connection.
-2. Configure your selected provider API key and independent client secret
+2. Configure your selected provider API key
    through private custom headers.
 3. Enable `ark-seed` and verify with discovery only.
 
@@ -18,9 +18,10 @@ Follow [Connect to Hosted Seed MCP](setup/install.md):
 Use the [Codex](setup/install.md#codex), [Claude Code](setup/install.md#claude-code)
 or [other-client](setup/install.md#other-clients) instructions.
 You do not need Git, Python, uv, Docker or a local checkout.
-ModelArk keys cover images/video; Seed Speech keys cover Seed Audio.
-The client secret must be an independent 32-random-byte value encoded as
-64 lowercase hex characters. Never paste keys or that secret into chat.
+ModelArk keys cover images, video and Files; Seed Speech keys cover Seed Audio and TTS.
+The [optional client secret](setup/install.md#optional-client-secret) separates
+per-client admission. Without it, callers using the same provider key share
+principal concurrency. Never paste credentials into chat.
 
 ## Verifying Your Setup
 

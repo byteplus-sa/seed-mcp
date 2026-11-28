@@ -31,7 +31,7 @@ calls and does not check Seed Speech credentials.
 | Result | Action |
 | --- | --- |
 | `missing_modelark_key` | Check the private `X-ModelArk-Api-Key` mapping |
-| `missing_client_secret` | Check the independent `X-MCP-Client-Secret` mapping |
+| `client_secret_present=false` | Valid: the optional secret is omitted; admission is shared by provider key |
 | `endpoint_not_configured` | Ask the operator to verify and bind the exact model/endpoint |
 | `configuration_valid=true` | Headers and bindings are configured, not authenticated |
 | `authentication_verified=false`, `provider_calls_made=false` | Expected: no provider was contacted |

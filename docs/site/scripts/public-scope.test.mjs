@@ -24,10 +24,11 @@ test("the public site is a small explicit hosted guide, not the whole handbook",
   for (const source of PUBLIC_PAGES) {
     assert.ok(existsSync(new URL(`docs/${source}`, root)), source);
     const text = read(`docs/${source}`);
-    // Connection setup includes five client-specific, collapsible templates.
+    // Connection setup includes five templates and optional manual client-secret setup.
     // Files covers four operations, a local client helper and destructive/retention rules.
-    const limit =
-      source === "files.md" ? 1000 : source === "setup/install.md" ? 900 : 450;
+    const limit = ["files.md", "setup/install.md"].includes(source)
+      ? 1000
+      : 450;
     assert.ok(
       text.split(/\s+/).length <= limit,
       `${source}: keep the guide concise`,
@@ -243,7 +244,7 @@ test("short guides preserve the essential billing, privacy and recovery boundari
   for (const text of [
     "check_connection",
     "missing_modelark_key",
-    "missing_client_secret",
+    "client_secret_present=false",
     "endpoint_not_configured",
     "configuration_valid",
     "authentication_verified=false",
@@ -264,7 +265,7 @@ test("Files guidance preserves cloud BYOK setup and source-only smoke evidence",
     assert.ok(files.includes(`\`${name}\``), name);
   }
   assert.match(files, /your own `X-ModelArk-Api-Key`/);
-  assert.match(files, /`X-MCP-Client-Secret`[\s\S]*all four Files tools/);
+  assert.match(files, /`X-MCP-Client-Secret` is optional/);
   assert.match(files, /does not persist these credentials/);
   assert.match(files, /No TOS bucket, storage AK\/SK or upload enrollment/);
   assert.match(files, /HTTP rejects local paths and Base64/);

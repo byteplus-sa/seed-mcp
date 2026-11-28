@@ -94,8 +94,14 @@ and `object_storage` gates. VOD processing, 3D generation, dedicated ASR, asset
 administration and operator-account live pricing are not part of this server.
 Local provider keys are startup configuration. HTTP uses only live
 `X-ModelArk-Api-Key` or `X-Seed-Speech-Api-Key` for the
-selected provider plus required `X-MCP-Client-Secret` (client-generated 32
+selected provider plus optional `X-MCP-Client-Secret` (client-generated 32
 random bytes, 64 lowercase hex), including dry runs. Discovery is anonymous/static.
+When omitted, a domain-separated HMAC derives a stable provider-key principal;
+same-key callers share per-pod principal concurrency. Explicit secrets keep
+their existing scopes and remain strictly validated, never empty or reused.
+Client snippets omit the header unless `--client-secret-env VAR` is selected.
+Preflight reports optional `client_secret_present`; only missing ModelArk keys
+are credential issues. Neither mode changes provider file/task authorization.
 Keys are not persisted and never fall back to environment provider keys.
 Managed reference files use `ark_file_upload`, `ark_file_get`,
 `ark_file_list`, and `ark_file_delete` with the ModelArk API key. Default

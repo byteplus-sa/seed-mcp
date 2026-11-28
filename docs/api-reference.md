@@ -8,7 +8,7 @@ HTTP exposes 12 discovery/provider tools, including TTS and managed Files.
 Generation-tool registration does not require operator generation keys; discovery
 is anonymous/static. Managed Files use the caller's ModelArk key without bucket setup.
 Provider calls run directly in the foreground with selected BYOK headers and
-required client secret. No jobs/native tasks/local storage/artifact tools/resources
+optional client secret. No jobs/native tasks/local storage/artifact tools/resources
 exist on HTTP. No OAuth, signup, server-issued key or provider-key fallback.
 See [HTTP setup](setup/shared-server.md). Catalog scope strings below are
 metadata, not customer-selected roles.
@@ -298,12 +298,12 @@ enables a disabled service; never a secret value). Services: `modelark`,
 
 | Field | Type | Description |
 | --- | --- | --- |
-| `configuration_valid` | boolean | Both required headers present and all checked routes configured |
+| `configuration_valid` | boolean | The ModelArk key header present and all checked routes configured |
 | `modelark_key_present` | boolean | Live `X-ModelArk-Api-Key` present |
-| `client_secret_present` | boolean | Live independent `X-MCP-Client-Secret` present |
+| `client_secret_present` | boolean | Optional independent `X-MCP-Client-Secret` present; false is valid |
 | `authentication_verified` | literal `false` | Authentication, entitlement and balance are not tested |
 | `provider_calls_made` | literal `false` | No provider or endpoint-metadata requests |
-| `issues` | list[string] | `missing_modelark_key` and/or `missing_client_secret`, otherwise empty |
+| `issues` | list[string] | `missing_modelark_key` when the key is absent, otherwise empty |
 | `routes` | list[EndpointSelectionCheck] | Requested route(s), video then image when both are checked |
 
 **EndpointSelectionCheck:**

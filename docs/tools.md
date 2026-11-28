@@ -11,7 +11,7 @@ reporting and logging.
 
 HTTP exposes 12 discovery/provider tools, without
 operator provider keys. Discovery is anonymous/static. Provider calls use the
-selected BYOK header plus `X-MCP-Client-Secret` and run directly in the foreground.
+selected BYOK header and optional `X-MCP-Client-Secret` and run directly in the foreground.
 HTTP has no jobs/native tasks/local storage/artifact tools/resources. No OAuth,
 signup, server-issued key or environment-key fallback exists.
 See [HTTP setup](setup/shared-server.md) and [Security](security.md).
@@ -155,7 +155,7 @@ For an optional HTTP configuration check, use this MCP arguments object:
 {"input": {"check_connection": true}}
 ```
 
-Missing headers are reported as `missing_modelark_key` / `missing_client_secret`.
+A missing key is reported as `missing_modelark_key`; the client secret is optional.
 Unbound defaults have `routes[].issue="endpoint_not_configured"` and null
 ID/family; unknown IDs are not echoed. Ask the operator to verify and bind them.
 Preflight does not authenticate, check live lineage, entitlement, balance or
@@ -250,7 +250,7 @@ code and whether it is retryable.
 ## seed_tts_generate
 
 Enabled by `BYTEPLUS_SEED_SPEECH_API_KEY` on stdio; always registered on HTTP
-with live Seed Speech/client-secret headers required for invocation. No TOS is needed.
+with the live Seed Speech key required for invocation and an optional client secret. No TOS is needed.
 Catalog scope: `seed:tts:generate`. Speaks supplied text or SSML using Seed TTS 3.0 and a
 compatible, authorized `voice_id`. Call directly; no jobs, polling or retries.
 The JSONL provider stream becomes one complete output, not real-time MCP audio.

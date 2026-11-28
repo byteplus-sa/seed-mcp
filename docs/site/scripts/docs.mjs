@@ -197,7 +197,7 @@ editUrl: ${JSON.stringify(`${SOURCE_BASE.replace("/blob/", "/edit/")}${tool.modu
 
 ${tool.description.trim().split(/\n\s*\n/)[0]}
 
-${credential ? `**Private headers:** \`${credential}\` and \`X-MCP-Client-Secret\`. [Connection setup](../setup/install.md).` : "**Credentials:** none for ordinary discovery."}
+${credential ? `**Private headers:** \`${credential}\` is required; \`X-MCP-Client-Secret\` is optional for separate client admission. [Connection setup](../setup/install.md).` : "**Credentials:** none for ordinary discovery."}
 
 ## Usage
 
@@ -313,11 +313,11 @@ export function toolPage(tool) {
   const httpExecution = !http
     ? "**HTTP: unavailable.** This is a local stdio tool."
     : files
-      ? `**HTTP: ModelArk-managed files.** Supply live ModelArk and client-secret headers. Upload imports HTTPS sources; local client files use seed-mcp-upload directly to ModelArk. No bucket setup or URL renewal. See [managed files](${SITE_BASE}/files/).`
+      ? `**HTTP: ModelArk-managed files.** Supply the live ModelArk key; the client-secret header is optional. Upload imports HTTPS sources; local client files use seed-mcp-upload directly to ModelArk. No bucket setup or URL renewal. See [managed files](${SITE_BASE}/files/).`
       : name === "seed_tts_generate"
-        ? "**HTTP: native audio output, no storage.** Supply live `X-Seed-Speech-Api-Key` and independent `X-MCP-Client-Secret` headers. The result contains an AudioContent block at content[0] and separate audio metadata, not a download URL. Client playback and saving UI vary. No persistence flag or local path is accepted."
+        ? "**HTTP: native audio output, no storage.** Supply live `X-Seed-Speech-Api-Key`; `X-MCP-Client-Secret` is optional. The result contains an AudioContent block at content[0] and separate audio metadata, not a download URL. Client playback and saving UI vary. No persistence flag or local path is accepted."
         : http.credential_header
-          ? `**HTTP: direct foreground calls only.** Supply \`${http.credential_header}\` and \`X-MCP-Client-Secret\` privately in request headers, including dry runs. The client secret is client-generated 32 random bytes encoded as 64 lowercase hex. Only the selected provider key is needed. Keep persistence false; HTTP rejects true, local paths and stored artifact references. No jobs, native tasks, local storage/artifact tools or resources exist on HTTP.`
+          ? `**HTTP: direct foreground calls only.** Supply \`${http.credential_header}\` privately in request headers, including dry runs. Optional \`X-MCP-Client-Secret\` separates per-client admission; if supplied, use client-generated 32 random bytes encoded as 64 lowercase hex. Otherwise callers of the same key share principal concurrency. Only the selected provider key is needed. Keep persistence false; HTTP rejects true, local paths and stored artifact references. No jobs, native tasks, local storage/artifact tools or resources exist on HTTP.`
           : "**HTTP: anonymous static discovery.** No provider key or client secret is required; it lists configured model bindings even without environment provider keys. `services[].enabled` reports registration, not entitlement. No provider calls are made.";
   const providerTasks = ["seedance_", "gen_task_"].some((prefix) =>
     name.startsWith(prefix),

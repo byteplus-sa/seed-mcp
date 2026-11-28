@@ -97,15 +97,15 @@ tool_timeout_sec = 660
 
 [mcp_servers."ark-seed".env_http_headers]
 "X-ModelArk-Api-Key" = "SEED_MCP_MODELARK_KEY"
-"X-MCP-Client-Secret" = "SEED_MCP_CLIENT_SECRET" # pragma: allowlist secret
 ```
 
 Use `X-Seed-Speech-Api-Key` with separately named private
 environment variables when needed. The generator's repeatable `--provider`
 selects `modelark` (default) or `seed-speech`; `--help` lists
 variable-name overrides. Selected headers must use independent variable names.
-Generate the client secret privately from 32 random bytes as 64 lowercase hex,
-once per intended owner. No `Authorization`, OAuth, signup or server-issued key
+Optionally add `X-MCP-Client-Secret` via `--client-secret-env VAR`.
+Generate it privately from 32 random bytes as 64 lowercase hex once per client;
+otherwise the same key shares principal concurrency. No `Authorization`, OAuth, signup or server-issued key
 is used. Do not use `bearer_token_env_var`. `tool_timeout_sec` is in seconds
 (generator default 660, configurable from 1-3600); it does not extend proxy
 or provider timeouts.

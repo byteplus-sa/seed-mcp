@@ -10,7 +10,7 @@ does not establish a stable release or provide a trusted MCP endpoint.
 | Transport | Tools | Credentials and execution |
 | --- | --- | --- |
 | Local stdio | 17 conditional entries; four always registered | Private startup provider keys; direct calls; storage/artifacts retained |
-| HTTP BYOK | 12, including four Files tools | Selected live provider key plus independent client secret for every provider call; direct foreground calls |
+| HTTP BYOK | 12, including four Files tools | Selected live provider key; optional client secret for separate admission; direct foreground calls |
 
 HTTP has no ordinary jobs, native tasks, local storage/artifact tools, media resources
 or configuration-detail resource. Discovery is anonymous/static and makes no
@@ -26,7 +26,7 @@ Explicit per-call `io.modelcontextprotocol/tasks` opt-in is rejected before
 provider dispatch, snapshot capture/save or queue creation, including discovery.
 
 HTTP provider calls, including dry runs, require only the selected header:
-`X-ModelArk-Api-Key` or `X-Seed-Speech-Api-Key`, plus
+`X-ModelArk-Api-Key` or `X-Seed-Speech-Api-Key`, and optional
 `X-MCP-Client-Secret` (client-generated 32 random bytes as 64 lowercase hex).
 Enter them privately through the client's supported mechanism. Never put
 credentials in tool arguments, chat, command-line flags, logs or Git.
@@ -34,8 +34,8 @@ No HTTP environment-provider fallback exists; keys are not persisted.
 
 Local `BYTEPLUS_SEED_SPEECH_API_KEY` also enables `seed_tts_generate`.
 TTS shares `BYTEPLUS_SEED_AUDIO_BASE_URL` and persists its completed stream on
-stdio. HTTP returns native audio directly with live Seed Speech/client-secret
-headers. No TTS storage flag, TOS credentials, Helm Secret or upload enrollment
+stdio. HTTP returns native audio directly with the live Seed Speech key and an
+optional client secret. No TTS storage flag, TOS credentials, Helm Secret or upload enrollment
 is required. Clients must handle up to 40 MiB Base64 plus response metadata.
 
 Managed reference files use `ark_file_upload`, `ark_file_get`,
@@ -47,7 +47,7 @@ to ModelArk; HTTP MCP accepts HTTPS source URLs, not local paths or Base64.
 Reads do not renew the documented 24-hour/100-download URL limit. No upload
 enrollment, TOS signer, IRSA, application file database or cleanup worker remains.
 Never automatically retry an uncertain upload/delete; keep file/request IDs.
-Use the user's own ModelArk key plus client secret for all four HTTP Files tools.
+Use the user's own ModelArk key for all four HTTP Files tools; the client secret is optional.
 Check the connected deployment's tools/list; a local live-provider smoke does
 not prove public endpoint rollout. No server-side customer key setup is needed.
 

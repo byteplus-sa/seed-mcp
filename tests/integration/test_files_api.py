@@ -23,8 +23,10 @@ from tests.integration.test_byok_http import (
 )
 
 
+@pytest.mark.parametrize("with_secret", [False, True])
 @respx.mock
-async def test_files_discovery_and_live_url_workflow(tmp_path: Path) -> None:
+async def test_files_discovery_and_live_url_workflow(tmp_path: Path, with_secret: bool) -> None:
+    headers = credentials() if with_secret else credentials(secret=None)
     post = respx.post(MODELARK + "/files").respond(200, json=FILE)
     get = respx.get(MODELARK + "/files/file-synthetic").respond(
         200, json=FILE | {"download_url": URL}
@@ -39,39 +41,40 @@ async def test_files_discovery_and_live_url_workflow(tmp_path: Path) -> None:
         assert {"ark_file_upload", "ark_file_get", "ark_file_list", "ark_file_delete"} <= names
         assert "media_prepare_upload" not in names
         uploaded = successful(
-            await call_tool(client, "ark_file_upload", {"url": URL}, headers=credentials())
+            await call_tool(client, "ark_file_upload", {"url": URL}, headers=headers)
         )
         assert uploaded["id"] == FILE["id"] and uploaded["download_url"] is None
-        # Same provider key with another client secret retains provider-authorized access.
-        retrieved = successful(
-            await call_tool(
-                client,
-                "ark_file_get",
-                {"file_id": FILE["id"]},
-                headers=credentials(secret=OTHER_SECRET),
+        # Both the original scope and another client retain provider-authorized access.
+        for read_headers in (headers, credentials(secret=OTHER_SECRET)):
+            retrieved = successful(
+                await call_tool(
+                    client,
+                    "ark_file_get",
+                    {"file_id": FILE["id"]},
+                    headers=read_headers,
+                )
             )
-        )
-        assert retrieved["download_url"] == URL
-        successful(await call_tool(client, "ark_file_list", {}, headers=credentials()))
+            assert retrieved["download_url"] == URL
+        successful(await call_tool(client, "ark_file_list", {}, headers=headers))
         successful(
             await call_tool(
                 client,
                 "ark_file_delete",
                 {"file_id": FILE["id"], "confirm": True},
-                headers=credentials(),
+                headers=headers,
             )
         )
         assert runtime.budget_ledger is None
         assert_no_canaries(json.dumps(uploaded))
     assert not list(tmp_path.rglob("*"))
     for route in (post, get, listing, delete):
-        assert route.call_count == 1
+        assert route.call_count == (2 if route is get else 1)
         assert route.calls.last.request.headers["Authorization"] == f"Bearer {MODELARK_KEY}"
 
 
 @pytest.mark.parametrize(
     "headers",
-    [{}, {"X-ModelArk-Api-Key": MODELARK_KEY}, credentials(header="X-Seed-Speech-Api-Key")],
+    [{}, credentials(header="X-Seed-Speech-Api-Key")],
 )
 @respx.mock
 async def test_files_require_selected_live_credentials(tmp_path: Path, headers: dict) -> None:

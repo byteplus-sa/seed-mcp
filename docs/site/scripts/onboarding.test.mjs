@@ -15,7 +15,7 @@ test("primary onboarding connects to hosted MCP without installing a server", ()
     );
     assert.match(content, /hosted/i);
     assert.match(content, /Streamable HTTP/);
-    assert.match(content, /64 lowercase hex/);
+    assert.match(content, /optional client secret/i);
   }
   const install = page("setup/install.md");
   assert.match(install, /You only connect your AI client/);
@@ -131,7 +131,9 @@ test("hosted setup uses private headers and makes skills optional", () => {
     /agent skill.*is optional; it is not needed to connect/,
   );
   assert.match(install, /Use the `\/mcp` URL, not this documentation website/);
-  assert.match(install, /independent client-generated secret/);
+  assert.match(install, /X-MCP-Client-Secret.*Optional:/);
+  assert.match(install, /64 lowercase hex/);
+  assert.match(install, /different from every provider key/);
   assert.match(install, /does not validate your key or account access/);
   assert.match(install, /private custom headers/);
   assert.match(install, /Do not use\s+`Authorization` or OAuth/i);
@@ -166,16 +168,12 @@ test("hosted client examples preserve each client's header syntax and timeout un
     assert.equal(config.command, undefined);
     assert.equal(config.headers.Authorization, undefined);
     assert.ok(config.headers["X-ModelArk-Api-Key"]);
-    assert.ok(config.headers["X-MCP-Client-Secret"]);
+    assert.equal(config.headers["X-MCP-Client-Secret"], undefined);
   }
   assert.equal(trae.headers.RUN_MCP_TIMEOUT_MS, "660000");
   assert.equal(
     trae.headers["X-ModelArk-Api-Key"],
     "<enter-modelark-key-privately>",
-  );
-  assert.equal(
-    trae.headers["X-MCP-Client-Secret"],
-    "<enter-independent-client-secret-privately>",
   );
   assert.match(sections.TRAE, /plaintext credentials/);
   assert.match(sections.TRAE, /not environment-backed/);
@@ -187,10 +185,6 @@ test("hosted client examples preserve each client's header syntax and timeout un
     opencode.headers["X-ModelArk-Api-Key"],
     "{env:SEED_MCP_MODELARK_KEY}",
   );
-  assert.equal(
-    opencode.headers["X-MCP-Client-Secret"],
-    "{env:SEED_MCP_CLIENT_SECRET}",
-  );
   assert.equal(cline.type, "streamableHttp");
   assert.equal(cline.timeout, 660);
   assert.equal(cline.disabled, false);
@@ -199,10 +193,11 @@ test("hosted client examples preserve each client's header syntax and timeout un
     cline.headers["X-ModelArk-Api-Key"],
     "${env:SEED_MCP_MODELARK_KEY}",
   );
-  assert.equal(
-    cline.headers["X-MCP-Client-Secret"],
-    "${env:SEED_MCP_CLIENT_SECRET}",
-  );
+  assert.match(install, /### Optional Client Secret/);
+  assert.match(install, /openssl rand -hex 32/);
+  assert.match(install, /share one per-pod principal concurrency allowance/);
+  assert.match(install, /--client-secret-env SEED_MCP_CLIENT_SECRET/);
+  assert.match(install, /do not send an empty value/);
   assert.match(sections.Cline, /VS Code extension/);
   assert.match(install, /not live client certification/);
 });

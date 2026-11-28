@@ -41,7 +41,7 @@ products plus artifact access and managed reference files. The catalog has
 provider/discovery tools**. Discovery is anonymous; provider calls use live BYOK
 headers. Managed reference files use `ark_file_upload`, `ark_file_get`,
 `ark_file_list`, and `ark_file_delete` with your own ModelArk API key and,
-on HTTP, an independent client secret. Default
+on HTTP, an optional independent client secret. Default
 `purpose="agent"` uses provider-managed storage without bucket setup. Retrieve
 the accepted file ID until active with a `download_url`, then pass that URL
 to generation. The client-side `seed-mcp-upload` streams local files directly
@@ -59,7 +59,7 @@ Both transports execute directly. General artifact persistence is stdio-only;
 hosted TTS returns [native audio content](docs/seed-tts.md#direct-audio-delivery).
 
 HTTP clients send only the selected `X-ModelArk-Api-Key`
-or `X-Seed-Speech-Api-Key`, plus required
+or `X-Seed-Speech-Api-Key`, plus optional
 `X-MCP-Client-Secret` (client-generated 32 random bytes as 64 lowercase hex).
 There is no OAuth, signup or server-issued key; `Authorization` is rejected.
 Keys are not persisted and there is no provider-key fallback. See
@@ -250,7 +250,7 @@ Python, uv, Docker or Kubernetes access.
 
 1. Follow [Connect to Hosted Seed MCP](docs/setup/install.md) for the endpoint
    and ready-to-use Codex/Claude Code templates.
-2. Configure the selected provider key and independent client secret in
+2. Configure the selected provider key, and optionally a client secret, in
    private HTTP headers. Never paste credentials into chat.
 3. Enable the remote `ark-seed` connection in your client and ask:
 

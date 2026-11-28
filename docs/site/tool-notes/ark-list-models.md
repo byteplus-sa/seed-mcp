@@ -21,15 +21,17 @@ and calls without a live HTTP request context. No other provider is checked.
 
 | Result | Interpretation |
 | --- | --- |
-| `configuration_valid` | Both required headers present and all checked defaults exactly bound |
-| `modelark_key_present`, `client_secret_present` | Presence of live headers only; missing headers appear in `issues` |
+| `configuration_valid` | The ModelArk key header present and all checked defaults exactly bound |
+| `modelark_key_present`, `client_secret_present` | Presence of live headers only; only a missing ModelArk key appears in `issues` |
 | `authentication_verified`, `provider_calls_made` | Always false; no upstream authentication or metadata request |
 | `routes[].source` | `request_header` or `server_default` |
 | `routes[].configured` | Exact selection is in that product's registry |
 | `routes[].model_id`, `routes[].family` | Configured ID/family, or null when unknown; unknown values are not echoed |
 | `routes[].issue` | `endpoint_not_configured` requires operator verification/binding, otherwise null |
 
-`issues` contains `missing_modelark_key` and/or `missing_client_secret`.
+`issues` contains `missing_modelark_key` when the key is absent.
+`client_secret_present=false` is valid: the optional secret is omitted and
+callers of the same provider key share principal concurrency.
 Malformed headers can fail HTTP validation before this diagnostic result.
 A valid configuration does not prove endpoint existence, current lineage,
 activation, permissions, balance or reachability. Explicit create-tool `model`

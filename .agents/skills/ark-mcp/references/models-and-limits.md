@@ -37,14 +37,14 @@ image/video defaults only. Omit `kind` for both routes; `"image"` or `"video"`
 checks one. Other kinds, stdio and missing live HTTP context are rejected.
 
 `connection` reports `modelark_key_present`, `client_secret_present`,
-`configuration_valid`, `issues` and `routes`. Missing headers yield
-`missing_modelark_key` / `missing_client_secret`. Route fields are `tool`,
+`configuration_valid`, `issues` and `routes`. An absent key yields
+`missing_modelark_key`; the client secret is optional. Route fields are `tool`,
 `source` (`request_header` or `server_default`), `configured`, `model_id`,
 `family`, and `issue`. Unknown/wrong-product selections yield
 `endpoint_not_configured` with null ID/family; unknown IDs are not echoed.
 Malformed headers can fail HTTP validation before diagnostics.
 
-`configuration_valid=true` requires both headers and every checked binding.
+`configuration_valid=true` requires the ModelArk key header and every checked binding.
 `authentication_verified` and `provider_calls_made` are always false. This
 does not prove key validity, endpoint existence/current lineage, activation,
 permissions, balance or reachability. Explicit create-tool `model` still wins.

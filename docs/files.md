@@ -8,8 +8,9 @@ have been removed. Independent local S3 storage and artifacts remain optional.
 
 ## Basic Setup
 
-- **Hosted HTTP:** configure your own `X-ModelArk-Api-Key` and independent
-  `X-MCP-Client-Secret` privately in the MCP client for all four Files tools.
+- **Hosted HTTP:** configure your own `X-ModelArk-Api-Key` for all four Files tools.
+  `X-MCP-Client-Secret` is optional; [manual setup](setup/install.md#optional-client-secret)
+  separates client admission, not file access.
 - **Local stdio:** configure `BYTEPLUS_MODELARK_API_KEY`.
 - **Client-side uploader:** supply the ModelArk key through the named environment
   variable. It talks directly to ModelArk, not MCP, and needs no client secret.

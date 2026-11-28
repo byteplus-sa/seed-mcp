@@ -139,7 +139,7 @@ def _digest(settings: Settings, domain: str, *parts: str) -> str:
 
 @contextmanager
 def provider_scope(settings: Settings, provider: CredentialProvider) -> Iterator[None]:
-    """Scope ephemeral admission to a provider credential and installation secret."""
+    """Scope admission to the provider key, optionally separated by installation."""
     if settings.mcp_transport == "stdio":
         yield
         return
@@ -148,14 +148,16 @@ def provider_scope(settings: Settings, provider: CredentialProvider) -> Iterator
     secret = request.values.get(INSTALLATION_HEADER_NAME)
     if key is None:
         raise PermissionError(f"Configure {PROVIDER_HEADERS[provider]} in your MCP client headers.")
-    if secret is None:
-        raise PermissionError("Configure X-MCP-Client-Secret in your MCP client headers.")
     origin = {
         "modelark": settings.modelark_base_url,
         "seed-speech": settings.seed_audio_base_url,
     }[provider]
     tenant = _digest(settings, "seed-mcp:credential", provider, origin, key)
-    owner = _digest(settings, "seed-mcp:owner", tenant, secret)
+    owner = (
+        _digest(settings, "seed-mcp:owner:provider-key", tenant)
+        if secret is None
+        else _digest(settings, "seed-mcp:owner", tenant, secret)
+    )
     context = _ProviderContext(
         provider=provider,
         principal=PrincipalContext(principal_id=owner, tenant_id=tenant, transport="http"),

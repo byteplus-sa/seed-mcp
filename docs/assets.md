@@ -66,7 +66,7 @@ Stdio-only `media_upload` stores ordinary reference files in S3 and returns
 `object_key` plus a presigned HTTPS URL. It does not register a provider asset
 or return an `asset://` ID. Use `media_presign` to renew those ordinary URLs.
 
-HTTP uses the request's `X-ModelArk-Api-Key` and required `X-MCP-Client-Secret`,
+HTTP uses the request's `X-ModelArk-Api-Key` and optional `X-MCP-Client-Secret`,
 including dry runs. Discovery is anonymous/static; HTTP has no local storage/artifacts
 or resources and keeps persistence false. It never falls back to operator keys.
 Managed [Files uploads](files.md) provide ordinary HTTPS references, not native assets.

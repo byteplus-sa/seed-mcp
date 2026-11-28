@@ -103,8 +103,7 @@ python scripts/configure_http_client.py --client claude-code \
       "url": "https://mcp.example.com/mcp",
       "timeout": 660000,
       "headers": {
-        "X-ModelArk-Api-Key": "${SEED_MCP_MODELARK_KEY}",
-        "X-MCP-Client-Secret": "${SEED_MCP_CLIENT_SECRET}"
+        "X-ModelArk-Api-Key": "${SEED_MCP_MODELARK_KEY}"
       }
     }
   }
@@ -115,8 +114,9 @@ Only the selected key is needed: use `X-Seed-Speech-Api-Key` for Seed Audio
 with `--provider seed-speech`; omitted means `modelark`.
 The generator's `--help` lists variable-name overrides, never credential-value
 flags. Selected headers must use independent variable names.
-The client secret is privately
-generated once from 32 random bytes, encoded as 64 lowercase hex.
+Optionally add `X-MCP-Client-Secret` via `--client-secret-env VAR`.
+Generate it privately once from 32 random bytes, encoded as 64 lowercase hex;
+otherwise the same key shares principal concurrency.
 There is no OAuth, signup, server-issued key or `Authorization` header.
 Do not put real keys in CLI flags, chat or committed JSON.
 
